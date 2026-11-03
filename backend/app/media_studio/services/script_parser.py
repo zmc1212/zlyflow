@@ -4,6 +4,44 @@ import re
 from typing import Any
 
 
+EPISODE_HEADING = re.compile(
+    r"(?m)^[ \t]{0,3}#{1,6}[ \t]*(?:\*\*[ \t]*)?[【\[]?[ \t]*第[ \t]*"
+    r"([0-9一二三四五六七八九十百零〇两]+)[ \t]*集([^\r\n]*)"
+)
+
+
+def script_episode_number(value: str) -> int:
+    if value.isdigit():
+        return int(value)
+    digits = {"零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+    total = digit = 0
+    for char in value:
+        if char in digits:
+            digit = digits[char]
+        elif char in {"十", "百"}:
+            total += (digit or 1) * {"十": 10, "百": 100}[char]
+            digit = 0
+    return total + digit
+
+
+def script_episode_spans(text: str) -> list[tuple[int, int, int]]:
+    """Find episode bodies using original offsets, leaving global appendices outside."""
+    matches = list(EPISODE_HEADING.finditer(text))
+    spans = []
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        appendix = re.search(
+            r"(?m)^[ \t]{0,3}#{1,6}[ \t]*(?:\*\*)?[【\[]?[ \t]*(?:[一二三四五六七八九十]+[、.][ \t]*)?"
+            r"(?:人物与资产设计备注|主要人物(?:固定)?(?:设定)?|固定场景库|人物一致性提示词|"
+            r"(?:视频)?制作建议|拍摄建议|全剧故事设定|故事设定|统一视觉风格)[^\r\n]*$",
+            text[match.end():end],
+        )
+        if appendix:
+            end = match.end() + appendix.start()
+        spans.append((script_episode_number(match.group(1)), match.start(), end))
+    return spans
+
+
 class StandardScriptParser:
     """
     短剧/AI视频标准分镜剧本高精度解析器
@@ -28,16 +66,38 @@ class StandardScriptParser:
         title = cls._extract_title(lines)
         positioning = cls._extract_positioning(text)
         visual_style = cls._extract_visual_style(text)
+        setting_text, setting_fields = cls._extract_story_setting(text)
+        if not positioning.get("genre") and setting_fields.get("genre"):
+            positioning["genre"] = setting_fields["genre"]
+        if not visual_style.get("description") and setting_fields.get("visual_style"):
+            visual_style["description"] = setting_fields["visual_style"]
         character_prompts = cls._extract_character_prompts(text)
         characters = cls._extract_characters(text, character_prompts)
         scene_library = cls._extract_scene_library(text)
         episodes = cls._extract_episodes(text)
+        brief = cls._extract_brief(text)
         if not characters:
             # 模型直出的分镜稿常没有「# 主要人物设定」标题：有的只在各镜写
             # 「人物：姓名」，有的用裸标题「主要人物」+「- 姓名（性别，年龄）：描述」。
             # 两条回退都试，避免资产提取拿到 0 位主要人物。
-            characters = (cls._extract_loose_main_characters(text, character_prompts)
+            characters = (brief["characters"] or cls._extract_loose_main_characters(text, character_prompts)
                           or cls._fallback_characters_from_shots(text, character_prompts))
+        # A compact screenplay declares shared cast/location/props once in its
+        # opening brief. Carry those references into shots that omit the fields.
+        for episode in episodes:
+            for shot in episode.get("shots", []):
+                if not shot["scene"]:
+                    shot["scene"] = brief["scene"]
+                if not shot["characters"]:
+                    content = " ".join(str(shot.get(key) or "") for key in ("action", "dialogue"))
+                    shot["characters"] = [c["name"] for c in characters if c["name"] in content]
+                if not shot["props"]:
+                    shot["props"] = list(brief["props"])
+        if not scene_library and brief["scene"]:
+            scene_library = [{"name": brief["scene"], "type": "固定场景", "description": brief["scene"], "elements": [], "shots_count": 0}]
+        for field, value in (("genre", brief["style"]), ("duration_per_episode", brief["duration"])):
+            if not positioning.get(field):
+                positioning[field] = value
         production_advice = cls._extract_production_advice(text)
 
         # 道具全局汇聚去重与关联统计
@@ -77,6 +137,8 @@ class StandardScriptParser:
             "production_advice": production_advice,
             "model": "standard-storyboard-parser-v2",
             "logs": logs,
+            **({"story_setting_text": setting_text} if setting_text else {}),
+            **({"story_setting_fields": setting_fields} if setting_fields else {}),
         }
 
     @classmethod
@@ -98,13 +160,91 @@ class StandardScriptParser:
     @classmethod
     def _extract_title(cls, lines: list[str]) -> str:
         for line in lines:
+            match = re.match(r"^\s*[-*+•]?\s*\*{0,2}(?:剧名|剧目名称)\*{0,2}\s*[：:]\s*(.+)", line)
+            if match:
+                return match.group(1).strip().strip("*《》 ")
+        for line in lines:
             line_str = line.strip()
             if line_str.startswith("# "):
                 t = line_str.lstrip("#").strip()
+                named_episode = re.match(r"《([^》]+)》\s*第.+集", t)
+                if named_episode:
+                    return named_episode.group(1)
                 if ("第" in t and "集" in t) or ("固定场景" in t) or ("人物一致性" in t) or ("制作建议" in t) or ("主要人物" in t):
                     continue
                 return t
         return "未命名短剧剧本"
+
+    @classmethod
+    def _extract_story_setting(cls, text: str) -> tuple[str, dict[str, str]]:
+        # Read actual setup and front matter only; dialogue later in the script
+        # must not become genre, audience, or synopsis metadata.
+        first_episode = EPISODE_HEADING.search(text)
+        opening = text[:first_episode.start()] if first_episode else text
+        setting = re.search(
+            r"(?m)^#{1,6}[ \t]*(?:\*\*)?[【\[]?[ \t]*(?:全剧)?故事设定[ \t]*[】\]]?(?:\*\*)?[ \t]*\r?$",
+            opening,
+        )
+        setting_text = ""
+        if setting:
+            section = opening[setting.end():]
+            setting_text = re.split(r"(?m)^#{1,6}[ \t]+", section, maxsplit=1)[0].strip().strip("-\r\n ")
+        names = {
+            "类型": "genre", "题材": "genre", "故事类型": "genre", "作品类型": "genre", "题材类型": "genre",
+            "目标受众": "audience", "目标用户": "audience", "受众": "audience",
+            "核心梗": "hook", "核心卖点": "hook", "核心钩子": "hook", "核心悬念": "hook",
+            "一句话故事": "logline", "一句话概括": "logline", "主线剧情": "logline", "故事主线": "logline",
+            "故事梗概": "synopsis", "全剧梗概": "synopsis", "故事简介": "synopsis",
+            "视觉基调": "visual_style", "画面基调": "visual_style",
+        }
+        fields: dict[str, str] = {}
+        for line in opening.splitlines():
+            clean = re.sub(r"^[ \t]*(?:#{1,6}[ \t]*|[-*+][ \t]+)?", "", line).replace("**", "").strip()
+            label = re.match(r"^([^：:]{2,12})[：:][ \t]*(.+)$", clean)
+            if label and label.group(1) in names:
+                fields[names[label.group(1)]] = label.group(2).strip()
+        return setting_text, fields
+
+    @classmethod
+    def _extract_brief(cls, text: str) -> dict[str, Any]:
+        """Read the opening metadata list without treating shot dialogue as cast."""
+        result: dict[str, Any] = {"characters": [], "scene": "", "props": [], "style": "", "duration": ""}
+        in_cast = False
+        cast_indent = 0
+        for line in text.splitlines():
+            if EPISODE_HEADING.match(line) or re.match(r"^\s*#{2,4}\s*【?\s*(?:片段|镜头)", line):
+                break
+            label = re.sub(r"[*_`]", "", cls._normalize_shot_label(line))
+            match = re.match(r"^(人物|角色|场景|道具|风格|时长)[：:]\s*(.*)$", label)
+            if match:
+                key, value = match.groups()
+                in_cast = key in {"人物", "角色"} and not value
+                cast_indent = len(line) - len(line.lstrip())
+                if key == "场景":
+                    result["scene"] = value.strip().rstrip("。")
+                elif key == "道具":
+                    result["props"] = [p.strip() for p in re.split(r"[、，,]", value) if p.strip() and p.strip() not in {"无", "无道具"}]
+                elif key == "风格":
+                    result["style"] = value
+                elif key == "时长":
+                    result["duration"] = value
+                continue
+            if in_cast and line.strip():
+                if len(line) - len(line.lstrip()) <= cast_indent:
+                    in_cast = False
+                    continue
+                entry = re.match(r"^([^：:（(\n]{1,20})[（(]([^）)]+)[）)]\s*[：:]\s*(.+)$", label)
+                if entry:
+                    name, info, description = entry.groups()
+                    age = re.search(r"\d+\s*岁", info)
+                    result["characters"].append({"name": name.strip(), "role": "主要角色", "gender": "女" if "女" in info else "男" if "男" in info else "", "age": age.group() if age else "", "description": f"{info}，{description}", "fixed_props": [], "visual_prompt": description, "shots_count": 0})
+        return result
+
+    # 模型直出的剧本很少按「标准剧本规范」写章节名，常见写法是「故事定位」「视觉风格」
+    # 「拍摄建议」。标题只认这些同义写法，否则整节内容会被静默丢掉、界面只剩空卡。
+    _POSITIONING_HEADINGS = "视频定位|故事定位|题材定位|剧情定位|作品定位|项目定位"
+    _VISUAL_STYLE_HEADINGS = "统一视觉风格|视觉风格|画面风格|视觉基调|画面基调|整体风格"
+    _PRODUCTION_ADVICE_HEADINGS = "视频制作建议|制作建议|拍摄建议|制作控制策略"
 
     @classmethod
     def _extract_positioning(cls, text: str) -> dict[str, Any]:
@@ -116,7 +256,12 @@ class StandardScriptParser:
             "main_storyline": "",
             "items": [],
         }
-        match = re.search(r"#{1,3}\s*视频定位\s*\n(.*?)(?=\n#{1,2}\s+[^\n#]|\Z)", text, re.DOTALL)
+        match = re.search(
+            rf"#{{1,3}}\s*(?:[一二三四五六][、.])?\s*(?:{cls._POSITIONING_HEADINGS})\s*\n"
+            r"(.*?)(?=\n#{1,2}\s+[^\n#]|\Z)",
+            text,
+            re.DOTALL,
+        )
         if not match:
             return pos
 
@@ -125,7 +270,8 @@ class StandardScriptParser:
             line = line.strip().lstrip("-* ").strip()
             if not line:
                 continue
-            pos["items"].append(line)
+            # items 只收没有字段名的行（常见是一整段定位散文）；带字段的行已进对应
+            # 具名键，再进 items 会让界面把同一段显示两遍。
             if line.startswith("类型：") or line.startswith("类型:"):
                 pos["genre"] = line.split("：", 1)[-1].split(":", 1)[-1].strip()
             elif line.startswith("世界观：") or line.startswith("世界观:"):
@@ -136,19 +282,28 @@ class StandardScriptParser:
                 pos["shots_per_episode"] = line.split("：", 1)[-1].split(":", 1)[-1].strip()
             elif line.startswith("主线：") or line.startswith("主线:"):
                 pos["main_storyline"] = line.split("：", 1)[-1].split(":", 1)[-1].strip()
+            else:
+                pos["items"].append(line)
         return pos
 
     @classmethod
     def _extract_visual_style(cls, text: str) -> dict[str, str]:
         style = {"description": "", "prohibited": ""}
-        match = re.search(r"#{1,3}\s*(?:二[、.])?\s*统一视觉风格\s*\n(.*?)(?=\n#{1,2}\s+[^\n#]|\Z)", text, re.DOTALL)
+        match = re.search(
+            rf"#{{1,3}}\s*(?:[一二三四五六][、.])?\s*(?:{cls._VISUAL_STYLE_HEADINGS})\s*\n"
+            r"(.*?)(?=\n#{1,2}\s+[^\n#]|\Z)",
+            text,
+            re.DOTALL,
+        )
         if not match:
             return style
 
         block = match.group(1).strip()
         desc_lines = []
         for line in block.split("\n"):
-            line_str = line.strip()
+            # 模型直出常把「禁止」也写成列表项；不先剥掉项目符号，负向提示词会被
+            # 当成风格描述并进同一段，界面上就看不出那是禁止项。
+            line_str = line.strip().lstrip("-* ").strip()
             if not line_str or line_str.startswith("---"):
                 continue
             if line_str.startswith("禁止：") or line_str.startswith("禁止:"):
@@ -360,20 +515,11 @@ class StandardScriptParser:
     def _extract_episodes(cls, text: str) -> list[dict[str, Any]]:
         episodes: list[dict[str, Any]] = []
 
-        ep_matches = list(re.finditer(r"#\s*第\s*([0-9一二三四五六七八九十百]+)\s*集[：:\s]*(.*?)(?=\n#\s*第|\n#\s*[一二三四五六七八九十]|#{1,2}\s*三|\Z)", text, re.DOTALL))
-
-        cn_map = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
-
-        for match in ep_matches:
-            num_raw = match.group(1).strip()
-            if num_raw.isdigit():
-                ep_num = int(num_raw)
-            else:
-                ep_num = cn_map.get(num_raw, len(episodes) + 1)
-
-            title_and_rest = match.group(2).strip()
-            ep_lines = title_and_rest.split("\n")
-            ep_title = ep_lines[0].strip() if ep_lines else f"第 {ep_num} 集"
+        for ep_num, start, end in script_episode_spans(text):
+            block = text[start:end].strip()
+            match = EPISODE_HEADING.match(block)
+            ep_title = match.group(2).strip(" \t：:】]*#") or f"第 {ep_num} 集"
+            title_and_rest = block[match.end():].strip()
 
             summary = ""
             sum_match = re.search(r"\*?\*?剧情[：:]\*?\*?\s*([^\n]+)", title_and_rest)
@@ -381,6 +527,14 @@ class StandardScriptParser:
                 summary = sum_match.group(1).strip()
 
             shots = cls._extract_shots_from_episode(title_and_rest)
+            if not summary:
+                # A prose screenplay has no numbered shots or explicit plot
+                # summary. Use a short verbatim excerpt instead of an empty outline.
+                excerpt = " ".join(shot["action"] for shot in shots) if shots else " ".join(
+                    line.replace("**", "").strip() for line in title_and_rest.splitlines()
+                    if line.strip() and not re.match(r"^(?:#{1,6}\s|\*\*场景\d|---)", line.strip())
+                )
+                summary = excerpt[:300]
 
             episodes.append({
                 "episode_num": ep_num,
@@ -388,7 +542,7 @@ class StandardScriptParser:
                 "summary": summary,
                 "shots_count": len(shots),
                 "shots": shots,
-                "body": match.group(0).strip(),
+                "body": block,
             })
 
         if episodes:
@@ -405,7 +559,7 @@ class StandardScriptParser:
         return [{
             "episode_num": 1,
             "title": title or "第 1 集",
-            "summary": "",
+            "summary": " ".join(shot["action"] for shot in shots)[:300],
             "shots_count": len(shots),
             "shots": shots,
             "body": text.strip(),
@@ -416,7 +570,7 @@ class StandardScriptParser:
         shots: list[dict[str, Any]] = []
         episode_block = re.split(r"\n#{1,3}\s*[四五]、", episode_block, maxsplit=1)[0]
 
-        shot_splits = list(re.finditer(r"###[ \t]*镜头[ \t]*([0-9一二三四五六七八九十]+)[ \t｜|/：:\-]*([^\n]*)", episode_block))
+        shot_splits = list(re.finditer(r"^#{2,4}[ \t]*【?[ \t]*(?:镜头|片段)[ \t]*([0-9一二三四五六七八九十]+)[ \t】｜|/：:\-]*([^\n]*)", episode_block, re.M))
         if not shot_splits:
             return shots
 
@@ -431,6 +585,7 @@ class StandardScriptParser:
             start_pos = m.end()
             end_pos = shot_splits[i + 1].start() if i + 1 < len(shot_splits) else len(episode_block)
             content_block = episode_block[start_pos:end_pos].strip()
+            content_block = re.split(r"\n(?:#{1,3}\s*|\*\*\s*)(?:制作提示|制作建议|拍摄建议)\b", content_block, maxsplit=1)[0].rstrip("\n- ")
 
             shot_data = cls._parse_single_shot(s_num, s_title, content_block)
             if re.fullmatch(r"同上|同前|同上一镜|同前一镜", shot_data["scene"].strip().rstrip("。；;")):
@@ -438,6 +593,12 @@ class StandardScriptParser:
             elif shot_data["scene"]:
                 previous_scene = shot_data["scene"]
             if shot_data["duration_sec"] is None:
+                clock_range = re.search(r"(\d{1,2}):(\d{2})\s*[-–—~～至]\s*(\d{1,2}):(\d{2})", s_title)
+                if clock_range:
+                    start_m, start_s, end_m, end_s = map(int, clock_range.groups())
+                    seconds = (end_m - start_m) * 60 + end_s - start_s
+                    if seconds > 0:
+                        shot_data["duration_sec"] = seconds
                 time_range = re.search(r"(\d+(?:\.\d+)?)\s*[-–—~～至]\s*(\d+(?:\.\d+)?)\s*(?:秒|s)", s_title, re.I)
                 if time_range:
                     seconds = float(time_range.group(2)) - float(time_range.group(1))
@@ -534,7 +695,7 @@ class StandardScriptParser:
                     shot["duration_sec"] = int(round(float(match.group(1))))
                 last_text_field = ""
             elif re.match(r"^(动作|画面)[：:]", seg):
-                shot["action"] = re.sub(r"^(动作|画面)[：:]\s*", "", seg).strip()
+                cls._append_shot_text(shot, "action", re.sub(r"^(动作|画面)[：:]\s*", "", seg).strip())
                 last_text_field = "action"
             elif re.match(r"^(镜头|运镜|景别)[：:]", seg):
                 shot["camera"] = re.sub(r"^(镜头|运镜|景别)[：:]\s*", "", seg).strip()
@@ -578,11 +739,20 @@ class StandardScriptParser:
         if not shot["action"] and content:
             shot["action"] = content.replace("\n", " ").strip()
 
+        # The source Markdown stays intact in episode.body; semantic dialogue
+        # fields should not show emphasis markers around asset mention chips.
+        shot["dialogue"] = re.sub(r"(?:\*\*|__)([^*_\n：:]+)(?:\*\*|__)(?=\s*[：:])", r"\1", shot["dialogue"])
+
         return shot
 
     @classmethod
     def _extract_production_advice(cls, text: str) -> str:
-        match = re.search(r"#{1,3}\s*(?:五[、.])?\s*视频制作建议\s*\n(.*?)(?=\n#|\Z)", text, re.DOTALL)
+        match = re.search(
+            rf"#{{1,3}}\s*(?:[一二三四五六][、.])?\s*(?:{cls._PRODUCTION_ADVICE_HEADINGS})\s*\n"
+            r"(.*?)(?=\n#|\Z)",
+            text,
+            re.DOTALL,
+        )
         if match:
             return match.group(1).strip()
         return ""
@@ -679,7 +849,7 @@ class StandardScriptParser:
 
                 matched = False
                 for fixed_name in scenes_map:
-                    if fixed_name in s_name:
+                    if fixed_name in scene_description:
                         scenes_map[fixed_name]["shots_count"] += 1
                         scenes_map[fixed_name]["related_shots"].append(shot_ref)
                         matched = True

@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 import sys
+import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -57,6 +58,27 @@ class QiniuUploadTests(unittest.TestCase):
         self.sleep = sleep_patcher.start()
         self.addCleanup(sleep_patcher.stop)
 
+    def test_real_sdk_form_uploader_uses_https_despite_its_http_default(self) -> None:
+        sdk = qiniu_service_module.qiniu
+        token = sdk.Auth("synthetic-ak", "synthetic-sk").upload_token("bucket", "key", 3600)
+        with mock.patch("qiniu.services.storage.uploader.FormUploader") as uploader:
+            uploader.return_value.upload.return_value = ({"key": "key"}, SUCCESS)
+            sdk.put_data(token, "key", b"small", check_crc=True, regions=[sdk.Region(up_host="up-z0.qiniup.com", scheme="https")])
+        self.assertEqual("https", uploader.call_args.kwargs["preferred_scheme"])
+
+    def test_real_sdk_passes_separate_connection_and_read_deadlines_to_requests(self) -> None:
+        sdk = qiniu_service_module.qiniu
+        token = sdk.Auth("synthetic-ak", "synthetic-sk").upload_token("bucket", "key", 3600)
+        response = requests.Response()
+        response.status_code = 200
+        response._content = b'{"key":"key","hash":"synthetic"}'
+        with mock.patch("qiniu.http.client.requests.Session.send", return_value=response) as send:
+            result, info = sdk.put_data(token, "key", b"small", regions=[sdk.Region(up_host="up-z0.qiniup.com", scheme="https")])
+        self.assertTrue(info.ok())
+        self.assertEqual("key", result["key"])
+        self.assertEqual((10, 120), send.call_args.kwargs["timeout"])
+        self.assertTrue(send.call_args.args[0].url.startswith("https://up-z0.qiniup.com/"))
+
     def test_large_payload_uses_resumable_chunked_upload(self) -> None:
         calls: list[dict] = []
         content = b"x" * (LARGE_UPLOAD_BYTES + 1)
@@ -70,6 +92,7 @@ class QiniuUploadTests(unittest.TestCase):
         put_data.assert_not_called()
         kwargs = calls[0]["kwargs"]
         self.assertEqual(kwargs["part_size"], UPLOAD_PART_BYTES)
+        self.assertLessEqual(kwargs["part_size"], 1024 * 1024)
         self.assertEqual(kwargs["bucket_name"], "bucket")
         self.assertEqual(kwargs["mime_type"], "video/mp4")
         self.assertEqual(calls[0]["args"][4], len(content))

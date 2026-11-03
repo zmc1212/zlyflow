@@ -46,7 +46,7 @@ export const EDITING_TOOL_GROUPS: { id: string; label: string; tools: EditingToo
 export function matchesAssistantScope(session: AssistantSession, projectId: string | null, context?: EditingContext | null) {
   return context
     ? session.project_id === projectId && session.context?.kind === "smart_edit" && session.context.sequence_id === context.sequence_id
-    : !session.context
+    : !session.context && (!projectId || session.project_id === projectId)
 }
 export function canAdoptEditingResult(currentRevision: number, baseRevision: number, resultRevision: number) {
   return currentRevision === baseRevision && resultRevision === baseRevision + 1

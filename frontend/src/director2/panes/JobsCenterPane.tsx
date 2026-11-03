@@ -4,10 +4,9 @@
 // 写操作（重试）首参补 csrfToken；轮询经最新闭包 trampoline 读取最新 props/state（等价 Vue 响应式读取）。
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { Alert, Button, Dropdown, Input, Modal, Progress, Select, Space, Table, Tabs, Tag, Tooltip, message } from "antd"
+import { Alert, Button, Input, Modal, Progress, Select, Space, Table, Tabs, Tag, Tooltip, message } from "antd"
 import type { TableProps } from "antd"
 import { RefreshCw, ExternalLink, Copy, ListChecks, Search } from "lucide-react"
-import type { UpscaleEngine } from "../../video-upscale"
 import { director2ErrorDetail, confirmProjectVideoRefine, listJobs, retryJob, skipProjectVideoRefine, upscaleProjectVideoJob, type Director2Job } from "../api"
 import {
   DIRECTOR2_DEFAULT_JOB_TYPE,
@@ -25,7 +24,7 @@ import {
   type Director2JobType,
 } from "../director2-job-types"
 import { director2ContentLibraryDocPath, director2WorkshopEpisodePath } from "../paths"
-import { jobCanConfirmRefine, jobCanShowUpscaleAction, jobPreviewVideoUrl, jobRefineShotCount, jobSourceVideoUrl, jobUpscaleDisabledReason, jobUpscaleHint, jobUpscaledVideoUrl } from "../director2-video-settings"
+import { jobCanConfirmRefine, jobCanShowUpscaleAction, jobPreviewVideoUrl, jobRefineShotCount, jobSourceVideoUrl, jobUpscaleDisabledReason, jobUpscaleHint, jobUpscaledVideoUrl, smartClarifyConfirmText } from "../director2-video-settings"
 import { useMediaPreview, type OpenMediaPreviewInput } from "../media-preview"
 import "./jobs-center.css"
 
@@ -137,7 +136,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
       inputs.push({
         src: url,
         kind: isVideoJob(job) ? "video" : "image",
-        title: upscaled ? `${job.title || "生成结果"} · 2x` : job.title || "生成结果",
+        title: upscaled ? `${job.title || "生成结果"} · 超清` : job.title || "生成结果",
       })
     })
     if (!inputs.length) return
@@ -195,14 +194,14 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
           <button
             type="button"
             className="result-thumb-btn"
-            aria-label={upscaled ? "预览 2x 超分结果" : "预览结果"}
+            aria-label={upscaled ? "预览超清结果" : "预览结果"}
             onClick={() => openResultPreview(record)}
           >
             {isVideoJob(record) ? (
               <>
                 <video src={previewUrl} className="result-thumb" muted preload="metadata" />
                 {record.status === "awaiting_refine" ? <Tag color="gold" className="result-upscale-tag">一采</Tag> : null}
-                {upscaled ? <Tag color="purple" className="result-upscale-tag">2x</Tag> : null}
+                {upscaled ? <Tag color="purple" className="result-upscale-tag">超清</Tag> : null}
               </>
             ) : (
               <img src={record.result_url || undefined} className="result-thumb" alt="结果图" />
@@ -235,22 +234,14 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
           {jobCanShowUpscaleAction(record) ? (
             <Tooltip title={jobUpscaleDisabledReason(record, jobs) || jobUpscaleHint(record)}>
               <span>
-                <Dropdown.Button
+                <Button
                   size="small"
                   disabled={Boolean(jobUpscaleDisabledReason(record, jobs)) || upscalingJobId === record.id}
                   loading={upscalingJobId === record.id}
-                  onClick={() => void handleUpscaleJob(record)}
-                  menu={{
-                    items: [
-                      { key: "rtx", label: "RTX 快速超分（秒级）" },
-                      { key: "seedvr2", label: "SeedVR2 高清增强（分钟级，更清晰）" },
-                    ],
-                    onClick: ({ key }) => void handleUpscaleJob(record, key as UpscaleEngine),
-                  }}
-                  aria-label={`2x 超分 ${record.title || record.id}`}
+                  onClick={() => confirmSmartClarifyJob(record)}
                 >
-                  超分
-                </Dropdown.Button>
+                  智能超清
+                </Button>
               </span>
             </Tooltip>
           ) : null}
@@ -447,24 +438,53 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
     }
   }
 
-  async function handleUpscaleJob(job: Director2Job, engine: UpscaleEngine = "rtx") {
+  function jobClarifyDurationSec(job: Director2Job): number {
+    const payload = job.payload || {}
+    const shots = (payload.source_shots || payload.shots || []) as Array<Record<string, unknown>>
+    const total = shots.reduce((sum, shot) => sum + Number(shot.duration_sec ?? shot.video_duration ?? 0), 0)
+    return total || Number(payload.duration_per_beat ?? 0)
+  }
+
+  async function handleUpscaleJob(job: Director2Job) {
     const reason = jobUpscaleDisabledReason(job, jobs)
     if (reason) {
       message.warning(reason)
       return
     }
-    const engineLabel = engine === "seedvr2" ? "SeedVR2 高清增强" : "2x 超分"
     setUpscalingJobId(job.id)
     try {
-      message.loading({ content: `正在提交${engineLabel}...`, key: "jobUpscale" })
-      const res = await upscaleProjectVideoJob(csrfToken, projectId, job.id, { engine })
-      message.success({ content: `${engineLabel}任务已进入队列：${res.job_id}`, key: "jobUpscale", duration: 6 })
+      message.loading({ content: "正在提交智能超清...", key: "jobUpscale" })
+      const res = await upscaleProjectVideoJob(csrfToken, projectId, job.id, {})
+      message.success({ content: `智能超清任务已进入队列：${res.job_id}`, key: "jobUpscale", duration: 6 })
       await fetchJobs(true)
     } catch (err) {
-      message.error({ content: director2ErrorDetail(err, `${engineLabel}任务创建失败`), key: "jobUpscale", duration: 10 })
+      message.error({ content: director2ErrorDetail(err, "智能超清任务创建失败"), key: "jobUpscale", duration: 10 })
     } finally {
       setUpscalingJobId(null)
     }
+  }
+
+  function confirmSmartClarifyJob(job: Director2Job) {
+    const reason = jobUpscaleDisabledReason(job, jobs)
+    if (reason) {
+      message.warning(reason)
+      return
+    }
+    // 后端按本镜任务快照里的清晰度策略跑二采，所以预估也读同一份 payload，不受当前生成设置影响。
+    const payload = job.payload || {}
+    Modal.confirm({
+      title: `智能超清 ${job.title || "本镜成片"}`,
+      content: smartClarifyConfirmText(
+        jobClarifyDurationSec(job),
+        String(payload.aspect_ratio || "16:9"),
+        String(payload.refine_quality || "1.0"),
+        String(payload.refine_quality_mode || "auto"),
+      ),
+      okText: "开始超清",
+      cancelText: "取消",
+      centered: true,
+      onOk: () => void handleUpscaleJob(job),
+    })
   }
 
   async function handleRefineDecision(job: Director2Job, action: "confirm" | "skip") {
@@ -1048,7 +1068,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
             {/* 结果图片 */}
             {isVideoJob(selectedJob) && (jobPreviewVideoUrl(selectedJob) || selectedJob.result_url) ? (
               <div className="detail-section">
-                <div className="detail-section-title">🖼️ 生成结果{jobUpscaledVideoUrl(selectedJob) ? " · 含 2x 超分" : selectedJob.status === "awaiting_refine" ? " · 一采预览" : ""}</div>
+                <div className="detail-section-title">🖼️ 生成结果{jobUpscaledVideoUrl(selectedJob) ? " · 含超清版本" : selectedJob.status === "awaiting_refine" ? " · 一采预览" : ""}</div>
                 {jobCanConfirmRefine(selectedJob) ? (
                   <Alert
                     type="info"
@@ -1082,7 +1102,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
                 <div className="result-preview">
                   {jobUpscaledVideoUrl(selectedJob) ? (
                     <>
-                      <p className="prompt-label">2x 超分</p>
+                      <p className="prompt-label">超清版本</p>
                       <video src={jobUpscaledVideoUrl(selectedJob)} className="result-video" controls preload="metadata" />
                     </>
                   ) : (
@@ -1094,27 +1114,16 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
                       <video src={jobSourceVideoUrl(selectedJob)} className="result-video" controls preload="metadata" />
                     </>
                   ) : null}
-                  {typeof selectedJob.payload?.upscale_warning === "string" && selectedJob.payload.upscale_warning ? (
-                    <Alert type="warning" showIcon className="mt-3" message={String(selectedJob.payload.upscale_warning)} />
-                  ) : null}
                   {jobCanShowUpscaleAction(selectedJob) ? (
                     <Tooltip title={jobUpscaleDisabledReason(selectedJob, jobs) || jobUpscaleHint(selectedJob)}>
                       <span className="mt-3">
-                        <Dropdown.Button
+                        <Button
                           disabled={Boolean(jobUpscaleDisabledReason(selectedJob, jobs)) || upscalingJobId === selectedJob.id}
                           loading={upscalingJobId === selectedJob.id}
-                          onClick={() => void handleUpscaleJob(selectedJob)}
-                          menu={{
-                            items: [
-                              { key: "rtx", label: "RTX 快速超分（秒级）" },
-                              { key: "seedvr2", label: "SeedVR2 高清增强（分钟级，更清晰）" },
-                            ],
-                            onClick: ({ key }) => void handleUpscaleJob(selectedJob, key as UpscaleEngine),
-                          }}
-                          aria-label="2x 超分"
+                          onClick={() => confirmSmartClarifyJob(selectedJob)}
                         >
-                          2x 超分
-                        </Dropdown.Button>
+                          智能超清
+                        </Button>
                       </span>
                     </Tooltip>
                   ) : null}
@@ -1124,7 +1133,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
                     onClick={() => openMediaPreview({
                       src: jobPreviewVideoUrl(selectedJob) || selectedJob.result_url,
                       kind: "video",
-                      title: jobUpscaledVideoUrl(selectedJob) ? `${selectedJob.title || "生成结果"} · 2x` : selectedJob.title || "生成结果",
+                      title: jobUpscaledVideoUrl(selectedJob) ? `${selectedJob.title || "生成结果"} · 超清` : selectedJob.title || "生成结果",
                     })}
                   >
                     <ExternalLink size={13} /> 预览原文件

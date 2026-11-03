@@ -43,7 +43,7 @@ export type AssistantMessage = RecordBase & { role: "user" | "assistant"; parts:
 export type AssistantArtifact = RecordBase & {
   title: string; artifact_type: "script" | "assets" | "episodes" | "storyboard" | "prompt" | "plan"
   content: string; revision: number; session_id: string; application_id?: string; applied_project_id?: string
-  data: { assets?: { name: string; kind: string }[]; episodes?: { episode_num: number; title: string; episode_id?: string }[] }
+  data: { section?: "body" | "setting"; assets?: { name: string; kind: string }[]; episodes?: { episode_num: number; title: string; episode_id?: string }[] }
 }
 export type AssistantRun = RecordBase & { session_id: string; message_id: string; cancel_requested: boolean; error?: string | null }
 export type MediaProposal = RecordBase & {

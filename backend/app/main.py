@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import mimetypes
 import re
+import subprocess
 import secrets
 import shutil
 import time
@@ -122,6 +124,7 @@ from .models import (
     CanvasProjectListItem, CanvasProjectResponse, CanvasDraftSaveResponse, CanvasDraftVersionItem,
 )
 from .motion_transfer_media import validate_motion_video
+from .scail2_workflow import probe_scail_canvas, resolve_scail_video_options
 
 from .library_query import (
     LIBRARY_DEFAULT_LIMIT,
@@ -168,9 +171,10 @@ from .seedvr2_upscale_workflow import (
     normalize_upscale_engine,
 )
 from .workflow_registry import (
-    AVATAR_MAX_SCENE_SECONDS, WORKFLOWS, comfy_ram_total_bytes, is_h3_workflow, is_image_workflow,
-    is_local_comfy_job, is_rtx_vsr_workflow, is_seedvr2_upscale_workflow, is_upscale_workflow,
-    normalize_options, option_visible, quality_for_megapixels, set_catalog_lookup,
+    AVATAR_MAX_SCENE_SECONDS, LIPSYNC_SOURCE_MAX_SECONDS, LIPSYNC_SOURCE_MIN_SECONDS, WORKFLOWS,
+    comfy_ram_total_bytes, is_depth_workflow, is_grs_image_workflow, is_h3_workflow, is_image_workflow,
+    is_lip_sync_workflow, is_local_comfy_job, is_rtx_vsr_workflow, is_seedvr2_upscale_workflow,
+    is_upscale_workflow, normalize_options, option_visible, quality_for_megapixels, set_catalog_lookup,
     set_hardware_profile_resolver, validate_option_relationships, validate_references, workflow_for,
 )
 
@@ -830,15 +834,18 @@ async def lifespan(app: FastAPI):
     app.state.desktop_delivery_tickets = DesktopDeliveryTickets()
     store.interrupt_stale_director_pipelines()
     store.interrupt_stale_director_operations()
-    ensure_schema()
-    ensure_lease_schema()
-    EpisodeVideoService.recover_orphaned_jobs()
-    StoryboardImageService.recover_interrupted_jobs()
-    ProjectDetailService.recover_interrupted_image_jobs()
-    H3PromptJobService.recover_interrupted_jobs()
-    ShotPlanJobService.recover_interrupted_jobs()
-    TtsGenerationJobService.recover_interrupted_jobs()
-    AiGenerationService.recover_orphaned_jobs()
+    # SQLite test apps own no MySQL media queue. Startup recovery must never
+    # claim or interrupt the real workbench's paid jobs during a regression run.
+    if database.dialect == "mysql":
+        ensure_schema()
+        ensure_lease_schema()
+        EpisodeVideoService.recover_orphaned_jobs()
+        StoryboardImageService.recover_interrupted_jobs()
+        ProjectDetailService.recover_interrupted_image_jobs()
+        H3PromptJobService.recover_interrupted_jobs()
+        ShotPlanJobService.recover_interrupted_jobs()
+        TtsGenerationJobService.recover_interrupted_jobs()
+        AiGenerationService.recover_orphaned_jobs()
     app.state.director_assistant = AssistantService(store, llm_provider, settings.uploads_dir, vlm_provider)
     app.state.director_assistant.recover()
     app.state.script_diagnosis = DiagnosisService(store, llm_provider)
@@ -1158,7 +1165,7 @@ def health() -> dict:
 
 def mode_payload(definition) -> dict:
     payload = definition.payload()
-    if is_image_workflow(definition.id):
+    if is_grs_image_workflow(definition.id):
         available, reason = app.state.grs_provider.availability(definition.id)
         payload["available"] = available
         payload["unavailable_reason"] = reason
@@ -4085,11 +4092,31 @@ def _validate_reference_upload(definition, index: int, upload: UploadFile) -> No
     if kind == "audio":
         if content_type and not (content_type.startswith("audio/") or content_type == "application/octet-stream"):
             raise HTTPException(status_code=422, detail="数字人口播的第 2 项素材必须是音频文件")
+    elif kind == "media":
+        # 音频或视频均可（人声/伴奏分离的 LoadAudio 会自动抽取视频音轨）。
+        extension = Path(upload.filename or "").suffix.lower()
+        type_ok = (
+            not content_type
+            or content_type.startswith("audio/")
+            or content_type.startswith("video/")
+            or content_type == "application/octet-stream"
+        )
+        extension_ok = extension in {
+            ".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".opus", ".wma",
+            ".mp4", ".mov", ".webm", ".mkv", ".m4v", ".avi",
+        }
+        if not (type_ok and extension_ok):
+            raise HTTPException(
+                status_code=422,
+                detail=f"{definition.name}的第 {index} 项素材必须是音频（MP3 / WAV / FLAC / M4A）或视频（MP4 / MOV / WebM）文件",
+            )
     elif kind == "video":
         extension = Path(upload.filename or "").suffix.lower()
         if extension not in {".mp4", ".mov", ".webm", ".mkv", ".m4v", ".avi"} or (
             content_type and not (content_type.startswith("video/") or content_type == "application/octet-stream")
         ):
+            if definition is not None and getattr(definition, "reference_slots", ()):
+                raise HTTPException(status_code=422, detail=f"{definition.name}的第 {index} 项素材必须是视频文件（MP4 / MOV / WebM）")
             raise HTTPException(status_code=422, detail="动作迁移的第 2 项素材必须是动作参考视频（MP4 / MOV / WebM）")
     elif content_type and not content_type.startswith("image/"):
         detail = "动作迁移的第 1 项素材必须是角色形象图" if definition is not None and definition.accepts_video_reference else "参考素材必须为图片"
@@ -4097,6 +4124,30 @@ def _validate_reference_upload(definition, index: int, upload: UploadFile) -> No
 
 
 async def _validate_saved_references(definition, paths: list[str], options: dict, upload_dir: Path) -> None:
+    if definition.id == JobMode.MINIMAX_H3_VIDEO_EDIT.value:
+        from .h3_video_edit_workflow import validate_video_edit_source, video_edit_dimensions
+
+        try:
+            source = await asyncio.to_thread(validate_video_edit_source, Path(paths[0]), options.get("duration") or "5s")
+            options["width"], options["height"] = video_edit_dimensions(source.width, source.height)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return
+    if is_depth_workflow(definition.id):
+        # 深度捕捉 references[0] 是原片视频；画布由分发层探测，这里只校验时长。
+        from .h3_depth_workflow import validate_depth_source
+
+        try:
+            validate_depth_source(Path(paths[0]), options.get("duration") or "5s")
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return
+    if is_lip_sync_workflow(definition.id):
+        options["width"], options["height"] = await asyncio.to_thread(
+            _probe_lipsync_source_canvas, Path(paths[0]), upload_dir,
+        )
+        options["scene_duration_seconds"] = await asyncio.to_thread(_probe_avatar_scene_duration, paths[1], upload_dir)
+        return
     if definition.accepts_video_reference:
         try:
             from PIL import Image
@@ -4106,11 +4157,54 @@ async def _validate_saved_references(definition, paths: list[str], options: dict
         except Exception as error:
             raise HTTPException(status_code=422, detail="角色形象图无法读取，请上传有效的 PNG / JPEG / WebP 图片。") from error
         try:
-            await asyncio.to_thread(validate_motion_video, Path(paths[1]), options["duration"])
+            if definition.id == JobMode.SCAIL2_REPLACEMENT.value:
+                options.update(await asyncio.to_thread(resolve_scail_video_options, Path(paths[1]), options["duration"]))
+                options["width"], options["height"] = await asyncio.to_thread(probe_scail_canvas, Path(paths[1]))
+            else:
+                await asyncio.to_thread(validate_motion_video, Path(paths[1]), options["duration"])
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
     if definition.accepts_audio_reference:
         options["scene_duration_seconds"] = await asyncio.to_thread(_probe_avatar_scene_duration, paths[1], upload_dir)
+
+
+def _probe_lipsync_source_canvas(path: Path, upload_dir: Path) -> tuple[int, int]:
+    """探测口型同步源视频尺寸并换算 32 对齐画布；时长需在官方 2-15 秒参考视频政策内。"""
+    seconds = SystemFfmpegRunner().probe_duration(path)
+    if seconds < LIPSYNC_SOURCE_MIN_SECONDS:
+        shutil.rmtree(upload_dir, ignore_errors=True)
+        raise HTTPException(
+            status_code=422,
+            detail=f"原视频仅 {seconds:.1f} 秒，口型同步要求至少 {LIPSYNC_SOURCE_MIN_SECONDS:.0f} 秒。",
+        )
+    if seconds > LIPSYNC_SOURCE_MAX_SECONDS:
+        shutil.rmtree(upload_dir, ignore_errors=True)
+        raise HTTPException(
+            status_code=422,
+            detail=f"原视频 {seconds:.1f} 秒超出 {LIPSYNC_SOURCE_MAX_SECONDS:.0f} 秒上限，请先裁剪视频。",
+        )
+    try:
+        completed = subprocess.run(
+            [
+                SystemFfmpegRunner().require()[1], "-v", "error", "-select_streams", "v:0",
+                "-show_entries", "stream=width,height", "-of", "json", str(path),
+            ],
+            check=True, capture_output=True, text=True, encoding="utf-8", errors="replace",
+        )
+        stream = (json.loads(completed.stdout or "{}").get("streams") or [{}])[0]
+        width, height = int(stream.get("width") or 0), int(stream.get("height") or 0)
+    except Exception:
+        width = height = 0
+    if width <= 0 or height <= 0:
+        shutil.rmtree(upload_dir, ignore_errors=True)
+        raise HTTPException(status_code=422, detail="无法读取原视频尺寸，请使用标准 MP4 / MOV / WebM 文件。")
+    max_area = 1344 * 768
+    aligned_w, aligned_h = max(256, round(width / 32) * 32), max(256, round(height / 32) * 32)
+    if aligned_w * aligned_h > max_area:
+        scale = math.sqrt(max_area / (aligned_w * aligned_h))
+        aligned_w = max(256, round(aligned_w * scale / 32) * 32)
+        aligned_h = max(256, round(aligned_h * scale / 32) * 32)
+    return aligned_w, aligned_h
 
 
 def _probe_avatar_scene_duration(path: str, upload_dir: Path) -> float:
@@ -4199,7 +4293,7 @@ async def submit_generation(
     except (ValueError, json.JSONDecodeError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
-    if is_image_workflow(mode):
+    if is_grs_image_workflow(mode):
         available, reason = app.state.grs_provider.availability(mode)
         if not available:
             raise HTTPException(status_code=409, detail=reason or "GRS 图片能力不可用")
@@ -4298,7 +4392,7 @@ async def create_job_round(
         validate_option_relationships(mode, generation_options, len(references or reused_references))
     except (ValueError, json.JSONDecodeError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    if is_image_workflow(mode):
+    if is_grs_image_workflow(mode):
         available, reason = app.state.grs_provider.availability(mode)
         if not available:
             raise HTTPException(status_code=409, detail=reason or "GRS 图片能力不可用")
@@ -4994,7 +5088,8 @@ def confirm_generation_output_delivered(
 register_mcp_routes(
     app, current_user=current_user, mutating_user=mutating_user, settings=settings,
     submit_generation=submit_generation, public_job=public_job, listed_workflows=listed_workflows,
-    mode_payload=mode_payload, cancel_job=cancel_job, output_response=output_response, output_available=output_available,
+    mode_payload=mode_payload, cancel_job=cancel_job, confirm_refine=confirm_refine, skip_refine=skip_refine,
+    output_response=output_response, output_available=output_available,
 )
 
 

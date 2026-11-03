@@ -31,9 +31,12 @@ from .minimax_h3_refine_workflow import (
 )
 from .minimax_h3_t8_workflow import build_minimax_h3_t8_workflow
 from .minimax_h3_avatar_workflow import build_minimax_h3_avatar_workflow
+from .minimax_h3_lipsync_workflow import build_minimax_h3_lipsync_workflow
 from .minimax_h3_workflow import build_minimax_h3_workflow
 from .models import JobMode
 from .motion_transfer_media import prepare_motion_video
+from .scail2_workflow import SCAIL_OUTPUT_NODE, SCAIL_DIAGNOSTIC_PREFIX, build_scail2_workflow, prepare_scail_inputs, scail_missing_message
+from .video_analysis import probe_video
 from .resource_storage import BrowserLocalStagingStorage, ResourceStorage, StoredResource, resource_object_url
 from .rtx_vsr_workflow import (
     RTX_VSR_NODE_TYPE,
@@ -69,6 +72,42 @@ from .h3_motion_transfer_workflow import (
     MOTION_TRANSFER_OUTPUT_NODE,
     build_h3_motion_transfer_workflow,
 )
+from .h3_inpaint_workflow import (
+    INPAINT_OUTPUT_NODE,
+    build_h3_inpaint_workflow,
+    prepare_inpaint_source,
+    validate_inpaint_video,
+)
+from .image_edit_workflow import (
+    LAYER_BACKGROUND_NODE,
+    LAYER_FOREGROUND_NODE,
+    SAM3_OUTPUT_NODE,
+    build_image_edit_workflow,
+)
+from .h3_depth_workflow import (
+    DEPTH_OUTPUT_NODE,
+    DEPTH_PREVIEW_NODE,
+    DEPTH_DEFAULT_PROMPT,
+    DEPTH_LENGTHS,
+    build_h3_depth_workflow,
+    prepare_depth_source,
+    validate_depth_source,
+)
+from .h3_keyframe_workflow import (
+    KEYFRAME_OUTPUT_NODE,
+    build_h3_keyframe_workflow,
+    resolve_keyframe_anchor_frames,
+)
+from .h3_video_edit_workflow import (
+    VIDEO_EDIT_OUTPUT_NODE, build_h3_video_edit_workflow, prepare_video_edit_source,
+    validate_video_edit_source, video_edit_dimensions,
+)
+from .stem_split_workflow import (
+    STEM_SPLIT_MODEL,
+    STEM_SPLIT_INSTRUMENTS_NODE,
+    STEM_SPLIT_VOCALS_NODE,
+    build_stem_split_workflow,
+)
 from .workflow_registry import (
     DIRECTOR_ACCEL_WORKFLOWS,
     DUAL_ACCEL_WORKFLOWS,
@@ -78,6 +117,7 @@ from .workflow_registry import (
     coerce_bool_option,
     generation_output_label,
     generation_stage,
+    is_comfy_image_workflow,
     is_rtx_vsr_workflow,
     is_seedvr2_upscale_workflow,
     normalize_options,
@@ -143,7 +183,7 @@ LOADER_CLASS_TYPES = frozenset({
     "MiniMaxH3DirectorGroupImageToVideo", "MiniMaxH3DirectorGroupReferenceToVideo",
 })
 SAMPLER_CLASS_TYPES = frozenset({
-    "SamplerCustomAdvanced", "KSampler", "KSamplerAdvanced",
+    "SamplerCustomAdvanced", "SamplerCustom", "KSampler", "KSamplerAdvanced",
     "MiniMaxH3MultiRateSamplerEXPT8", "MiniMaxH3DualClockSamplerT8",
     "MiniMaxH3Director", RTX_VSR_NODE_TYPE,
 })
@@ -199,6 +239,10 @@ def interpret_comfy_progress(
         return None
 
     def tick_for(node_id: object, percent: int | None) -> ComfyProgressTick | None:
+        entry = workflow.get(str(node_id), {})
+        if (entry.get("class_type") == "SaveImage"
+                and str(entry.get("inputs", {}).get("filename_prefix", "")).startswith(SCAIL_DIAGNOSTIC_PREFIX)):
+            return ComfyProgressTick(COMFY_PREPARE_STAGE, 12)
         phase = node_phase(node_class_type(workflow, node_id))
         if phase == "loader":
             return ComfyProgressTick(COMFY_SWITCH_STAGE, 5 + round((percent or 0) * 13 / 100))
@@ -941,6 +985,45 @@ class ComfyService:
         )
         return [self.output_payload(output, "video", "VACE 复刻视频")]
 
+    def _run_scail2_replacement(
+        self, references: list[str], prompt: str, options: dict | None,
+        update_stage: Callable[[str, int | None], None],
+        on_submitted: Callable[[str, str, str], None] | None,
+        is_cancelled: Callable[[], bool] | None,
+    ) -> list[dict]:
+        if len(references) != 2:
+            raise legacy.ComfyError("动作迁移需要角色形象图和动作参考视频。")
+        def check_cancelled() -> None:
+            if is_cancelled and is_cancelled():
+                raise ComfyCancelled("任务已停止")
+        check_cancelled()
+        normalized = normalize_options(JobMode.SCAIL2_REPLACEMENT, options or {})
+        self.settings.staging_dir.mkdir(parents=True, exist_ok=True)
+        update_stage("正在准备动作片段与人物标记", None)
+        with tempfile.TemporaryDirectory(prefix="scail2-", dir=self.settings.staging_dir) as directory:
+            prepared = prepare_scail_inputs(Path(references[0]), Path(references[1]), Path(directory), normalized)
+            check_cancelled()
+            update_stage("正在上传人物与动作素材", None)
+            image = self.upload_image(str(prepared["image"]), "scail2_character")
+            check_cancelled()
+            video = self.upload_video(str(prepared["video"]), "scail2_motion")
+            check_cancelled()
+            first = self.upload_image(str(prepared["first"]), "scail2_first")
+        graph = build_scail2_workflow(image, video, first, prompt,
+                                     width=prepared["width"], height=prepared["height"],
+                                     source_coords=prepared["source_coords"], reference_coords=prepared["reference_coords"],
+                                     seed=normalized["seed"], preserve_audio=normalized["preserve_audio"],
+                                     length=normalized["length"],
+                                     source_coords_by_subject=prepared.get("source_coords_by_subject"),
+                                     reference_coords_by_subject=prepared.get("reference_coords_by_subject"))
+        check_cancelled()
+        reason = scail_missing_message(self.object_info(), graph)
+        if reason:
+            raise legacy.ComfyError(reason)
+        record = self.run_workflow(graph, "正在跟踪人物并迁移动作与表情", update_stage,
+                                   on_submitted=on_submitted, is_cancelled=is_cancelled)
+        return self.completed_outputs(JobMode.SCAIL2_REPLACEMENT, record)
+
     def _run_motion_transfer(
         self, references: list[str], prompt: str, negative_prompt: str, options: dict | None,
         update_stage: Callable[[str, int | None], None],
@@ -989,6 +1072,299 @@ class ComfyService:
             "h3_motion_transfer",
         )
         return [self.output_payload(output, "video", "H3 动作迁移视频")]
+
+    def _run_inpaint(
+        self, references: list[str], prompt: str, negative_prompt: str, options: dict | None,
+        update_stage: Callable[[str, int | None], None],
+        on_submitted: Callable[[str, str, str], None] | None,
+        is_cancelled: Callable[[], bool] | None,
+    ) -> list[dict]:
+        """H3 局部重绘：references[0] 为重绘遮罩图(白色=重绘区)，references[1] 为原片视频。"""
+        if not str(prompt or "").strip():
+            raise legacy.ComfyError("请填写要把遮罩区域替换成什么内容。")
+        if len(references) != 2:
+            raise legacy.ComfyError("局部重绘需要上传重绘遮罩图和原片视频。")
+        if is_cancelled is not None and is_cancelled():
+            raise ComfyCancelled("任务已停止")
+        normalized = normalize_options(JobMode.MINIMAX_H3_INPAINT, options or {})
+        update_stage("正在上传重绘遮罩图")
+        mask_image = self.upload_image(references[0], "inpaint_mask")
+        if is_cancelled is not None and is_cancelled():
+            raise ComfyCancelled("任务已停止")
+        update_stage("正在截取原片并对齐帧率")
+        self.settings.staging_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="inpaint-source-", dir=self.settings.staging_dir) as directory:
+            prepared = prepare_inpaint_source(
+                Path(references[1]), Path(directory) / "source.mp4",
+                fps=normalized["fps"], length=normalized["length"],
+            )
+            # 画布跟随原片宽高(32 对齐)，遮罩图与原片都会在图内自动对齐。
+            # 探测与上传都必须在临时目录存活期内完成（prepared 随 with 块销毁）。
+            probe = probe_video(prepared)
+            width = max(32, min(2048, int(probe.width) // 32 * 32))
+            height = max(32, min(2048, int(probe.height) // 32 * 32))
+            normalized["width"], normalized["height"], normalized["length"] = width, height, normalized["length"]
+            # registry 对 seed 字段始终随机化；这里读原始提交值，0 表示随机，
+            # 并把实际使用的 seed 回写进生效参数快照以支持复现。
+            requested_seed = int((options or {}).get("seed") or 0)
+            seed = requested_seed if requested_seed > 0 else int(normalized.get("seed") or 0) or secrets.randbits(31)
+            normalized["seed"] = seed
+            if is_cancelled is not None and is_cancelled():
+                raise ComfyCancelled("任务已停止")
+            update_stage("正在上传原片")
+            source_video = self.upload_video(str(prepared), "inpaint_source")
+        workflow = build_h3_inpaint_workflow(
+            mask_image,
+            source_video,
+            prompt,
+            width=width,
+            height=height,
+            length=int(normalized.get("length") or 124),
+            inpaint_strength=float(normalized.get("inpaint_strength") or 1.0),
+            steps=int(normalized.get("steps") or 20),
+            seed=seed,
+            weight_dtype=str(normalized.get("weight_dtype") or "default"),
+            fps=int(normalized.get("fps") or 24),
+        )
+        record = self.run_workflow(
+            workflow, "H3 正在局部重绘", update_stage, on_submitted=on_submitted, is_cancelled=is_cancelled,
+        )
+        output = self.download(
+            legacy.output_file(record, INPAINT_OUTPUT_NODE, ("videos", "gifs", "images")),
+            "h3_inpaint",
+        )
+        return [self.output_payload(output, "video", "H3 局部重绘视频")]
+
+    def _run_h3_depth(
+        self, references: list[str], prompt: str, negative_prompt: str, options: dict | None,
+        update_stage: Callable[[str, int | None], None],
+        on_submitted: Callable[[str, str, str], None] | None,
+        is_cancelled: Callable[[], bool] | None,
+    ) -> list[dict]:
+        """H3 深度捕捉：references[0] 为原片视频，深度锁定结构与运镜，提示词重塑画面。"""
+        if len(references) != 1:
+            raise legacy.ComfyError("深度捕捉需要上传 1 段原片视频。")
+        if is_cancelled is not None and is_cancelled():
+            raise ComfyCancelled("任务已停止")
+        normalized = normalize_options(JobMode.MINIMAX_H3_DEPTH, options or {})
+        duration = str(normalized.get("duration") or "5s")
+        update_stage("正在校验原片")
+        source = Path(references[0])
+        validate_depth_source(source, duration)
+        if is_cancelled is not None and is_cancelled():
+            raise ComfyCancelled("任务已停止")
+        update_stage("正在截取原片并对齐帧率")
+        self.settings.staging_dir.mkdir(parents=True, exist_ok=True)
+        # 探测画布与上传都必须在临时目录存活期内完成（prepared 随 with 块销毁）。
+        with tempfile.TemporaryDirectory(prefix="depth-source-", dir=self.settings.staging_dir) as directory:
+            prepared = prepare_depth_source(
+                source, Path(directory) / "source.mp4",
+                fps=int(normalized.get("fps") or 24), length=int(normalized.get("length") or 124),
+            )
+            # 画布跟随原片宽高(32 对齐)，深度图与成片都按该画布生成。
+            probe = probe_video(prepared)
+            width = max(32, min(2048, int(probe.width) // 32 * 32))
+            height = max(32, min(2048, int(probe.height) // 32 * 32))
+            normalized["width"], normalized["height"] = width, height
+            if is_cancelled is not None and is_cancelled():
+                raise ComfyCancelled("任务已停止")
+            update_stage("正在上传原片")
+            source_video = self.upload_video(str(prepared), "depth_capture_source")
+        workflow = build_h3_depth_workflow(
+            source_video,
+            prompt.strip() or DEPTH_DEFAULT_PROMPT,
+            width=width,
+            height=height,
+            length=int(normalized.get("length") or 124),
+            control_strength=float(normalized.get("control_strength") or 1.0),
+            steps=int(normalized.get("steps") or 20),
+            seed=int(normalized.get("seed") or 0),
+            weight_dtype=str(normalized.get("weight_dtype") or "default"),
+            fps=int(normalized.get("fps") or 24),
+            da3_resolution=int(normalized.get("da3_resolution") or 504),
+        )
+        record = self.run_workflow(
+            workflow, "正在提取深度并重塑画面", update_stage, on_submitted=on_submitted, is_cancelled=is_cancelled,
+        )
+        return self._depth_capture_outputs(record)
+
+    def _run_h3_video_edit(
+        self, references: list[str], prompt: str, options: dict | None,
+        update_stage: Callable[[str, int | None], None],
+        on_submitted: Callable[[str, str, str], None] | None,
+        is_cancelled: Callable[[], bool] | None,
+    ) -> list[dict]:
+        if len(references) != 1 or not prompt.strip():
+            raise legacy.ComfyError("视频编辑需要 1 段原片和修改要求。")
+        if is_cancelled is not None and is_cancelled():
+            raise ComfyCancelled("任务已停止")
+        normalized = normalize_options(JobMode.MINIMAX_H3_VIDEO_EDIT, options or {})
+        update_stage("正在准备视频编辑素材")
+        source = Path(references[0])
+        probe = validate_video_edit_source(source, normalized["duration"])
+        width, height = video_edit_dimensions(probe.width, probe.height)
+        self.settings.staging_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="h3-video-edit-", dir=self.settings.staging_dir) as directory:
+            prepared = prepare_video_edit_source(source, Path(directory) / "source.mp4", width=width,
+                                                 height=height, length=normalized["length"])
+            if is_cancelled is not None and is_cancelled():
+                raise ComfyCancelled("任务已停止")
+            source_video = self.upload_video(str(prepared), "h3_video_edit_source")
+        workflow = build_h3_video_edit_workflow(
+            source_video, prompt, width=width, height=height, length=normalized["length"],
+            steps=normalized["steps"], seed=normalized["seed"], preserve_audio=normalized["preserve_audio"],
+            model_files={kind: normalized[f"model_{kind}"] for kind in ("unet", "clip", "video_vae", "audio_vae")},
+        )
+        record = self.run_workflow(workflow, "正在编辑原片画面", update_stage,
+                                   on_submitted=on_submitted, is_cancelled=is_cancelled)
+        return self.completed_outputs(JobMode.MINIMAX_H3_VIDEO_EDIT, record)
+
+    def _run_keyframe_narrative(
+        self, references: list[str], prompt: str, negative_prompt: str, options: dict | None,
+        update_stage: Callable[[str, int | None], None],
+        on_submitted: Callable[[str, str, str], None] | None,
+        is_cancelled: Callable[[], bool] | None,
+    ) -> list[dict]:
+        """H3 关键帧叙事：references 为 2-4 张按叙事顺序排列的关键帧图片。"""
+        if not str(prompt or "").strip():
+            raise legacy.ComfyError("请填写关键帧之间的叙事描述。")
+        if not 2 <= len(references) <= 4:
+            raise legacy.ComfyError("关键帧叙事需要上传 2-4 张关键帧图片。")
+        normalized = normalize_options(JobMode.MINIMAX_H3_KEYFRAME, options or {})
+        keyframes: list[str] = []
+        for index, path in enumerate(references, 1):
+            if is_cancelled is not None and is_cancelled():
+                raise ComfyCancelled("任务已停止")
+            update_stage(f"正在上传关键帧 {index}/{len(references)}")
+            keyframes.append(self.upload_image(path, f"h3_keyframe_{index}"))
+        try:
+            anchor_frames = resolve_keyframe_anchor_frames(
+                normalized.get("anchor_seconds"), len(keyframes), int(normalized.get("length") or 124),
+            )
+        except ValueError as error:
+            raise legacy.ComfyError(str(error)) from error
+        workflow = build_h3_keyframe_workflow(
+            keyframes,
+            prompt,
+            width=int(normalized.get("width") or 864),
+            height=int(normalized.get("height") or 480),
+            length=int(normalized.get("length") or 124),
+            anchor_frames=anchor_frames,
+            steps=int(normalized.get("steps") or 20),
+            seed=int(normalized.get("seed") or 0),
+            weight_dtype=str(normalized.get("weight_dtype") or "default"),
+            fps=int(normalized.get("fps") or 24),
+            use_sage_attention=bool(normalized.get("use_sage_attention", True)),
+        )
+        record = self.run_workflow(
+            workflow, "H3 正在生成关键帧叙事", update_stage, on_submitted=on_submitted, is_cancelled=is_cancelled,
+        )
+        output = self.download(
+            legacy.output_file(record, KEYFRAME_OUTPUT_NODE, ("videos", "gifs", "images")),
+            "h3_keyframe",
+        )
+        return [self.output_payload(output, "video", "H3 关键帧叙事视频")]
+
+    def _run_stem_split(
+        self, references: list[str], prompt: str, negative_prompt: str, options: dict | None,
+        update_stage: Callable[[str, int | None], None],
+        on_submitted: Callable[[str, str, str], None] | None,
+        is_cancelled: Callable[[], bool] | None,
+    ) -> list[dict]:
+        """人声/伴奏分离：references[0] 为待分离的音频或视频（LoadAudio 自动抽取视频音轨）。"""
+        if len(references) != 1:
+            raise legacy.ComfyError("人声/伴奏分离需要上传 1 段音频或视频。")
+        if is_cancelled is not None and is_cancelled():
+            raise ComfyCancelled("任务已停止")
+        normalized = normalize_options(JobMode.STEM_SPLIT, options or {})
+        update_stage("正在上传待分离素材")
+        filename = self.upload_video(references[0], "stem_split_source")
+        if is_cancelled is not None and is_cancelled():
+            raise ComfyCancelled("任务已停止")
+        workflow = build_stem_split_workflow(
+            filename, model_name=str(normalized.get("model_name") or STEM_SPLIT_MODEL),
+        )
+        record = self.run_workflow(
+            workflow, "正在分离人声与伴奏", update_stage, on_submitted=on_submitted, is_cancelled=is_cancelled,
+        )
+        vocals = self.download(
+            legacy.output_file(record, STEM_SPLIT_VOCALS_NODE, ("audio",)), "stem_split_vocals",
+        )
+        instruments = self.download(
+            legacy.output_file(record, STEM_SPLIT_INSTRUMENTS_NODE, ("audio",)), "stem_split_instruments",
+        )
+        return [
+            self.output_payload(vocals, "audio", "人声音轨"),
+            self.output_payload(instruments, "audio", "伴奏音轨"),
+        ]
+
+    def _stem_split_outputs(self, record: dict) -> list[dict]:
+        vocals = self.download(
+            legacy.output_file(record, STEM_SPLIT_VOCALS_NODE, ("audio",)), "stem_split_vocals",
+        )
+        instruments = self.download(
+            legacy.output_file(record, STEM_SPLIT_INSTRUMENTS_NODE, ("audio",)), "stem_split_instruments",
+        )
+        return [
+            self.output_payload(vocals, "audio", "人声音轨"),
+            self.output_payload(instruments, "audio", "伴奏音轨"),
+        ]
+
+    def _run_image_edit(
+        self, mode: JobMode, references: list[str], prompt: str, options: dict | None,
+        update_stage: Callable[[str, int | None], None],
+        on_submitted: Callable[[str, str, str], None] | None,
+        is_cancelled: Callable[[], bool] | None,
+    ) -> list[dict]:
+        """ComfyUI 图片编辑工作流（去背景 / 图层分离）：references[0] 为原图。"""
+        if len(references) != 1:
+            raise legacy.ComfyError("该图片工具需要上传 1 张原图。")
+        if is_cancelled is not None and is_cancelled():
+            raise ComfyCancelled("任务已停止")
+        normalized = normalize_options(mode, options or {})
+        update_stage("正在上传原图")
+        filename = self.upload_image(references[0], "image_edit_source")
+        if is_cancelled is not None and is_cancelled():
+            raise ComfyCancelled("任务已停止")
+        workflow = build_image_edit_workflow(mode, filename, prompt, normalized)
+        record = self.run_workflow(
+            workflow, "正在编辑图片", update_stage, on_submitted=on_submitted, is_cancelled=is_cancelled,
+        )
+        return self._image_edit_outputs(mode, record)
+
+    def _image_edit_outputs(self, mode: JobMode, record: dict) -> list[dict]:
+        if mode is JobMode.IMAGE_LAYER_SPLIT:
+            foreground = self.download(
+                legacy.output_file(record, LAYER_FOREGROUND_NODE, ("images",)), "image_layer_foreground",
+            )
+            background = self.download(
+                legacy.output_file(record, LAYER_BACKGROUND_NODE, ("images",)), "image_layer_background",
+            )
+            return [
+                self.output_payload(foreground, "image", "前景图层"),
+                self.output_payload(background, "image", "背景图层"),
+            ]
+        output = self.download(
+            legacy.output_file(record, SAM3_OUTPUT_NODE, ("images",)), "image_background_remove",
+        )
+        return [self.output_payload(output, "image", "去背景图片")]
+
+    def _depth_capture_outputs(self, record: dict) -> list[dict]:
+        """成片为主产物；深度预览视频为辅助产物，缺失时不阻塞成片交付。"""
+        output = self.download(
+            legacy.output_file(record, DEPTH_OUTPUT_NODE, ("videos", "gifs", "images")),
+            "h3_depth_capture",
+        )
+        outputs = [self.output_payload(output, "video", "H3 深度捕捉视频")]
+        try:
+            depth_output = self.download(
+                legacy.output_file(record, DEPTH_PREVIEW_NODE, ("videos", "gifs", "images")),
+                "h3_depth_capture_depth",
+            )
+            outputs.append(self.output_payload(depth_output, "video", "深度预览"))
+        except legacy.ComfyError:
+            pass
+        return outputs
 
     def local_path_for_output(self, output: dict) -> Path:
         extra = output.get("_local_path")
@@ -1133,12 +1509,36 @@ class ComfyService:
         if mode is JobMode.WAN_VACE_DEPTH_V2V:
             output = self.download(legacy.output_file(record, VACE_OUTPUT_NODE, ("videos", "gifs", "images")), "wan_vace_depth")
             return [self.output_payload(output, "video", "VACE 复刻视频")]
+        if mode is JobMode.SCAIL2_REPLACEMENT:
+            output = self.download(legacy.output_file(record, SCAIL_OUTPUT_NODE, ("videos", "gifs", "images")), "scail2_replacement")
+            return [self.output_payload(output, "video", "SCAIL-2 动作迁移视频")]
         if mode is JobMode.MINIMAX_H3_MOTION_TRANSFER:
             output = self.download(
                 legacy.output_file(record, MOTION_TRANSFER_OUTPUT_NODE, ("videos", "gifs", "images")),
                 "h3_motion_transfer",
             )
             return [self.output_payload(output, "video", "H3 动作迁移视频")]
+        if mode is JobMode.MINIMAX_H3_INPAINT:
+            output = self.download(
+                legacy.output_file(record, INPAINT_OUTPUT_NODE, ("videos", "gifs", "images")),
+                "h3_inpaint",
+            )
+            return [self.output_payload(output, "video", "H3 局部重绘视频")]
+        if mode is JobMode.MINIMAX_H3_KEYFRAME:
+            output = self.download(
+                legacy.output_file(record, KEYFRAME_OUTPUT_NODE, ("videos", "gifs", "images")),
+                "h3_keyframe",
+            )
+            return [self.output_payload(output, "video", "H3 关键帧叙事视频")]
+        if mode is JobMode.MINIMAX_H3_DEPTH:
+            return self._depth_capture_outputs(record)
+        if mode is JobMode.MINIMAX_H3_VIDEO_EDIT:
+            output = self.download(legacy.output_file(record, VIDEO_EDIT_OUTPUT_NODE, ("videos", "gifs", "images")), "h3_video_edit")
+            return [self.output_payload(output, "video", "H3 视频编辑试片")]
+        if mode is JobMode.STEM_SPLIT:
+            return self._stem_split_outputs(record)
+        if is_comfy_image_workflow(mode):
+            return self._image_edit_outputs(mode, record)
         raise legacy.ComfyError(f"不支持恢复工作流模式: {mode}")
 
     def run_refine_continuation(
@@ -1276,9 +1676,13 @@ class ComfyService:
                 source_mode=mode, source_path=references[0],
                 engine=UPSCALE_ENGINE_SEEDVR2 if is_seedvr2_upscale_workflow(mode) else UPSCALE_ENGINE_RTX,
             )]
+        if is_comfy_image_workflow(mode):
+            return self._run_image_edit(
+                mode, references, prompt, options, update_stage, on_submitted, is_cancelled,
+            )
         if mode in H3_WORKFLOWS:
-            if mode is JobMode.MINIMAX_H3_AVATAR:
-                # 数字人 references 是 [形象图, 音频]，不走 <Picture n> 标签注入。
+            if mode is JobMode.MINIMAX_H3_AVATAR or mode is JobMode.MINIMAX_H3_LIP_SYNC:
+                # 数字人/口型同步的 references 是 [视频或形象图, 音频]，不走 <Picture n> 标签注入。
                 resolved_prompt = prompt
             else:
                 resolved_prompt = resolve_minimax_picture_prompt(prompt, len(references))
@@ -1299,6 +1703,8 @@ class ComfyService:
                 workflow = build_minimax_h3_t8_workflow(mode, resolved_prompt, uploaded, options)
             elif mode is JobMode.MINIMAX_H3_AVATAR:
                 workflow = build_minimax_h3_avatar_workflow(resolved_prompt, uploaded, options)
+            elif mode is JobMode.MINIMAX_H3_LIP_SYNC:
+                workflow = build_minimax_h3_lipsync_workflow(resolved_prompt, uploaded, options)
             elif mode in LIGHTX2V_WORKFLOWS:
                 workflow = build_minimax_h3_lightx2v_workflow(mode, resolved_prompt, uploaded, options, seed)
             elif mode in DUAL_ACCEL_WORKFLOWS:
@@ -1356,8 +1762,33 @@ class ComfyService:
                 references, prompt, negative_prompt, options, update_stage, on_submitted, is_cancelled,
             )
 
+        if mode is JobMode.SCAIL2_REPLACEMENT:
+            return self._run_scail2_replacement(references, prompt, options, update_stage, on_submitted, is_cancelled)
+
         if mode is JobMode.MINIMAX_H3_MOTION_TRANSFER:
             return self._run_motion_transfer(
+                references, prompt, negative_prompt, options, update_stage, on_submitted, is_cancelled,
+            )
+
+        if mode is JobMode.MINIMAX_H3_INPAINT:
+            return self._run_inpaint(
+                references, prompt, negative_prompt, options, update_stage, on_submitted, is_cancelled,
+            )
+
+        if mode is JobMode.MINIMAX_H3_DEPTH:
+            return self._run_h3_depth(
+                references, prompt, negative_prompt, options, update_stage, on_submitted, is_cancelled,
+            )
+        if mode is JobMode.MINIMAX_H3_VIDEO_EDIT:
+            return self._run_h3_video_edit(references, prompt, options, update_stage, on_submitted, is_cancelled)
+
+        if mode is JobMode.MINIMAX_H3_KEYFRAME:
+            return self._run_keyframe_narrative(
+                references, prompt, negative_prompt, options, update_stage, on_submitted, is_cancelled,
+            )
+
+        if mode is JobMode.STEM_SPLIT:
+            return self._run_stem_split(
                 references, prompt, negative_prompt, options, update_stage, on_submitted, is_cancelled,
             )
 

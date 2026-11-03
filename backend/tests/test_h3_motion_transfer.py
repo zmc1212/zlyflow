@@ -119,7 +119,15 @@ class MotionTransferGraphTests(unittest.TestCase):
         self.assertEqual(graph["2"]["inputs"]["file"], "dance.mp4")
         # 身份锁定:角色图进 ref_images autogrow 槽位 0。
         self.assertEqual(graph["12"]["class_type"], "MiniMaxH3ReferenceToVideo")
-        self.assertEqual(graph["12"]["inputs"]["ref_images"], {"0": ["1", 0]})
+        self.assertEqual(graph["12"]["inputs"]["ref_images.ref_image_0"], ["1", 0])
+        self.assertNotIn("ref_images", graph["12"]["inputs"])
+        # ComfyUI only discovers IMAGE dependencies in flattened API inputs;
+        # accepting the graph is insufficient if the reference is nested.
+        identity_dependencies = [
+            value for value in graph["12"]["inputs"].values()
+            if isinstance(value, list) and len(value) == 2 and value[0] == "1"
+        ]
+        self.assertEqual(identity_dependencies, [["1", 0]])
         self.assertEqual(graph["12"]["inputs"]["length"], 124)
         # 动作锁定:骨架序列进 Fun ControlNet 的 control_video。
         self.assertEqual(graph["16"]["class_type"], "MiniMaxH3FunControlNetApply")

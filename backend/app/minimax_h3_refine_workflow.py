@@ -34,11 +34,13 @@ from .workflow_registry import (
     LIGHTX2V_FL2V_8STEP_LORA,
     LIGHTX2V_REF2V_4STEP_LORA,
     T8_WORKFLOWS,
+    REFINE_DEFAULT_UPSCALE_METHOD,
     h3_diffusion_unet,
     h3_dimensions,
     h3_length,
     h3_lora_loader_class,
     refine_target_megapixels,
+    refine_upscale_method_value,
 )
 
 REFINE_LATENT_UPSCALER = "minimax_h3_latent_upscaler_3d_bf16.safetensors"
@@ -148,6 +150,7 @@ def build_refine_nodes(
     first_pass_model: list[Any],
     confirm_first_pass: bool = False,
     refine_mode: str = "auto",
+    upscale_method: str = REFINE_DEFAULT_UPSCALE_METHOD,
 ) -> tuple[dict[str, dict[str, Any]], list[Any]]:
     """Second-pass nodes shared by Director-based and timeline graphs.
 
@@ -157,6 +160,10 @@ def build_refine_nodes(
     target canvas is capped by frame count in auto mode; 1.0+ MP on long clips
     costs minutes per step on the same card. ``refine_mode="force"`` skips the
     cap and accepts that cost.
+
+    ``upscale_method`` selects how the latent reaches the target canvas:
+    ``h3_latent`` (validated), ``lanczos`` (pixel interpolation), or
+    ``nvidia_rtx_vsr`` (needs nvidia-vfx on the render host).
     """
     target_megapixels = refine_target_megapixels(
         refine_quality, length, force=refine_mode == "force",
@@ -183,7 +190,7 @@ def build_refine_nodes(
             "inputs": {
                 "sigmas": ["44", 0],
                 "mode": "upscale",
-                "upscale_method": "h3_latent",
+                "upscale_method": upscale_method,
                 "latent_upscale_model": REFINE_LATENT_UPSCALER,
                 "sampler": "euler",
                 "passes": 1,
@@ -352,6 +359,7 @@ def build_minimax_h3_refine_workflow(
         first_pass_model=model_source,
         confirm_first_pass=preview,
         refine_mode=refine_mode,
+        upscale_method=refine_upscale_method_value(options),
     )
     workflow.update(refine_nodes)
     workflow[DIRECTOR_NODE]["inputs"]["refine"] = refine_link

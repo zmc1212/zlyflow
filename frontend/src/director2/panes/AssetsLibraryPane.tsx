@@ -4,28 +4,32 @@
 // 自动保存队列（700ms 防抖 + 串行队列 + beforeunload keepalive）行为与原版一致。
 // 角色/场景/道具工作区与各弹窗已按原版内部分区下沉到 ./assets/ 子组件。
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react"
-import { Button, Form, Input, Modal, Popconfirm, Segmented, Space, Spin, Tag, message } from "antd"
+import type { XYPosition } from "@xyflow/react"
+import { useSearchParams } from "react-router-dom"
+import { reconcileAssetGeneration } from "../asset-generation-result"
+import { Button, Checkbox, Form, Input, Modal, Popconfirm, Segmented, Space, Spin, Tag, message } from "antd"
 import {
   Boxes,
   Compass,
   Edit3,
-  Eye,
-  Layers,
   Plus,
-  RefreshCw,
   Save,
   Search,
   Shirt,
   Sparkles,
   Trash2,
+  ArrowLeft,
+  ArrowRight,
 } from "lucide-react"
 import {
   listAssets,
+  listJobs,
   createAsset,
   updateAsset,
   deleteAsset,
   generateAssetImage,
   uploadAssetSourceReference,
+  uploadAssetProductionImage,
   deleteAssetSourceReference,
   inferAssetPromptsFromReferences,
   uploadAssetVoice,
@@ -68,10 +72,19 @@ import { MAX_SOURCE_REFERENCE_BYTES, remainingSourceReferenceSlots, sourceRefere
 import { MAX_VOICE_AUDIO_BYTES, hasRefAudio, isVoiceAudioFile, voiceOf } from "../voice-profile"
 import { useMediaPreview } from "../media-preview"
 import "./assets-library.css"
+import { assetReadiness } from "../project-flow"
+import { planAssetGeneration, visibleAssetSelection } from "../asset-library-generation"
+import "./production-assets.css"
+import AssetCreationCanvas, { AssetCanvasCreateModal, type AssetCanvasActions } from "./AssetCreationCanvas"
+import { appendCanvasReference, assetCanvasJobNode, assetNodeId, assetSlotPrompt, buildAssetCanvas, canvasIdentities, patchAssetSlotPrompt, readAssetCanvasLayout, targetKey, type AssetCanvasTarget } from "../asset-canvas-model"
+import AssetCanvasVoiceModal from "./assets/AssetCanvasVoiceModal"
 
 interface AssetsLibraryPaneProps {
   csrfToken: string
   projectId: string
+  onChanged?: () => void
+  onBack?: () => void
+  onContinue?: () => void | Promise<void>
 }
 
 export type AssetsLibraryPaneHandle = {
@@ -79,19 +92,6 @@ export type AssetsLibraryPaneHandle = {
 }
 
 type AutoSaveState = "idle" | "pending" | "saving" | "saved" | "error"
-
-type BatchGenerateOptions = {
-  kind: string
-  setLoading: (v: boolean) => void
-  messageKey: string
-  label: string
-  targetType: string
-  aspectRatio: string
-  hasOutput: (a: Director2Asset) => boolean
-  hasReference?: (a: Director2Asset) => boolean
-  referenceHint?: string
-  buildPayload?: (a: Director2Asset) => Record<string, unknown>
-}
 
 const AUTO_SAVE_STATUS_TEXT: Record<AutoSaveState, string> = {
   idle: "修改后自动保存",
@@ -102,10 +102,26 @@ const AUTO_SAVE_STATUS_TEXT: Record<AutoSaveState, string> = {
 }
 
 const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneProps>(function AssetsLibraryPane(
-  { csrfToken, projectId },
+  { csrfToken, projectId, onChanged, onBack, onContinue },
   ref,
 ) {
   const { openMediaPreview } = useMediaPreview()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [detailOpen, setDetailOpen] = useState(!!searchParams.get("asset") || searchParams.get("view") === "canvas")
+  const [canvasWorking, setCanvasWorking] = useState<string | null>(null)
+  const canvasWorkingRef = useRef<string | null>(null)
+  const [canvasRecoveredWork, setCanvasRecoveredWork] = useState<string | null>(null)
+  const canvasRecoveredWorkRef = useRef<string | null>(null)
+  const [canvasJobsLoading, setCanvasJobsLoading] = useState(true)
+  const [canvasErrors, setCanvasErrors] = useState<Record<string, string>>({})
+  const [canvasVoiceOpen, setCanvasVoiceOpen] = useState(false)
+  const canvasCreateOrigin = useRef<XYPosition | null>(null)
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([])
+  const [batchProgress, setBatchProgress] = useState<{ completed: number; total: number; label: string } | null>(null)
+  const batchGeneratingRef = useRef(false)
+  const [continuing, setContinuing] = useState(false)
+  const [flowModal, flowModalContext] = Modal.useModal()
   const [assets, setAssets] = useState<Director2Asset[]>([])
   const [selectedAsset, setSelectedAsset] = useState<Director2Asset | null>(null)
   const [loading, setLoading] = useState(false)
@@ -114,19 +130,13 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
 
   // 与 Vue 实例级可变量（let autoSaveTimer / autoSaveQueuedSnapshot / autoSaveRunner / suppressAutoSave）对应的 ref
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const autoSaveQueuedSnapshotRef = useRef<Director2Asset | null>(null)
+  const autoSaveQueuedSnapshotRef = useRef(new Map<string, Director2Asset>())
+  const failedSaveSnapshotsRef = useRef(new Map<string, Director2Asset>())
   const autoSaveRunnerRef = useRef<Promise<void> | null>(null)
   const suppressAutoSaveRef = useRef(false)
 
   // 各生成动作的独立 Loading 状态
   const [generatingIdentityId, setGeneratingIdentityId] = useState<string | null>(null)
-  const [batchGeneratingLooks, setBatchGeneratingLooks] = useState(false)
-  const [batchGeneratingSceneMasters, setBatchGeneratingSceneMasters] = useState(false)
-  const [batchGeneratingSceneReverses, setBatchGeneratingSceneReverses] = useState(false)
-  const [batchGeneratingScenePanos, setBatchGeneratingScenePanos] = useState(false)
-  const [batchGeneratingPropReferences, setBatchGeneratingPropReferences] = useState(false)
-  const [batchGeneratingPropTurnarounds, setBatchGeneratingPropTurnarounds] = useState(false)
-  const [batchGeneratingPropDetails, setBatchGeneratingPropDetails] = useState(false)
   const [generatingMaster, setGeneratingMaster] = useState(false)
   const [generatingReverse, setGeneratingReverse] = useState(false)
   const [uploadingSourceRef, setUploadingSourceRef] = useState(false)
@@ -142,27 +152,6 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
   const [generatingProp, setGeneratingProp] = useState(false)
   const [generatingPropTurnaround, setGeneratingPropTurnaround] = useState(false)
   const [generatingPropDetail, setGeneratingPropDetail] = useState(false)
-
-  const batchGenerationActive = useMemo(
-    () => [
-      batchGeneratingLooks,
-      batchGeneratingSceneMasters,
-      batchGeneratingSceneReverses,
-      batchGeneratingScenePanos,
-      batchGeneratingPropReferences,
-      batchGeneratingPropTurnarounds,
-      batchGeneratingPropDetails,
-    ].some((state) => state),
-    [
-      batchGeneratingLooks,
-      batchGeneratingSceneMasters,
-      batchGeneratingSceneReverses,
-      batchGeneratingScenePanos,
-      batchGeneratingPropReferences,
-      batchGeneratingPropTurnarounds,
-      batchGeneratingPropDetails,
-    ],
-  )
 
   const [submitting, setSubmitting] = useState(false)
   const [modalVisible, setModalVisible] = useState(false)
@@ -264,14 +253,22 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
     return list
   }, [assets, currentTab, searchKeyword])
 
+  const visibleSelectedIds = visibleAssetSelection(filteredAssets, selectedAssetIds)
+  const missingAssetCount = assets.filter(asset => asset.kind === currentTab && assetReadiness(asset).ready < assetReadiness(asset).total).length
+
+  useEffect(() => {
+    setSelectedAssetIds([])
+    setSelectionMode(false)
+  }, [currentTab, searchKeyword, projectId])
+
   function cloneAssetSnapshot(asset: Director2Asset | null): Director2Asset | null {
     return asset ? JSON.parse(JSON.stringify(asset)) as Director2Asset : null
   }
 
   async function runAutoSaveQueue() {
-    while (autoSaveQueuedSnapshotRef.current) {
-      const snapshot = autoSaveQueuedSnapshotRef.current
-      autoSaveQueuedSnapshotRef.current = null
+    while (autoSaveQueuedSnapshotRef.current.size) {
+      const snapshot = autoSaveQueuedSnapshotRef.current.values().next().value!
+      autoSaveQueuedSnapshotRef.current.delete(snapshot.id)
       if (!snapshot.name?.trim()) {
         updateAutoSaveState("error")
         message.warning("名称不能为空，当前修改未保存")
@@ -281,9 +278,13 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
       updateAutoSaveState("saving")
       try {
         const updated = await updateAsset(csrfToken, projectId, snapshot.id, snapshot)
-        replaceAssetInList(snapshot.id, updated)
-        updateAutoSaveState(autoSaveQueuedSnapshotRef.current || autoSaveTimerRef.current ? "pending" : "saved")
+        failedSaveSnapshotsRef.current.delete(snapshot.id)
+        const pending = autoSaveQueuedSnapshotRef.current.get(snapshot.id)
+        const editing = selectedAssetRef.current?.id === snapshot.id && autoSaveTimerRef.current ? selectedAssetRef.current : null
+        replaceAssetInList(snapshot.id, pending || editing || updated)
+        updateAutoSaveState(failedSaveSnapshotsRef.current.size ? "error" : autoSaveQueuedSnapshotRef.current.size || autoSaveTimerRef.current ? "pending" : "saved")
       } catch (err) {
+        failedSaveSnapshotsRef.current.set(snapshot.id, snapshot)
         updateAutoSaveState("error")
         message.error(director2ErrorDetail(err, "自动保存失败，请检查网络后继续修改"))
       } finally {
@@ -294,11 +295,12 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
 
   function enqueueAutoSave(snapshot: Director2Asset | null) {
     if (!snapshot?.id) return Promise.resolve()
-    autoSaveQueuedSnapshotRef.current = snapshot
+    autoSaveQueuedSnapshotRef.current.set(snapshot.id, snapshot)
     if (!autoSaveRunnerRef.current) {
       autoSaveRunnerRef.current = runAutoSaveQueue().finally(() => {
         autoSaveRunnerRef.current = null
-        if (autoSaveQueuedSnapshotRef.current) enqueueAutoSave(autoSaveQueuedSnapshotRef.current)
+        const next = autoSaveQueuedSnapshotRef.current.values().next().value
+        if (next) enqueueAutoSave(next)
       })
     }
     return autoSaveRunnerRef.current
@@ -336,6 +338,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
 
   async function handleSaveDetail() {
     if (!selectedAssetRef.current) return
+    for (const failed of failedSaveSnapshotsRef.current.values()) autoSaveQueuedSnapshotRef.current.set(failed.id, failed)
     updateAutoSaveState("pending")
     await flushAutoSave()
   }
@@ -370,7 +373,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
       if (!copy.extra.identities) copy.extra.identities = []
     } else if (copy.kind === "scene") {
       if (!copy.extra.environment_prompt) {
-        copy.extra.environment_prompt = copy.visual_prompt || `${copy.name}，电影级实景空间，宋式古典建筑美学，自然光影，8k`
+        copy.extra.environment_prompt = copy.visual_prompt || copy.description || `${copy.name}，电影级实景空间，忠于剧本的时代与环境设定，自然光影`
       }
       if (!copy.extra.reverse_prompt) {
         copy.extra.reverse_prompt = `${copy.name}，对立反打机位视角，180度对立景深透视，空间镜头，8k`
@@ -443,31 +446,92 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
       }
       if (list.length > 0) {
         if (!selectedAssetRef.current || selectedAssetRef.current.kind !== tabKey) {
-          selectAsset(list[0])
+          if (detailOpen) openAsset(list[0])
+          else selectAsset(list[0])
         }
       } else {
         applySelected(null)
+        if (detailOpen) closeAsset()
       }
     }, 50)
   }
 
   function applyGeneratedAsset(assetId: string, res: GenerateImageResult) {
-    if (!res?.asset) return
-    replaceAssetInList(assetId, res.asset)
-    if (selectedAssetRef.current?.id === assetId) {
+    const update = reconcileAssetGeneration(assetsRef.current, selectedAssetRef.current, assetId, res?.asset)
+    if (!update) return
+    setAssetsList(update.assets)
+    const pending = autoSaveQueuedSnapshotRef.current.get(assetId)
+    if (pending?.id === assetId) {
+      autoSaveQueuedSnapshotRef.current.set(assetId, reconcileAssetGeneration([pending], pending, assetId, res.asset)?.selected || pending)
+    }
+    if (selectedAssetRef.current?.id === assetId && update.selected) {
       suppressAutoSaveRef.current = true
-      applySelected({ ...res.asset })
+      applySelected(update.selected)
     }
   }
 
   function applyServerAsset(asset: Director2Asset) {
     replaceAssetInList(asset.id, asset)
-    if (autoSaveQueuedSnapshotRef.current?.id === asset.id) {
-      autoSaveQueuedSnapshotRef.current = cloneAssetSnapshot(asset)
+    if (autoSaveQueuedSnapshotRef.current.has(asset.id)) {
+      autoSaveQueuedSnapshotRef.current.set(asset.id, cloneAssetSnapshot(asset)!)
     }
     if (selectedAssetRef.current?.id === asset.id) {
       suppressAutoSaveRef.current = true
       applySelected({ ...asset })
+    }
+  }
+
+  async function generateSelectedAssets() {
+    if (batchGeneratingRef.current || canvasWorkingRef.current || canvasRecoveredWorkRef.current || canvasJobsLoading) return
+    const selectedIds = visibleAssetSelection(filteredAssets, selectedAssetIds)
+    if (!selectedIds.length) return
+    batchGeneratingRef.current = true
+    try {
+      await flushAutoSave()
+      if (autoSaveStateRef.current === "error") { message.error("资产修改尚未保存，请先重试保存"); return }
+      const plan = planAssetGeneration(assetsRef.current, selectedIds)
+      if (!plan.items.length) {
+        if (plan.blocked.length) message.warning(`${plan.blocked[0].label}：${plan.blocked[0].reason}`)
+        else message.info("所选资产图片已就绪，可打开资产重新生成")
+        return
+      }
+      setBatchProgress({ completed: 0, total: plan.items.length, label: "正在准备资产…" })
+      const failures: string[] = []
+      let completed = 0
+      for (const item of plan.items) {
+        const key = assetNodeId(item.assetId, targetKey(item.target))
+        canvasWorkingRef.current = key; setCanvasWorking(key)
+        setBatchProgress({ completed, total: plan.items.length, label: item.label })
+        setCanvasErrors(previous => { const next = { ...previous }; delete next[key]; return next })
+        try {
+          const asset = canvasAsset(item.assetId)
+          if (item.target.type === "identity") {
+            const identities = canvasIdentities(asset)
+            if (JSON.stringify(identities) !== JSON.stringify(asset.extra?.identities)) {
+              const saved = await updateAsset(csrfToken, projectId, asset.id, { extra: { ...asset.extra, identities } })
+              applyServerAsset(saved)
+            }
+          }
+          const result = await generateAssetImage(csrfToken, projectId, item.assetId, item.payload)
+          applyGeneratedAsset(item.assetId, result)
+        } catch (err) {
+          const reason = director2ErrorDetail(err, "图片生成失败")
+          failures.push(`${item.label}：${reason}`)
+          setCanvasErrors(previous => ({ ...previous, [key]: reason }))
+        }
+        completed += 1
+        setBatchProgress({ completed, total: plan.items.length, label: item.label })
+      }
+      const skipped = plan.blocked.length ? `，${plan.blocked.length} 个形象缺少描述或参考图，未生成` : ""
+      if (failures.length) message.warning({ content: `已生成 ${completed - failures.length}/${plan.items.length} 张${skipped}；${failures.slice(0, 2).join("；")}`, duration: 8 })
+      else if (skipped) message.warning({ content: `已生成 ${completed} 张${skipped}`, duration: 6 })
+      else message.success(`已生成 ${completed} 张图片`)
+      onChanged?.()
+    } catch (err) {
+      message.error(director2ErrorDetail(err, "资产生成失败"))
+    } finally {
+      batchGeneratingRef.current = false
+      canvasWorkingRef.current = null; setCanvasWorking(null); setBatchProgress(null)
     }
   }
 
@@ -678,248 +742,6 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
     }
   }
 
-  async function handleBatchGenerateLooks() {
-    const chars = assetsRef.current.filter((a) => a.kind === "character")
-    const jobs: Array<{ ast: Director2Asset; ident: AssetIdentity; costume: string }> = []
-    let skippedNoCostume = 0
-    for (const ast of chars) {
-      for (const ident of (ast.extra?.identities as AssetIdentity[]) || []) {
-        const blocker = identityLookEnqueueBlocker(ast, ident)
-        if (blocker) {
-          skippedNoCostume += 1
-          continue
-        }
-        if (ident.image_url) continue
-        const costume = (ident.description || ident.appearance_details || "").trim()
-        jobs.push({ ast, ident, costume })
-      }
-    }
-    if (!jobs.length) {
-      message.info("所有角色设定板已就绪（或缺少外观描述且无原片截图）")
-      return
-    }
-    setBatchGeneratingLooks(true)
-    let ok = 0
-    const failed: string[] = []
-    message.loading({ content: `开始一键生成 ${jobs.length} 张设定板…`, key: "batchLooks" })
-    try {
-      for (let i = 0; i < jobs.length; i += 1) {
-        const { ast, ident, costume } = jobs[i]
-        message.loading({
-          content: `正在生成设定板 (${i + 1}/${jobs.length})：${ast.name} · ${ident.name}`,
-          key: "batchLooks",
-        })
-        try {
-          const res = (await generateAssetImage(csrfToken, projectId, ast.id, {
-            target_type: "identity",
-            identity_id: ident.id,
-            prompt: costume,
-            model: "gpt-image-2",
-            aspect_ratio: "16:9",
-            ...characterStylePayload(ast),
-          })) as GenerateImageResult
-          applyGeneratedAsset(ast.id, res)
-          ok += 1
-        } catch (err) {
-          failed.push(`${ast.name}/${ident.name}: ${director2ErrorDetail(err, "失败")}`)
-        }
-      }
-      const skipSuffix = skippedNoCostume ? `，${skippedNoCostume} 个造型缺外观描述已跳过` : ""
-      if (failed.length) {
-        message.warning({
-          content: `设定板完成 ${ok}/${jobs.length}${skipSuffix}，失败：${failed.slice(0, 3).join("；")}`,
-          key: "batchLooks",
-          duration: 6,
-        })
-      } else {
-        message.success({ content: `已一键生成 ${ok} 张设定板${skipSuffix}`, key: "batchLooks" })
-      }
-    } finally {
-      setBatchGeneratingLooks(false)
-    }
-  }
-
-  async function runBatchAssetGeneration({
-    kind,
-    setLoading: setLoadingState,
-    messageKey,
-    label,
-    targetType,
-    aspectRatio,
-    hasOutput,
-    hasReference = () => true,
-    referenceHint = "",
-    buildPayload = () => ({}),
-  }: BatchGenerateOptions) {
-    const kindAssets = assetsRef.current.filter((a) => a.kind === kind)
-    const pending = kindAssets.filter((a) => !hasOutput(a))
-    const targets = pending.filter(hasReference)
-    const skipped = pending.length - targets.length
-
-    if (!targets.length) {
-      if (!kindAssets.length) {
-        message.info(`暂无${kindLabel(kind)}可生成${label}`)
-      } else if (skipped) {
-        message.info(referenceHint)
-      } else {
-        message.info(`所有${kindLabel(kind)}${label}已就绪，无需再生成`)
-      }
-      return
-    }
-
-    setLoadingState(true)
-    let ok = 0
-    const failed: string[] = []
-    message.loading({ content: `开始一键生成 ${targets.length} 张${label}…`, key: messageKey })
-    try {
-      for (let i = 0; i < targets.length; i += 1) {
-        const ast = targets[i]
-        message.loading({
-          content: `正在生成${label} (${i + 1}/${targets.length})：${ast.name}`,
-          key: messageKey,
-        })
-        try {
-          const res = (await generateAssetImage(csrfToken, projectId, ast.id, {
-            target_type: targetType,
-            model: "gpt-image-2",
-            aspect_ratio: aspectRatio,
-            ...buildPayload(ast),
-          })) as GenerateImageResult
-          applyGeneratedAsset(ast.id, res)
-          ok += 1
-        } catch (err) {
-          failed.push(`${ast.name}: ${director2ErrorDetail(err, "失败")}`)
-        }
-      }
-
-      const skipSuffix = skipped ? `，${skipped} 个缺少前置图片已跳过` : ""
-      if (failed.length) {
-        message.warning({
-          content: `${label}完成 ${ok}/${targets.length}${skipSuffix}，失败：${failed.slice(0, 3).join("；")}`,
-          key: messageKey,
-          duration: 6,
-        })
-      } else {
-        message.success({ content: `已一键生成 ${ok} 张${label}${skipSuffix}`, key: messageKey })
-      }
-    } finally {
-      setLoadingState(false)
-    }
-  }
-
-  function sceneStylePayload(ast: Director2Asset | null) {
-    const extra = ast?.extra || {}
-    return {
-      visual_style: extra.visual_style || "",
-      art_style_id: extra.art_style_id || "",
-    }
-  }
-
-  function hasSceneMaster(ast: Director2Asset | null | undefined) {
-    return Boolean(ast?.extra?.master_url || ast?.image_url)
-  }
-
-  function handleBatchGenerateSceneMasters() {
-    return runBatchAssetGeneration({
-      kind: "scene",
-      setLoading: setBatchGeneratingSceneMasters,
-      messageKey: "batchSceneMasters",
-      label: "正面图",
-      targetType: "scene_master",
-      aspectRatio: "16:9",
-      hasOutput: hasSceneMaster,
-      buildPayload: (ast) => ({
-        prompt: (ast.extra?.environment_prompt || ast.visual_prompt || ast.name || "").trim(),
-        ...sceneStylePayload(ast),
-      }),
-    })
-  }
-
-  function handleBatchGenerateSceneReverses() {
-    return runBatchAssetGeneration({
-      kind: "scene",
-      setLoading: setBatchGeneratingSceneReverses,
-      messageKey: "batchSceneReverses",
-      label: "背面图",
-      targetType: "scene_reverse",
-      aspectRatio: "16:9",
-      hasOutput: (ast) => Boolean(ast.extra?.reverse_url),
-      hasReference: hasSceneMaster,
-      referenceHint: "请先生成场景正面图，背面图需要将正面图作为参考",
-      buildPayload: sceneStylePayload,
-    })
-  }
-
-  function handleBatchGenerateScenePanos() {
-    return runBatchAssetGeneration({
-      kind: "scene",
-      setLoading: setBatchGeneratingScenePanos,
-      messageKey: "batchScenePanos",
-      label: "360图",
-      targetType: "scene_pano",
-      aspectRatio: "2:1",
-      hasOutput: (ast) => Boolean(ast.extra?.pano_url),
-      hasReference: hasSceneMaster,
-      referenceHint: "请先生成场景正面图，360 图需要将正面图作为参考",
-      buildPayload: sceneStylePayload,
-    })
-  }
-
-  function propStylePayload(ast: Director2Asset | null) {
-    const extra = ast?.extra || {}
-    return {
-      visual_style: extra.visual_style || "",
-      art_style_id: extra.art_style_id || "",
-    }
-  }
-
-  function hasPropReference(ast: Director2Asset | null | undefined) {
-    return Boolean(ast?.extra?.reference_url || ast?.image_url)
-  }
-
-  function handleBatchGeneratePropReferences() {
-    return runBatchAssetGeneration({
-      kind: "prop",
-      setLoading: setBatchGeneratingPropReferences,
-      messageKey: "batchPropReferences",
-      label: "参考图",
-      targetType: "prop_reference",
-      aspectRatio: "16:9",
-      hasOutput: hasPropReference,
-      buildPayload: propStylePayload,
-    })
-  }
-
-  function handleBatchGeneratePropTurnarounds() {
-    return runBatchAssetGeneration({
-      kind: "prop",
-      setLoading: setBatchGeneratingPropTurnarounds,
-      messageKey: "batchPropTurnarounds",
-      label: "三视图",
-      targetType: "prop_turnaround",
-      aspectRatio: "16:9",
-      hasOutput: (ast) => Boolean(ast.extra?.turnaround_url),
-      hasReference: hasPropReference,
-      referenceHint: "请先生成道具参考图，三视图需要将参考图作为参考",
-      buildPayload: propStylePayload,
-    })
-  }
-
-  function handleBatchGeneratePropDetails() {
-    return runBatchAssetGeneration({
-      kind: "prop",
-      setLoading: setBatchGeneratingPropDetails,
-      messageKey: "batchPropDetails",
-      label: "细节图",
-      targetType: "prop_detail",
-      aspectRatio: "16:9",
-      hasOutput: (ast) => Boolean(ast.extra?.detail_url),
-      hasReference: hasPropReference,
-      referenceHint: "请先生成道具参考图，细节图需要将参考图作为参考",
-      buildPayload: propStylePayload,
-    })
-  }
-
   // 2. 生成角色设定板 (16:9 / 2K)
   async function handleGenerateIdentityImage(ident: AssetIdentity) {
     const sel = selectedAssetRef.current
@@ -940,30 +762,13 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
         aspect_ratio: "16:9",
         ...characterStylePayload(sel),
       })) as GenerateImageResult
-      const cur = selectedAssetRef.current
-      if (!cur) return
-      const refCount = Number(res.source_reference_count || sourceReferencesOf(cur).length)
+      const refCount = Number(res.source_reference_count || sourceReferencesOf(sel).length)
       message.success(
         refCount > 0
           ? `造型「${ident.name}」已按 ${refCount} 张原片截图的服装生成`
           : `造型「${ident.name}」造型图生成成功！`,
       )
-      if (res.image_url) {
-        // 与 Vue 直接改写 ident 对象一致：若选中资产已被整体替换则该改写自然失效
-        mutateSelected((prev) => ({
-          ...prev,
-          extra: {
-            ...(prev.extra || {}),
-            identities: ((prev.extra?.identities as AssetIdentity[]) || []).map((it) =>
-              it === ident ? { ...it, image_url: res.image_url } : it,
-            ),
-          },
-        }))
-        const idx = assetsRef.current.findIndex((a) => a.id === cur.id)
-        if (idx !== -1 && res.asset) {
-          replaceAssetInList(cur.id, res.asset)
-        }
-      }
+      applyGeneratedAsset(sel.id, res)
     } catch (err) {
       message.error(director2ErrorDetail(err, "造型形象生成失败"))
     } finally {
@@ -983,21 +788,8 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
         prompt,
         aspect_ratio: "16:9",
       })) as GenerateImageResult
-      const cur = selectedAssetRef.current
-      if (!cur) return
-      message.success(`场景「${cur.name}」Master 主视角生成成功！`)
-      if (res.image_url) {
-        const imageUrl = res.image_url
-        mutateSelected((prev) => ({
-          ...prev,
-          extra: { ...(prev.extra || {}), master_url: imageUrl },
-          image_url: imageUrl,
-        }))
-        const idx = assetsRef.current.findIndex((a) => a.id === cur.id)
-        if (idx !== -1 && res.asset) {
-          replaceAssetInList(cur.id, res.asset)
-        }
-      }
+      message.success(`场景「${sel.name}」Master 主视角生成成功！`)
+      applyGeneratedAsset(sel.id, res)
     } catch (err) {
       message.error(director2ErrorDetail(err, "主视角生成失败"))
     } finally {
@@ -1024,19 +816,8 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
         visual_style: extra.visual_style || "",
         art_style_id: extra.art_style_id || "",
       })) as GenerateImageResult
-      const cur = selectedAssetRef.current
-      if (!cur) return
-      message.success(`场景「${cur.name}」Reverse 背面反打视角生成成功！`)
-      if (res.image_url) {
-        mutateSelected((prev) => ({
-          ...prev,
-          extra: { ...(prev.extra || {}), reverse_url: res.image_url },
-        }))
-        const idx = assetsRef.current.findIndex((a) => a.id === cur.id)
-        if (idx !== -1 && res.asset) {
-          replaceAssetInList(cur.id, res.asset)
-        }
-      }
+      message.success(`场景「${sel.name}」Reverse 背面反打视角生成成功！`)
+      applyGeneratedAsset(sel.id, res)
     } catch (err) {
       message.error(director2ErrorDetail(err, "反打视角生成失败"))
     } finally {
@@ -1063,19 +844,8 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
         visual_style: extra.visual_style || "",
         art_style_id: extra.art_style_id || "",
       })) as GenerateImageResult
-      const cur = selectedAssetRef.current
-      if (!cur) return
-      message.success(`场景「${cur.name}」360° 全景图生成成功！`)
-      if (res.image_url) {
-        mutateSelected((prev) => ({
-          ...prev,
-          extra: { ...(prev.extra || {}), pano_url: res.image_url },
-        }))
-        const idx = assetsRef.current.findIndex((a) => a.id === cur.id)
-        if (idx !== -1 && res.asset) {
-          replaceAssetInList(cur.id, res.asset)
-        }
-      }
+      message.success(`场景「${sel.name}」360° 全景图生成成功！`)
+      applyGeneratedAsset(sel.id, res)
     } catch (err) {
       message.error(director2ErrorDetail(err, "360 全景图生成失败"))
     } finally {
@@ -1097,21 +867,8 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
         visual_style: extra.visual_style || "",
         art_style_id: extra.art_style_id || "",
       })) as GenerateImageResult
-      const cur = selectedAssetRef.current
-      if (!cur) return
-      message.success(`道具「${cur.name}」参考图生成成功！`)
-      if (res.image_url) {
-        const imageUrl = res.image_url
-        mutateSelected((prev) => ({
-          ...prev,
-          extra: { ...(prev.extra || {}), reference_url: imageUrl },
-          image_url: imageUrl,
-        }))
-        const idx = assetsRef.current.findIndex((a) => a.id === cur.id)
-        if (idx !== -1 && res.asset) {
-          replaceAssetInList(cur.id, res.asset)
-        }
-      }
+      message.success(`道具「${sel.name}」参考图生成成功！`)
+      applyGeneratedAsset(sel.id, res)
     } catch (err) {
       message.error(director2ErrorDetail(err, "道具参考图生成失败"))
     } finally {
@@ -1138,19 +895,8 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
         visual_style: extra.visual_style || "",
         art_style_id: extra.art_style_id || "",
       })) as GenerateImageResult
-      const cur = selectedAssetRef.current
-      if (!cur) return
-      message.success(`道具「${cur.name}」三视图生成成功！`)
-      if (res.image_url) {
-        mutateSelected((prev) => ({
-          ...prev,
-          extra: { ...(prev.extra || {}), turnaround_url: res.image_url },
-        }))
-        const idx = assetsRef.current.findIndex((a) => a.id === cur.id)
-        if (idx !== -1 && res.asset) {
-          replaceAssetInList(cur.id, res.asset)
-        }
-      }
+      message.success(`道具「${sel.name}」三视图生成成功！`)
+      applyGeneratedAsset(sel.id, res)
     } catch (err) {
       message.error(director2ErrorDetail(err, "三视图生成失败"))
     } finally {
@@ -1177,19 +923,8 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
         visual_style: extra.visual_style || "",
         art_style_id: extra.art_style_id || "",
       })) as GenerateImageResult
-      const cur = selectedAssetRef.current
-      if (!cur) return
-      message.success(`道具「${cur.name}」细节特写生成成功！`)
-      if (res.image_url) {
-        mutateSelected((prev) => ({
-          ...prev,
-          extra: { ...(prev.extra || {}), detail_url: res.image_url },
-        }))
-        const idx = assetsRef.current.findIndex((a) => a.id === cur.id)
-        if (idx !== -1 && res.asset) {
-          replaceAssetInList(cur.id, res.asset)
-        }
-      }
+      message.success(`道具「${sel.name}」细节特写生成成功！`)
+      applyGeneratedAsset(sel.id, res)
     } catch (err) {
       message.error(director2ErrorDetail(err, "细节特写生成失败"))
     } finally {
@@ -1468,14 +1203,16 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
     }
     setSubmitting(true)
     try {
-      const created = await createAsset(csrfToken, projectId, { ...form })
+      const position = canvasCreateOrigin.current
+      const created = await createAsset(csrfToken, projectId, { ...form, ...(position ? { extra: { creation_canvas: { version: 1, positions: { group: { ...position } }, links: [] } } } : {}) })
+      canvasCreateOrigin.current = null
       message.success(`「${created.name}」创建成功`)
       setModalVisible(false)
       setTab(created.kind)
       await fetchAssets()
       if (created && created.id) {
         const found = assetsRef.current.find((a) => a.id === created.id)
-        if (found) selectAsset(found)
+        if (found) openAsset(found)
       }
     } catch (err) {
       message.error(director2ErrorDetail(err, "创建失败"))
@@ -1485,6 +1222,172 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
   }
 
   useImperativeHandle(ref, () => ({ fetchAssets }))
+
+  const requestedAsset = searchParams.get("asset")
+  const requestedView = searchParams.get("view")
+  useEffect(() => {
+    if (!requestedAsset) { setDetailOpen(requestedView === "canvas"); return }
+    const found = assets.find(asset => asset.id === requestedAsset)
+    if (found && selectedAssetRef.current?.id !== found.id) { setTab(found.kind); selectAsset(found) }
+    if (found) setDetailOpen(true)
+    // A URL addresses the same asset ID as the existing detail editor.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedAsset, requestedView, assets])
+
+  function openAsset(asset: Director2Asset) {
+    if (selectedAssetRef.current?.id !== asset.id) selectAsset(asset)
+    setDetailOpen(true)
+    setSearchParams(current => { const next = new URLSearchParams(current); next.set("asset", asset.id); next.set("view", "canvas"); return next }, { replace: detailOpen })
+  }
+  async function closeAsset() {
+    await flushAutoSave()
+    if (autoSaveStateRef.current === "error") { message.error("资产修改尚未保存，请重试保存后再返回"); return }
+    setDetailOpen(false)
+    setSearchParams(current => { const next = new URLSearchParams(current); next.delete("asset"); next.delete("view"); next.delete("node"); return next })
+    onChanged?.()
+  }
+
+  function canvasAsset(id: string) {
+    const asset = selectedAssetRef.current?.id === id ? selectedAssetRef.current : assetsRef.current.find(item => item.id === id)
+    if (!asset) throw new Error("资产不存在，请刷新资产库")
+    return asset
+  }
+  function patchCanvasAsset(id: string, patch: Partial<Director2Asset> = {}, extra: Record<string, unknown> = {}) {
+    const asset = canvasAsset(id)
+    if (selectedAssetRef.current?.id !== id) openAsset(asset)
+    const next = { ...canvasAsset(id), ...patch, extra: { ...canvasAsset(id).extra, ...extra } }
+    suppressAutoSaveRef.current = false
+    applySelected(next); replaceAssetInList(id, next); updateAutoSaveState("pending")
+    return next
+  }
+  async function saveCanvasChanges() {
+    await handleSaveDetail()
+    if (autoSaveStateRef.current === "error") throw new Error("自动保存失败，请重试；修改仍保留在当前画布")
+  }
+  function ensureCanvasIdentity(id: string, target: AssetCanvasTarget) {
+    const asset = canvasAsset(id)
+    if (target.type === "identity") {
+      const looks = canvasIdentities(asset)
+      if (JSON.stringify(looks) !== JSON.stringify(asset.extra?.identities)) patchCanvasAsset(id, {}, { identities: looks })
+    }
+  }
+  async function canvasGenerate(id: string, target: AssetCanvasTarget) {
+    if (batchGeneratingRef.current || canvasWorkingRef.current || canvasRecoveredWorkRef.current || canvasJobsLoading) return
+    const key = assetNodeId(id, targetKey(target))
+    canvasWorkingRef.current = key; setCanvasWorking(key)
+    setCanvasErrors(previous => { const next = { ...previous }; delete next[key]; return next })
+    try {
+      ensureCanvasIdentity(id, target)
+      await saveCanvasChanges()
+      const asset = canvasAsset(id)
+      const result = await generateAssetImage(csrfToken, projectId, id, { target_type: target.type, identity_id: target.identityId, prompt: assetSlotPrompt(asset, target), aspect_ratio: target.type === "scene_pano" ? "2:1" : "16:9" })
+      applyGeneratedAsset(id, result)
+      message.success(`「${asset.name}」节点图片已更新`)
+    } catch (err) {
+      const detail = director2ErrorDetail(err, "节点图片生成失败")
+      setCanvasErrors(previous => ({ ...previous, [key]: detail })); message.error(detail)
+    } finally { canvasWorkingRef.current = null; setCanvasWorking(null) }
+  }
+  async function canvasUpload(id: string, target: AssetCanvasTarget | null, files: File[]) {
+    if (batchGeneratingRef.current || canvasWorkingRef.current || canvasRecoveredWorkRef.current || !files.length) return
+    const asset = canvasAsset(id)
+    const limit = target ? 1 : remainingSourceReferenceSlots(asset)
+    const accepted = files.slice(0, limit)
+    if (!limit) { message.warning("每项资产最多添加 9 张参考图"); return }
+    if (accepted.some(file => (!file.type.startsWith("image/") && !/\.(png|jpe?g|webp|gif)$/i.test(file.name)) || file.size > MAX_SOURCE_REFERENCE_BYTES)) { message.warning("请上传不超过 10 MB 的图片"); return }
+    const key = assetNodeId(id, target ? targetKey(target) : "references")
+    canvasWorkingRef.current = key; setCanvasWorking(key)
+    try {
+      if (target) ensureCanvasIdentity(id, target)
+      await saveCanvasChanges()
+      if (target) {
+        const result = await uploadAssetProductionImage(csrfToken, projectId, id, target.type, target.identityId, accepted[0])
+        applyGeneratedAsset(id, { asset: result })
+      } else {
+        for (const file of accepted) {
+          const result = await uploadAssetSourceReference(csrfToken, projectId, id, file)
+          patchCanvasAsset(id, {}, { source_references: result.extra.source_references })
+        }
+        await saveCanvasChanges()
+      }
+      message.success(target ? "图片已绑定到当前节点" : "参考图已添加")
+    } catch (err) { message.error(director2ErrorDetail(err, "图片上传失败")) }
+    finally { canvasWorkingRef.current = null; setCanvasWorking(null) }
+  }
+  const canvasActions: AssetCanvasActions = {
+    select: id => openAsset(canvasAsset(id)), showList: closeAsset,
+    create: (kind, position) => { canvasCreateOrigin.current = position ? { ...position } : null; setTab(kind); openCreateModal() },
+    addLook: id => { openAsset(canvasAsset(id)); openAddIdentityModal() },
+    saveDefinition: async (id, name, role, description) => { patchCanvasAsset(id, { name, role, description }, { canvas_definition: description, description }); await saveCanvasChanges() },
+    saveMetadata: async (id, target, name) => {
+      const asset = canvasAsset(id)
+      if (target.type === "identity") patchCanvasAsset(id, {}, { identities: canvasIdentities(asset).map(look => look.id === target.identityId ? { ...look, name } : look) })
+      else patchCanvasAsset(id, {}, { canvas_node_names: { ...(asset.extra?.canvas_node_names || {}), [targetKey(target)]: name } })
+      await saveCanvasChanges()
+    },
+    prompt: (id, target, prompt) => { patchCanvasAsset(id, {}, patchAssetSlotPrompt(canvasAsset(id), target, prompt)) },
+    position: (id, key, position) => { const layout = readAssetCanvasLayout(canvasAsset(id)); patchCanvasAsset(id, {}, { creation_canvas: { ...layout, positions: { ...layout.positions, [key]: position } } }) },
+    generate: canvasGenerate, upload: canvasUpload,
+    removeReference: async (id, refId) => { try { await saveCanvasChanges(); const result = await deleteAssetSourceReference(csrfToken, projectId, id, refId); patchCanvasAsset(id, {}, { source_references: result.extra.source_references }); await saveCanvasChanges() } catch (err) { message.error(director2ErrorDetail(err, "移除参考图失败")) } },
+    connect: (sourceId, targetId) => {
+      const graph = buildAssetCanvas(assetsRef.current), source = graph.nodes.find(node => node.id === sourceId), target = graph.nodes.find(node => node.id === targetId)
+      if (!source?.data.image || target?.data.role !== "references" || source.data.asset.id === target.data.asset.id) { message.info("将已有图片连到其他资产的参考图节点"); return }
+      try {
+        const asset = canvasAsset(target.data.asset.id), layout = readAssetCanvasLayout(asset)
+        const link = { sourceAssetId: source.data.asset.id, sourceKey: source.data.key, url: source.data.image }
+        patchCanvasAsset(asset.id, {}, { source_references: appendCanvasReference(asset, link.url, `${source.data.asset.name} · ${source.data.title}`), creation_canvas: { ...layout, links: [...layout.links.filter(item => item.sourceAssetId !== link.sourceAssetId || item.sourceKey !== link.sourceKey), link] } })
+        message.success("已将当前图片作为参考图快照")
+      } catch (err) { message.warning(err instanceof Error ? err.message : "无法连接参考图") }
+    },
+    voice: id => { openAsset(canvasAsset(id)); setCanvasVoiceOpen(true) },
+    save: saveCanvasChanges, continue: onContinue ? continueProduction : undefined,
+  }
+
+  useEffect(() => {
+    setCanvasJobsLoading(true)
+    let stopped = false, polling = false
+    const read = async () => {
+      if (polling) return
+      polling = true
+      try {
+        const jobs = await listJobs(projectId)
+        if (stopped) return
+        const active = jobs.find(job => assetCanvasJobNode(job) && ["running", "queued", "pending"].includes(job.status))
+        const next = active ? assetCanvasJobNode(active) : null
+        const previous = canvasRecoveredWorkRef.current
+        canvasRecoveredWorkRef.current = next; setCanvasRecoveredWork(next)
+        setCanvasJobsLoading(false)
+        if (previous && previous !== next) {
+          const finished = jobs.find(job => assetCanvasJobNode(job) === previous)
+          if (finished && ["failed", "error", "cancelled"].includes(finished.status)) setCanvasErrors(errors => ({ ...errors, [previous]: finished.error_message || "节点图片任务未完成，请在任务中心查看原因" }))
+        }
+        if (previous && !next && !canvasWorkingRef.current && !batchGeneratingRef.current) {
+          await flushAutoSave()
+          if (!stopped && autoSaveStateRef.current !== "error") await fetchAssets()
+        }
+      } catch { /* Preserve any known active job until the task service responds again. */ }
+      finally { polling = false }
+    }
+    void read()
+    const timer = window.setInterval(() => void read(), 5000)
+    return () => { stopped = true; window.clearInterval(timer) }
+    // The job view only restores pending production slots; it never resubmits them.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId])
+  async function continueProduction() {
+    if (continuing) return
+    const run = async () => {
+      setContinuing(true)
+      try {
+        flushAutoSave(); await autoSaveRunnerRef.current
+        if (autoSaveStateRef.current === "error") { message.error("资产修改尚未保存，请先重试保存"); return }
+        await onContinue?.()
+      } finally { setContinuing(false) }
+    }
+    const missing = assets.filter(asset => assetReadiness(asset).ready < assetReadiness(asset).total).length
+    if (missing) flowModal.confirm({ title: `还有 ${missing} 项资产待完善参考图`, content: "可以先进入分镜编辑，出片前再回来补齐参考图。", okText: "继续进入分镜", cancelText: "返回完善", onOk: run })
+    else await run()
+  }
 
   useEffect(() => {
     window.addEventListener("beforeunload", persistPendingAssetBeforeUnload)
@@ -1498,18 +1401,21 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
   }, [])
 
   return (
-    <div className="assets-library-pane d2-assets-library">
+    <div className={`assets-library-pane d2-assets-library production-assets${detailOpen ? " is-asset-canvas" : ""}`}>
+      {detailOpen ? <AssetCreationCanvas projectId={projectId} assets={assets.map(asset => selectedAsset?.id === asset.id ? selectedAsset : asset)} selectedId={selectedAsset?.id} selectedNode={searchParams.get("node")} saveStatus={autoSaveStatusText} saveError={autoSaveState === "error"} loading={loading || canvasJobsLoading} working={canvasWorking || canvasRecoveredWork} errors={canvasErrors} actions={canvasActions}/> : <>
       {/* 顶部操作栏 */}
       <div className="sub-pane-header">
         <div className="header-copy">
-          <h2 className="sub-pane-title">资产库</h2>
+          <h2 className="sub-pane-title">{detailOpen ? selectedAsset?.name || "资产详情" : "制作资产库"}</h2>
           <p className="sub-pane-subtitle">
             统一角色造型、场景与道具，为每个镜头准备一致的视觉参考。
           </p>
         </div>
 
         <div className="header-actions">
-          <Button type="primary" className="primary-btn" icon={<Plus size={16} />} onClick={openCreateModal}>
+          <Segmented aria-label="资产视图" value="list" disabled={!!batchProgress} options={[{ value: "list", label: "列表" }, { value: "canvas", label: "画布" }]} onChange={value => { if (value === "canvas") { if (selectedAsset) openAsset(selectedAsset); else { setDetailOpen(true); setSearchParams(current => { const next = new URLSearchParams(current); next.set("view", "canvas"); return next }) } } }}/>
+          {detailOpen && <Button icon={<ArrowLeft size={14}/>} onClick={closeAsset}>返回资产列表</Button>}
+          <Button type="primary" className="primary-btn" icon={<Plus size={16} />} disabled={!!batchProgress} onClick={openCreateModal}>
             新增{kindLabel(currentTab)}
           </Button>
         </div>
@@ -1519,6 +1425,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
           className="asset-kind-switch"
           aria-label="资产分类"
           value={currentTab}
+          disabled={!!batchProgress}
           onChange={(value) => handleTabChange(String(value))}
           options={ASSET_TABS.map((tab) => {
             const KindIcon = getKindIcon(tab.key)
@@ -1528,91 +1435,51 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
             }
           })}
         />
-      {currentTab === "character" ? (
-        <div className="batch-generate-bar">
-          <Button
-            type="primary"
-            loading={batchGeneratingLooks}
-            disabled={batchGenerationActive && !batchGeneratingLooks}
-            icon={<Shirt size={15} />}
-            onClick={handleBatchGenerateLooks}
-          >
-            一键生成所有设定板
-          </Button>
-          <span className="batch-generate-hint">仅处理尚未出图的造型；无外观描述且无原片截图的会跳过，任务中心可查看进度</span>
-        </div>
-      ) : currentTab === "scene" ? (
-        <div className="batch-generate-bar">
-          <Button
-            type="primary"
-            loading={batchGeneratingSceneMasters}
-            disabled={batchGenerationActive && !batchGeneratingSceneMasters}
-            icon={<Sparkles size={15} />}
-            onClick={handleBatchGenerateSceneMasters}
-          >
-            一键生成所有正面
-          </Button>
-          <Button
-            type="primary"
-            loading={batchGeneratingSceneReverses}
-            disabled={batchGenerationActive && !batchGeneratingSceneReverses}
-            icon={<RefreshCw size={15} />}
-            onClick={handleBatchGenerateSceneReverses}
-          >
-            一键生成所有背面
-          </Button>
-          <Button
-            type="primary"
-            loading={batchGeneratingScenePanos}
-            disabled={batchGenerationActive && !batchGeneratingScenePanos}
-            icon={<Compass size={15} />}
-            onClick={handleBatchGenerateScenePanos}
-          >
-            一键生成所有360图
-          </Button>
-          <span className="batch-generate-hint">仅处理尚未出图的场景；背面和 360 图需已有正面图</span>
-        </div>
-      ) : currentTab === "prop" ? (
-        <div className="batch-generate-bar">
-          <Button
-            type="primary"
-            loading={batchGeneratingPropReferences}
-            disabled={batchGenerationActive && !batchGeneratingPropReferences}
-            icon={<Sparkles size={15} />}
-            onClick={handleBatchGeneratePropReferences}
-          >
-            一键生成所有参考图
-          </Button>
-          <Button
-            type="primary"
-            loading={batchGeneratingPropTurnarounds}
-            disabled={batchGenerationActive && !batchGeneratingPropTurnarounds}
-            icon={<Layers size={15} />}
-            onClick={handleBatchGeneratePropTurnarounds}
-          >
-            一键生成所有三视图
-          </Button>
-          <Button
-            type="primary"
-            loading={batchGeneratingPropDetails}
-            disabled={batchGenerationActive && !batchGeneratingPropDetails}
-            icon={<Eye size={15} />}
-            onClick={handleBatchGeneratePropDetails}
-          >
-            一键生成所有细节图
-          </Button>
-          <span className="batch-generate-hint">仅处理尚未出图的道具；三视图和细节图需已有参考图</span>
-        </div>
-      ) : null}
+        <Input className="production-asset-search" aria-label="搜索制作资产" placeholder="搜索资产…" allowClear disabled={!!batchProgress} value={searchKeyword} onChange={event => handleSearchChange(event.target.value)} prefix={<Search size={14}/>}/>
       </div>
-
+      <div className="production-assets-status" role="region" aria-label="资产生成操作">
+        <div className="production-assets-status-copy" aria-live="polite">
+          {batchProgress ? <><strong>正在生成 {batchProgress.completed} / {batchProgress.total}</strong><span>{batchProgress.label}</span></> : selectionMode ? <>
+            <strong>{visibleSelectedIds.length ? `已选择 ${visibleSelectedIds.length} 个${kindLabel(currentTab)}` : `请选择要生成${currentTab === "character" ? "形象图" : "设定图"}的${kindLabel(currentTab)}`}</strong>
+            {visibleSelectedIds.length > 0 && <span>将补齐{currentTab === "character" ? "所有缺少的形象图" : "缺少的设定图"}，已有图片保留</span>}
+          </> : <>
+            <strong>生成或导入{kindLabel(currentTab)}{currentTab === "character" ? "形象图" : "设定图"}</strong>
+            <span>{missingAssetCount ? `有 ${missingAssetCount} 个${kindLabel(currentTab)}${currentTab === "character" ? "未有完整形象图" : "尚无设定图"}，你可以手动上传或者 AI 批量生成` : `${kindLabel(currentTab)}${currentTab === "character" ? "形象图" : "设定图"}已就绪，可点击卡片上传或重新生成`}</span>
+          </>}
+        </div>
+        <div className="production-assets-selection-actions">
+          {selectionMode ? <>
+            <Checkbox checked={filteredAssets.length > 0 && visibleSelectedIds.length === filteredAssets.length} indeterminate={visibleSelectedIds.length > 0 && visibleSelectedIds.length < filteredAssets.length} disabled={!!batchProgress || !filteredAssets.length} onChange={event => setSelectedAssetIds(event.target.checked ? filteredAssets.map(asset => asset.id) : [])}>选择全部</Checkbox>
+            <Button type="text" disabled={!!batchProgress} onClick={() => { setSelectionMode(false); setSelectedAssetIds([]) }}>取消选择</Button>
+            <Button type="primary" icon={<Sparkles size={14}/>} loading={!!batchProgress} disabled={!visibleSelectedIds.length || loading || canvasJobsLoading || !!canvasWorking || !!canvasRecoveredWork} onClick={() => void generateSelectedAssets()}>生成</Button>
+          </> : <Button autoInsertSpace={false} disabled={!filteredAssets.length || loading} onClick={() => { setSelectedAssetIds([]); setSelectionMode(true) }}>多选</Button>}
+        </div>
+      </div>
       <Spin spinning={loading}>
         {assets.length === 0 ? (
           <div className="empty-asset-box">
             <Boxes size={48} className="empty-icon" />
             <h3>资产库暂无资产</h3>
-            <p>可前往「内容库」一键导入剧本并抽取资产，或点击右上角手动新增。</p>
+            <p>在「剧本」阶段拆解制作资产，或新建角色、场景与道具节点。</p>
             <Button type="primary" onClick={openCreateModal}>立即新增第一个资产</Button>
+          </div>
+        ) : !detailOpen ? (
+          <div className="production-asset-grid">
+            {filteredAssets.map(asset => {
+              const readiness = assetReadiness(asset)
+              const image = getAssetDisplayAvatar(asset)
+              const Icon = getKindIcon(asset.kind)
+              const selected = visibleSelectedIds.includes(asset.id)
+              const busy = [canvasWorking, canvasRecoveredWork].some(node => node?.startsWith(`${asset.id}::`))
+              const failed = Object.keys(canvasErrors).some(node => node.startsWith(`${asset.id}::`))
+              const content = <>{image ? <img src={image} alt={`${asset.name}参考图`} loading="lazy" onError={event => { event.currentTarget.style.visibility = "hidden" }}/>: <Icon size={28}/>}{busy && <span className="production-asset-working"><Spin size="small"/>正在生成</span>}{!selectionMode && <span className="production-asset-hover">上传或生成</span>}</>
+              const caption = <><h3 title={asset.name}>{asset.name}</h3><p className={busy ? "" : failed ? "is-missing" : readiness.ready === readiness.total ? "is-ready" : "is-missing"}>{busy ? "图片生成中…" : failed ? "生成未完成，可重试" : readiness.label}</p></>
+              return <article className={`production-asset-card${selected ? " is-selected" : ""}`} key={asset.id}>
+                {selectionMode ? <Checkbox className="production-asset-choice" aria-label={`选择${asset.name}`} checked={selected} disabled={!!batchProgress} onChange={event => setSelectedAssetIds(ids => event.target.checked ? [...ids.filter(id => id !== asset.id), asset.id] : ids.filter(id => id !== asset.id))}><div className="production-asset-image">{content}</div>{caption}</Checkbox> : <><Button type="text" className="production-asset-image" aria-label={`在画布中编辑${asset.name}`} onClick={() => openAsset(asset)}>{content}</Button>{caption}</>}
+              </article>
+            })}
+            {!filteredAssets.length && <p className="production-assets-empty">{searchKeyword ? "没有找到匹配的资产" : `暂无${kindLabel(currentTab)}，可以新建或从剧本中拆解`}</p>}
+            {!selectionMode && <Button type="dashed" className="production-asset-add" icon={<Plus size={24}/>} onClick={openCreateModal}>新增{kindLabel(currentTab)}</Button>}
           </div>
         ) : (
           /* 左右结构：左边选择名称，右边显示详细与生成 (参考 source2) */
@@ -1644,7 +1511,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
                     key={ast.id}
                     className={`asset-list-item${selectedAsset && selectedAsset.id === ast.id ? " active" : ""}`}
                     aria-pressed={selectedAsset?.id === ast.id}
-                    onClick={() => selectAsset(ast)}
+                    onClick={() => openAsset(ast)}
                   >
                     {/* 缩略图或单字头像 */}
                     <div className={`item-avatar ${ast.kind}`} style={getAssetGradient(ast.name)}>
@@ -1849,6 +1716,10 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
         )}
       </Spin>
 
+      {onContinue && <footer className="production-assets-next"><Button icon={<ArrowLeft size={14}/>} onClick={onBack} disabled={continuing}>上一步</Button><span>资产设定会用于后续分镜，可随时回来调整</span><Button type="primary" icon={<ArrowRight size={14}/>} iconPlacement="end" loading={continuing} disabled={loading} onClick={() => void continueProduction()}>进入分镜</Button></footer>}
+      </>}
+      {flowModalContext}
+
       {/* 360 全景查看器弹窗 (PanoViewerModal) */}
       <Modal
         open={panoViewerVisible}
@@ -1905,7 +1776,9 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
       />
 
       {/* 新建资产弹窗 */}
-      <CreateAssetModal
+      <AssetCanvasCreateModal open={modalVisible} kind={currentTab} busy={submitting} onCancel={() => { canvasCreateOrigin.current = null; setModalVisible(false) }} onSubmit={(name, description) => void handleCreateSubmit({ kind: currentTab, name, description, role: "", visual_prompt: description, image_url: "" })}/>
+      {/* Retained for compatibility during the canvas migration; no public route opens the legacy form. */}
+      {false && <CreateAssetModal
         open={modalVisible}
         kindInitial={currentTab}
         submitting={submitting}
@@ -1913,7 +1786,9 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
         projectId={projectId}
         onClose={() => setModalVisible(false)}
         onSubmit={handleCreateSubmit}
-      />
+      />}
+
+      <AssetCanvasVoiceModal open={canvasVoiceOpen} asset={selectedAsset} onClose={() => setCanvasVoiceOpen(false)} uploading={uploadingVoice} previewing={previewingVoice} applying={applyingVoicePreset} onUpload={handleUploadVoice} onPreset={handleApplyVoicePreset} onPreview={handlePreviewVoice} onExtract={handleOpenVoiceExtract} onExtraChange={patchSelectedExtra}/>
 
       {/* 编辑场景弹窗 (严格对齐 source2 SceneDialog) */}
       <EditSceneModal

@@ -28,6 +28,7 @@ import {
   formatRefineDuration,
   refineEffectiveMegapixels,
   refineForceWarning,
+  smartClarifyConfirmText,
   refinePlan,
   resolutionLabelForMegapixels,
   sanitizeVideoOptionValues,
@@ -318,11 +319,11 @@ describe("director2 video settings", () => {
     ])).toBe(2)
   })
 
-  it("prefers the 2x clip for playback and disables upscale without a finished original", () => {
+  it("prefers the clarified clip for playback and disables 智能超清 without a finished original", () => {
     expect(beatPlaybackUrl({ video_url: "https://cdn/orig.mp4", upscaled_video_url: "https://cdn/2x.mp4" })).toBe("https://cdn/2x.mp4")
     expect(beatHasUpscaled({ video_url: "https://cdn/orig.mp4" })).toBe(false)
-    expect(beatUpscaleDisabledReason({ video_url: "" })).toBe("成片成功后才能超分")
-    expect(beatUpscaleDisabledReason({ video_url: "https://cdn/orig.mp4" }, { scope: "upscale" })).toBe("正在 2x 超分")
+    expect(beatUpscaleDisabledReason({ video_url: "" })).toBe("成片成功后才能智能超清")
+    expect(beatUpscaleDisabledReason({ video_url: "https://cdn/orig.mp4" }, { scope: "upscale" })).toBe("正在智能超清")
     expect(beatUpscaleDisabledReason({ video_url: "https://cdn/orig.mp4" }, { status: "running" })).toBe("出片进行中")
     expect(beatUpscaleDisabledReason({ video_url: "https://cdn/orig.mp4" })).toBeUndefined()
     expect(jobPreviewVideoUrl({
@@ -331,7 +332,7 @@ describe("director2 video settings", () => {
     })).toBe("https://cdn/2x.mp4")
   })
 
-  it("lets completed video jobs request 2x from the jobs center", () => {
+  it("lets completed video jobs request 智能超清 from the jobs center", () => {
     const shot = {
       id: "job-shot",
       job_type: "video_generation",
@@ -343,17 +344,33 @@ describe("director2 video settings", () => {
     expect(jobCanShowUpscaleAction({ ...shot, status: "awaiting_refine" })).toBe(false)
     expect(jobUpscaleDisabledReason(shot)).toBeUndefined()
     expect(jobCanShowUpscaleAction({ ...shot, payload: { render_scope: "upscale" } })).toBe(false)
-    expect(jobUpscaleDisabledReason({ ...shot, status: "running" })).toBe("成片成功后才能超分")
+    expect(jobUpscaleDisabledReason({ ...shot, status: "running" })).toBe("成片成功后才能智能超清")
     expect(jobUpscaleDisabledReason({
       ...shot,
       payload: { render_scope: "selection", beat_ids: ["a", "b"] },
-    })).toBe("多镜任务请到剧集工坊逐镜点「超分」")
+    })).toBe("多镜任务请到剧集工坊逐镜点「智能超清」")
+    expect(jobUpscaleDisabledReason({
+      ...shot,
+      payload: { render_scope: "episode" },
+    })).toBe("整集直出和拼接片不能智能超清，请到剧集工坊逐镜操作")
+    expect(jobUpscaleDisabledReason({
+      ...shot,
+      payload: { render_scope: "shot", beat_id: "beat-1", render_plan: { chunks: [1, 2] } },
+    })).toBe("本镜分多段生成，没有可复放的完整生成图；请到剧集工坊重跑本镜并勾选二采精修")
     expect(jobUpscaleDisabledReason(shot, [{
       id: "job-vsr",
       status: "running",
       payload: { render_scope: "upscale", source_job_id: "job-shot" },
-    }])).toBe("正在 2x 超分")
-    expect(jobUpscaleHint({ payload: { render_scope: "episode" } })).toContain("整段")
+    }])).toBe("正在智能超清")
+    expect(jobUpscaleHint({ payload: { render_scope: "episode" } })).toContain("整集直出")
+    expect(jobUpscaleHint({ payload: { render_scope: "shot" } })).toContain("同一 seed")
+  })
+
+  it("states the 智能超清 second-pass budget in the confirm text", () => {
+    const text = smartClarifyConfirmText(13, "16:9")
+    expect(text).toContain("同一 seed")
+    expect(text).toContain("约 11 分钟")
+    expect(smartClarifyConfirmText(13, "16:9", "2.0", "force")).toContain("超出平台预算")
   })
 
   it("only offers refine decisions for awaiting single-shot and selection jobs", () => {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import json
 import re
 import secrets
 from dataclasses import asdict, dataclass
@@ -15,7 +16,18 @@ from .grs_catalog import (
     builtin_entry,
 )
 from .models import JobMode
+from .h3_depth_workflow import DEPTH_DEFAULT_PROMPT, DEPTH_LENGTHS
+from .h3_video_edit_workflow import VIDEO_EDIT_MODELS, VIDEO_EDIT_LENGTHS
+from .h3_keyframe_workflow import resolve_keyframe_dimensions
 from .h3_motion_transfer_workflow import MOTION_TRANSFER_DEFAULT_PROMPT, resolve_motion_transfer_dimensions
+from .image_edit_workflow import (
+    DEFAULT_SAM3_MODEL,
+    DEFAULT_SAM3_REFINE_ITERATIONS,
+    DEFAULT_SAM3_THRESHOLD,
+    DEFAULT_SUBJECT_PROMPT,
+)
+from .grs_composite import DEFAULT_COMPOSITE_PROVIDER_MODEL, OUTPAINT_TARGET_ASPECTS
+from .scail2_workflow import SCAIL_DEFAULT_PROMPT, SCAIL_MODELS, DPO_LORA, LIGHT_LORA, subject_points
 
 _TRUE_BOOL_TEXTS = {"true", "1", "yes", "on"}
 _FALSE_BOOL_TEXTS = {"false", "0", "no", "off", ""}
@@ -59,8 +71,12 @@ class WorkflowDefinition:
     accepts_audio_reference: bool = False
     accepts_video_reference: bool = False
     default_prompt: str | None = None
+    # 显式槽位声明（如口型同步的 ("video", "audio")）；优先于 accepts_* 布尔推断。
+    reference_slots: tuple[str, ...] = ()
 
     def reference_kind(self, index: int) -> str:
+        if self.reference_slots and 1 <= index <= len(self.reference_slots):
+            return self.reference_slots[index - 1]
         if index == 2 and self.accepts_video_reference:
             return "video"
         if index == 2 and self.accepts_audio_reference:
@@ -278,6 +294,7 @@ GRS_IMAGE_VIP_OPTION_SCHEMA = grs_option_schema(GRS_PROFILE_GPT_IMAGE_2_VIP, "gp
 
 
 CATALOG_GROUP_IMAGE = "image"
+CATALOG_GROUP_IMAGE_EDIT = "image_edit"
 CATALOG_GROUP_LIGHTX2V = "lightx2v"
 CATALOG_GROUP_DUAL_ACCEL = "dual_accel"
 CATALOG_GROUP_DIRECTOR_ACCEL = "h3_director_accel"
@@ -285,6 +302,7 @@ CATALOG_GROUP_OFFICIAL_H3 = "official_h3"
 CATALOG_GROUP_CUSTOM = "custom"
 CATALOG_GROUPS = {
     CATALOG_GROUP_IMAGE: {"label": "图片生成", "order": 0},
+    CATALOG_GROUP_IMAGE_EDIT: {"label": "图片编辑", "order": 1},
     CATALOG_GROUP_LIGHTX2V: {"label": "LightX2V", "order": 10},
     CATALOG_GROUP_DUAL_ACCEL: {"label": "八步双加速", "order": 15},
     CATALOG_GROUP_DIRECTOR_ACCEL: {"label": "H3 Director 加速版", "order": 17},
@@ -565,6 +583,28 @@ def refine_preview_option() -> dict[str, Any]:
     )
 
 
+# MiniMaxH3DirectorRefine.upscale_method, verified against the live render host
+# /object_info. h3_latent is the calibrated path; the others stay platform-owned.
+REFINE_DEFAULT_UPSCALE_METHOD = "h3_latent"
+REFINE_UPSCALE_METHODS = ("lanczos", "nvidia_rtx_vsr", "h3_latent")
+
+
+def refine_upscale_method_option() -> dict[str, Any]:
+    return option(
+        "二采放大方式", "string", REFINE_DEFAULT_UPSCALE_METHOD, group="internal",
+        enum=list(REFINE_UPSCALE_METHODS),
+        description=(
+            "平台内部参数，不在界面暴露。h3_latent：按目标画布放大 H3 视频 latent 再二采（实测有效）；"
+            "lanczos：像素插值放大；nvidia_rtx_vsr：需要渲染机安装 nvidia-vfx 扩展。"
+        ),
+    )
+
+
+def refine_upscale_method_value(values: dict[str, Any] | None) -> str:
+    raw = str((values or {}).get("refine_upscale_method") or "").strip()
+    return raw if raw in REFINE_UPSCALE_METHODS else REFINE_DEFAULT_UPSCALE_METHOD
+
+
 def _speed_mapping(speed: str, custom_steps: int) -> dict[str, Any]:
     if speed == H3_SPEED_CUSTOM:
         return {
@@ -680,6 +720,7 @@ def dual_accel_option_schema() -> dict[str, Any]:
     )
     properties["refine_quality_mode"] = refine_quality_mode_option()
     properties["refine_quality"] = refine_quality_option()
+    properties["refine_upscale_method"] = refine_upscale_method_option()
     return {"type": "object", "properties": properties}
 
 
@@ -772,6 +813,7 @@ def director_accel_option_schema() -> dict[str, Any]:
     )
     properties["refine_quality_mode"] = refine_quality_mode_option()
     properties["refine_quality"] = refine_quality_option()
+    properties["refine_upscale_method"] = refine_upscale_method_option()
     return {"type": "object", "properties": properties}
 
 
@@ -833,6 +875,7 @@ def lightx2v_option_schema() -> dict[str, Any]:
     )
     properties["refine_quality_mode"] = refine_quality_mode_option()
     properties["refine_quality"] = refine_quality_option()
+    properties["refine_upscale_method"] = refine_upscale_method_option()
     return {"type": "object", "properties": properties}
 
 
@@ -919,6 +962,7 @@ H3_STANDARD_OPTION_SCHEMA = {
         ),
         "refine_quality_mode": refine_quality_mode_option(),
         "refine_quality": refine_quality_option(),
+        "refine_upscale_method": refine_upscale_method_option(),
         "refine_preview": refine_preview_option(),
         "steps": option("采样步数", "integer", H3_SPEED_PRESETS[H3_SPEED_BALANCED]["steps"], minimum=1, maximum=1000, step=1),
         "lora_name": option(
@@ -966,6 +1010,7 @@ def t8_option_schema(*, sampler: str) -> dict[str, Any]:
         ),
         "refine_quality_mode": refine_quality_mode_option(),
         "refine_quality": refine_quality_option(),
+        "refine_upscale_method": refine_upscale_method_option(),
         "refine_preview": refine_preview_option(),
         "megapixels": option(
             "内部像素面积", "number", quality_megapixels[default_quality], group="internal",
@@ -1151,11 +1196,226 @@ MOTION_TRANSFER_OPTION_SCHEMA = {
     },
 }
 
-MOTION_TRANSFER_WORKFLOW_IDS = {JobMode.MINIMAX_H3_MOTION_TRANSFER.value}
+SCAIL2_OPTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "duration": option("生成范围", "string", "5s", group="primary", enum=["5s", "full"],
+                           ui_options=[{"value": "5s", "label": "5 秒试片"}, {"value": "full", "label": "完整原片"}],
+                           min_source_seconds=1, max_source_seconds=30,
+                           description="完整原片支持 1–30 秒，平台自动连续生成并保留原片比例与节奏。"),
+        "subject_count": option("替换人数", "string", "1", group="primary", enum=["1", "2"],
+                                ui_options=[{"value": "1", "label": "单人"}, {"value": "2", "label": "双人（试用）"}],
+                                description="双人按编号配对；实测仍可能出现发型和服装细节失真，建议先生成试片。"),
+        "preserve_audio": option("保留原片声音 / BGM", "boolean", True, group="primary",
+                                 description="直接沿用参考片的音轨与节拍；关闭后输出无声视频。"),
+        "seed": option("随机种子", "integer", 0, group="advanced", minimum=0, maximum=2147483647,
+                       step=1, randomize_when_zero=True, description="0 表示随机；固定数值便于复现。"),
+        "source_points": option("视频人物标记", "string", "", group="internal"),
+        "reference_points": option("形象图人物标记", "string", "", group="internal"),
+        "width": option("画布宽", "integer", 512, group="internal", minimum=256, maximum=1280, step=32),
+        "height": option("画布高", "integer", 896, group="internal", minimum=256, maximum=1280, step=32),
+        "length": option("生成帧数", "integer", 81, group="internal", minimum=16, maximum=481),
+        "conditioning_length": option("动作条件帧数", "integer", 81, group="internal", minimum=17, maximum=481),
+        "chunk_count": option("连续生成段数", "integer", 1, group="internal", minimum=1, maximum=7),
+        "source_duration": option("原片时长", "number", 5.0, group="internal", minimum=0.1, maximum=86400),
+        "fps": option("输出帧率", "integer", 16, group="internal", enum=[16]),
+        "steps": option("采样步数", "integer", 6, group="internal", enum=[6]),
+        "cfg": option("CFG", "number", 1.0, group="internal", enum=[1.0]),
+        "shift": option("Shift", "number", 5.0, group="internal", enum=[5.0]),
+        "sampler": option("采样器", "string", "euler", group="internal", enum=["euler"]),
+        "scheduler": option("调度器", "string", "simple", group="internal", enum=["simple"]),
+        **{f"model_{kind}": option(kind, "string", name, group="internal", enum=[name])
+           for kind, (_, name) in SCAIL_MODELS.items()},
+        "dpo_lora": option("DPO LoRA", "string", DPO_LORA, group="internal", enum=[DPO_LORA]),
+        "dpo_strength": option("DPO 强度", "number", 1.0, group="internal", enum=[1.0]),
+        "light_lora": option("加速 LoRA", "string", LIGHT_LORA, group="internal", enum=[LIGHT_LORA]),
+        "light_strength": option("加速强度", "number", 0.8, group="internal", enum=[0.8]),
+    },
+}
+
+MOTION_TRANSFER_WORKFLOW_IDS = {JobMode.MINIMAX_H3_MOTION_TRANSFER.value, JobMode.SCAIL2_REPLACEMENT.value}
 
 
 def is_motion_transfer_workflow(mode: JobMode | str) -> bool:
+
     return mode_key(mode) in MOTION_TRANSFER_WORKFLOW_IDS
+
+
+# MiniMax H3 视频局部重绘：遮罩图(白色=重绘区) + 原片。域外像素级保持由图内硬合成
+# 完成；画布跟随原片宽高(分发层探测后 32 对齐)，模型/采样等内部参数由后端托管。
+INPAINT_OPTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "inpaint_strength": option(
+            "重绘强度", "number", 1.0, group="primary",
+            minimum=0.1, maximum=1.0, step=0.05,
+            description="越高越服从提示词；调低可让重绘内容更贴近原片氛围。",
+        ),
+        "duration": option(
+            "生成时长", "string", "5s", group="primary", enum=["5s", "10s", "15s"],
+            description="重绘原片前 5/10/15 秒；音轨沿用原片。",
+        ),
+        "steps": option(
+            "采样步数", "integer", 20, group="advanced",
+            minimum=4, maximum=40, step=1,
+            description="步数越多细节越精致，耗时也越长。",
+        ),
+        "seed": option(
+            "随机种子", "integer", 0, group="advanced",
+            minimum=0, maximum=2147483647, step=1,
+            description="固定种子可复现相同结果；0 表示每次随机。",
+        ),
+        "width": option("画布宽", "integer", 864, group="internal", minimum=32, maximum=2048, step=32),
+        "height": option("画布高", "integer", 480, group="internal", minimum=32, maximum=2048, step=32),
+        "length": option("生成帧数", "integer", 124, group="internal", minimum=29, maximum=362, step=1),
+        "fps": option("输出帧率", "integer", 24, group="internal", minimum=16, maximum=24, step=1),
+        "sampler": option("采样器", "string", "res_multistep", group="internal", enum=["res_multistep"]),
+        "scheduler": option("调度器", "string", "simple", group="internal", enum=["simple"]),
+        "weight_dtype": option(
+            "模型精度", "string", "default", group="internal", enum=["default", "fp16", "bf16"],
+        ),
+    },
+}
+
+INPAINT_WORKFLOW_IDS = {JobMode.MINIMAX_H3_INPAINT.value}
+
+
+def is_inpaint_workflow(mode: JobMode | str) -> bool:
+    return mode_key(mode) in INPAINT_WORKFLOW_IDS
+
+
+# MiniMax H3 深度捕捉(即梦同款):原片视频。深度结构跟随强度与生成时长是普通用户可
+# 理解的选项;DA3 推理分辨率、模型/采样内部参数由后端托管。画布跟随原片宽高
+# (分发层探测后 32 对齐)。
+DEPTH_OPTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "control_strength": option(
+            "结构跟随强度", "number", 1.0, group="primary",
+            minimum=0.1, maximum=1.0, step=0.05, ui_inline_label=True,
+            description="越高越严格复刻原片的空间结构与运镜；调低可让画面内容更自由发挥。",
+        ),
+        "duration": option(
+            "生成时长", "string", "5s", group="primary", enum=["5s", "10s", "15s"],
+            description="提取原片前 5/10/15 秒的深度结构，按提示词重塑画面。",
+        ),
+        "steps": option(
+            "采样步数", "integer", 20, group="advanced",
+            minimum=4, maximum=40, step=1,
+            description="步数越多细节越精致，耗时也越长。",
+        ),
+        "seed": option(
+            "随机种子", "integer", 0, group="advanced",
+            minimum=0, maximum=2147483647, step=1, randomize_when_zero=True,
+            description="固定种子可复现相同结果；0 表示每次随机。",
+        ),
+        "width": option("画布宽", "integer", 864, group="internal", minimum=32, maximum=2048, step=32),
+        "height": option("画布高", "integer", 480, group="internal", minimum=32, maximum=2048, step=32),
+        "length": option("生成帧数", "integer", 124, group="internal", minimum=29, maximum=362, step=1),
+        "fps": option("输出帧率", "integer", 24, group="internal", minimum=16, maximum=24, step=1),
+        "da3_resolution": option(
+            "深度推理分辨率", "integer", 504, group="internal",
+            minimum=140, maximum=2520, step=14,
+        ),
+        "sampler": option("采样器", "string", "res_multistep", group="internal", enum=["res_multistep"]),
+        "scheduler": option("调度器", "string", "simple", group="internal", enum=["simple"]),
+        "weight_dtype": option(
+            "模型精度", "string", "default", group="internal", enum=["default", "fp16", "bf16"],
+        ),
+    },
+}
+
+DEPTH_WORKFLOW_IDS = {JobMode.MINIMAX_H3_DEPTH.value}
+
+
+def is_depth_workflow(mode: JobMode | str) -> bool:
+    return mode_key(mode) in DEPTH_WORKFLOW_IDS
+
+
+VIDEO_EDIT_OPTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "duration": option("生成时长", "string", "5s", group="primary", enum=["5s", "10s", "15s"],
+                           ui_options=[{"value": "5s", "label": "5 秒试片"}, {"value": "10s", "label": "10 秒"}, {"value": "15s", "label": "15 秒"}],
+                           description="编辑原片开头对应片段；实际时长按 H3 原生帧网格对齐。"),
+        "preserve_audio": option("保留原片声音 / BGM", "boolean", True, group="primary",
+                                 description="平台直接沿用原片音轨，关闭后输出无声视频。"),
+        "seed": option("随机种子", "integer", 0, group="advanced", minimum=0, maximum=2147483647,
+                       step=1, randomize_when_zero=True, description="0 表示随机；固定种子便于比较。"),
+        "steps": option("采样步数", "integer", 20, group="internal", minimum=20, maximum=25),
+        "width": option("画布宽", "integer", 512, group="internal", minimum=32, maximum=2048, step=32),
+        "height": option("画布高", "integer", 896, group="internal", minimum=32, maximum=2048, step=32),
+        "length": option("生成帧数", "integer", 124, group="internal", minimum=29, maximum=362),
+        "fps": option("输出帧率", "integer", 24, group="internal", enum=[24]),
+        "sampler": option("采样器", "string", "res_multistep", group="internal", enum=["res_multistep"]),
+        "scheduler": option("调度器", "string", "simple", group="internal", enum=["simple"]),
+        "reference_image_size": option("参考尺寸策略", "string", "match", group="internal", enum=["match"]),
+        **{f"model_{kind}": option(kind, "string", name, group="internal", enum=[name])
+           for kind, name in VIDEO_EDIT_MODELS.items()},
+    },
+}
+
+
+def is_video_edit_workflow(mode: JobMode | str) -> bool:
+    return mode_key(mode) == JobMode.MINIMAX_H3_VIDEO_EDIT.value
+
+
+# MiniMax H3 关键帧叙事：2-4 张关键帧图按叙事顺序上传，第一张锁定开场首帧，
+# 其余按锚点时间链式锚定进画面，模型生成贯穿全部关键帧的叙事过渡。锚点时间
+# 是普通用户能理解的核心创作选项（工具页提供逐帧时间选择器）；画布/模型/采样
+# 等内部参数由后端托管。
+KEYFRAME_OPTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "aspect_ratio": option(
+            "画面比例", "string", "16:9", group="primary", enum=["16:9", "9:16", "1:1"],
+            ui_options=[
+                {"value": "16:9", "label": "16:9 横屏"},
+                {"value": "9:16", "label": "9:16 竖屏"},
+                {"value": "1:1", "label": "1:1 方形"},
+            ],
+            description="横版 864×480 / 竖版 480×864 / 方形 640×640。",
+        ),
+        "duration": option(
+            "生成时长", "string", "5s", group="primary", enum=["5s", "10s", "15s"],
+            description="关键帧之间的过渡由模型生成，音画一体。",
+        ),
+        "anchor_seconds": option(
+            "锚点时间", "string", "", group="primary",
+            description=(
+                "第 2~N 张关键帧的画面出现时间(秒，逗号分隔，如 2.5,8)；"
+                "负数从末尾计数(-1 为末帧)；留空则按顺序均匀分布。"
+            ),
+        ),
+        "steps": option(
+            "采样步数", "integer", 20, group="advanced",
+            minimum=4, maximum=40, step=1,
+            description="步数越多细节越精致，耗时也越长。",
+        ),
+        "seed": option(
+            "随机种子", "integer", 0, group="advanced",
+            minimum=0, maximum=2147483647, step=1, randomize_when_zero=True,
+            description="固定种子可复现相同结果；0 表示每次随机。",
+        ),
+        "width": option("画布宽", "integer", 864, group="internal", minimum=32, maximum=2048, step=32),
+        "height": option("画布高", "integer", 480, group="internal", minimum=32, maximum=2048, step=32),
+        "length": option("生成帧数", "integer", 124, group="internal", minimum=29, maximum=362, step=1),
+        "fps": option("输出帧率", "integer", 24, group="internal", minimum=16, maximum=24, step=1),
+        "sampler": option("采样器", "string", "res_multistep", group="internal", enum=["res_multistep"]),
+        "scheduler": option("调度器", "string", "simple", group="internal", enum=["simple"]),
+        "weight_dtype": option(
+            "模型精度", "string", "default", group="internal", enum=["default", "fp16", "bf16"],
+        ),
+        "use_sage_attention": option("启用 SageAttention", "boolean", True, group="internal"),
+    },
+}
+
+KEYFRAME_WORKFLOW_IDS = {JobMode.MINIMAX_H3_KEYFRAME.value}
+
+
+def is_keyframe_workflow(mode: JobMode | str) -> bool:
+    return mode_key(mode) in KEYFRAME_WORKFLOW_IDS
+
 
 
 # MiniMax H3 数字人口播：形象图 + 口播音频 → 口型锁定的说话视频。
@@ -1258,6 +1518,116 @@ AVATAR_WORKFLOW_IDS = {JobMode.MINIMAX_H3_AVATAR.value}
 
 def is_avatar_workflow(mode: JobMode | str) -> bool:
     return mode_key(mode) in AVATAR_WORKFLOW_IDS
+
+
+# MiniMax H3 口型同步：已有视频 + 目标音频 → 按新音频重演口型。
+# 仅作为 AI 工具入口（hidden_from_catalog），生成页下拉不出现（参考素材含视频）。
+# 画布随源视频、窗口时长随目标音频，均由提交侧探测后写入 internal 选项。
+LIPSYNC_SOURCE_MIN_SECONDS = 2.0
+LIPSYNC_SOURCE_MAX_SECONDS = 15.0
+
+LIPSYNC_SPEED_PRESETS = {
+    "fast": {"steps": 4, "use_turbo": True},
+    "fine": {"steps": 20, "use_turbo": False},
+}
+LIPSYNC_TURBO_MAX_STEPS = 8
+
+LIP_SYNC_OPTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "speed": option(
+            "生成速度", "string", "fast", group="primary",
+            enum=["fast", "fine", "custom"],
+            ui_control="select",
+            ui_options=[
+                {"value": "fast", "label": "快速（4 步加速）"},
+                {"value": "fine", "label": "精细（20 步完整采样）"},
+                {"value": "custom", "label": "自定义"},
+            ],
+            description="快速为 4 步加速，适合预览；精细关闭加速、完整采样，细节与口型更稳；自定义可填 1-40 步。",
+        ),
+        "custom_steps": option(
+            "自定义步数", "integer", 4, group="primary",
+            minimum=1, maximum=40, step=1, unit="步",
+            ui_control="input-number",
+            ui_visible_when={"speed": "custom"},
+            description="不超过 8 步时启用加速 LoRA，更多步数走完整采样。",
+        ),
+        "seed": option(
+            "随机种子", "integer", 123456789, group="advanced",
+            minimum=0, maximum=1125899906842624, step=1,
+            description="使用相同种子和参数可获得更接近的结果。",
+        ),
+        "scene_duration_seconds": option(
+            "口播窗口时长", "number", AVATAR_MAX_SCENE_SECONDS, group="internal",
+            minimum=1.0, maximum=AVATAR_MAX_SCENE_SECONDS, step=0.01, unit="秒",
+            description="提交任务时按目标音频实际时长写入；上限为单渲染窗口 5 秒。",
+        ),
+        "width": option("画布宽", "integer", 864, group="internal", minimum=256, maximum=1344, step=32),
+        "height": option("画布高", "integer", 480, group="internal", minimum=256, maximum=1344, step=32),
+        "steps": option("采样步数", "integer", 4, minimum=1, maximum=1000, step=1),
+        "use_turbo": option("加速 LoRA", "boolean", True),
+        "audio_mode": option(
+            "音频模式", "string", "lock_source",
+            enum=["lock_source", "remix_source", "reference_only", "native"],
+        ),
+        "audio_denoise_strength": option("音频重绘强度", "number", 0.35, minimum=0, maximum=1, step=0.01),
+        "strict_prompt_tags": option("严格校验媒体标签", "boolean", True),
+        "ref_image_size": option("参考尺寸策略", "string", "match", enum=["match", "max"]),
+        "reference_video_policy": option(
+            "参考视频时长策略", "string", "official_2_to_15s",
+            enum=["official_2_to_15s", "model_minimum"],
+        ),
+        "frame_rate": option("输出帧率", "number", 24, minimum=1, maximum=120, step=1, unit="fps"),
+        "unet_name": option(
+            "扩散模型", "string", H3_REF2VA_FULL,
+            enum=[H3_REF2VA_FULL, H3_REF2VA_PRUNED],
+        ),
+        "weight_dtype": option(
+            "模型权重类型", "string", "default",
+            enum=["default", "fp8_e4m3fn", "fp8_e4m3fn_fast", "fp8_e5m2"],
+        ),
+        "clip_name": option(
+            "文本编码器", "string", "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+            enum=["qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors", "qwen3vl_32b_minimax_h3_int8_convrot.safetensors"],
+        ),
+        "clip_device": option("文本编码设备", "string", "default", enum=["default", "cpu"]),
+        "video_vae": option(
+            "视频 VAE", "string", "minimax_h3_video_vae_fp16.safetensors",
+            enum=["minimax_h3_video_vae_fp16.safetensors"],
+        ),
+        "audio_vae": option(
+            "音频 VAE", "string", "minimax_h3_audio_vae_fp32.safetensors",
+            enum=["minimax_h3_audio_vae_fp32.safetensors"],
+        ),
+        "lora_name": option(
+            "加速 LoRA", "string", LIGHTX2V_REF2V_4STEP_LORA,
+            enum=[LIGHTX2V_REF2V_4STEP_LORA],
+        ),
+        "lora_strength": option("LoRA 强度", "number", LIGHTX2V_LORA_STRENGTH, minimum=-100, maximum=100, step=0.01),
+        "use_sage_attention": option("启用 SageAttention", "boolean", True),
+        "loop_count": option("额外循环次数", "integer", 0, minimum=0, maximum=100, step=1),
+        "output_format": option(
+            "输出格式", "string", "video/h264-mp4",
+            enum=["video/h264-mp4"],
+        ),
+        "pixel_format": option("像素格式", "string", "yuv420p", enum=["yuv420p", "yuv420p10le"]),
+        "crf": option("编码 CRF", "integer", 19, minimum=0, maximum=100, step=1),
+        "save_metadata": option("保存工作流元数据", "boolean", True),
+        "trim_to_audio": option("按音频裁剪", "boolean", False),
+        "pingpong": option("往返循环", "boolean", False),
+    },
+}
+
+LIP_SYNC_WORKFLOW_IDS = {JobMode.MINIMAX_H3_LIP_SYNC.value}
+
+
+def is_lip_sync_workflow(mode: JobMode | str) -> bool:
+    return mode_key(mode) in LIP_SYNC_WORKFLOW_IDS
+
+
+def is_lip_sync_workflow_by_definition(definition: WorkflowDefinition) -> bool:
+    return definition.id in LIP_SYNC_WORKFLOW_IDS
 
 
 WORKFLOWS: tuple[WorkflowDefinition, ...] = (
@@ -1447,6 +1817,17 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
         hidden_from_catalog=True,
     ),
     WorkflowDefinition(
+        JobMode.SCAIL2_REPLACEMENT.value,
+        "SCAIL-2 人物动作替换",
+        "SAM3 跟踪指定人物，迁移原片动作与表情，保留其他人物、场景和原片声音。"
+        "请在 AI 工具 → 动作迁移中选定形象图与视频首帧中的目标人物。",
+        "collection", 2, 2, ("角色形象图", "动作参考视频"),
+        accepts_video_reference=True, default_prompt=SCAIL_DEFAULT_PROMPT,
+        option_schema=SCAIL2_OPTION_SCHEMA, catalog_group=CATALOG_GROUP_CUSTOM,
+        # Point selection is provided by the dedicated tool, not the generic composer.
+        hidden_from_catalog=True,
+    ),
+    WorkflowDefinition(
         JobMode.MINIMAX_H3_MOTION_TRANSFER.value,
         "H3 动作迁移",
         "把动作参考视频里的舞蹈/肢体动作迁移到角色形象图上：SDPose 全身骨架锁定动作，"
@@ -1462,6 +1843,59 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
         catalog_group=CATALOG_GROUP_OFFICIAL_H3,
     ),
     WorkflowDefinition(
+        JobMode.MINIMAX_H3_INPAINT.value,
+        "H3 局部重绘",
+        "上传重绘遮罩图(白色=重绘区)和原片视频，只重生成遮罩内的内容，域外像素级保持"
+        "原片，音轨沿用原声。references[0] 为重绘遮罩图，references[1] 为原片视频。",
+        "collection",
+        2,
+        2,
+        ("重绘遮罩图(白色=重绘区)", "原片视频"),
+        accepts_video_reference=True,
+        option_schema=INPAINT_OPTION_SCHEMA,
+        catalog_group=CATALOG_GROUP_OFFICIAL_H3,
+    ),
+    WorkflowDefinition(
+        JobMode.MINIMAX_H3_DEPTH.value,
+        "H3 深度捕捉",
+        "上传原片视频，自动提取时序深度图锁定运镜与空间结构(即梦深度捕捉同款能力)，"
+        "用提示词重塑画面内容与风格，H3 原生音画一体出片，同时回显深度预览视频。"
+        "references[0] 为原片视频。",
+        "collection",
+        1,
+        1,
+        ("原片视频",),
+        reference_slots=("video",),
+        accepts_video_reference=True,
+        default_prompt=DEPTH_DEFAULT_PROMPT,
+        option_schema=DEPTH_OPTION_SCHEMA,
+        catalog_group=CATALOG_GROUP_OFFICIAL_H3,
+    ),
+    WorkflowDefinition(
+        JobMode.MINIMAX_H3_VIDEO_EDIT.value,
+        "H3 视频编辑（试用）",
+        "上传已有视频，用提示词修改场景、服装或画面内容。直接以完整视频为编辑参考，"
+        "可沿用原片 BGM；人物细节和动作可能发生变化，建议先用 5 秒试片。",
+        "collection", 1, 1, ("原片视频",),
+        reference_slots=("video",), accepts_video_reference=True,
+        option_schema=VIDEO_EDIT_OPTION_SCHEMA, catalog_group=CATALOG_GROUP_OFFICIAL_H3,
+        hidden_from_catalog=True,
+    ),
+    WorkflowDefinition(
+        JobMode.MINIMAX_H3_KEYFRAME.value,
+        "H3 关键帧叙事",
+        "上传 2-4 张按叙事顺序排列的关键帧图片，第一张锁定开场画面，其余按锚点时间"
+        "依次锚定进画面，模型生成贯穿全部关键帧的叙事过渡，H3 原生音画一体出片，"
+        "纯本地免费。锚点时间留空时按顺序均匀分布。"
+        "references[0..N] 为按顺序排列的关键帧图片。",
+        "collection",
+        2,
+        4,
+        ("开场关键帧", "关键帧 2", "关键帧 3", "关键帧 4"),
+        option_schema=KEYFRAME_OPTION_SCHEMA,
+        catalog_group=CATALOG_GROUP_OFFICIAL_H3,
+    ),
+    WorkflowDefinition(
         JobMode.MINIMAX_H3_AVATAR.value,
         "H3 数字人口播",
         "上传人物形象图与口播音频，生成口型与语音精确同步的说话视频：H3 原生音画一体驱动，"
@@ -1473,6 +1907,21 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
         ("人物形象图", "口播音频"),
         accepts_audio_reference=True,
         option_schema=AVATAR_OPTION_SCHEMA,
+        catalog_group=CATALOG_GROUP_OFFICIAL_H3,
+    ),
+    WorkflowDefinition(
+        JobMode.MINIMAX_H3_LIP_SYNC.value,
+        "H3 口型同步",
+        "上传已有视频与目标音频，H3 以源视频锁定身份与场景，按新音频重演口型："
+        "纯本地免费。源视频 2-15 秒，目标音频约 5 秒以内，输出画布与时长随素材自动对齐。"
+        "references[0] 为原视频，references[1] 为目标音频。",
+        "collection",
+        2,
+        2,
+        ("原视频", "目标音频"),
+        reference_slots=("video", "audio"),
+        hidden_from_catalog=True,
+        option_schema=LIP_SYNC_OPTION_SCHEMA,
         catalog_group=CATALOG_GROUP_OFFICIAL_H3,
     ),
     WorkflowDefinition(
@@ -1513,6 +1962,135 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
         catalog_group=CATALOG_GROUP_CUSTOM,
         hidden_from_catalog=True,
     ),
+    WorkflowDefinition(
+        JobMode.STEM_SPLIT.value,
+        "人声/伴奏分离",
+        "上传一段音频或视频，用当前连接 ComfyUI 的 MelBand RoFormer 模型分离出人声与伴奏两条音轨："
+        "纯本地免费。适合清唱提取、伴奏制作与语音增强。该实例必须已安装 Mel-Band RoFormer 节点与权重。"
+        "references[0] 为待分离的音频或视频。",
+        "collection",
+        1,
+        1,
+        ("待分离音频或视频",),
+        reference_slots=("media",),
+        option_schema={
+            "type": "object",
+            "properties": {
+                "model_name": option("分离模型", "string", "MelBandRoformer_fp16.safetensors", group="internal"),
+            },
+        },
+        catalog_group=CATALOG_GROUP_CUSTOM,
+        hidden_from_catalog=True,
+        default_prompt="分离人声与伴奏",
+    ),
+    WorkflowDefinition(
+        JobMode.IMAGE_BACKGROUND_REMOVE.value,
+        "图片去背景",
+        "上传一张图片，自动识别并保留主体、移除背景，输出透明背景 PNG。使用当前连接 ComfyUI 实例的 "
+        "SAM3.1 分割模型，纯本地免费。提示词填写要保留的主体描述（英文效果更稳，如 person / product）。",
+        "collection",
+        1,
+        1,
+        ("原图",),
+        option_schema={
+            "type": "object",
+            "properties": {
+                "threshold": option("分割阈值", "number", DEFAULT_SAM3_THRESHOLD, group="internal", minimum=0.05, maximum=0.95, step=0.05),
+                "refine_iterations": option("边缘精修次数", "integer", DEFAULT_SAM3_REFINE_ITERATIONS, group="internal", minimum=0, maximum=5, step=1),
+                "model_name": option("分割模型", "string", DEFAULT_SAM3_MODEL, group="internal"),
+            },
+        },
+        media_type="image",
+        catalog_group=CATALOG_GROUP_IMAGE_EDIT,
+        default_prompt=DEFAULT_SUBJECT_PROMPT,
+    ),
+    WorkflowDefinition(
+        JobMode.IMAGE_LAYER_SPLIT.value,
+        "图片图层分离",
+        "上传一张图片，自动把主体与背景拆成两个透明图层（前景层 / 背景层），可分别插入画布继续编辑"
+        "或再创作。提示词填写要分离的主体描述（英文效果更稳，如 person / product）。",
+        "collection",
+        1,
+        1,
+        ("原图",),
+        option_schema={
+            "type": "object",
+            "properties": {
+                "threshold": option("分割阈值", "number", DEFAULT_SAM3_THRESHOLD, group="internal", minimum=0.05, maximum=0.95, step=0.05),
+                "refine_iterations": option("边缘精修次数", "integer", DEFAULT_SAM3_REFINE_ITERATIONS, group="internal", minimum=0, maximum=5, step=1),
+                "model_name": option("分割模型", "string", DEFAULT_SAM3_MODEL, group="internal"),
+            },
+        },
+        media_type="image",
+        catalog_group=CATALOG_GROUP_IMAGE_EDIT,
+        default_prompt=DEFAULT_SUBJECT_PROMPT,
+    ),
+    WorkflowDefinition(
+        JobMode.IMAGE_INPAINT.value,
+        "图片局部重绘",
+        "上传原图并框选要修改的区域，用一句话描述把选区变成什么；选区外的像素与原图完全一致。"
+        "references[0] 为原图，references[1] 为遮罩图（白色=重绘区）。",
+        "collection",
+        2,
+        2,
+        ("原图", "遮罩图(白色=编辑区)"),
+        option_schema={
+            "type": "object",
+            "properties": {
+                "feather": option("边缘羽化", "integer", 12, group="internal", minimum=0, maximum=64, step=1),
+                "provider_model": option("远端模型", "string", DEFAULT_COMPOSITE_PROVIDER_MODEL, group="internal"),
+            },
+        },
+        media_type="image",
+        executor="grs",
+        catalog_group=CATALOG_GROUP_IMAGE_EDIT,
+    ),
+    WorkflowDefinition(
+        JobMode.IMAGE_ERASER.value,
+        "消除笔",
+        "涂抹画面中要移除的内容，模型用周围环境自然填补，选区外的像素与原图完全一致。"
+        "references[0] 为原图，references[1] 为遮罩图（白色=消除区）。",
+        "collection",
+        2,
+        2,
+        ("原图", "遮罩图(白色=消除区)"),
+        option_schema={
+            "type": "object",
+            "properties": {
+                "feather": option("边缘羽化", "integer", 12, group="internal", minimum=0, maximum=64, step=1),
+                "provider_model": option("远端模型", "string", DEFAULT_COMPOSITE_PROVIDER_MODEL, group="internal"),
+            },
+        },
+        media_type="image",
+        executor="grs",
+        catalog_group=CATALOG_GROUP_IMAGE_EDIT,
+        default_prompt="移除标记区域的内容并自然填补",
+    ),
+    WorkflowDefinition(
+        JobMode.IMAGE_OUTPAINT.value,
+        "图片扩图",
+        "上传原图并选择目标画幅，模型向四周自然延伸补全画面，原区域像素与原图完全一致。"
+        "references[0] 为原图。",
+        "collection",
+        1,
+        1,
+        ("原图",),
+        option_schema={
+            "type": "object",
+            "properties": {
+                "target_aspect": option(
+                    "扩展到", "string", "16:9", group="primary",
+                    enum=list(OUTPAINT_TARGET_ASPECTS), ui_control="select",
+                ),
+                "feather": option("边缘羽化", "integer", 12, group="internal", minimum=0, maximum=64, step=1),
+                "provider_model": option("远端模型", "string", DEFAULT_COMPOSITE_PROVIDER_MODEL, group="internal"),
+            },
+        },
+        media_type="image",
+        executor="grs",
+        catalog_group=CATALOG_GROUP_IMAGE_EDIT,
+        default_prompt="扩展画面范围并保持原内容不变",
+    ),
 )
 
 WORKFLOW_BY_ID = {definition.id: definition for definition in WORKFLOWS}
@@ -1541,11 +2119,13 @@ H3_WORKFLOWS = {
     *DIRECTOR_ACCEL_WORKFLOWS,
     *T8_WORKFLOWS,
     JobMode.MINIMAX_H3_AVATAR,
+    JobMode.MINIMAX_H3_LIP_SYNC,
 }
 # Two-pass refine rebuilds the first pass on the Director graph, which has no drive-audio
 # input, and refines a video latent while avatar samples an AV latent. Avatar would lose its
 # lip-sync source, so it stays out of the contract until an audio-aware second pass exists.
-H3_REFINE_WORKFLOWS = H3_WORKFLOWS - {JobMode.MINIMAX_H3_AVATAR}
+# 口型同步同理：参考视频重建 + AV 联合采样，二采无音频感知契约。
+H3_REFINE_WORKFLOWS = H3_WORKFLOWS - {JobMode.MINIMAX_H3_AVATAR, JobMode.MINIMAX_H3_LIP_SYNC}
 T8_WORKFLOW_IDS = {item.value for item in T8_WORKFLOWS}
 LIGHTX2V_WORKFLOW_IDS = {item.value for item in LIGHTX2V_WORKFLOWS}
 DUAL_ACCEL_WORKFLOW_IDS = {item.value for item in DUAL_ACCEL_WORKFLOWS}
@@ -1563,7 +2143,7 @@ def director_route_key(definition: WorkflowDefinition) -> str | None:
     if definition.reference_mode == "collection":
         if definition.min_references == 0:
             return "standalone"
-        if definition.max_references >= 3:
+        if definition.min_references <= 1 and definition.max_references >= 3:
             return "r2v"
     return None
 
@@ -1607,6 +2187,7 @@ H3_WORKFLOW_IDS = {item.value for item in H3_WORKFLOWS}
 RTX_VSR_WORKFLOW_IDS = {JobMode.NVIDIA_RTX_VSR.value}
 SEEDVR2_UPSCALE_WORKFLOW_IDS = {JobMode.SEEDVR2_UPSCALE.value}
 UPSCALE_WORKFLOW_IDS = RTX_VSR_WORKFLOW_IDS | SEEDVR2_UPSCALE_WORKFLOW_IDS
+STEM_SPLIT_WORKFLOW_IDS = {JobMode.STEM_SPLIT.value}
 _catalog_lookup: Callable[[str], dict[str, Any] | None] | None = None
 
 
@@ -1631,9 +2212,54 @@ def is_upscale_workflow(mode: JobMode | str) -> bool:
     return mode_key(mode) in UPSCALE_WORKFLOW_IDS
 
 
+COMFY_IMAGE_WORKFLOW_IDS = {
+    JobMode.IMAGE_BACKGROUND_REMOVE.value,
+    JobMode.IMAGE_LAYER_SPLIT.value,
+}
+
+# GRS 生成 + 本地合成的复合图片工作流（executor=grs，但不是 GRS 目录模型）。
+COMPOSITE_IMAGE_WORKFLOW_IDS = {
+    JobMode.IMAGE_INPAINT.value,
+    JobMode.IMAGE_ERASER.value,
+    JobMode.IMAGE_OUTPAINT.value,
+}
+
+
+def is_comfy_image_workflow(mode: JobMode | str) -> bool:
+    """跑在当前连接 ComfyUI 实例上的图片编辑工作流（media_type=image，executor=comfyui）。"""
+    return mode_key(mode) in COMFY_IMAGE_WORKFLOW_IDS
+
+
+def is_composite_image_workflow(mode: JobMode | str) -> bool:
+    return mode_key(mode) in COMPOSITE_IMAGE_WORKFLOW_IDS
+
+
+def is_grs_image_workflow(mode: JobMode | str) -> bool:
+    """GRS 目录驱动的图片工作流（grs- 前缀）。
+
+    ComfyUI 图片工作流与 GRS+本地合成的复合图片工作流都不在此列：
+    前者可用性跟随 ComfyUI，后者的 provider_model 不走目录开关。
+    """
+    return not is_comfy_image_workflow(mode) and mode_key(mode).startswith("grs-")
+
+
+def is_stem_split_workflow(mode: JobMode | str) -> bool:
+    return mode_key(mode) in STEM_SPLIT_WORKFLOW_IDS
+
+
 def is_local_comfy_job(mode: JobMode | str) -> bool:
     """Creation-page ComfyUI jobs that occupy the serial video worker."""
-    return is_h3_workflow(mode) or is_upscale_workflow(mode) or is_motion_transfer_workflow(mode)
+    return (
+        is_h3_workflow(mode)
+        or is_upscale_workflow(mode)
+        or is_motion_transfer_workflow(mode)
+        or is_inpaint_workflow(mode)
+        or is_depth_workflow(mode)
+        or is_video_edit_workflow(mode)
+        or is_keyframe_workflow(mode)
+        or is_stem_split_workflow(mode)
+        or is_comfy_image_workflow(mode)
+    )
 
 
 def is_t8_workflow(mode: JobMode | str) -> bool:
@@ -1695,9 +2321,11 @@ H3_LEGACY_MEGAPIXELS = set(H3_QUALITY_MEGAPIXELS.values()) | {0.98}
 H3_OPTION_NAMES = {
     "aspect_ratio", "quality", "megapixels", "duration", "speed", "custom_steps",
     "weight_profile", "use_sage_attention", "refine_enabled", "refine_quality", "refine_quality_mode",
-    "refine_preview",
+    "refine_preview", "refine_upscale_method",
 }
-H3_REFINE_OPTION_NAMES = {"refine_enabled", "refine_quality", "refine_quality_mode", "refine_preview"}
+H3_REFINE_OPTION_NAMES = {
+    "refine_enabled", "refine_quality", "refine_quality_mode", "refine_preview", "refine_upscale_method",
+}
 H3_ASPECT_RATIO_PART = re.compile(r"(?:\d+(?:\.\d*)?|\.\d+)")
 
 
@@ -1735,13 +2363,24 @@ def parameter_payload(definition: WorkflowDefinition) -> list[dict[str, Any]]:
                 "文件数组：第 1 项为人物形象图，第 2 项为口播音频（WAV/MP3，时长不超过"
                 f" {AVATAR_MAX_SCENE_SECONDS:.0f} 秒）。"
                 if audio_reference else
+                "文件数组：第 1 项为原视频（MP4/MOV/WebM，2-15 秒），第 2 项为目标音频（WAV/MP3，约 5 秒以内）。"
+                "输出画布与时长随素材自动对齐。"
+                if is_lip_sync_workflow_by_definition(definition) else
+                "文件数组：1 段原片视频（MP4/MOV/WebM，最大 50 MB），平台截取开头并对齐帧率。"
+                if definition.reference_slots == ("video",) else
                 "文件数组：第 1 项为角色形象图，第 2 项为动作参考视频（MP4/MOV/WebM）。"
-                "单份素材最大 50 MB，视频需至少覆盖所选时长；只取开头片段并对齐到 24fps。"
+                "单份素材最大 50 MB，视频需至少覆盖所选时长；只取开头片段，帧率由工作流托管。"
                 if video_reference else
                 "图片文件数组。多图工作流按上传顺序解释参考图。单张文件最大 50 MB。"
             ),
             "min_items": definition.min_references, "max_items": definition.max_references,
-            "content_type": "image/*,audio/*" if audio_reference else "image/*,video/*" if video_reference else "image/*",
+            "content_type": (
+                "image/*,audio/*" if audio_reference else
+                "video/*,audio/*" if is_lip_sync_workflow_by_definition(definition) else
+                "video/*" if definition.reference_slots == ("video",) else
+                "image/*,video/*" if video_reference else
+                "image/*"
+            ),
         },
     ]
     if definition.accepts_negative_prompt:
@@ -1793,6 +2432,9 @@ def validate_references(mode: JobMode | str, references: list[object]) -> None:
         raise ValueError(f"工作流 {mode_key(mode)} 已从当前工作台移除") from error
     count = len(references)
     if not definition.min_references <= count <= definition.max_references:
+        if definition.reference_slots:
+            parts = "、".join(f"1 份{label}" for label in definition.reference_labels)
+            raise ValueError(f"{definition.name} 需要 {parts}，当前共 {count} 项素材。")
         if definition.accepts_audio_reference:
             raise ValueError(f"{definition.name} 需要 1 张人物形象图和 1 份口播音频，当前共 {count} 项素材。")
         if definition.accepts_video_reference:
@@ -1918,6 +2560,15 @@ def _apply_refine_first_pass(
 
 
 def normalize_options(mode: JobMode | str, raw: dict[str, Any] | None) -> dict[str, Any]:
+    if is_video_edit_workflow(mode):
+        normalized = _normalize_schema_options(VIDEO_EDIT_OPTION_SCHEMA, raw or {})
+        normalized.update(length=VIDEO_EDIT_LENGTHS[normalized["duration"]], fps=24)
+        return normalized
+    if mode_key(mode) == JobMode.SCAIL2_REPLACEMENT.value:
+        normalized = _normalize_schema_options(SCAIL2_OPTION_SCHEMA, raw or {})
+        for key, label in [("source_points", "视频首帧"), ("reference_points", "形象图")]:
+            normalized[key] = json.dumps(subject_points(normalized[key], label, int(normalized["subject_count"])), ensure_ascii=False)
+        return normalized
     if is_motion_transfer_workflow(mode):
         normalized = _normalize_schema_options(MOTION_TRANSFER_OPTION_SCHEMA, raw or {})
         quality = MOTION_TRANSFER_OPTION_SCHEMA["properties"]["render_quality"]
@@ -1925,6 +2576,16 @@ def normalize_options(mode: JobMode | str, raw: dict[str, Any] | None) -> dict[s
         if "steps" not in (raw or {}):
             normalized["steps"] = quality["steps_by_quality"][normalized["render_quality"]]
         width, height, length = resolve_motion_transfer_dimensions(normalized["aspect_ratio"], normalized["duration"])
+        normalized.update(width=width, height=height, length=length, fps=24)
+        return normalized
+    if is_depth_workflow(mode):
+        normalized = _normalize_schema_options(DEPTH_OPTION_SCHEMA, raw or {})
+        normalized["length"] = DEPTH_LENGTHS[normalized["duration"]]
+        normalized["fps"] = 24
+        return normalized
+    if is_keyframe_workflow(mode):
+        normalized = _normalize_schema_options(KEYFRAME_OPTION_SCHEMA, raw or {})
+        width, height, length = resolve_keyframe_dimensions(normalized["aspect_ratio"], normalized["duration"])
         normalized.update(width=width, height=height, length=length, fps=24)
         return normalized
     if is_image_workflow(mode):
@@ -1962,6 +2623,24 @@ def normalize_options(mode: JobMode | str, raw: dict[str, Any] | None) -> dict[s
         if raw.keys() & H3_REFINE_OPTION_NAMES:
             raise ValueError("数字人口播暂不支持二采精修：二采改用 Director 管线，会脱离口播音频驱动。")
         return _normalize_schema_options(workflow_for(mode).option_schema or {}, raw)
+    if is_lip_sync_workflow(mode):
+        if raw.keys() & H3_REFINE_OPTION_NAMES:
+            raise ValueError("口型同步暂不支持二采精修：二采会脱离目标音频驱动。")
+        normalized = _normalize_schema_options(workflow_for(mode).option_schema or {}, raw, apply_speed=False)
+        speed = str(normalized.get("speed", "fast"))
+        if speed == "fast":
+            steps, use_turbo = 4, True
+        elif speed == "fine":
+            steps, use_turbo = 20, False
+        else:
+            steps = int(normalized.get("custom_steps", 4))
+            use_turbo = steps <= LIPSYNC_TURBO_MAX_STEPS
+        normalized["speed"] = speed
+        normalized["steps"] = steps
+        normalized["use_turbo"] = use_turbo
+        normalized["unet_name"] = H3_REF2VA_FULL if use_turbo else H3_REF2VA_PRUNED
+        normalized["lora_strength"] = LIGHTX2V_LORA_STRENGTH if use_turbo else 0.0
+        return normalized
     if is_lightx2v_workflow(mode):
         normalized = _normalize_schema_options(workflow_for(mode).option_schema or {}, raw, apply_speed=False)
         normalized = apply_lightx2v_speed_preset(

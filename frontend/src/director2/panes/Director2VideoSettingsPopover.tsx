@@ -123,8 +123,8 @@ export default function Director2VideoSettingsPopover({
           {programPreview
             ? "程序装箱预览已开启，本次出片不会使用 H3 六段式提示词。"
             : missingPromptCount
-              ? `有 ${missingPromptCount} 个镜头还没有 H3 六段式提示词，提交前需要先生成。`
-              : "本集镜头都已有 H3 六段式提示词，出片按已保存提示词执行。"}
+              ? `生成视频时会自动为 ${missingPromptCount} 个片段准备生成指令，无需逐个操作。`
+              : "生成视频会复用已保存的指令；修改正文或引用后自动重新准备。"}
         </span>
       </div>
       {refineHint ? (
@@ -153,7 +153,6 @@ export default function Director2VideoSettingsPopover({
         </div>
       ) : null}
       <Collapse
-        defaultActiveKey={["advanced"]}
         items={[{
           key: "advanced",
           label: "更多设置",

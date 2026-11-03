@@ -11,18 +11,26 @@ export const WORKSHOP_VIDEO_TERMINAL_STATUSES = new Set([
 export const WORKSHOP_IDLE_POLL_MS = 3000
 export const WORKSHOP_VIDEO_POLL_MS = 1000
 
+type WorkshopRenderProgress = { total: number; completed: number; current: number }
+
 export type WorkshopVideoJobLike = {
   id?: string | null
   job_type?: string | null
   status: string
   progress?: number | null
-    result_url?: string | null
-    payload?: {
+  error_message?: string | null
+  result_url?: string | null
+  payload?: {
     episode_id?: string | null
     beat_id?: string | null
     beat_ids?: string[] | null
     render_scope?: string | null
     runtime_stage?: string | null
+    preparation?: { stage?: string; message?: string } | null
+    prompt_generation_progress?: { completed?: number; total?: number } | null
+    render_progress?: WorkshopRenderProgress | null
+    shot_status?: Record<string, string> | null
+    shots?: Array<{ beat_id?: string | null; video_url?: string | null }> | null
   } | null
 }
 
@@ -34,6 +42,12 @@ export type WorkshopShotVideoProgress = {
   jobId?: string
   previewUrl?: string
   shotCount?: number
+  message?: string
+  renderProgress?: WorkshopRenderProgress
+  /** 本镜在整批分段里的渲染阶段：succeeded / running / queued / awaiting_refine。 */
+  shotStage?: string
+  /** 段级发布已落地的本镜成片地址，整批拼接完成前就能播。 */
+  shotUrl?: string
 }
 
 export type WorkshopEpisodeVideoScope = "episode" | "compose"
@@ -64,21 +78,28 @@ export function clampWorkshopProgress(value: unknown): number {
   return Math.max(0, Math.min(100, Math.round(numeric)))
 }
 
-/** 工坊已有阶段文案：排队中 / 准备素材 / 生成中 / 保存结果。 */
-export function workshopVideoStageLabel(status: string, extra?: { scope?: string; stage?: string }): string {
+/** Distinguish the workbench queue from a task already submitted remotely. */
+export function workshopVideoStageLabel(status: string, extra?: Pick<WorkshopShotVideoProgress, "scope" | "stage" | "message" | "renderProgress" | "shotStage">): string {
   if (status === "awaiting_refine") return "一采预览待确认"
-  if (status === "upscaling" || extra?.scope === "upscale" || extra?.stage === "upscaling") return "2x 超分中"
+  if (status === "upscaling" || extra?.scope === "upscale" || extra?.stage === "upscaling") return "智能超清中"
   if (status === "queued") return "排队中"
+  const render = extra?.renderProgress
+  if (extra?.shotStage === "saving") return "画面已渲染 · 正在保存成片"
+  if (extra?.shotStage === "succeeded") return render && render.total > 1 ? `本镜已出片 · 整批 ${render.completed} / ${render.total} 组` : "本镜已出片"
+  if (extra?.shotStage === "queued" && render && render.total > 1) return `排队中 · 第 ${render.current} / ${render.total} 组`
+  if (status === "comfy_queued") return render && render.total > 1 ? `第 ${render.current} / ${render.total} 组远端排队` : "远端排队"
+  if (status === "prompt_generation") return extra?.message || "整理生成指令"
+  if (status === "preparing" && extra?.message) return extra.message
   if (
     status === "preparing"
     || status === "prompt_generation"
     || status === "uploading"
-    || status === "comfy_queued"
   ) {
     return "准备素材"
   }
   if (status === "storing" || status === "assembling" || status === "downloading") return "保存结果"
   if (status === "failed") return "生成失败"
+  if (status === "running" && render && render.total > 1) return `正在生成第 ${render.current} / ${render.total} 组`
   if (status === "running" || isActiveWorkshopJobStatus(status)) return "生成中"
   return ""
 }
@@ -86,12 +107,19 @@ export function workshopVideoStageLabel(status: string, extra?: { scope?: string
 export function workshopVideoOverlayLabel(
   status: string,
   progress: number,
-  extra?: { scope?: string; stage?: string },
+  extra?: Pick<WorkshopShotVideoProgress, "scope" | "stage" | "message" | "renderProgress" | "shotStage">,
 ): string {
   const stage = workshopVideoStageLabel(status, extra)
   if (!stage) return ""
+  if (extra?.shotStage === "succeeded" || extra?.shotStage === "queued") return stage
+  if (status === "running" && extra?.renderProgress && extra.renderProgress.total > 1) return `${stage} · 当前步骤 ${clampWorkshopProgress(progress)}%`
   if (status === "running" || status === "upscaling") return `${stage} ${clampWorkshopProgress(progress)}%`
   return stage
+}
+
+/** 本镜所在分段已渲染完成、成片也已落地；整批还在跑，但这一镜不再需要进度条。 */
+export function isWorkshopShotRendered(progress?: Pick<WorkshopShotVideoProgress, "shotStage"> | null): boolean {
+  return progress?.shotStage === "succeeded"
 }
 
 export function workshopVideoPercentLabel(progress: number): string {
@@ -132,8 +160,24 @@ export function mapWorkshopVideoProgress(
       job.payload?.beat_id,
     ].map((item) => String(item || "").trim()).filter(Boolean)
     if (scope === "shot" || scope === "selection" || scope === "upscale") {
+      const promptProgress = job.payload?.prompt_generation_progress
+      const preparationMessage = job.status === "prompt_generation" && Number(promptProgress?.total) > 1
+        ? `整理生成指令 ${promptProgress?.completed || 0} / ${promptProgress?.total}`
+        : job.payload?.preparation?.message
+      const shotStatus = job.payload?.shot_status || {}
+      const shotUrls = new Map<string, string>()
+      for (const item of job.payload?.shots || []) {
+        const id = String(item?.beat_id || "").trim()
+        const url = String(item?.video_url || "").trim()
+        if (id && url) shotUrls.set(id, url)
+      }
+      const tracksShotUrls = Boolean(job.payload?.shots?.length)
       for (const beatId of beatIds) {
         if (beatId in beats) continue
+        const rawStage = String(shotStatus[beatId] || "")
+        const shotUrl = shotUrls.get(beatId) || ""
+        // 分段渲染完 ≠ 成片已落地：任务里还没有本镜地址时只能说「正在保存」，否则界面报「已出片」却放不出画面。
+        const shotStage = rawStage === "succeeded" && !shotUrl && tracksShotUrls ? "saving" : rawStage
         beats[beatId] = {
           status: job.status,
           progress,
@@ -142,6 +186,10 @@ export function mapWorkshopVideoProgress(
           jobId: String(job.id || ""),
           previewUrl: String(job.result_url || ""),
           shotCount: beatIds.length,
+          ...(preparationMessage ? { message: preparationMessage } : {}),
+          ...(job.payload?.render_progress ? { renderProgress: job.payload.render_progress } : {}),
+          ...(shotStage ? { shotStage } : {}),
+          ...(shotUrl ? { shotUrl } : {}),
         }
       }
       continue
@@ -158,4 +206,27 @@ export function mapWorkshopVideoProgress(
   }
 
   return { beats, episode }
+}
+
+/** Only show the latest failed submission; a newer success clears an older error. */
+export function mapWorkshopVideoFailures(jobs: WorkshopVideoJobLike[], episodeId: string, allBeatIds: string[] = []): Record<string, WorkshopShotVideoProgress & { error: string }> {
+  const seen = new Set<string>()
+  const failures: Record<string, WorkshopShotVideoProgress & { error: string }> = {}
+  for (const job of jobs) {
+    if (job.job_type !== "video_generation" || job.payload?.episode_id !== episodeId) continue
+    const scope = job.payload.render_scope
+    if (scope === "compose" || scope === "upscale") continue
+    const ids = scope === "episode" ? allBeatIds : [...(job.payload.beat_ids || []), job.payload.beat_id || ""]
+    for (const id of ids.filter(Boolean)) {
+      if (seen.has(id)) continue
+      seen.add(id)
+      if (job.status === "failed") failures[id] = {
+        status: "failed", progress: 0, jobId: job.id || "",
+        error: /(?:missing|缺少)\s*<Picture\s*\d+>/i.test(job.error_message || "")
+          ? "生成指令未完整引用角色或场景参考图，请重试当前步骤。"
+          : job.error_message || "生成失败，已完成的准备步骤会保留",
+      }
+    }
+  }
+  return failures
 }

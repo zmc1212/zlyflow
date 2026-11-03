@@ -25,7 +25,10 @@ export type Director2Document = {
   visual_style: string
   raw_text: string | null
   analysis: Record<string, unknown> | null
+  asset_extraction_required?: boolean
   shot_plan_job_id?: string | null
+  locked_episode_nums?: number[]
+  episode_lock_reasons?: Record<string, string>
   created_at: string
   updated_at: string
 }
@@ -183,6 +186,22 @@ export function createDocument(csrfToken: string, projectId: string, data: { fil
   )
 }
 
+export function updateDocument(csrfToken: string, projectId: string, docId: string, data: { raw_text: string; base_raw_text: string; episode_num?: number }): Promise<Director2Document> {
+  return requestJson<Director2Document>(`/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(docId)}`, jsonMutation(csrfToken, data, "PUT"))
+}
+
+export function consolidateScript(csrfToken: string, projectId: string, documentId: string, sourceIds: string[]): Promise<{ document_id: string }> {
+  return requestJson(`/api/projects/${encodeURIComponent(projectId)}/script/consolidate`, jsonMutation(csrfToken, { document_id: documentId, source_document_ids: sourceIds }))
+}
+
+export function createScriptEpisode(csrfToken: string, projectId: string, documentId: string, baseText: string): Promise<{ episode_num: number }> {
+  return requestJson(`/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(documentId)}/episodes`, jsonMutation(csrfToken, { base_raw_text: baseText }))
+}
+
+export function deleteScriptEpisode(csrfToken: string, projectId: string, documentId: string, number: number, baseText: string): Promise<unknown> {
+  return requestJson(`/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(documentId)}/episodes/${number}`, jsonMutation(csrfToken, { base_raw_text: baseText }, "DELETE"))
+}
+
 export function enqueueDocumentShotPlan(
   csrfToken: string,
   projectId: string,
@@ -201,10 +220,10 @@ export function deleteDocument(csrfToken: string, projectId: string, docId: stri
   )
 }
 
-export function transferAssetsFromDoc(csrfToken: string, projectId: string, docId: string): Promise<Record<string, any>> {
+export function transferAssetsFromDoc(csrfToken: string, projectId: string, docId: string, mode: "merge" | "append" = "merge"): Promise<Record<string, any>> {
   return requestJson<Record<string, any>>(
     `/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(docId)}/transfer-assets`,
-    jsonMutation(csrfToken),
+    jsonMutation(csrfToken, { mode }),
   )
 }
 
@@ -275,6 +294,16 @@ export function uploadAssetSourceReference(
     `/api/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/references`,
     { method: "POST", body: form, headers: { "X-CSRF-Token": csrfToken } },
   )
+}
+
+export function uploadAssetProductionImage(csrfToken: string, projectId: string, assetId: string, targetType: string, identityId: string | undefined, file: File): Promise<Director2Asset> {
+  const form = new FormData()
+  form.set("target_type", targetType)
+  if (identityId) form.set("identity_id", identityId)
+  form.set("file", file)
+  return requestJson<Director2Asset>(`/api/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/images`, {
+    method: "POST", body: form, headers: { "X-CSRF-Token": csrfToken },
+  })
 }
 
 export function deleteAssetSourceReference(
@@ -476,6 +505,9 @@ export type Director2Beat = {
   upscaled_video_url?: string | null
   video_prompt_zh?: string
   video_duration?: string
+  workshop_prompt_document?: Record<string, any> | null
+  video_take_id?: string | null
+  video_takes?: Array<{ id: string; url: string; upscaled_url?: string; created_at?: string; job_id?: string; scope?: string }>
   status?: string
   h3_prompt?: string | null
   h3_prompt_source?: "manual" | "generated" | string | null
@@ -503,11 +535,23 @@ export function getEpisodeDetail(projectId: string, epId: string): Promise<Direc
   )
 }
 
+export function deleteEpisodeBeats(csrfToken: string, projectId: string, epId: string, beatIds: string[]): Promise<{ status: string; deleted_beat_ids: string[]; beats: Director2Beat[] }> {
+  return requestJson(`/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/beats`, jsonMutation(csrfToken, { beat_ids: beatIds }, "DELETE"))
+}
+
 export function updateEpisodeBeat(csrfToken: string, projectId: string, epId: string, beatId: string, data: Record<string, unknown>): Promise<{ status: string; beat: Director2Beat }> {
   return requestJson(
     `/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/beats/${encodeURIComponent(beatId)}`,
     jsonMutation(csrfToken, data, "PUT"),
   )
+}
+
+export function listBeatVideoTakes(projectId: string, epId: string, beatId: string): Promise<{ takes: NonNullable<Director2Beat["video_takes"]>; adopted_id: string | null; adopted_url: string }> {
+  return requestJson(`/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/beats/${encodeURIComponent(beatId)}/video-takes`)
+}
+
+export function adoptBeatVideoTake(csrfToken: string, projectId: string, epId: string, beatId: string, url: string): Promise<{ status: string; beat: Director2Beat }> {
+  return requestJson(`/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/beats/${encodeURIComponent(beatId)}/video-takes/adopt`, jsonMutation(csrfToken, { url }, "POST"))
 }
 
 export function generateBeatSketch(csrfToken: string, projectId: string, epId: string, beatId: string, data: Record<string, unknown> = {}): Promise<Record<string, any>> {

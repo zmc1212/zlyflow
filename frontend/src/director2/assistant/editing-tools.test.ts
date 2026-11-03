@@ -9,7 +9,9 @@ describe("editing assistant isolation and result adoption", () => {
     expect(matchesAssistantScope(session, "p", { kind: "smart_edit", sequence_id: "ep2" })).toBe(false)
     expect(matchesAssistantScope(session, "other", session.context)).toBe(false)
     expect(matchesAssistantScope(session, "p")).toBe(false)
-    expect(matchesAssistantScope({ ...session, context: null }, "other")).toBe(true)
+    expect(matchesAssistantScope({ ...session, context: null }, "other")).toBe(false)
+    expect(matchesAssistantScope({ ...session, context: null }, "p")).toBe(true)
+    expect(matchesAssistantScope({ ...session, context: null }, null)).toBe(true)
   })
   it("rejects duplicate and stale remote results so manual edits cannot be overwritten", () => {
     expect(canAdoptEditingResult(3, 3, 4)).toBe(true)

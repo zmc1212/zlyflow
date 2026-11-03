@@ -286,6 +286,7 @@ class Director2AiCancellationTests(unittest.TestCase):
         self.assertFalse(saved_payload["cancel_requested"])
         self.assertEqual(saved_payload["run_stage"], "script")
 
+    @patch("backend.app.skill_packs.resolve_skill_pack_id", new=lambda **_kwargs: "")
     def test_pipeline_exposes_episodes_before_storyboard(self) -> None:
         stages = list(AiGenerationService.STAGES)
         self.assertEqual(stages, ["script", "assets", "episodes", "storyboard"])
@@ -492,6 +493,7 @@ class Director2AiCheckpointTests(unittest.TestCase):
         self.assertIn("revising", sql)
         self.assertNotIn("awaiting_review", sql)
 
+    @patch("backend.app.skill_packs.resolve_skill_pack_id", new=lambda **_kwargs: "")
     def test_stage_leg_pauses_at_awaiting_review_without_terminal(self) -> None:
         class Provider:
             @staticmethod
@@ -675,6 +677,7 @@ class Director2AiCheckpointTests(unittest.TestCase):
         self.assertTrue(any(item.get("agent") == "locations" for item in stored))
         service.start.assert_called_once_with("aiop-1")
 
+    @patch("backend.app.skill_packs.resolve_skill_pack_id", new=lambda **_kwargs: "")
     def test_rerun_stage_leg_covers_current_agents_only(self) -> None:
         captured: dict[str, Any] = {}
 

@@ -1,7 +1,9 @@
 import json
 import unittest
+from typing import Any
 from unittest.mock import patch
 
+from backend.app.media_studio.services.comfy_video_client import ComfyVideoClient
 from backend.app.media_studio.services.episode_video_service import EpisodeVideoService
 
 from backend.app.minimax_h3_refine_workflow import (
@@ -697,6 +699,83 @@ class ConfirmedVideoResolutionTests(unittest.TestCase):
     def test_no_confirmed_resolution_keeps_incoming_options(self) -> None:
         options = self.apply("", {"workflow": "minimax-h3-director-accel-r2v", "quality": "0.4"})
         self.assertEqual(options["quality"], "0.4")
+
+
+class SmartClarifyWorkflowTests(unittest.TestCase):
+    """「智能超清」= 复放本镜留存的一采生成图，只补上二采节点。"""
+
+    @staticmethod
+    def source_payload(**overrides: Any) -> dict:
+        shot = {
+            "beat_id": "beat-1",
+            "sequence": 1,
+            "duration_sec": 5,
+            "prompt": "张伟放下餐具，抬眼看向苏念。",
+            "uploaded_refs": [],
+        }
+        options: dict[str, Any] = {"aspect_ratio": "16:9", "quality": "0.4", "seed": 12345}
+        options.update(overrides.pop("options", {}) or {})
+        timeline = ComfyVideoClient.build_timeline([shot], TASK_TYPE_T2V, options=options)
+        workflow = ComfyVideoClient.build_workflow(
+            timeline, TASK_TYPE_T2V, "video/project/episode/job-1/beat-1", options=options,
+        )
+        payload: dict[str, Any] = {
+            "render_scope": "shot",
+            "workflow_id": JobMode.MINIMAX_H3_DIRECTOR_ACCEL_T2V.value,
+            "aspect_ratio": options["aspect_ratio"],
+            "workflow_request": workflow,
+            "total_frames": int(timeline["totalFrames"]),
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_attaches_the_second_pass_without_touching_the_seeded_first_pass(self) -> None:
+        payload = self.source_payload()
+        stored = payload["workflow_request"]
+        workflow, summary = EpisodeVideoService.build_smart_clarify_workflow(payload)
+        director = workflow["12"]["inputs"]
+        self.assertEqual(director["refine"], ["45", 0])
+        self.assertTrue(director["clear_vram_before_refine"])
+        self.assertEqual(director["seed"], stored["12"]["inputs"]["seed"])
+        self.assertEqual(director["timeline_data"], stored["12"]["inputs"]["timeline_data"])
+        refine = workflow["45"]["inputs"]
+        self.assertEqual(refine["mode"], "upscale")
+        self.assertEqual(refine["upscale_method"], "h3_latent")
+        self.assertEqual(refine["sigmas"], ["44", 0])
+        self.assertEqual(summary["frames"], int(stored["12"]["inputs"]["total_frames"]))
+        self.assertEqual(summary["refine_quality"], "1.0")
+        self.assertLessEqual(summary["frames"] * summary["megapixels"], 200.0 + 1e-6)
+        self.assertNotIn("refine", payload["workflow_request"]["12"]["inputs"])
+
+    def test_keeps_the_source_shot_clarity_policy_and_upscale_method(self) -> None:
+        _workflow, summary = EpisodeVideoService.build_smart_clarify_workflow(
+            self.source_payload(refine_quality="2.0", refine_quality_mode="force"),
+        )
+        self.assertEqual(summary["refine_quality"], "2.0")
+        self.assertEqual(summary["refine_quality_mode"], "force")
+        self.assertEqual(summary["megapixels"], 2.0)
+        _workflow, capped = EpisodeVideoService.build_smart_clarify_workflow(
+            self.source_payload(refine_upscale_method="nvidia_rtx_vsr"),
+        )
+        self.assertEqual(capped["upscale_method"], "nvidia_rtx_vsr")
+
+    def test_rejects_shots_that_cannot_replay_their_own_graph(self) -> None:
+        with self.assertRaisesRegex(ValueError, "整集直出"):
+            EpisodeVideoService.build_smart_clarify_workflow(
+                self.source_payload(render_scope="episode"),
+            )
+        with self.assertRaisesRegex(ValueError, "没有留存"):
+            EpisodeVideoService.build_smart_clarify_workflow(
+                self.source_payload(workflow_request=None),
+            )
+        with self.assertRaisesRegex(ValueError, "数字人口播"):
+            EpisodeVideoService.build_smart_clarify_workflow(
+                self.source_payload(workflow_id=JobMode.MINIMAX_H3_AVATAR.value),
+            )
+        refined = self.source_payload()
+        refined["workflow_request"]["12"]["inputs"]["refine"] = ["45", 0]
+        with self.assertRaisesRegex(ValueError, "已开启二采精修"):
+            EpisodeVideoService.build_smart_clarify_workflow(refined)
 
 
 if __name__ == "__main__":

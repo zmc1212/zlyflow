@@ -549,9 +549,9 @@ export function beatUpscaleDisabledReason(
   beat: { video_url?: string | null } | null | undefined,
   progress?: { scope?: string | null; stage?: string | null; status?: string | null } | null,
 ): string | undefined {
-  if (!beatHasVideo(beat)) return "成片成功后才能超分"
+  if (!beatHasVideo(beat)) return "成片成功后才能智能超清"
   if (progress?.scope === "upscale" || progress?.stage === "upscaling" || progress?.status === "upscaling") {
-    return "正在 2x 超分"
+    return "正在智能超清"
   }
   if (progress) return "出片进行中"
   return undefined
@@ -641,9 +641,9 @@ export function jobUpscaleHint(job: {
 } | null | undefined): string {
   const scope = String(job?.payload?.render_scope || "")
   if (scope === "episode" || scope === "compose") {
-    return "提交整段超分：RTX 秒级出片，SeedVR2 分钟级更清晰。过长可能因显存被拒绝，原片仍保留。"
+    return "整集直出和拼接片没有可复放的分镜生成图，请到剧集工坊逐镜智能超清。"
   }
-  return "RTX 快速超分（秒级）或 SeedVR2 高清增强（分钟级），原片保留"
+  return "按同一 seed 复放本镜生成图，只跑二采放大重采样；原片保留，超清后自动成为本镜的新版本。"
 }
 
 export function jobUpscaleDisabledReason(
@@ -660,12 +660,15 @@ export function jobUpscaleDisabledReason(
     payload?: Record<string, unknown> | null
   }> = [],
 ): string | undefined {
-  if (!jobCanShowUpscaleAction(job)) return "超分任务本身不能再超分"
-  if (job?.status !== "completed" && job?.status !== "succeeded") return "成片成功后才能超分"
+  if (!jobCanShowUpscaleAction(job)) return "智能超清的结果不能再超清"
+  if (job?.status !== "completed" && job?.status !== "succeeded") return "成片成功后才能智能超清"
   if (!jobSourceVideoUrl(job) && !String(job?.result_url || "").trim()) return "该任务还没有成片"
   const scope = String(job?.payload?.render_scope || "")
   const beatIds = jobBeatIds(job)
-  if (scope === "selection" && beatIds.length > 1) return "多镜任务请到剧集工坊逐镜点「超分」"
+  if (scope === "episode" || scope === "compose") return "整集直出和拼接片不能智能超清，请到剧集工坊逐镜操作"
+  if (scope === "selection" && beatIds.length > 1) return "多镜任务请到剧集工坊逐镜点「智能超清」"
+  const chunks = (job?.payload?.render_plan as { chunks?: unknown[] } | null)?.chunks
+  if (Array.isArray(chunks) && chunks.length > 1) return "本镜分多段生成，没有可复放的完整生成图；请到剧集工坊重跑本镜并勾选二采精修"
   const sourceId = String(job?.id || "")
   const inFlight = jobs.some((other) => {
     if (!VIDEO_JOB_ACTIVE_STATUSES.has(String(other.status || ""))) return false
@@ -675,6 +678,26 @@ export function jobUpscaleDisabledReason(
     const otherBeats = jobBeatIds(other)
     return beatIds.length === 1 && otherBeats.includes(beatIds[0])
   })
-  if (inFlight) return "正在 2x 超分"
+  if (inFlight) return "正在智能超清"
   return undefined
+}
+
+// 智能超清复放的是本镜留存的一采生成图，二采预算沿用平台的片长×像素策略，
+// 所以确认框里的画布和耗时直接用 refinePlan，和生成页的二采预估保持同一算法。
+export function smartClarifyConfirmText(
+  durationSec: number,
+  aspectRatio = "16:9",
+  refineQuality = "1.0",
+  qualityMode = "auto",
+): string {
+  const plan = refinePlan(refineQuality, qualityMode, durationSec, aspectRatio)
+  const lines = ["用同一 seed 复放本镜生成图，只跑二采：放大后重新采样，表演和构图不变，原片保留。"]
+  if (plan.resolutionLabel) lines.push(`目标画布 ${plan.resolutionLabel}（${plan.effectiveMegapixels.toFixed(1)} MP）。`)
+  const eta = formatRefineDuration(plan.estimatedSeconds)
+  lines.push(
+    eta
+      ? `预计 ${eta}；渲染机若还缓存着本镜一采，只需跑二采会更快。`
+      : "片长×像素超出平台预算，耗时不可预测，可能因显存不足失败。",
+  )
+  return lines.join("")
 }

@@ -197,7 +197,7 @@ export default function CharacterWorkspace({
                   <label className="def-label">描述</label>
                   {asset.extra ? (
                     <Input.TextArea
-                      value={asset.extra.description}
+                      value={asset.extra.description ?? asset.description ?? ""}
                       rows={2}
                       placeholder="身手敏捷，气质阴冷，常年习武，指节厚重，面露凶相。"
                       className="custom-textarea"

@@ -294,6 +294,15 @@ class LlmService:
         raise RuntimeError(str(last_error or "大模型请求失败"))
 
     @classmethod
+    def extract_script_assets(cls, raw_text: str, analysis: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+        from .script_asset_extraction import asset_extraction_prompts, ground_asset_evidence, normalize_extracted_assets
+
+        system, user = asset_extraction_prompts(raw_text, analysis)
+        raw = cls.chat_text(system, user, max_tokens=12000, temperature=0.1, timeout=180.0)
+        payload = ground_asset_evidence(cls._parse_json_object(raw), raw_text, analysis)
+        return normalize_extracted_assets(payload, raw_text, analysis)
+
+    @classmethod
     def plan_episode_shots(cls, episode: dict[str, Any], *, aspect_ratio: str | None = None) -> list[dict[str, Any]]:
         """按本集动作与对白规划出片镜头，单镜 5–15 秒。只处理这一集。"""
         if not isinstance(episode, dict):

@@ -44,6 +44,12 @@ class DirectorProjectInfoTests(unittest.TestCase):
         ProjectService.sync_generated_script_info("p1", {"title": "雨夜回声", "summary": "新的故事梗概"})
         self.assertEqual(ProjectService.get_project("p1").name, "雨夜回声")
 
+    def test_home_placeholder_remains_eligible_for_generated_title(self):
+        created = ProjectService.create_project(ProjectCreateRequest(name="未命名短剧"))
+        self.assertNotEqual("manual", (created.extra or {}).get("name_source"))
+        ProjectService.sync_generated_script_info(created.id, {"title": "雨夜留灯"})
+        self.assertEqual("雨夜留灯", ProjectService.get_project(created.id).name)
+
     def test_manual_edit_survives_regeneration_and_preserves_settings(self):
         ProjectService.sync_generated_script_info("p1", {"title": "雨夜来信", "summary": "AI 简介"})
         saved = ProjectService.update_project("p1", ProjectUpdateRequest(name="  我的新剧  ", description="我的简介"))

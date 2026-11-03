@@ -29,9 +29,21 @@ class JobMode(str, Enum):
     SEEDVR2_UPSCALE = "seedvr2-upscale"
     WAN_VACE_DEPTH_V2V = "wan21-vace-depth-v2v"
     MINIMAX_H3_MOTION_TRANSFER = "minimax-h3-motion-transfer"
+    SCAIL2_REPLACEMENT = "scail2-replacement"
+    MINIMAX_H3_INPAINT = "minimax-h3-inpaint"
+    MINIMAX_H3_DEPTH = "minimax-h3-depth"
+    MINIMAX_H3_VIDEO_EDIT = "minimax-h3-video-edit"
+    STEM_SPLIT = "stem-split"
     MINIMAX_H3_AVATAR = "minimax-h3-avatar"
+    MINIMAX_H3_LIP_SYNC = "minimax-h3-lip-sync"
+    MINIMAX_H3_KEYFRAME = "minimax-h3-keyframe"
     GRS_GPT_IMAGE_2 = "grs-gpt-image-2"
     GRS_GPT_IMAGE_2_VIP = "grs-gpt-image-2-vip"
+    IMAGE_BACKGROUND_REMOVE = "image-background-remove"
+    IMAGE_LAYER_SPLIT = "image-layer-split"
+    IMAGE_INPAINT = "image-inpaint"
+    IMAGE_ERASER = "image-eraser"
+    IMAGE_OUTPAINT = "image-outpaint"
 
 
 class MediaType(str, Enum):

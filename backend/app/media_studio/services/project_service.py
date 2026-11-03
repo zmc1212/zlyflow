@@ -7,7 +7,7 @@ from typing import Any
 from ..db import execute_sql, now_str, query_all, query_one
 from ..models import ProjectCreateRequest, ProjectItem, ProjectUpdateRequest
 
-UNTITLED_PROJECT_NAMES = {"未命名导演工程", "未命名工程", "未命名项目", "未命名剧本", "AI 生成剧本"}
+UNTITLED_PROJECT_NAMES = {"未命名导演工程", "未命名工程", "未命名项目", "未命名剧本", "未命名短剧", "AI 生成剧本"}
 
 
 def _settings_and_extra(

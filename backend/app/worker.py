@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from pathlib import Path, PureWindowsPath
 
@@ -12,6 +13,13 @@ from .gpu_runtime import idle_run, occupy_gpu
 from .grs_client import (
     FAILED_STATUSES, SUCCESS_STATUSES, GrsClient, GrsConnectionError, GrsError, GrsTemporaryError,
     with_grs_billing_caution,
+)
+from .grs_composite import (
+    COMPOSITE_IMAGE_MODES,
+    DEFAULT_COMPOSITE_PROVIDER_MODEL,
+    CompositeImageError,
+    build_composite_inputs,
+    compose_final,
 )
 from .grs_provider import GrsProviderService
 from .models import JobMode, JobStatus
@@ -29,6 +37,13 @@ def grs_image_progress(elapsed_seconds: float) -> int:
     horizon = max(30.0, GRS_PROGRESS_HORIZON_SECONDS)
     ratio = min(1.0, max(0.0, elapsed_seconds) / horizon)
     return min(90, 12 + int(78 * ratio))
+
+
+COMPOSITE_OUTPUT_LABELS = {
+    JobMode.IMAGE_INPAINT.value: "局部重绘图片",
+    JobMode.IMAGE_ERASER.value: "消除后图片",
+    JobMode.IMAGE_OUTPAINT.value: "扩图结果",
+}
 
 
 class JobWorker:
@@ -481,37 +496,55 @@ class JobWorker:
                             images.append(GrsClient.data_uri(path))
                         return images
 
-                    images = await asyncio.to_thread(reference_data_uris)
-                    aspect_ratio, image_size = grs_request_size(mode, context["options"])
-                    try:
-                        remote_task_id = await asyncio.to_thread(
-                            client.submit,
-                            model=context["options"]["provider_model"], prompt=context["prompt"], images=images,
-                            aspect_ratio=aspect_ratio, image_size=image_size,
-                        )
-                    except GrsConnectionError as error:
-                        if self._generation_cancelled(generation_item_id):
+                    if mode in COMPOSITE_IMAGE_MODES:
+                        # 复合图片工作流：本地预处理（遮罩/垫图）+ 指令模板 + GRS 指令改图。
+                        try:
+                            remote_task_id = await asyncio.to_thread(
+                                self._submit_composite_image, client, mode, context,
+                            )
+                        except CompositeImageError as error:
+                            self.store.update_generation(
+                                generation_item_id, status=JobStatus.FAILED,
+                                stage="素材校验未通过", error=str(error),
+                            )
                             return
-                        self.store.update_generation(
-                            generation_item_id, status=JobStatus.FAILED,
-                            stage="无法连接 GRS", error=str(error),
-                        )
-                        return
-                    except Exception as error:
-                        if self._generation_cancelled(generation_item_id):
+                    else:
+                        images = await asyncio.to_thread(reference_data_uris)
+                        aspect_ratio, image_size = grs_request_size(mode, context["options"])
+                        try:
+                            remote_task_id = await asyncio.to_thread(
+                                client.submit,
+                                model=context["options"]["provider_model"], prompt=context["prompt"], images=images,
+                                aspect_ratio=aspect_ratio, image_size=image_size,
+                            )
+                        except GrsConnectionError as error:
+                            if self._generation_cancelled(generation_item_id):
+                                return
+                            self.store.update_generation(
+                                generation_item_id, status=JobStatus.FAILED,
+                                stage="无法连接 GRS", error=str(error),
+                            )
                             return
-                        self.store.update_generation(
-                            generation_item_id, status=JobStatus.INTERRUPTED,
-                            stage="GRS 提交结果不确定", error=with_grs_billing_caution(str(error)),
-                        )
-                        return
+                        except Exception as error:
+                            if self._generation_cancelled(generation_item_id):
+                                return
+                            self.store.update_generation(
+                                generation_item_id, status=JobStatus.INTERRUPTED,
+                                stage="GRS 提交结果不确定", error=with_grs_billing_caution(str(error)),
+                            )
+                            return
                     if self._generation_cancelled(generation_item_id):
                         return
                     self.store.update_generation(
                         generation_item_id, status=JobStatus.RUNNING, stage="GRS 已接单，等待生成",
                         progress=12, remote_task_id=remote_task_id, remote_status="submitted",
                     )
-                await self._poll_image(client, generation_item_id, remote_task_id)
+                if mode in COMPOSITE_IMAGE_MODES:
+                    async def deliver(urls: list[str], remote_status: str) -> None:
+                        await self._ingest_composite_image(client, generation_item_id, mode, context, urls, remote_status)
+                    await self._poll_image(client, generation_item_id, remote_task_id, ingest=deliver)
+                else:
+                    await self._poll_image(client, generation_item_id, remote_task_id)
             except Exception as error:
                 if self._generation_cancelled(generation_item_id) or self._generation_has_output(generation_item_id):
                     return
@@ -618,7 +651,64 @@ class JobWorker:
             raise last_error
         raise GrsError("GRS 未返回可下载的图片")
 
-    async def _poll_image(self, client: GrsClient, generation_item_id: str, remote_task_id: str) -> None:
+    # ------------------------------------------------------------------
+    # 复合图片工作流（局部重绘 / 消除笔 / 扩图）：GRS 指令改图 + 本地合成
+    # ------------------------------------------------------------------
+
+    def _submit_composite_image(self, client: GrsClient, mode: str, context: dict) -> str:
+        """复合工作流提交（线程内执行）：校验素材、构建指令并提交 GRS。"""
+        _original, options, prompt, images = build_composite_inputs(settings.uploads_dir, mode, context)
+        provider_model = str(options.get("provider_model") or DEFAULT_COMPOSITE_PROVIDER_MODEL)
+        return client.submit(
+            model=provider_model, prompt=prompt, images=images,
+            aspect_ratio="auto", image_size=None,
+        )
+
+    async def _ingest_composite_image(
+        self, client: GrsClient, generation_item_id: str, mode: str, context: dict,
+        urls: list[str], remote_status: str,
+    ) -> None:
+        if self.resource_storage is None:
+            raise GrsError("服务器未初始化资源存储。")
+        last_error: Exception | None = None
+        for url in urls:
+            try:
+                filename, content = await asyncio.to_thread(client.download_image, url)
+            except Exception as error:  # noqa: BLE001
+                last_error = error
+                continue
+            try:
+                final_bytes = await asyncio.to_thread(
+                    compose_final, settings.uploads_dir, mode, context, content,
+                )
+            except CompositeImageError as error:
+                raise GrsError(str(error)) from error
+            stored = await asyncio.to_thread(
+                self.resource_storage.store_bytes, "image", f"{Path(filename).stem}.png", final_bytes,
+            )
+            output = {
+                "kind": "image", "path": stored.key, "label": COMPOSITE_OUTPUT_LABELS[mode],
+                "delivery_status": "cloud" if self.resource_storage.persistent_outputs else "pending",
+                "delivered_at": None,
+            }
+            cloud_url = resource_object_url(self.resource_storage, stored.key)
+            if cloud_url:
+                output["cloud_url"] = cloud_url
+            self.store.update_generation(
+                generation_item_id, status=JobStatus.SUCCEEDED, stage="生成完成", progress=100,
+                outputs=[output], error="", remote_status=remote_status,
+            )
+            self._bind_director_recipe_image(generation_item_id)
+            self._spawn_background_task(self._refresh_grs_balance(), name="grs-balance-refresh")
+            return
+        if last_error is not None:
+            raise last_error
+        raise GrsError("GRS 未返回可下载的图片")
+
+    async def _poll_image(
+        self, client: GrsClient, generation_item_id: str, remote_task_id: str,
+        *, ingest: Callable[[list[str], str], Awaitable[None]] | None = None,
+    ) -> None:
         started = time.monotonic()
         delay = max(5, settings.grs_poll_interval_seconds)
         while time.monotonic() - started < settings.grs_timeout_seconds:
@@ -644,7 +734,10 @@ class JobWorker:
                 if self._generation_cancelled(generation_item_id):
                     return
                 try:
-                    await self._ingest_image(client, generation_item_id, urls, status)
+                    if ingest is not None:
+                        await ingest(urls, status)
+                    else:
+                        await self._ingest_image(client, generation_item_id, urls, status)
                     return
                 except GrsTemporaryError as error:
                     delay = min(30, max(5, delay * 2))

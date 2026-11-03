@@ -160,7 +160,9 @@ def build_h3_motion_transfer_workflow(
                 "height": safe_height,
                 "length": frame_length,
                 "ref_image_size": "match",
-                "ref_images": {"0": ["1", 0]},
+                # V3 autogrow API links must be flattened, matching the ordinary
+                # H3 R2V builder. A nested dict is accepted but silently ignored.
+                "ref_images.ref_image_0": ["1", 0],
             },
             "class_type": "MiniMaxH3ReferenceToVideo",
             "_meta": {"title": "H3 参考生成(身份锁定)"},

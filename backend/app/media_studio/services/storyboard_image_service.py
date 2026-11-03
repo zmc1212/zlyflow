@@ -217,13 +217,31 @@ class StoryboardImageService:
             raise ValueError("分镜图片任务不存在")
         if row.get("status") not in {"failed", "completed", "succeeded"}:
             raise ValueError("只有失败或已完成的任务可以重试")
+        if row.get("status") == "failed" and (payload.get("remote_task_id") or payload.get("api_url")):
+            from .project_detail_service import ProjectDetailService
+
+            stage = payload["target_type"].removeprefix("beat_")
+            ProjectDetailService._update_episode_beat_atomic(
+                project_id, payload["episode_id"], payload["beat_id"],
+                {f"{stage}_status": "queued"}, expected_job_id=job_id, expected_job_field=f"{stage}_job_id",
+            )
+            execute_sql(
+                "UPDATE ai_project_jobs SET status='queued',progress=0,error_message=NULL,updated_at=%s WHERE id=%s AND project_id=%s",
+                (now_str(), job_id, project_id),
+            )
+            cls.kick()
+            return {"job_id": job_id, "beat_id": payload["beat_id"], "status": "queued", "resumed": True}
         return cls.enqueue(project_id, payload["episode_id"], payload["beat_id"], payload, payload["target_type"].removeprefix("beat_"))
 
     @classmethod
     def _run(cls, job_id: str) -> None:
+        payload: dict[str, Any] = {}
         try:
             row = query_one("SELECT * FROM ai_project_jobs WHERE id=%s", (job_id,)) or {}
             payload = cls._payload(row)
+            if payload.get("api_url") and (payload.get("target_type") != "beat_triptych" or payload.get("triptych_panels")):
+                cls._complete(job_id, payload, payload["api_url"])
+                return
             grs_row_data = grs_row()
             encrypted_key = grs_row_data.get("api_key_encrypted")
             api_key = credential_manager().decrypt(encrypted_key) if encrypted_key else None
@@ -257,8 +275,8 @@ class StoryboardImageService:
         except Exception as err:
             message = f"GRS 生图失败: {err}" if isinstance(err, GrsError) else str(err)
             execute_sql(
-                "UPDATE ai_project_jobs SET status='failed',progress=0,error_message=%s,updated_at=%s WHERE id=%s",
-                (message[:4000], now_str(), job_id),
+                "UPDATE ai_project_jobs SET status='failed',progress=0,error_message=%s,payload_json=COALESCE(%s,payload_json),updated_at=%s WHERE id=%s",
+                (message[:4000], json.dumps(payload, ensure_ascii=False) if payload else None, now_str(), job_id),
             )
         finally:
             with _ACTIVE_LOCK:

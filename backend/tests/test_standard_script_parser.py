@@ -278,5 +278,69 @@ class StandardScriptParserFallbackCharacterTests(unittest.TestCase):
         self.assertEqual("28岁", li["age"])
 
 
+class StandardScriptParserSectionHeadingTests(unittest.TestCase):
+    """模型直出的剧本章节名很少按「标准剧本规范」写，整节内容不能因为标题换个说法就丢。"""
+
+    def test_story_positioning_alias_keeps_prose_paragraph(self) -> None:
+        script = """# 闪婚蜜爱
+
+## 故事定位
+现代都市情感短剧。讲述苏念在民政局门口偶遇厉景深，两人闪婚。
+
+## 第一集：冤家路窄
+
+### 镜头 1
+- 场景：民政局门口 / 日 / 外
+- 人物：苏念
+"""
+        positioning = StandardScriptParser.parse(script)["positioning"]
+        self.assertEqual(1, len(positioning["items"]))
+        self.assertIn("现代都市情感短剧", positioning["items"][0])
+        self.assertEqual("", positioning["genre"])
+
+    def test_labelled_positioning_lines_do_not_duplicate_into_items(self) -> None:
+        script = """# 花甲短剧
+
+## 视频定位
+- 类型：都市喜剧
+- 世界观：当代小区
+- 主线：大爷逆袭
+- 这一行没有字段名
+
+## 第1集 电梯误会
+
+### 镜头 1
+- 场景：电梯
+"""
+        positioning = StandardScriptParser.parse(script)["positioning"]
+        self.assertEqual("都市喜剧", positioning["genre"])
+        self.assertEqual("当代小区", positioning["worldview"])
+        self.assertEqual("大爷逆袭", positioning["main_storyline"])
+        self.assertEqual(["这一行没有字段名"], positioning["items"])
+
+    def test_visual_style_and_advice_aliases(self) -> None:
+        script = """# 闪婚蜜爱
+
+## 视觉风格
+- 暖色实拍质感，浅景深。
+- 禁止：画面内出现任何文字
+
+## 拍摄建议
+优先固定机位，减少运镜。
+"""
+        result = StandardScriptParser.parse(script)
+        self.assertIn("暖色实拍质感", result["visual_style"]["description"])
+        self.assertEqual("画面内出现任何文字", result["visual_style"]["prohibited"])
+        self.assertIn("优先固定机位", result["production_advice"])
+
+    def test_numbered_section_headings_still_match(self) -> None:
+        script = """# 花甲短剧
+
+## 二、统一视觉风格
+- 冷调夜景。
+"""
+        self.assertEqual("冷调夜景。", StandardScriptParser.parse(script)["visual_style"]["description"])
+
+
 if __name__ == "__main__":
     unittest.main()

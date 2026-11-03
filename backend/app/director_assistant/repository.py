@@ -132,7 +132,7 @@ class AssistantRepository:
         return [json.loads(row["event_json"]) for row in rows]
 
     @contextmanager
-    def project_transaction(self, project_id: str, *, replay_id=None, replay_owner=None):
+    def project_transaction(self, project_id: str, *, replay_id=None, replay_owner=None, allow_generation_jobs=False):
         with self.transaction() as conn:
             conn.execute("INSERT OR IGNORE INTO ai_assistant_project_locks (project_id,updated_at) VALUES (?,?)", (project_id, timestamp()))
             conn.execute("SELECT project_id FROM ai_assistant_project_locks WHERE project_id=?", (project_id,), for_update=True).fetchone()
@@ -151,7 +151,8 @@ class AssistantRepository:
             media = conn.execute("SELECT id FROM ai_assistant_records WHERE kind='media_execution' AND parent_id=? AND status IN ('queued','running') LIMIT 1", (project_id,)).fetchone()
             if media:
                 raise AssistantConflict("该工程正在提交媒体任务，请稍后再操作")
-            job = conn.execute("SELECT id FROM ai_project_jobs WHERE project_id=? AND status IN ('queued','preparing','running','prompt_generation','uploading','comfy_queued','upscaling','assembling','downloading') LIMIT 1", (project_id,)).fetchone()
-            if job:
-                raise AssistantConflict("该工程有进行中的生成任务，请在任务中心查看进度")
+            if not allow_generation_jobs:
+                job = conn.execute("SELECT id FROM ai_project_jobs WHERE project_id=? AND status IN ('queued','preparing','running','prompt_generation','uploading','comfy_queued','upscaling','assembling','downloading') LIMIT 1", (project_id,)).fetchone()
+                if job:
+                    raise AssistantConflict("该工程有进行中的生成任务，请在任务中心查看进度")
             yield conn, dict(project)

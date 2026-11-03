@@ -295,6 +295,11 @@ class VlmProviderEndpointTests(unittest.TestCase):
 
 
 class VlmRuntimeConfigTests(unittest.TestCase):
+    def setUp(self):
+        patcher = patch("backend.app.media_studio.services.llm_service.llm_row", return_value={})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     @patch("backend.app.media_studio.services.llm_service.vlm_row")
     def test_infer_requires_enabled_vlm(self, mock_row: MagicMock) -> None:
         from backend.app.media_studio.services.llm_service import LlmService

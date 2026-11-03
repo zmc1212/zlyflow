@@ -180,7 +180,8 @@
 
 .d2-content-library .detail-top-info {
   flex: 1 1 0;
-  min-width: 0;
+  /* 标题区必须有真实下限，否则 flex-basis:0 让换行永不触发，操作按钮会把标题压成一列竖排。 */
+  min-width: min(100%, 280px);
 }
 
 .d2-content-library .detail-top-actions {
@@ -755,6 +756,17 @@
   margin: 0;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+/* 剧本没写这一节时说明缺的是什么，而不是留一张空卡让人以为解析坏了。 */
+.d2-content-library .global-empty {
+  margin: 0;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--studio-text-muted);
+  border: 1px dashed var(--studio-border);
+  border-radius: 6px;
+  padding: 10px 12px;
 }
 
 /* Raw Preview */

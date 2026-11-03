@@ -10,6 +10,7 @@ import DirectorAssistantProvider from "./assistant/DirectorAssistant"
 import { parseDirector2Path, director2HomePath } from "./paths"
 import "./director2.css"
 import "./director-surfaces.css"
+import { useStudioTheme } from "../ThemeProvider"
 
 const director2AntdTheme = {
   token: {
@@ -21,6 +22,8 @@ const director2AntdTheme = {
 }
 
 export default function Director2App({ csrfToken, onExitDirector }: { csrfToken: string; onExitDirector?: () => void }) {
+  const { mode } = useStudioTheme()
+  const flowTheme = { ...director2AntdTheme, token: { ...director2AntdTheme.token, colorPrimary: mode === "dark" ? "#8bf0d6" : "#087f68" }, components: { Button: { primaryColor: mode === "dark" ? "#10251e" : "#ffffff" } } }
   const location = useLocation()
   const route = useMemo(() => parseDirector2Path(location.pathname), [location.pathname])
   const leftoverRecipe = useMemo(() => {
@@ -36,22 +39,20 @@ export default function Director2App({ csrfToken, onExitDirector }: { csrfToken:
     return <div className="director2-app director2-app-home"><ScriptDiagnosisPage csrfToken={csrfToken} /></div>
   }
 
-  // 首页（复刻旧导演台首页）不套 director2AntdTheme：
-  // 旧首页样式走全局 --dh-*/--studio-* 双主题 token，antd 控件也需继承工作台全局主题，
-  // 暗色主题下按钮/气泡才能正确变色；且首页不显示 AI Media Studio 顶导航（视觉对齐旧版）。
+  // 首页内嵌真实助手；项目与剪辑页面继续使用原来的抽屉。
   if (route.kind === "home") {
     return (
-      <DirectorAssistantProvider csrfToken={csrfToken} projectId={null}>
-      <div className="director2-app director2-app-home">
+      <DirectorAssistantProvider csrfToken={csrfToken} projectId={null} presentation="home">
+      <ConfigProvider theme={flowTheme}><div className="director2-app director2-app-home">
         <Director2StudioHome csrfToken={csrfToken} onExitDirector={onExitDirector} />
-      </div>
+      </div></ConfigProvider>
       </DirectorAssistantProvider>
     )
   }
 
   return (
-    <DirectorAssistantProvider csrfToken={csrfToken} projectId={route.kind === "project" ? route.projectId : null} editingContext={route.kind === "project" && route.menu === "edit" ? { kind: "smart_edit", sequence_id: route.episodeId || "main" } : null}>
-    <ConfigProvider theme={director2AntdTheme}>
+    <DirectorAssistantProvider csrfToken={csrfToken} projectId={route.kind === "project" ? route.projectId : null} presentation={route.kind === "project" && route.menu === "content" ? "project" : "drawer"} editingContext={route.kind === "project" && route.menu === "edit" ? { kind: "smart_edit", sequence_id: route.episodeId || "main" } : null}>
+    <ConfigProvider theme={flowTheme}>
       <div className="director2-app app-layout">
       <main className="app-main">
         <Director2ProjectDetail key={route.projectId} csrfToken={csrfToken} route={route} />

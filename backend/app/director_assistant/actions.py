@@ -7,6 +7,7 @@ from typing import Any
 
 from .protocol import ArtifactDraft, MediaDraft
 from .repository import AssistantConflict, AssistantNotFound, AssistantRepository, dumps, identifier, timestamp
+from .script_documents import document_analysis, ensure_document_idle, ensure_locked_bodies_unchanged, locked_episodes, primary_document, remove_script_episode, script_values
 
 _MEDIA_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="assistant-media")
 TABLES = {"document": "ai_project_documents", "asset": "ai_project_assets", "episode": "ai_project_episodes"}
@@ -47,17 +48,23 @@ class ProjectActions:
             project = conn.execute("SELECT * FROM ai_projects WHERE id=?", (project_id,)).fetchone()
             if not project:
                 raise AssistantNotFound("关联工程不存在")
-            docs = conn.execute("SELECT id,filename,raw_text,updated_at FROM ai_project_documents WHERE project_id=? ORDER BY updated_at DESC LIMIT 2", (project_id,)).fetchall()
+            docs = conn.execute("SELECT * FROM ai_project_documents WHERE project_id=? AND COALESCE(status,'')<>'merged' ORDER BY created_at,id", (project_id,)).fetchall()
             assets = conn.execute("SELECT id,kind,name,role,description,visual_prompt,image_url,voice_id FROM ai_project_assets WHERE project_id=? LIMIT 100", (project_id,)).fetchall()
             episodes = conn.execute("SELECT * FROM ai_project_episodes WHERE project_id=? ORDER BY episode_num LIMIT 100", (project_id,)).fetchall()
             legacy = conn.execute("SELECT id,status FROM ai_project_jobs WHERE project_id=? AND job_type='ai_pipeline' AND status IN ('queued','running','clarifying','revising','awaiting_review') LIMIT 1", (project_id,)).fetchone()
         from ..media_studio.services.episode_video_service import EpisodeVideoService
         from ..workflow_registry import workflow_for
         definition = workflow_for(EpisodeVideoService.DEFAULTS["workflow"])
+        main_script = primary_document(docs)
         with self.repo.store.connection() as conn:
             image_models = conn.execute("SELECT provider_model AS id,display_name AS name FROM grs_image_models WHERE enabled=1 ORDER BY is_default DESC,sort_order LIMIT 100").fetchall()
         return {"project": {"id": project["id"], "name": project["name"], "description": project.get("description"), "settings": json.loads(project.get("settings_json") or "{}")},
-                "documents": [{**d, "raw_text": str(d.get("raw_text") or "")[:24000]} for d in docs],
+                "documents": [{"id": d["id"], "filename": d["filename"], "raw_text": str(d.get("raw_text") or "")[:24000],
+                               "is_primary": d["id"] == (main_script or {}).get("id"),
+                               "script_episodes": [{"episode_num": e["episode_num"], "title": e.get("title"), "summary": e.get("summary")} for e in document_analysis(d).get("episodes", [])],
+                               "episode_outlines": document_analysis(d).get("episode_outlines", []),
+                               "latest_episode_text": str(max(document_analysis(d).get("episodes") or [{}], key=lambda e: int(e.get("episode_num") or 0)).get("body") or "")[-12000:],
+                               "story_setting_text": document_analysis(d).get("story_setting_text", "")} for d in docs],
                 "assets": [dict(a) for a in assets], "episodes": [{**e, "data_json": dumps({**json.loads(e.get("data_json") or "{}"), "beats": json.loads(e.get("data_json") or "{}").get("beats", [])[:50]})} for e in episodes],
                 "legacy_operation": dict(legacy) if legacy else None,
                 "media_capabilities": {"image_models": [dict(m) for m in image_models], "default_video_workflow": {"id": definition.id, "name": definition.name,
@@ -81,7 +88,12 @@ class ProjectActions:
         if session.get("project_id") and session["project_id"] != project_id:
             raise ValueError("该会话已关联其他工程，请在新会话中使用目标工程")
         mapping = mapping or {}
-        with self.repo.project_transaction(project_id) as (conn, project):
+        script_draft = artifact["artifact_type"] == "script" or (artifact["artifact_type"] == "episodes" and not any(key.startswith("episode:") for key in mapping))
+        script_action = mapping.get("script_action") or ("replace_document" if mapping.get("document") else "append_episodes")
+        if script_action not in {"append_episodes", "update_episodes", "replace_document", "new_document"}:
+            raise ValueError("剧本写入方式无效")
+        script_body_write = artifact["artifact_type"] == "script" and artifact.get("data", {}).get("section", "body") == "body" and script_action in {"append_episodes", "update_episodes", "new_document"}
+        with self.repo.project_transaction(project_id, allow_generation_jobs=script_body_write) as (conn, project):
             plans = []
 
             def change(kind: str, key: str, label: str, values: dict, target_id=None):
@@ -96,14 +108,22 @@ class ProjectActions:
                               "operation": "update" if existing else "add", "base_hash": fingerprint(existing), "values": values})
                 return existing
 
-            if artifact["artifact_type"] == "script":
-                from ..media_studio.services.script_parser import StandardScriptParser
-                content = artifact["content"]
-                change("document", "document", artifact["title"], {
-                    "filename": artifact["title"], "file_size": len(content.encode()), "input_mode": "assistant_v2",
-                    "status": "ready", "spine_template": "drama", "visual_style": "",
-                    "raw_text": content, "analysis_json": dumps(StandardScriptParser.parse(content)),
-                })
+            if script_draft:
+                docs = conn.execute("SELECT * FROM ai_project_documents WHERE project_id=? AND COALESCE(status,'')<>'merged' ORDER BY created_at,id", (project_id,)).fetchall()
+                target = next((doc for doc in docs if doc["id"] == mapping.get("document")), None) if mapping.get("document") else primary_document(docs)
+                if mapping.get("document") and not target:
+                    raise AssistantNotFound("当前剧本不存在或已合并，请刷新后重试")
+                if script_action == "new_document":
+                    target = None
+                ensure_document_idle(conn, project_id, target)
+                values, label = script_values(target, artifact, script_action)
+                if target:
+                    ensure_locked_bodies_unchanged(target, values, locked_episodes(conn, project_id, target))
+                change("document", "document", label, values, (target or {}).get("id"))
+                plans[-1].update(script_write_action=script_action,
+                                 script_section="outline" if artifact["artifact_type"] == "episodes" else artifact.get("data", {}).get("section", "body"),
+                                 initial_body=artifact["artifact_type"] == "script" and artifact.get("data", {}).get("section", "body") == "body" and not document_analysis(target).get("episodes"),
+                                 initial_script=not docs and script_action != "new_document")
             elif artifact["artifact_type"] == "assets":
                 for index, asset in enumerate(artifact["data"]["assets"]):
                     change("asset", f"asset:{index}", asset["name"], asset)
@@ -175,7 +195,15 @@ class ProjectActions:
         previous_artifact = self.repo.get(owner, preview["artifact_id"], "artifact")
         if previous_artifact.get("application_id"):
             return self.repo.get(owner, previous_artifact["application_id"], "application")
-        with self.repo.project_transaction(preview["project_id"], replay_id=preview["artifact_id"], replay_owner=owner) as (conn, project):
+        # Scoped body writes can run beside other episodes' generation jobs;
+        # recheck per-episode production locks below.
+        script_body_write = previous_artifact["artifact_type"] == "script" and previous_artifact.get("data", {}).get("section", "body") == "body" and bool(preview["changes"]) and all(
+            item["entity"] == "document" and (item["operation"] == "add" or item.get("script_write_action") in {"append_episodes", "update_episodes"}) for item in preview["changes"]
+        )
+        with self.repo.project_transaction(
+            preview["project_id"], replay_id=preview["artifact_id"], replay_owner=owner,
+            allow_generation_jobs=script_body_write,
+        ) as (conn, project):
             preview = self.repo.get(owner, application_id, "application", conn=conn, lock=True)
             if preview["status"] == "applied":
                 return preview
@@ -192,7 +220,15 @@ class ProjectActions:
                 row = conn.execute(f"SELECT * FROM {table} WHERE id=? AND project_id=?", (item["target_id"], project["id"]), for_update=True).fetchone()
                 if fingerprint(row) != item["base_hash"]:
                     raise AssistantConflict(f"{item['label']} 已被修改，请重新预览变更")
+                if item["entity"] == "document":
+                    ensure_document_idle(conn, project["id"], row)
+                    if item.get("initial_script") and conn.execute("SELECT id FROM ai_project_documents WHERE project_id=? AND COALESCE(status,'')<>'merged' LIMIT 1", (project["id"],)).fetchone():
+                        raise AssistantConflict("当前剧本已创建，请重新预览并追加分集")
+                    if row:
+                        self.repo.insert(owner, "script_revision", {"project_id": project["id"], "document": dict(row), "application_id": application_id}, parent=row["id"], conn=conn)
                 values = dict(item["values"])
+                if item["entity"] == "document" and row:
+                    ensure_locked_bodies_unchanged(row, values, locked_episodes(conn, project["id"], row))
                 if item["entity"] == "episode":
                     collision = conn.execute("SELECT id FROM ai_project_episodes WHERE project_id=? AND episode_num=? AND id<>? LIMIT 1", (project["id"], values["episode_num"], item["target_id"])).fetchone()
                     if collision:
@@ -210,12 +246,104 @@ class ProjectActions:
             if not session.get("project_id"):
                 self.repo.update(owner, session, {"project_id": project["id"]}, conn=conn)
             self.repo.update(owner, artifact, {"application_id": application_id, "applied_project_id": project["id"]}, conn=conn)
-            if artifact["artifact_type"] == "script":
+            if artifact["artifact_type"] == "script" and any(item.get("initial_body") for item in preview["changes"]):
                 self._sync_project_info(conn, project, artifact)
             else:
                 conn.execute("UPDATE ai_projects SET updated_at=? WHERE id=?", (now, project["id"]))
             result = self.repo.update(owner, preview, {}, status="applied", conn=conn)
         return result
+
+    def consolidate_scripts(self, owner: str, project_id: str, target_id: str, source_ids: list[str]) -> dict:
+        """Explicitly recover legacy per-episode documents; retain source rows."""
+        if not source_ids or target_id in source_ids:
+            raise ValueError("请选择要并入当前剧本的独立分集稿")
+        with self.repo.project_transaction(project_id, allow_generation_jobs=True) as (conn, project):
+            target = conn.execute("SELECT * FROM ai_project_documents WHERE id=? AND project_id=?", (target_id, project_id), for_update=True).fetchone()
+            if not target:
+                raise AssistantNotFound("当前剧本不存在")
+            ensure_document_idle(conn, project_id, target)
+            for source_id in dict.fromkeys(source_ids):
+                source = conn.execute("SELECT * FROM ai_project_documents WHERE id=? AND project_id=?", (source_id, project_id), for_update=True).fetchone()
+                if not source:
+                    raise AssistantNotFound("待合并的分集稿不存在")
+                if source.get("status") == "merged" and document_analysis(source).get("merged_into_document_id") == target_id:
+                    continue
+                ensure_document_idle(conn, project_id, source)
+                values, _ = script_values(dict(target), {"artifact_type": "script", "title": source["filename"], "content": source["raw_text"], "data": {}}, "append_episodes")
+                analysis = json.loads(values["analysis_json"])
+                analysis["source_document_ids"] = list(dict.fromkeys([*analysis.get("source_document_ids", []), source_id]))
+                values["analysis_json"] = dumps(analysis)
+                self.repo.insert(owner, "script_revision", {"project_id": project_id, "document": dict(target), "source_document": dict(source)}, parent=target_id, conn=conn)
+                conn.execute("UPDATE ai_project_documents SET " + ",".join(f"{key}=?" for key in values) + ",updated_at=? WHERE id=? AND project_id=?", (*values.values(), timestamp(), target_id, project_id))
+                source_analysis = document_analysis(source)
+                source_analysis["merged_into_document_id"] = target_id
+                conn.execute("UPDATE ai_project_documents SET status='merged',analysis_json=?,updated_at=? WHERE id=? AND project_id=?", (dumps(source_analysis), timestamp(), source_id, project_id))
+                target = {**dict(target), **values}
+            conn.execute("UPDATE ai_projects SET updated_at=? WHERE id=?", (timestamp(), project_id))
+        return {"document_id": target_id, "source_document_ids": source_ids, "status": "merged"}
+
+    def edit_script_episode(self, owner: str, project_id: str, document_id: str, number: int, text: str, base_text: str) -> dict:
+        from .script_documents import episode_spans
+        if [value for value, _, _ in episode_spans(text)] != [number]:
+            raise ValueError(f"本次只编辑第{number}集，请保留该集标题及编号")
+        with self.repo.project_transaction(project_id, allow_generation_jobs=True) as (conn, _):
+            row = conn.execute("SELECT * FROM ai_project_documents WHERE id=? AND project_id=?", (document_id, project_id), for_update=True).fetchone()
+            if not row:
+                raise AssistantNotFound("当前剧本不存在")
+            if str(row.get("raw_text") or "") != base_text:
+                raise AssistantConflict("剧本已更新，请重新加载后再保存；本地修改已保留")
+            ensure_document_idle(conn, project_id, row)
+            locks = locked_episodes(conn, project_id, row)
+            if number in locks:
+                raise AssistantConflict(f"第{number}集：{locks[number]}")
+            analysis = document_analysis(row)
+            has_body = any(int(ep["episode_num"]) == number for ep in analysis.get("episodes", []))
+            if not has_body and not any(int(ep["episode_num"]) == number for ep in analysis.get("episode_outlines", [])):
+                raise ValueError("请先新建本集，再填写正文")
+            if not text.split("\n", 1)[-1].strip() or "\n" not in text:
+                raise ValueError("请填写本集正文")
+            values, _ = script_values(dict(row), {"artifact_type": "script", "title": row["filename"], "content": text, "data": {}}, "update_episodes" if has_body else "append_episodes")
+            self.repo.insert(owner, "script_revision", {"project_id": project_id, "document": dict(row)}, parent=document_id, conn=conn)
+            conn.execute("UPDATE ai_project_documents SET " + ",".join(f"{key}=?" for key in values) + ",updated_at=? WHERE id=? AND project_id=?", (*values.values(), timestamp(), document_id, project_id))
+            conn.execute("UPDATE ai_projects SET updated_at=? WHERE id=?", (timestamp(), project_id))
+        return {**dict(row), **values, "analysis": json.loads(values["analysis_json"]), "shot_plan_job_id": None}
+
+    def create_script_episode(self, owner: str, project_id: str, document_id: str, base_text: str) -> dict:
+        with self.repo.project_transaction(project_id, allow_generation_jobs=True) as (conn, _):
+            row = conn.execute("SELECT * FROM ai_project_documents WHERE id=? AND project_id=?", (document_id, project_id), for_update=True).fetchone()
+            if not row:
+                raise AssistantNotFound("当前剧本不存在")
+            if str(row.get("raw_text") or "") != base_text:
+                raise AssistantConflict("剧本已更新，请重新加载后再新建分集")
+            ensure_document_idle(conn, project_id, row)
+            analysis = document_analysis(row)
+            numbers = {int(ep["episode_num"]) for ep in [*analysis.get("episodes", []), *analysis.get("episode_outlines", [])]}
+            number = max(numbers, default=0) + 1
+            if number > 1000:
+                raise ValueError("单部短剧最多1000集")
+            analysis.setdefault("episode_outlines", []).append({"episode_num": number, "title": "未命名", "summary": ""})
+            self.repo.insert(owner, "script_revision", {"project_id": project_id, "document": dict(row)}, parent=document_id, conn=conn)
+            conn.execute("UPDATE ai_project_documents SET analysis_json=?,updated_at=? WHERE id=? AND project_id=?", (dumps(analysis), timestamp(), document_id, project_id))
+            conn.execute("UPDATE ai_projects SET updated_at=? WHERE id=?", (timestamp(), project_id))
+        return {"episode_num": number, "document_id": document_id}
+
+    def delete_script_episode(self, owner: str, project_id: str, document_id: str, number: int, base_text: str) -> dict:
+        with self.repo.project_transaction(project_id, allow_generation_jobs=True) as (conn, _):
+            row = conn.execute("SELECT * FROM ai_project_documents WHERE id=? AND project_id=?", (document_id, project_id), for_update=True).fetchone()
+            if not row:
+                raise AssistantNotFound("当前剧本不存在")
+            if str(row.get("raw_text") or "") != base_text:
+                raise AssistantConflict("剧本已更新，请重新加载后再删除分集")
+            ensure_document_idle(conn, project_id, row)
+            locks = locked_episodes(conn, project_id, row)
+            if number in locks:
+                raise AssistantConflict(f"第{number}集：{locks[number]}")
+            values = remove_script_episode(dict(row), number)
+            ensure_locked_bodies_unchanged(row, values, locks)
+            self.repo.insert(owner, "script_revision", {"project_id": project_id, "document": dict(row), "deleted_episode_num": number}, parent=document_id, conn=conn)
+            conn.execute("UPDATE ai_project_documents SET raw_text=?,analysis_json=?,file_size=?,updated_at=? WHERE id=? AND project_id=?", (values["raw_text"], values["analysis_json"], values["file_size"], timestamp(), document_id, project_id))
+            conn.execute("UPDATE ai_projects SET updated_at=? WHERE id=?", (timestamp(), project_id))
+        return {"document_id": document_id, "episode_num": number, "status": "deleted"}
 
     @staticmethod
     def _sync_project_info(conn, project: dict, artifact: dict):

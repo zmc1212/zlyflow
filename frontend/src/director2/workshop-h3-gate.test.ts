@@ -25,20 +25,25 @@ describe("workshop H3 prompt gate", () => {
     expect(workshopH3PromptGate({ character_ids: ["a"] })).toBe("need_cast")
   })
 
-  it("blocks prompt generation until triptych exists", () => {
+  it("can generate a prompt directly from bound assets without keyframes", () => {
+    expect(workshopH3PromptGate({ character_ids: ["a"], scene_id: "s" })).toBe("ready")
+    expect(workshopH3PromptGate({ character_ids: ["a"], scene_id: "s" }, { triptychGenerating: true })).toBe("ready")
+  })
+
+  it("only requires keyframes when explicitly planning them", () => {
     expect(workshopH3PromptGate({
       character_ids: ["a"],
       scene: "走廊",
-    })).toBe("need_triptych")
+    }, { requireTriptych: true })).toBe("need_triptych")
     expect(workshopH3PromptGate(
       { character_ids: ["a"], scene_id: "s" },
-      { triptychGenerating: true },
+      { triptychGenerating: true, requireTriptych: true },
     )).toBe("triptych_running")
     expect(workshopH3PromptGate({
       character_ids: ["a"],
       scene_id: "s",
       triptych_status: "queued",
-    })).toBe("triptych_running")
+    }, { requireTriptych: true })).toBe("triptych_running")
     expect(workshopH3PromptGate(readyBeat)).toBe("ready")
   })
 

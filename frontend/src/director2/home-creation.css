@@ -1,0 +1,123 @@
+/* Four entry modes, measured against the live Jimeng CSS and paired theme tokens. */
+.director-agent-home .dh-agent-section > h1 { font-family: "Director Heading", "PingFang SC", "Microsoft YaHei", Arial, sans-serif; font-size: 30px; font-synthesis: none; font-weight: 500; line-height: 38px; margin: 0 0 28px; color: var(--director-home-text); }
+.dh-create-entry { width: min(100%, 1200px, calc(100vw / 1.4 - 40px)); margin: 0 auto; }
+.director-agent-home .dh-create-panel {
+  display: flex;
+  flex-direction: column;
+  height: 303px;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--director-home-line);
+  border-radius: 24px;
+  background: var(--director-home-composer);
+  backdrop-filter: blur(40px);
+  color: var(--director-home-text);
+  box-shadow: none;
+  transition: border-color 150ms;
+}
+.director-agent-home .dh-create-panel:focus-within { border-color: var(--studio-border-strong); }
+.director-agent-home .dh-create-tabs.ant-segmented { flex: none; width: 100%; height: 36px; margin: 0; padding: 0; border-radius: 0; background: var(--director-home-heading-strip); }
+.director-agent-home .dh-create-tabs .ant-segmented-group { flex: none; width: 100%; height: 36px; }
+.dh-create-tabs .ant-segmented-item { flex: 1; min-width: 0; height: 36px; border-radius: 12px 12px 0 0; color: var(--director-home-tab-muted); }
+.dh-create-tabs .ant-segmented-item-label {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0 20px;
+  overflow: visible;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 20px;
+}
+.dh-create-tabs .ant-segmented-item-icon { display: inline-flex; align-items: center; margin-inline-end: 0; }
+.dh-create-tabs .ant-segmented-thumb { display: none; }
+.dh-create-tabs .ant-segmented-item:has(input:checked) { border-radius: 12px 12px 0 0; background: var(--director-home-tab-surface); box-shadow: none; color: var(--director-home-text); }
+.dh-create-tabs .ant-segmented-item:has(input:checked) .ant-segmented-item-label { font-weight: 500; }
+/* Join the selected mode to the body with the same concave corners as the reference. */
+.dh-create-tabs .ant-segmented-item:has(input:checked) .ant-segmented-item-label::before,
+.dh-create-tabs .ant-segmented-item:has(input:checked) .ant-segmented-item-label::after { content: ""; position: absolute; bottom: 0; width: 12px; height: 12px; pointer-events: none; }
+.dh-create-tabs .ant-segmented-item:has(input:checked) .ant-segmented-item-label::before { left: -12px; border-radius: 0 0 12px 0; box-shadow: 6px 6px 0 6px var(--director-home-tab-surface); }
+.dh-create-tabs .ant-segmented-item:has(input:checked) .ant-segmented-item-label::after { right: -12px; border-radius: 0 0 0 12px; box-shadow: -6px 6px 0 6px var(--director-home-tab-surface); }
+.dh-create-tabs .ant-segmented-item:has(input:focus-visible) { outline: 1px solid var(--studio-primary); outline-offset: -3px; }
+.dh-create-composer { display: flex; flex: 1; flex-direction: column; gap: 16px; min-height: 0; padding: 16px; }
+.dh-create-content { display: flex; flex: 1; align-items: stretch; gap: 20px; min-height: 0; }
+.dh-create-content::after { content: ""; flex: 0 0 24px; }
+.dh-source-slot { position: relative; flex: 0 0 230px; min-width: 0; height: 100%; }
+.dh-source-upload.ant-upload-wrapper, .dh-source-upload .ant-upload-select, .dh-source-upload .ant-upload { display: block; width: 100%; height: 100%; }
+.director-agent-home .dh-source-trigger.ant-btn { position: relative; display: flex; flex-direction: column; justify-content: center; gap: 4px; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 12px; background: transparent; box-shadow: none; color: var(--director-home-text); font-size: 12px; font-weight: 500; line-height: 13.8px; white-space: normal; }
+.director-agent-home .dh-source-trigger.ant-btn:not(:disabled):hover { background: var(--director-home-hover); color: var(--director-home-text); }
+.dh-source-border { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.dh-source-border rect { width: calc(100% - 1px); height: calc(100% - 1px); fill: none; stroke: var(--director-home-upload-line); stroke-width: 1px; stroke-dasharray: 3 3; }
+.dh-source-symbol { display: flex; flex: none; align-items: center; justify-content: center; width: 100%; height: 36px; }
+.dh-source-copy { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; padding: 0 8px; }
+.dh-source-copy strong { display: block; width: 100%; overflow: hidden; color: var(--director-home-text); font-size: 12px; font-weight: 400; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
+.dh-source-copy > span { color: var(--director-home-tab-muted); font-weight: 400; line-height: 17px; }
+.dh-source-formats { display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+.dh-source-add { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 24px; height: 24px; border: 1px solid var(--director-home-upload-line); border-radius: 50%; background: var(--director-home-upload-add); color: var(--director-home-text); }
+.director-agent-home .dh-source-remove.ant-btn { position: absolute; top: 8px; right: 8px; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border-radius: 6px; color: var(--director-home-secondary); }
+.director-agent-home .dh-create-panel .dh-create-editor.ant-input {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 6px;
+  resize: none;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--director-home-text);
+  font-size: 14px;
+  line-height: 21px;
+}
+.director-agent-home .dh-create-panel .dh-create-editor.ant-input:is(:hover, :focus, :focus-visible) { outline: none; outline-offset: 0; border: 0; background: transparent; box-shadow: none; }
+.director-agent-home .dh-create-panel .dh-create-editor.ant-input::placeholder { color: var(--director-home-placeholder); opacity: 1; }
+.dh-create-toolbar { display: flex; flex: none; align-items: center; gap: 2px; height: 32px; margin: 0; padding-left: 4px; }
+.director-agent-home .dh-create-toolbar .dh-create-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--director-home-text);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
+}
+.director-agent-home .dh-create-toolbar .dh-create-tool:not(:disabled):not(.ant-select-disabled):hover { background: var(--director-home-hover); color: var(--director-home-text); }
+.director-agent-home .dh-create-toolbar .dh-create-tool:is(:disabled, .ant-select-disabled) { color: var(--director-home-placeholder); }
+.director-agent-home .dh-create-toolbar .ant-select-focused { background: var(--director-home-hover); }
+.dh-create-toolbar .dh-create-tool.ant-select .ant-select-prefix { display: inline-flex; align-items: center; margin-inline-end: 0; }
+.dh-create-toolbar .dh-create-tool.ant-select .ant-select-content { margin-inline-end: 0; }
+.dh-create-toolbar .dh-create-tool.ant-select :is(.ant-select-content, .ant-select-selection-item) { font-size: 12px; font-weight: 500; line-height: 20px; }
+.dh-create-toolbar .dh-style-tool { width: 90px; min-width: 0; }
+.dh-create-toolbar .dh-aspect-tool { width: 68px; min-width: 0; }
+.director-agent-home .dh-create-toolbar .dh-icon-tool { width: 32px; min-width: 32px; justify-content: center; padding: 0; }
+.dh-create-divider { flex: none; width: 1px; height: 14px; margin: 0 3px; background: var(--director-home-divider); }
+.dh-create-toolbar .ant-btn-icon { display: inline-flex; align-items: center; }
+.dh-create-toolbar-spacer { flex: 1; }
+.dh-create-count { flex: none; margin: 0 12px; color: var(--director-home-placeholder); font-size: 12px; line-height: 20px; white-space: nowrap; }
+.dh-create-count.is-over-limit { color: var(--studio-danger); }
+.director-agent-home .dh-create-toolbar .dh-start-project.ant-btn { flex: none; width: 32px; min-width: 32px; height: 32px; padding: 0; border: 0; border-radius: 50%; background: var(--studio-text); box-shadow: none; color: var(--studio-canvas); }
+.director-agent-home .dh-create-toolbar .dh-start-project.ant-btn:not(:disabled):hover { background: var(--director-home-secondary); color: var(--studio-canvas); }
+.director-agent-home .dh-create-toolbar .dh-start-project.ant-btn:disabled { background: var(--director-home-send-disabled); color: var(--director-home-send-ink); }
+.dh-episode-option { display: grid; gap: 10px; width: 160px; font-size: 12px; }
+.dh-episode-option .ant-input-number { width: 100%; }
+.dh-adaptation-option { display: grid; gap: 10px; width: 320px; font-size: 12px; }
+.dh-diagnosis-dimensions { display: grid; gap: 12px; width: 310px; margin: 0; }
+.dh-diagnosis-dimensions dt { font-size: 12px; font-weight: 500; }
+.dh-diagnosis-dimensions dd { margin: 3px 0 0; color: var(--studio-text-muted); font-size: 12px; }
+.dh-option-dot { width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+.dh-create-hint { margin: 14px 0 0; color: var(--studio-text-muted); font-size: 12px; line-height: 20px; text-align: center; }
+.dh-create-entry > .ant-alert { margin-top: 12px; }
+.director-agent-home .dh-projects { margin-top: 42px; }
+.director-agent-home .dh-projects-heading h2 { font-size: 16px; }

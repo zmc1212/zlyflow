@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import time
 import uuid
@@ -47,6 +48,7 @@ from ...workflow_registry import (
     T8_WORKFLOWS,
     coerce_bool_option,
     h3_dimensions,
+    refine_upscale_method_value,
 )
 
 from .timeline_rendering import (
@@ -429,6 +431,7 @@ class ComfyVideoClient:
                 first_pass_model=["15", 0],
                 confirm_first_pass=preview,
                 refine_mode=str(values.get("refine_quality_mode") or "auto"),
+                upscale_method=refine_upscale_method_value(values),
             )
             workflow.update(refine_nodes)
             workflow["12"]["inputs"]["refine"] = refine_link
@@ -779,6 +782,31 @@ class ComfyVideoClient:
             self._set_output_prefix(workflow, filename_prefix)
         _submitted, _history, output = self.submit_and_wait(
             workflow,
+            progress=progress,
+            on_submitted=on_submitted,
+        )
+        return output
+
+    def run_director_refine(
+        self,
+        workflow: dict[str, Any],
+        *,
+        progress: Callable[[int], None] | None = None,
+        on_submitted: Callable[[dict[str, Any]], None] | None = None,
+        filename_prefix: str | None = None,
+    ) -> dict[str, str]:
+        """Replay a stored Director graph that already carries the second pass.
+
+        ComfyUI caches nodes by input hash, so an identical seeded graph whose first
+        pass is still resident runs only the refine; after an eviction or restart both
+        passes run again and reproduce the same take.
+        """
+        self.free_resources(force=True)
+        graph = copy.deepcopy(workflow)
+        if filename_prefix:
+            self._set_output_prefix(graph, filename_prefix)
+        _submitted, _history, output = self.submit_and_wait(
+            graph,
             progress=progress,
             on_submitted=on_submitted,
         )

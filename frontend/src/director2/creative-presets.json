@@ -1,0 +1,1137 @@
+{
+  "source": {
+    "url": "https://jimeng.jianying.com/ai-tool/novel",
+    "capturedAt": "2026-11-03T02:59:56.25Z",
+    "content": "Publicly visible names, audience-specific topic lists and original preview covers. No private prompts."
+  },
+  "styleCategories": [
+    {
+      "id": "all",
+      "label": "全部"
+    },
+    {
+      "id": "real_person",
+      "label": "真人实拍"
+    },
+    {
+      "id": "two_d",
+      "label": "2D"
+    },
+    {
+      "id": "three_d",
+      "label": "3D 风格"
+    }
+  ],
+  "styles": [
+    {
+      "id": "none",
+      "label": "无",
+      "category": "all"
+    },
+    {
+      "id": "1790247346140_style",
+      "label": "古偶柔光滤镜风",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1790247346140_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_095.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346144_style",
+      "label": "韩系高颜值偶像剧风",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1790247346144_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_099.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346143_style",
+      "label": "国产高颜值现偶风",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1790247346143_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_098.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346145_style",
+      "label": "日系高颜值恋爱剧风",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1790247346145_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_100.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346146_style",
+      "label": "美式高颜值偶像剧风",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1790247346146_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_101.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346151_style",
+      "label": "精品古装偶像剧",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1790247346151_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_106.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923828_style",
+      "label": "国漫二次元常用风格",
+      "category": "two_d",
+      "cover": "/director-presets/styles/1779094923828_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_064.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346139_style",
+      "label": "半写实精致 CG 渲染",
+      "category": "three_d",
+      "cover": "/director-presets/styles/1790247346139_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_094.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346171_style",
+      "label": "千禧年代国产剧风",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1790247346171_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_126.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923765_style",
+      "label": "美式复古好莱坞",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1779094923765_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_005.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1780575862640_style",
+      "label": "韩剧都市柔光",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1780575862640_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_086.png~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346147_style",
+      "label": "国漫3D高清渲染风",
+      "category": "three_d",
+      "cover": "/director-presets/styles/1790247346147_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_102.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346166_style",
+      "label": "90年代柯南赛璐璐画风",
+      "category": "two_d",
+      "cover": "/director-presets/styles/1790247346166_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_121.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346170_style",
+      "label": "富士xs10胶片风",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1790247346170_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_125.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1780575862639_style",
+      "label": "国产都市写实",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1780575862639_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_085.png~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346161_style",
+      "label": "日本昭和动漫风",
+      "category": "two_d",
+      "cover": "/director-presets/styles/1790247346161_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_116.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346155_style",
+      "label": "黑白水墨国画风格",
+      "category": "two_d",
+      "cover": "/director-presets/styles/1790247346155_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_110.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346141_style",
+      "label": "中式志怪电影感",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1790247346141_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_096.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346142_style",
+      "label": "年代乡土生活剧",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1790247346142_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_097.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346173_style",
+      "label": "东方写意武侠江湖电影",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1790247346173_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_128.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346168_style",
+      "label": "美式复古好莱坞风",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1790247346168_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_123.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346150_style",
+      "label": "欧美超现实游戏CG渲染风",
+      "category": "three_d",
+      "cover": "/director-presets/styles/1790247346150_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_105.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346169_style",
+      "label": "歌剧魅影戏剧复古风",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1790247346169_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_124.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346176_style",
+      "label": "复古Y2K潮流风",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1790247346176_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_131.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346172_style",
+      "label": "邵氏武侠电影风",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1790247346172_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_127.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346149_style",
+      "label": "复古DV质感风",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1790247346149_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_104.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346152_style",
+      "label": "美式成人卡通角色3D渲染",
+      "category": "three_d",
+      "cover": "/director-presets/styles/1790247346152_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_107.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346153_style",
+      "label": "美式同人动漫艺术风",
+      "category": "two_d",
+      "cover": "/director-presets/styles/1790247346153_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_108.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346154_style",
+      "label": "中国神话描金风",
+      "category": "two_d",
+      "cover": "/director-presets/styles/1790247346154_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_109.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923788_style",
+      "label": "美式黑暗插画风格",
+      "category": "two_d",
+      "cover": "/director-presets/styles/1779094923788_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_027.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346157_style",
+      "label": "复古哥特风暗黑漫画",
+      "category": "two_d",
+      "cover": "/director-presets/styles/1790247346157_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_112.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346158_style",
+      "label": "黑白漫画书风格",
+      "category": "two_d",
+      "cover": "/director-presets/styles/1790247346158_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_113.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346159_style",
+      "label": "暗黑奇幻原画概念美术",
+      "category": "two_d",
+      "cover": "/director-presets/styles/1790247346159_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_114.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346148_style",
+      "label": "皮克斯3D卡通渲染风",
+      "category": "three_d",
+      "cover": "/director-presets/styles/1790247346148_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_103.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346160_style",
+      "label": "欧美扁平儿童插画风",
+      "category": "two_d",
+      "cover": "/director-presets/styles/1790247346160_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_115.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346162_style",
+      "label": "复古蒸汽波插画风格",
+      "category": "two_d",
+      "cover": "/director-presets/styles/1790247346162_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_117.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923847_style",
+      "label": "3D美式卡通游戏美术",
+      "category": "three_d",
+      "cover": "/director-presets/styles/1779094923847_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_081.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923793_style",
+      "label": "高清3D真实渲染风格",
+      "category": "three_d",
+      "cover": "/director-presets/styles/1779094923793_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_032.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923791_style",
+      "label": "简洁插画风格",
+      "category": "two_d",
+      "cover": "/director-presets/styles/1779094923791_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_030.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1780575862644_style",
+      "label": "国产悬疑冷调",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1780575862644_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_090.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923826_style",
+      "label": "3D西方卡通风格的绘制",
+      "category": "three_d",
+      "cover": "/director-presets/styles/1779094923826_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_062.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923823_style",
+      "label": "高品质动画渲染风格",
+      "category": "three_d",
+      "cover": "/director-presets/styles/1779094923823_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_060.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346174_style",
+      "label": "王家卫港夜迷离电影风",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1790247346174_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_129.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923771_style",
+      "label": "美式复古影视风格",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1779094923771_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_010.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923816_style",
+      "label": "美国游戏概念艺术风格",
+      "category": "two_d",
+      "cover": "/director-presets/styles/1779094923816_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_054.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346165_style",
+      "label": "JOJO日系漫画风",
+      "category": "two_d",
+      "cover": "/director-presets/styles/1790247346165_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_120.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923792_style",
+      "label": "黑白水墨风格",
+      "category": "two_d",
+      "cover": "/director-presets/styles/1779094923792_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_031.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346175_style",
+      "label": "现实悬疑冷调风",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1790247346175_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_130.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346167_style",
+      "label": "复古波普艺术风",
+      "category": "two_d",
+      "cover": "/director-presets/styles/1790247346167_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_122.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923802_style",
+      "label": "90年代写实电影风格",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1779094923802_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_041.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923777_style",
+      "label": "霓虹赛博电影风格",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1779094923777_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_016.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923772_style",
+      "label": "工业电影风格",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1779094923772_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_011.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923757_style",
+      "label": "复古叙事电影风格",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1779094923757_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel_style_row_059.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346164_style",
+      "label": "咒术回战少年漫画风",
+      "category": "two_d",
+      "cover": "/director-presets/styles/1790247346164_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_119.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923770_style",
+      "label": "科技感电影风格",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1779094923770_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_009.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923799_style",
+      "label": "粘土动画风格",
+      "category": "three_d",
+      "cover": "/director-presets/styles/1779094923799_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_038.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923822_style",
+      "label": "3D厚涂风格",
+      "category": "three_d",
+      "cover": "/director-presets/styles/1779094923822_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_059.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346156_style",
+      "label": "美式黑暗插画风",
+      "category": "two_d",
+      "cover": "/director-presets/styles/1790247346156_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_111.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923841_style",
+      "label": "3D盲盒涂装风",
+      "category": "three_d",
+      "cover": "/director-presets/styles/1779094923841_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_075.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1780580870934_style",
+      "label": "宫斗权谋冷峻风格",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1780580870934_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_091.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1780575862642_style",
+      "label": "日式青春胶片",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1780575862642_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_088.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1790247346163_style",
+      "label": "复古City Pop风",
+      "category": "two_d",
+      "cover": "/director-presets/styles/1790247346163_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_118.jpg~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1780575862643_style",
+      "label": "古偶唯美柔光",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1780575862643_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_089.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1780651424491_style",
+      "label": "复古科幻原子朋克",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1780651424491_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_093.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923767_style",
+      "label": "90年代港片风格",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1779094923767_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_007.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923775_style",
+      "label": "荒野电影风格",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1779094923775_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_014.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923778_style",
+      "label": "韩国冷淡风电影风格",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1779094923778_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_017.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923795_style",
+      "label": "复古电影摄影风格",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1779094923795_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_034.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923782_style",
+      "label": "复古战争电影风格",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1779094923782_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_021.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923850_style",
+      "label": "3D卡通微缩景观",
+      "category": "three_d",
+      "cover": "/director-presets/styles/1779094923850_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_084.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923761_style",
+      "label": "悬疑电影风格",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1779094923761_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_003.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923773_style",
+      "label": "荒诞高调白色色调电影风格",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1779094923773_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_012.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923834_style",
+      "label": "日系平涂插画风格",
+      "category": "two_d",
+      "cover": "/director-presets/styles/1779094923834_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_069.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923776_style",
+      "label": "老式工业影视风格",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1779094923776_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_015.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923780_style",
+      "label": "美式复古怪异影视风格",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1779094923780_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_019.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923813_style",
+      "label": "90 年代中国农村电影风格",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1779094923813_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_051.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923849_style",
+      "label": "3D卡通渲染风格",
+      "category": "three_d",
+      "cover": "/director-presets/styles/1779094923849_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_083.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923790_style",
+      "label": "复古Y2K奇幻风格",
+      "category": "three_d",
+      "cover": "/director-presets/styles/1779094923790_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_029.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923827_style",
+      "label": "3D真实感PBR渲染风格",
+      "category": "three_d",
+      "cover": "/director-presets/styles/1779094923827_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_063.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923843_style",
+      "label": "欧美风格化3D渲染",
+      "category": "three_d",
+      "cover": "/director-presets/styles/1779094923843_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_077.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923768_style",
+      "label": "蓝橙色调影视风格",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1779094923768_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_008.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923779_style",
+      "label": "橙黄色电影风格",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1779094923779_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_018.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923842_style",
+      "label": "UE5写实渲染",
+      "category": "three_d",
+      "cover": "/director-presets/styles/1779094923842_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_076.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1780580870935_style",
+      "label": "武侠江湖写实摄影风格",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1780580870935_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_092.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923810_style",
+      "label": "3D光泽乳胶渲染风格",
+      "category": "three_d",
+      "cover": "/director-presets/styles/1779094923810_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_048.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923845_style",
+      "label": "动漫三渲二风格",
+      "category": "three_d",
+      "cover": "/director-presets/styles/1779094923845_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_079.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923758_style",
+      "label": "紫色色调电影风格",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1779094923758_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_001.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923774_style",
+      "label": "中式暖调蓝辉风格",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1779094923774_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_013.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1780575862641_style",
+      "label": "日式生活自然",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1780575862641_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_087.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923781_style",
+      "label": "恐怖电影风格",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1779094923781_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_020.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923794_style",
+      "label": "日本黑白胶片摄影风格",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1779094923794_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_033.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923784_style",
+      "label": "二次元概念艺术风格",
+      "category": "two_d",
+      "cover": "/director-presets/styles/1779094923784_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_023.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923801_style",
+      "label": "超现实3D渲染风格",
+      "category": "three_d",
+      "cover": "/director-presets/styles/1779094923801_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_040.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923833_style",
+      "label": "达利风格",
+      "category": "two_d",
+      "cover": "/director-presets/styles/1779094923833_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_068.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923831_style",
+      "label": "大友克洋风格",
+      "category": "two_d",
+      "cover": "/director-presets/styles/1779094923831_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_066.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923838_style",
+      "label": "插画蒸汽波风格",
+      "category": "two_d",
+      "cover": "/director-presets/styles/1779094923838_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_072.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923846_style",
+      "label": "3D风格化渲染",
+      "category": "three_d",
+      "cover": "/director-presets/styles/1779094923846_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_080.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923760_style",
+      "label": "美式经济上行风格",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1779094923760_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_002.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923766_style",
+      "label": "好莱坞黑白电影风格",
+      "category": "real_person",
+      "cover": "/director-presets/styles/1779094923766_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_006.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    },
+    {
+      "id": "1779094923803_style",
+      "label": "3D卡通动画风格",
+      "category": "three_d",
+      "cover": "/director-presets/styles/1779094923803_style.webp",
+      "sourceCover": "https://p11-jimeng.byteimg.com/tos-cn-i-men7yzdrs1/novel-style-library/jimeng-migration-20261014/cover_042.webp~tplv-men7yzdrs1-resize:0:0.webp"
+    }
+  ],
+  "topicGroups": [
+    {
+      "id": "audience",
+      "label": "受众偏好"
+    },
+    {
+      "id": "background",
+      "label": "故事背景"
+    },
+    {
+      "id": "character",
+      "label": "人设标签"
+    },
+    {
+      "id": "relationship",
+      "label": "核心关系"
+    },
+    {
+      "id": "trope",
+      "label": "热门梗"
+    },
+    {
+      "id": "mood",
+      "label": "观感偏好"
+    }
+  ],
+  "audiences": [
+    "男频",
+    "女频",
+    "泛人群"
+  ],
+  "topics": {
+    "泛人群": {
+      "background": [
+        "悬疑",
+        "刑侦",
+        "犯罪",
+        "灵异",
+        "恐怖",
+        "末世",
+        "科幻",
+        "奇幻",
+        "灾难",
+        "冒险",
+        "都市",
+        "家庭",
+        "校园",
+        "历史",
+        "游戏"
+      ],
+      "character": [
+        "普通人",
+        "学生",
+        "职场人",
+        "医生",
+        "警察",
+        "侦探",
+        "记者",
+        "律师",
+        "教师",
+        "科学家",
+        "创业者",
+        "明星",
+        "司机",
+        "幸存者",
+        "腹黑",
+        "癫狂",
+        "清冷疏离",
+        "毒舌",
+        "忠犬",
+        "白切黑",
+        "嘴硬心软",
+        "外冷内热",
+        "亦正亦邪",
+        "反差萌",
+        "社恐",
+        "社牛",
+        "天然呆",
+        "天才",
+        "怪咖",
+        "自信果断",
+        "温柔",
+        "护短"
+      ],
+      "relationship": [
+        "家人",
+        "夫妻",
+        "情侣",
+        "朋友",
+        "搭档",
+        "师徒",
+        "同事",
+        "上下级",
+        "宿敌",
+        "竞争对手",
+        "队友",
+        "陌生人",
+        "邻居"
+      ],
+      "trope": [
+        "时间循环",
+        "规则怪谈",
+        "无限流",
+        "密室逃生",
+        "末日求生",
+        "荒野求生",
+        "追凶破案",
+        "旧案重查",
+        "连环案件",
+        "身份谜局",
+        "失忆",
+        "记忆篡改",
+        "灵魂互换",
+        "平行世界",
+        "预知未来",
+        "AI觉醒",
+        "NPC觉醒",
+        "全民游戏",
+        "异能觉醒",
+        "隐藏身份",
+        "错认身份",
+        "信息差",
+        "反套路",
+        "死亡倒计时",
+        "封闭空间",
+        "全员恶人"
+      ],
+      "mood": [
+        "烧脑",
+        "反转",
+        "悬疑",
+        "紧张",
+        "刺激",
+        "惊悚",
+        "恐怖",
+        "诡异",
+        "猎奇",
+        "智斗",
+        "生存",
+        "揭秘",
+        "压迫感",
+        "治愈",
+        "温情",
+        "催泪",
+        "搞笑"
+      ]
+    },
+    "男频": {
+      "background": [
+        "都市",
+        "玄幻",
+        "仙侠",
+        "历史",
+        "年代",
+        "乡村",
+        "武侠",
+        "权谋",
+        "商战",
+        "末世",
+        "科幻",
+        "悬疑",
+        "刑侦",
+        "灵异",
+        "游戏"
+      ],
+      "character": [
+        "底层小人物",
+        "赘婿",
+        "战神",
+        "神医",
+        "高手",
+        "废柴",
+        "霸总",
+        "富二代",
+        "企业家",
+        "外卖员",
+        "保安",
+        "将军",
+        "皇子",
+        "帝王",
+        "宗门弟子",
+        "修士",
+        "警察",
+        "侦探",
+        "幸存者",
+        "腹黑",
+        "冷面",
+        "禁欲系",
+        "糙汉",
+        "癫狂",
+        "痞帅",
+        "毒舌",
+        "护短",
+        "忠犬",
+        "亦正亦邪",
+        "杀伐果断",
+        "隐忍狠人",
+        "扮猪吃虎",
+        "老六",
+        "枭雄",
+        "天才"
+      ],
+      "relationship": [
+        "父子",
+        "兄弟",
+        "师徒",
+        "夫妻",
+        "前任",
+        "君臣",
+        "主仆",
+        "上下级",
+        "宿敌",
+        "竞争对手",
+        "队友"
+      ],
+      "trope": [
+        "系统",
+        "神豪",
+        "签到",
+        "重生",
+        "穿越",
+        "穿书",
+        "强者归来",
+        "高手下山",
+        "扮猪吃虎",
+        "隐藏身份",
+        "身份反转",
+        "废柴逆袭",
+        "小人物逆袭",
+        "赘婿逆袭",
+        "传承觉醒",
+        "异能觉醒",
+        "鉴宝",
+        "透视",
+        "神医传承",
+        "升级流",
+        "凡人修仙",
+        "灵气复苏",
+        "争霸",
+        "种田经营",
+        "年代创业",
+        "发家致富",
+        "末世囤货",
+        "空间",
+        "基地建设",
+        "规则怪谈",
+        "无限流",
+        "时间循环",
+        "第四天灾",
+        "玩家流"
+      ],
+      "mood": [
+        "逆袭",
+        "打脸",
+        "暴富",
+        "升级",
+        "变强",
+        "碾压",
+        "复仇",
+        "热血",
+        "高燃",
+        "智斗",
+        "权谋",
+        "生存",
+        "守护",
+        "兄弟情",
+        "搞笑"
+      ]
+    },
+    "女频": {
+      "background": [
+        "都市",
+        "豪门",
+        "家庭",
+        "职场",
+        "娱乐圈",
+        "校园",
+        "年代",
+        "乡村",
+        "古装",
+        "宫廷",
+        "仙侠",
+        "奇幻",
+        "悬疑",
+        "末世"
+      ],
+      "character": [
+        "千金",
+        "落魄千金",
+        "豪门太太",
+        "女总裁",
+        "女明星",
+        "职场女性",
+        "主妇",
+        "单亲妈妈",
+        "农女",
+        "公主",
+        "王妃",
+        "皇后",
+        "庶女",
+        "女帝",
+        "替身",
+        "恶女",
+        "霸总",
+        "豪门继承人",
+        "王爷",
+        "将军",
+        "医生",
+        "学生",
+        "禁欲系",
+        "腹黑",
+        "忠犬",
+        "病娇",
+        "癫狂",
+        "疯批美人",
+        "清冷疏离",
+        "黑莲花",
+        "钓系",
+        "娇软",
+        "大胆自信",
+        "白切黑",
+        "万人迷",
+        "嘴硬心软",
+        "外柔内刚",
+        "古灵精怪",
+        "清醒独立",
+        "爹系",
+        "年下"
+      ],
+      "relationship": [
+        "夫妻",
+        "情侣",
+        "前任",
+        "青梅竹马",
+        "欢喜冤家",
+        "暗恋",
+        "姐妹",
+        "母女",
+        "父女",
+        "婆媳",
+        "闺蜜",
+        "师徒",
+        "上下级",
+        "宿敌",
+        "姐弟恋"
+      ],
+      "trope": [
+        "重生复仇",
+        "穿越",
+        "穿书",
+        "快穿",
+        "真假千金",
+        "真千金逆袭",
+        "马甲",
+        "隐藏身份",
+        "替嫁",
+        "替身文学",
+        "带球跑",
+        "萌宝",
+        "闪婚",
+        "先婚后爱",
+        "契约婚姻",
+        "隐婚",
+        "军婚",
+        "追妻火葬场",
+        "破镜重圆",
+        "白月光",
+        "暗恋成真",
+        "日久生情",
+        "相爱相杀",
+        "强制爱",
+        "离婚后逆袭",
+        "净身出户",
+        "虐渣",
+        "打脸全家",
+        "宫斗",
+        "宅斗",
+        "种田",
+        "发家致富",
+        "年代重生",
+        "空间",
+        "系统",
+        "预知未来"
+      ],
+      "mood": [
+        "打脸",
+        "虐渣",
+        "复仇",
+        "甜宠",
+        "高甜",
+        "暧昧拉扯",
+        "虐恋",
+        "爱而不得",
+        "被偏爱",
+        "双向奔赴",
+        "女性成长",
+        "逆袭",
+        "救赎",
+        "治愈",
+        "温情",
+        "催泪",
+        "搞笑"
+      ]
+    }
+  }
+}

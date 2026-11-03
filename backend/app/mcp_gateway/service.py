@@ -20,15 +20,18 @@ from .config import McpConfig
 from .store import digest
 
 MAX_REFERENCE_BYTES = 50 * 1024 * 1024
+NON_IMAGE_SLOT_LABELS = {"video": "视频素材", "audio": "音频素材"}
 
 
 class CreativeService:
     def __init__(self, app, config: McpConfig, *, settings, submit_generation, public_job,
-                 listed_workflows, mode_payload, cancel_job, output_response, output_available):
+                 listed_workflows, mode_payload, cancel_job, confirm_refine, skip_refine,
+                 output_response, output_available):
         self.app, self.config, self.settings = app, config, settings
         self.submit_generation, self.public_job = submit_generation, public_job
         self.listed_workflows, self.mode_payload = listed_workflows, mode_payload
         self.cancel_handler, self.output_response, self.output_available = cancel_job, output_response, output_available
+        self.confirm_refine_handler, self.skip_refine_handler = confirm_refine, skip_refine
 
     @property
     def records(self):
@@ -53,8 +56,20 @@ class CreativeService:
             raise HTTPException(404, "工作流不存在或未启用")
         return definition
 
+    @staticmethod
+    def unsupported_slots(definition) -> list[str]:
+        """MCP 参考素材只接受图片，需要视频或音频槽位的工作流无法从这里喂入。"""
+        return [f"第 {index} 项需要{NON_IMAGE_SLOT_LABELS[definition.reference_kind(index)]}"
+                for index in range(1, definition.max_references + 1)
+                if definition.reference_kind(index) != "image"]
+
     def workflow_detail(self, workflow_id: str) -> dict:
-        data = self.mode_payload(self.workflow(workflow_id))
+        definition = self.workflow(workflow_id)
+        unsupported = self.unsupported_slots(definition)
+        if unsupported:
+            raise HTTPException(422, "、".join(unsupported) + "；MCP 连接只支持图片参考，"
+                "请在工作台 AI 工具中心使用该工作流，或改用图片参考的工作流")
+        data = self.mode_payload(definition)
         data.pop("director_controls", None)
         for parameter in data["parameters"]:
             if parameter["name"] == "options":
@@ -73,7 +88,8 @@ class CreativeService:
         if media_type not in {None, "image", "video"}:
             raise HTTPException(422, "media_type 必须为 image 或 video")
         return [{key: value for key, value in self.workflow_detail(item.id).items() if key != "parameters"}
-                for item in self.listed_workflows() if media_type is None or item.media_type == media_type]
+                for item in self.listed_workflows()
+                if (media_type is None or item.media_type == media_type) and not self.unsupported_slots(item)]
 
     def summary(self, job: dict) -> dict:
         data = self.public_job(job)
@@ -255,6 +271,16 @@ class CreativeService:
     async def cancel(self, user: dict, job_id: str) -> dict:
         self.owned_job(user, job_id)
         await self.cancel_handler(job_id=job_id, user=user)
+        return self.summary(self.owned_job(user, job_id))
+
+    async def confirm_refine(self, user: dict, job_id: str) -> dict:
+        self.owned_job(user, job_id)
+        await self.confirm_refine_handler(job_id=job_id, user=user)
+        return self.summary(self.owned_job(user, job_id))
+
+    async def skip_refine(self, user: dict, job_id: str) -> dict:
+        self.owned_job(user, job_id)
+        await self.skip_refine_handler(job_id=job_id, user=user)
         return self.summary(self.owned_job(user, job_id))
 
     def results(self, user: dict, job_id: str) -> dict:

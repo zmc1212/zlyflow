@@ -1,0 +1,53 @@
+.director2-app .project-flow-layout .project-content-pane:has(>.production-assets) { display:flex; flex-direction:column; overflow:hidden; padding:28px 36px 0!important; }
+.director2-app .production-assets { flex:1; height:auto; min-height:0; width:100%; display:flex; flex-direction:column; padding:0; }
+.director2-app .production-assets .sub-pane-header { margin:0 0 18px; padding:0; flex:none; align-items:center; }
+.director2-app .d2-assets-library.production-assets .sub-pane-title { font-size:23px; line-height:32px; font-weight:500; margin:0; }
+.production-assets .sub-pane-subtitle { margin:5px 0 0; font-size:12px; color:var(--studio-text-muted); }
+.production-assets .header-actions { display:flex; align-items:center; gap:8px; }
+.production-assets .header-actions .ant-btn { font-size:12px; }
+.production-assets .header-actions .primary-btn { background:var(--ant-color-primary); }
+.production-assets .asset-library-controls { display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin:0 0 20px; padding:0 0 16px; border-bottom:1px solid var(--studio-border); background:transparent; flex:none; }
+.production-assets .asset-kind-switch { background:transparent; }
+.production-assets .asset-kind-switch .ant-segmented-item-label { min-height:32px; font-size:13px; }
+.production-assets .production-asset-search { margin-left:auto; width:220px; font-size:12px; }
+.production-assets-status { display:flex; align-items:center; justify-content:space-between; gap:16px; flex:none; min-height:44px; margin:0 0 22px; padding:8px 12px 8px 16px; border-radius:8px; background:var(--studio-surface-raised); font-size:12px; }
+.production-assets-status-copy { display:flex; flex-wrap:wrap; align-items:center; gap:6px 16px; min-width:0; }
+.production-assets-status-copy strong { font-weight:500; color:var(--studio-text); }
+.production-assets-status-copy>span { color:var(--studio-text-secondary); }
+.production-assets-selection-actions { display:flex; align-items:center; flex:none; gap:12px; }
+.production-assets-selection-actions .ant-btn { height:28px; padding:0 10px; font-size:12px; border-radius:6px; }
+.production-assets-selection-actions .ant-checkbox-wrapper { font-size:12px; color:var(--studio-text-secondary); white-space:nowrap; }
+.production-assets :is(.production-asset-choice,.production-assets-selection-actions) .ant-checkbox { background:var(--studio-surface); border-color:var(--studio-text-secondary); }
+.production-assets :is(.production-asset-choice,.production-assets-selection-actions) .ant-checkbox-checked { background:var(--studio-text); border-color:var(--studio-text); }
+.production-assets :is(.production-asset-choice,.production-assets-selection-actions) .ant-checkbox-checked::after { border-color:var(--studio-surface); }
+.production-assets-selection-actions .ant-checkbox-indeterminate::after { background:var(--studio-text); }
+.production-assets>.ant-spin-nested-loading { flex:1; min-height:0; overflow:auto; }
+.production-assets>.ant-spin { flex:1; min-height:0; overflow:auto; }
+.production-assets>.ant-spin-nested-loading>.ant-spin-container { min-height:100%; }
+.production-asset-grid { display:grid; grid-template-columns:repeat(5, minmax(0, 215px)); gap:24px 20px; align-items:start; padding-bottom:24px; }
+.production-asset-card { min-width:0; max-width:240px; }
+.production-asset-image,.production-asset-image.ant-btn { display:flex; align-items:center; justify-content:center; position:relative; aspect-ratio:1; width:100%; height:auto; padding:0; border:1px solid transparent; border-radius:8px; overflow:hidden; color:var(--studio-text-muted); background:var(--studio-surface-raised); }
+.production-asset-image img { width:100%; height:100%; object-fit:contain; }
+.production-asset-hover { position:absolute; bottom:12px; left:50%; transform:translateX(-50%); padding:5px 10px; border-radius:6px; white-space:nowrap; font-size:11px; color:var(--studio-text); background:var(--studio-surface-raised); opacity:0; transition:opacity 150ms; }
+.production-asset-image:hover .production-asset-hover,.production-asset-image:focus-visible .production-asset-hover { opacity:1; }
+.production-asset-card h3 { margin:10px 0 3px; font-size:13px; line-height:20px; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.production-asset-card p { font-size:11px; line-height:18px; margin:0; color:var(--studio-text-muted); }
+.production-asset-card p.is-missing { color:var(--studio-warning); }
+.production-asset-card p.is-ready { color:var(--studio-text-secondary); }
+.production-asset-choice.ant-checkbox-wrapper { position:relative; display:block; width:100%; margin:0; color:var(--studio-text); }
+.production-asset-choice>.ant-checkbox { position:absolute; z-index:2; top:10px; left:10px; }
+.production-asset-choice>.ant-checkbox-label { display:block; padding:0; width:100%; }
+.production-asset-choice:hover .production-asset-image { border-color:var(--studio-border-strong); }
+.production-asset-card.is-selected .production-asset-image { border:2px solid var(--studio-text); }
+.production-asset-choice:has(input:focus-visible) .production-asset-image { outline:2px solid var(--ant-color-primary); outline-offset:3px; }
+.production-asset-working { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; background:var(--studio-surface-raised); color:var(--studio-text-secondary); font-size:12px; }
+.production-assets-empty { grid-column:1/-1; padding:24px 0 0; color:var(--studio-text-muted); font-size:13px; }
+.production-asset-add.ant-btn { display:flex; flex-direction:column; gap:12px; justify-content:center; align-items:center; aspect-ratio:1; width:100%; max-width:240px; height:auto; color:var(--studio-text-muted); border-color:var(--studio-border); background:transparent; border-radius:8px; font-size:12px; }
+.production-assets .assets-split-container { height:auto; min-height:540px; }
+.production-assets .assets-sidebar-list { width:190px; }
+.production-assets .asset-detail-workspace { min-width:0; }
+.production-assets .detail-header-card { flex-wrap:wrap; gap:12px; }
+.production-assets .detail-header-card>.ant-space { flex-wrap:wrap; }
+.production-assets-next { align-self:center; flex:none; display:flex; align-items:center; gap:12px; padding:10px 12px; margin:14px 0 18px; border-radius:12px; background:var(--studio-surface-raised); }
+.production-assets-next>span { color:var(--studio-text-muted); font-size:12px; }
+.production-assets-next .ant-btn { font-size:12px; }

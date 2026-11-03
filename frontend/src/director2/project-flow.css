@@ -1,0 +1,42 @@
+/* Shared project frame. Content, assets and storyboard occupy the same stage rail. */
+.studio-project-shell .studio-workspace.studio-floating-workspace { height:calc(100vh - 76px)!important; min-height:0!important; max-height:calc(100vh - 76px); margin-top:76px!important; padding:0!important; overflow:hidden; }
+.studio-project-shell .studio-icon-rail,.studio-project-shell .studio-mobile-nav { display:none!important; }
+.studio-project-shell .director-assistant-launcher { display:none; }
+.studio-project-shell .director2-workspace-main { height:calc(100vh - 76px); max-height:calc(100vh - 76px); padding:0!important; }
+.director2-app .project-detail-layout.project-flow-layout { flex-direction:row; padding:0; position:relative; }
+.project-stage-rail { box-sizing:border-box; flex:0 0 64px; display:flex; align-items:center; flex-direction:column; padding:8px 4px 12px; border-right:1px solid var(--studio-border); background:var(--studio-canvas); }
+.project-stage-rail>.ant-btn { width:44px; height:36px; color:var(--studio-text-secondary); }
+.project-stage-rail nav { display:flex; flex-direction:column; width:100%; gap:8px; margin-top:20px; }
+.project-stage-rail nav>span { display:block; }
+.project-stage-rail nav .ant-btn { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; width:56px; height:62px; padding:5px 0; font-size:11px; line-height:16px; color:var(--studio-text-secondary); border-radius:8px; }
+.project-stage-rail nav .ant-btn.is-selected { background:var(--studio-surface-raised); color:var(--studio-text); }
+.project-stage-rail nav .ant-btn:disabled { color:var(--studio-text-muted); opacity:.45; }
+.project-stage-rail>.project-stage-tools { margin-top:auto; }
+.project-flow-body { display:flex; flex:1; min-width:0; min-height:0; flex-direction:column; }
+.project-flow-header { height:52px; flex:none; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:8px 20px; border-bottom:1px solid var(--studio-border); }
+.project-flow-header>div { display:flex; align-items:center; gap:8px; min-width:0; }
+.project-flow-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; font-weight:500; }
+.project-flow-header .ant-btn { font-size:12px; color:var(--studio-text-secondary); }
+.director2-app .project-flow-layout .project-content-pane { flex:1; min-height:0; height:auto; padding:24px 36px 0; }
+.director2-app .project-flow-layout .project-content-pane.is-script-workspace { padding:0!important; overflow:hidden; }
+.director2-app .project-flow-layout .project-content-pane.is-workshop-detail,
+.director2-app .project-flow-layout .project-content-pane.is-workshop-overview,
+.director2-app .project-flow-layout .project-content-pane.is-smart-edit { padding:0!important; overflow:hidden; }
+.project-flow-layout .d2-workshop-host { height:100%; min-height:0; }
+.project-pack-setting { display:grid; gap:10px; color:var(--studio-text); }
+.project-pack-setting+p { color:var(--studio-text-muted); margin-top:20px; }
+/* The existing official paired --director-* tokens and message/composer styles remain in use. */
+.assistant-app-host.has-project-assistant { display:flex; min-width:0; height:100%; overflow:hidden; }
+.assistant-app-host.has-project-assistant>.director2-app { flex:1; min-width:0; width:0; }
+.director-project-assistant { flex:0 0 380px; width:380px; display:flex; flex-direction:column; min-height:0; margin:0 8px 8px 0; border-radius:10px; overflow:hidden; background:var(--director-surface); color:var(--director-ink); box-shadow:var(--director-shadow-card); }
+.director-project-assistant>header { display:flex; justify-content:space-between; align-items:center; height:52px; flex:none; padding:10px 14px; border-bottom:1px solid var(--director-line); }
+.director-project-assistant>header .ant-btn { color:var(--director-ink-2); }
+.director-project-assistant .assistant-workspace { flex:1; min-height:0; }
+.director-project-assistant .assistant-welcome { padding-inline:18px; }
+.director-project-assistant .assistant-welcome h2 { font-size:18px; }
+.director-project-assistant .assistant-welcome-skills { grid-template-columns:1fr; }
+/* Official prompt-bar.tsx: gap-1 and size-7 controls; the home send button is
+   larger and must not push the project dock's send action out of its bounds. */
+.director-project-assistant .assistant-composer-toolbar .ant-btn { column-gap:4px; }
+.director-project-assistant .assistant-composer-toolbar .assistant-send { width:28px; min-width:28px; height:28px; }
+@media (min-width:1700px) { .director-project-assistant { flex-basis:420px; width:420px; } }

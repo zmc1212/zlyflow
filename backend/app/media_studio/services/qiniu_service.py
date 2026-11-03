@@ -8,6 +8,12 @@ from pathlib import Path
 from typing import Any
 import qiniu
 
+QINIU_REQUEST_TIMEOUT = (10, 120)
+
+# put_data/put_stream read preferred_scheme from the SDK default zone, even
+# when each explicit region has scheme="https". Keep the actual uploads HTTPS.
+qiniu.set_default(default_zone=qiniu.Region(scheme="https"), connection_timeout=QINIU_REQUEST_TIMEOUT)
+
 from ..models import QiniuConfigResponse
 from ..provider_bridge import credential_manager, qiniu_row
 
@@ -21,7 +27,7 @@ QINIU_UPLOAD_HOSTS = {
     "as0": "up-as0.qiniup.com",
 }
 LARGE_UPLOAD_BYTES = 8 * 1024 * 1024
-UPLOAD_PART_BYTES = 4 * 1024 * 1024
+UPLOAD_PART_BYTES = 1024 * 1024
 UPLOAD_ATTEMPTS = 3
 
 
@@ -127,7 +133,7 @@ class QiniuService:
     ) -> tuple[dict | None, object]:
         mime_type = mimetypes.guess_type(source_filename)[0] or "application/octet-stream"
         # 成片动辄十几 MiB，put_data 单次表单请求要等整段传完才返回，
-        # 代理链路稍慢就会触发 SDK 固定的 30 秒读超时；超过 8 MiB 改走分片续传。
+        # 慢链路容易超过 SDK 默认读取期限；超过 8 MiB 改走分片续传。
         if len(content) > LARGE_UPLOAD_BYTES:
             stream_uploader = getattr(qiniu, "put_stream_v2", None)
             if stream_uploader is not None:

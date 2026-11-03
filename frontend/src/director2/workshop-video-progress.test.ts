@@ -3,7 +3,9 @@ import {
   clampWorkshopProgress,
   hasActiveWorkshopVideoProgress,
   isActiveWorkshopJobStatus,
+  isWorkshopShotRendered,
   mapWorkshopVideoProgress,
+  mapWorkshopVideoFailures,
   workshopVideoOverlayLabel,
   workshopVideoPercentLabel,
   workshopVideoStageLabel,
@@ -103,12 +105,29 @@ describe("workshop video progress mapping", () => {
     expect(isActiveWorkshopJobStatus("succeeded")).toBe(false)
     expect(workshopVideoStageLabel("queued")).toBe("排队中")
     expect(workshopVideoStageLabel("preparing")).toBe("准备素材")
-    expect(workshopVideoStageLabel("comfy_queued")).toBe("准备素材")
+    expect(workshopVideoStageLabel("prompt_generation")).toBe("整理生成指令")
+    expect(workshopVideoStageLabel("preparing", { message: "正在规划关键帧" })).toBe("正在规划关键帧")
+    expect(workshopVideoStageLabel("comfy_queued")).toBe("远端排队")
+    expect(workshopVideoOverlayLabel("comfy_queued", 5)).toBe("远端排队")
     expect(workshopVideoStageLabel("storing")).toBe("保存结果")
     expect(workshopVideoOverlayLabel("running", 42)).toBe("生成中 42%")
     expect(workshopVideoOverlayLabel("queued", 0)).toBe("排队中")
-    expect(workshopVideoOverlayLabel("upscaling", 97)).toBe("2x 超分中 97%")
-    expect(workshopVideoOverlayLabel("running", 98, { scope: "upscale" })).toBe("2x 超分中 98%")
+    expect(workshopVideoOverlayLabel("upscaling", 97)).toBe("智能超清中 97%")
+    expect(workshopVideoOverlayLabel("running", 98, { scope: "upscale" })).toBe("智能超清中 98%")
+  })
+
+  it("keeps preparation progress after reloading and clears superseded failures", () => {
+    const prepared = job({ status: "prompt_generation", payload: { preparation: { stage: "prompt", message: "正在整理生成指令" } } })
+    expect(mapWorkshopVideoProgress([prepared], "ep-1").beats["beat-a"].message).toBe("正在整理生成指令")
+    const failure = job({ id: "failed", status: "failed", error_message: "提示词服务不可用" })
+    expect(mapWorkshopVideoFailures([failure], "ep-1")["beat-a"]).toMatchObject({ jobId: "failed", error: "提示词服务不可用" })
+    expect(mapWorkshopVideoFailures([job({ status: "completed" }), failure], "ep-1")).toEqual({})
+    expect(mapWorkshopVideoFailures([job({ status: "queued" }), failure], "ep-1")).toEqual({})
+    expect(mapWorkshopVideoFailures([failure], "other-episode")).toEqual({})
+    expect(mapWorkshopVideoFailures([job({ status: "failed", error_message: "missing <Picture 1>" })], "ep-1")["beat-a"].error).toBe("生成指令未完整引用角色或场景参考图，请重试当前步骤。")
+    const batch = job({ status: "prompt_generation", payload: { prompt_generation_progress: { completed: 3, total: 15 } } })
+    const progress = mapWorkshopVideoProgress([batch], "ep-1").beats["beat-a"]
+    expect(workshopVideoOverlayLabel(progress.status, progress.progress, progress)).toBe("整理生成指令 3 / 15")
   })
 
   it("maps a dedicated beat upscale job onto that shot", () => {
@@ -124,6 +143,78 @@ describe("workshop video progress mapping", () => {
       "beat-a": { status: "upscaling", progress: 97, scope: "upscale", stage: "upscaling", jobId: "", previewUrl: "", shotCount: 1 },
     })
     expect(mapped.episode).toBeNull()
+  })
+
+  it("distinguishes the batch group count from a step percentage that can reset", () => {
+    const batch = job({ payload: { render_scope: "selection", render_progress: { total: 8, completed: 2, current: 3 } } })
+    const progress = mapWorkshopVideoProgress([batch], "ep-1").beats["beat-a"]
+    expect(workshopVideoOverlayLabel("running", 80, progress)).toBe("正在生成第 3 / 8 组 · 当前步骤 80%")
+    expect(workshopVideoOverlayLabel("running", 12, progress)).toBe("正在生成第 3 / 8 组 · 当前步骤 12%")
+    expect(workshopVideoOverlayLabel("comfy_queued", 5, progress)).toBe("第 3 / 8 组远端排队")
+    expect(workshopVideoOverlayLabel("assembling", 96, progress)).toBe("保存结果")
+  })
+
+  it("splits a running batch into per-shot stages once a segment lands", () => {
+    const batch = job({
+      progress: 62,
+      payload: {
+        render_scope: "selection",
+        beat_id: undefined,
+        beat_ids: ["beat-a", "beat-b", "beat-c"],
+        render_progress: { total: 2, completed: 1, current: 2 },
+        shot_status: { "beat-a": "succeeded", "beat-b": "running", "beat-c": "queued" },
+        shots: [{ beat_id: "beat-a", video_url: "/api/shot-a.mp4" }, { beat_id: "beat-b", video_url: null }],
+      },
+    })
+    const mapped = mapWorkshopVideoProgress([batch], "ep-1")
+    expect(mapped.beats["beat-a"]).toMatchObject({ shotStage: "succeeded", shotUrl: "/api/shot-a.mp4" })
+    expect(mapped.beats["beat-b"]).toMatchObject({ shotStage: "running" })
+    expect(mapped.beats["beat-c"]).toMatchObject({ shotStage: "queued", progress: 62 })
+    expect(isWorkshopShotRendered(mapped.beats["beat-a"])).toBe(true)
+    expect(isWorkshopShotRendered(mapped.beats["beat-b"])).toBe(false)
+    expect(workshopVideoOverlayLabel("running", 62, mapped.beats["beat-a"])).toBe("本镜已出片 · 整批 1 / 2 组")
+    expect(workshopVideoOverlayLabel("running", 62, mapped.beats["beat-c"])).toBe("排队中 · 第 2 / 2 组")
+    expect(workshopVideoOverlayLabel("running", 62, mapped.beats["beat-b"])).toBe("正在生成第 2 / 2 组 · 当前步骤 62%")
+    expect(hasActiveWorkshopVideoProgress(mapped)).toBe(true)
+  })
+
+  it("keeps a rendered segment honest until its shot files land in the job", () => {
+    const saving = job({
+      progress: 95,
+      payload: {
+        render_scope: "selection",
+        beat_id: undefined,
+        beat_ids: ["beat-a", "beat-b"],
+        render_progress: { total: 2, completed: 2, current: 2 },
+        shot_status: { "beat-a": "succeeded", "beat-b": "succeeded" },
+        shots: [{ beat_id: "beat-a", video_url: null }, { beat_id: "beat-b", video_url: null }],
+      },
+    })
+    const mapped = mapWorkshopVideoProgress([saving], "ep-1")
+    expect(mapped.beats["beat-a"]).toMatchObject({ shotStage: "saving" })
+    expect(mapped.beats["beat-a"].shotUrl).toBeUndefined()
+    expect(isWorkshopShotRendered(mapped.beats["beat-a"])).toBe(false)
+    expect(workshopVideoOverlayLabel("running", 95, mapped.beats["beat-a"])).toBe("画面已渲染 · 正在保存成片 · 当前步骤 95%")
+    const landed = job({
+      progress: 95,
+      payload: {
+        render_scope: "selection",
+        beat_id: undefined,
+        beat_ids: ["beat-a", "beat-b"],
+        render_progress: { total: 2, completed: 2, current: 2 },
+        shot_status: { "beat-a": "succeeded", "beat-b": "succeeded" },
+        shots: [{ beat_id: "beat-a", video_url: "/api/shot-a.mp4" }, { beat_id: "beat-b", video_url: null }],
+      },
+    })
+    const after = mapWorkshopVideoProgress([landed], "ep-1")
+    expect(after.beats["beat-a"]).toMatchObject({ shotStage: "succeeded", shotUrl: "/api/shot-a.mp4" })
+    expect(after.beats["beat-b"]).toMatchObject({ shotStage: "saving" })
+  })
+
+  it("shows a single-shot batch as its own shot without group counts", () => {
+    const single = job({ payload: { shot_status: { "beat-a": "succeeded" }, shots: [{ beat_id: "beat-a", video_url: "/api/a.mp4" }] } })
+    const progress = mapWorkshopVideoProgress([single], "ep-1").beats["beat-a"]
+    expect(workshopVideoOverlayLabel("running", 70, progress)).toBe("本镜已出片")
   })
 
   it("keeps a first-pass preview available while waiting for a refinement decision", () => {

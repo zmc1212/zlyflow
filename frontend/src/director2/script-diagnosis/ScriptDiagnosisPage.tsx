@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { Alert, Button, Drawer, Empty, Input, Popconfirm, Progress, Segmented, Space, Spin, Table, Tag, Tooltip, Upload, message } from "antd"
 import { ArrowDown, ArrowLeft, ArrowUp, Clipboard, Copy, Download, FilePlus2, FileSearch, FileText, History, Plus, RotateCcw, Sparkles, Trash2, X } from "lucide-react"
+import { ApiRequestError } from "../../api"
 import { director2ErrorDetail } from "../api"
 import { director2HomePath, director2ProjectPath, director2DiagnosisPath } from "../paths"
 import {
@@ -42,7 +43,7 @@ export default function ScriptDiagnosisPage({ csrfToken }: { csrfToken: string }
   const [busy, setBusy] = useState(false)
   const submission = useRef<{ signature: string; key: string } | null>(null)
   const retryKeys = useRef<Record<string, string>>({})
-  const [historyOpen, setHistoryOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(() => params.get("history") === "1")
   const [history, setHistory] = useState<DiagnosisSummary[]>([])
   const [historyTotal, setHistoryTotal] = useState(0)
   const [historyPage, setHistoryPage] = useState(1)
@@ -100,7 +101,11 @@ export default function ScriptDiagnosisPage({ csrfToken }: { csrfToken: string }
         setTaskError("")
         if (isActive(result)) timer = setTimeout(load, 2000)
       } catch (error) {
-        if (!cancelled) setTaskError(director2ErrorDetail(error, "无法读取诊断，请重试"))
+        if (!cancelled) {
+          setTaskError(director2ErrorDetail(error, "无法读取诊断，请重试"))
+          const status = error instanceof ApiRequestError ? error.status : 0
+          if (!status || status >= 500 || status === 408 || status === 429) timer = setTimeout(load, 5000)
+        }
       }
     }
     void load()

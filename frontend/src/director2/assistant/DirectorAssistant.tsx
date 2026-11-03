@@ -1,13 +1,14 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react"
+import { Fragment, createContext, useCallback, useContext, useEffect, useRef, useState, type ComponentRef, type ReactNode } from "react"
 import { Alert, Button, Collapse, Drawer, Dropdown, Empty, Input, Modal, Popconfirm, Popover, Progress, Select, Space, Spin, Tag, Tooltip, message } from "antd"
-import { ArrowDown, ArrowUp, AudioLines, BookOpen, Check, ChevronDown, Eye, FileText, Globe, History, Maximize2, Minimize2, Plus, RefreshCw, Sparkles, Square, Wand2, X, Zap } from "lucide-react"
+import { ArrowDown, ArrowLeft, ArrowUp, AudioLines, BookOpen, Check, ChevronDown, Eye, FileText, Globe, History, Maximize2, Minimize2, Plus, RefreshCw, Sparkles, Square, Wand2, X, Zap } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import Markdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import ThemeToggle from "../../components/ThemeToggle"
 import { ApiRequestError } from "../../api"
-import { cancelAiOperation, director2ErrorDetail, getActiveAiOperation, getProject, type Director2AiOperation } from "../api"
+import { cancelAiOperation, createDocument, createProject, director2ErrorDetail, getActiveAiOperation, getProject, type Director2AiOperation } from "../api"
 import { director2ProjectPath } from "../paths"
+import { homeProjectExtra, homeProjectMessage, type HomeProjectRequest } from "../home-creation"
 import Director2AiStudioPane from "../panes/Director2AiStudioPane"
 import ArtifactDialog from "./ArtifactDialog"
 import KnowledgeManager from "./KnowledgeManager"
@@ -23,8 +24,8 @@ import { EDITING_TOOL_GROUPS, matchesAssistantScope, newestPendingEditingAction,
 import { confirmEditingAction, previewEditingAction, readEditingAction, readTranscript, readUnderstanding, reorderEditingAction, startTranscript, startUnderstanding, type EditingAction, type MediaTranscript, type MediaUnderstanding, type UnderstandingStatus } from "../smart-edit/api"
 import "./assistant.css"
 
-type AssistantControl = { enabled: boolean; ready: boolean; setOpen: (open: boolean) => void; registerEditor: (editor: EditorBridge) => () => void }
-const AssistantContext = createContext<AssistantControl>({ enabled: false, ready: false, setOpen: () => {}, registerEditor: () => () => {} })
+type AssistantControl = { enabled: boolean; ready: boolean; open: boolean; setOpen: (open: boolean) => void; prompt: (text: string) => void; registerEditor: (editor: EditorBridge) => () => void }
+const AssistantContext = createContext<AssistantControl>({ enabled: false, ready: false, open: false, setOpen: () => {}, prompt: () => {}, registerEditor: () => () => {} })
 export const useDirectorAssistant = () => useContext(AssistantContext)
 const STORAGE_KEY = "director-assistant-session-v2"
 const OPERATION_TITLES: Record<EditingOperation, string> = {
@@ -170,9 +171,19 @@ function transcriptEvidence(action: EditingAction) {
   return `音轨转写：${value.used_count} 条有声素材的 ${value.segment_count} 段真实语音（约 ${(value.audio_seconds ?? 0).toFixed(1)} 秒音频，模型 ${value.model || "已配置的转写服务"}），段尾按镜头边界收短。`
 }
 
-export default function DirectorAssistantProvider({ children, csrfToken, projectId, editingContext }: { children: ReactNode; csrfToken: string; projectId: string | null; editingContext?: EditingContext | null }) {
+// The home and drawer surfaces share the same sessions, stream and approval flow.
+const AssistantHomeContext = createContext<{ active: boolean; surface: ReactNode; creating: boolean; available: boolean; startProject: (input: HomeProjectRequest) => Promise<void> }>({ active: false, surface: null, creating: false, available: false, startProject: async () => {} })
+export const useDirectorAssistantHome = () => useContext(AssistantHomeContext)
+
+export default function DirectorAssistantProvider({ children, csrfToken, projectId, editingContext, presentation = "drawer" }: { children: ReactNode; csrfToken: string; projectId: string | null; editingContext?: EditingContext | null; presentation?: "drawer" | "home" | "project" }) {
+  const isHome = presentation === "home"
+  const isProject = presentation === "project"
+  const [creatingProject, setCreatingProject] = useState(false)
+  const projectCreation = useRef<{ signature: string; projectId: string; sessionId?: string; messageId: string } | null>(null)
+  const [homeStarted, setHomeStarted] = useState(false)
+  const composerInput = useRef<ComponentRef<typeof Input.TextArea>>(null)
   const [catalog, setCatalog] = useState<AssistantCatalog | null>(null)
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(isHome)
   const [expanded, setExpanded] = useState(false)
   const [catalogError, setCatalogError] = useState("")
   const [sid, setSid] = useState<string | null>(null)
@@ -198,9 +209,9 @@ export default function DirectorAssistantProvider({ children, csrfToken, project
   const editingFlight = useRef(false)
   const openedActions = useRef(new Set<string>())
   const activeStorageKey = useRef<string | null>(null)
-  const scope = isEditing ? `${projectId}:${editingContext.sequence_id}` : "general"
+  const scope = isEditing ? `${projectId}:${editingContext.sequence_id}` : isHome ? "home" : `project:${projectId || "general"}`
   const scopeRef = useRef(scope); scopeRef.current = scope
-  const storageKey = isEditing ? activeEditor ? `director-edit-assistant:${activeEditor.draftKey}` : null : STORAGE_KEY
+  const storageKey = isEditing ? activeEditor ? `director-edit-assistant:${activeEditor.draftKey}` : null : projectId ? `${STORAGE_KEY}:${projectId}` : STORAGE_KEY
   const [viewportWidth, setViewportWidth] = useState(window.innerWidth)
   useEffect(() => { const resize = () => setViewportWidth(window.innerWidth); window.addEventListener("resize", resize); return () => window.removeEventListener("resize", resize) }, [])
   const dockWidth = viewportWidth >= 1800 ? 440 : viewportWidth >= 1560 ? 400 : 360
@@ -241,10 +252,11 @@ export default function DirectorAssistantProvider({ children, csrfToken, project
   useEffect(() => {
     activeStorageKey.current = storageKey
     let restored: string | null = null
-    try { if (storageKey) restored = localStorage.getItem(storageKey) } catch { /* Server history remains available. */ }
+    try { if (storageKey && !isHome) restored = localStorage.getItem(storageKey) } catch { /* Server history remains available. */ }
     sidRef.current = restored; setSid(restored); setDetail(null); setDraft(""); setError(""); setLoading(false)
     setEditingAction(null); setActionFeedback(null); setActionError(""); openedActions.current.clear(); loadGeneration.current++
-  }, [storageKey, scope])
+    setHomeStarted(false); setOpen(isHome)
+  }, [storageKey, scope, isHome])
   useEffect(() => {
     if (!understandingScope || !projectId || !editingContext) {
       understandingKey.current = null
@@ -400,10 +412,11 @@ export default function DirectorAssistantProvider({ children, csrfToken, project
     return () => window.clearInterval(timer)
   }, [executing, sid, loadDetail])
 
-  function changeOpen(value: boolean, syncMode = false) {
+  const changeOpen = useCallback((value: boolean, syncMode = false) => {
+    if (isHome) { if (value && sidRef.current) setHomeStarted(true); composerInput.current?.focus(); return }
     setOpen(value)
     if (syncMode && !isEditing) window.dispatchEvent(new CustomEvent("director-assistant-mode", { detail: value ? "agent" : "manual" }))
-  }
+  }, [isHome, isEditing])
   function notifyReply(next: AssistantDetail) {
     if (!shouldNotifyReply(document.visibilityState, document.hasFocus())) return
     const content = assistantReplyNotification(next)
@@ -411,6 +424,7 @@ export default function DirectorAssistantProvider({ children, csrfToken, project
   }
   function selectHistorySession(id: string) {
     if (busy) return
+    if (isHome) setHomeStarted(true)
     const reloadCurrent = sidRef.current === id
     if (!reloadCurrent) setDetail(null)
     sidRef.current = id
@@ -418,8 +432,16 @@ export default function DirectorAssistantProvider({ children, csrfToken, project
     followTail.current = true
     if (reloadCurrent) void restoreSession(id)
   }
+  function resetHomeDraft() {
+    if (busy) return
+    loadGeneration.current++
+    sidRef.current = null; setSid(null); setDetail(null); setDraft(""); setError(""); setPhase("")
+    setHomeStarted(false); submission.current = null; followTail.current = true
+    try { if (activeStorageKey.current) localStorage.removeItem(activeStorageKey.current) } catch { /* History remains on the server. */ }
+  }
   async function newConversation() {
     if (busy) return
+    if (isHome) { resetHomeDraft(); return }
     setSending(true); setError("")
     try {
       const targetScope = scopeRef.current
@@ -454,8 +476,36 @@ export default function DirectorAssistantProvider({ children, csrfToken, project
       if (sid) await loadDetail(sid)
     } finally { setSavingSelection(false) }
   }
+  async function startProject(input: HomeProjectRequest) {
+    if (creatingProject) return
+    setCreatingProject(true)
+    try {
+      const signature = JSON.stringify(input)
+      if (projectCreation.current?.signature !== signature) {
+        const project = await createProject(csrfToken, { name: input.filename || "未命名短剧", description: input.filename ? undefined : input.adaptation ? `${input.adaptation.sourceName} · 小说改编` : input.text.slice(0, 500), extra: homeProjectExtra(input) })
+        projectCreation.current = { signature, projectId: project.id, messageId: crypto.randomUUID() }
+      }
+      const pending = projectCreation.current
+      if (input.filename) {
+        const document = await createDocument(csrfToken, pending.projectId, { filename: input.filename, raw_text: input.text, input_mode: "file" })
+        navigate(`${director2ProjectPath(pending.projectId, "content")}?doc=${encodeURIComponent(document.id)}&section=body`)
+      } else {
+        if (!pending.sessionId) {
+          const session = await assistantMutate<AssistantSession>(csrfToken, "/sessions", { project_id: pending.projectId, selections })
+          pending.sessionId = session.id
+        }
+        await assistantMutate<AssistantRun>(csrfToken, `/sessions/${pending.sessionId}/messages`, { text: homeProjectMessage(input), client_message_id: pending.messageId })
+        try { localStorage.setItem(`${STORAGE_KEY}:${pending.projectId}`, pending.sessionId) } catch { /* Server history remains available. */ }
+        navigate(director2ProjectPath(pending.projectId, "content"))
+      }
+      projectCreation.current = null
+    } finally { setCreatingProject(false) }
+  }
+
   async function send(answer?: { question_id?: string; answer_values?: string[]; text?: string; skip?: boolean }) {
     if (busy || editingFlight.current || (!answer && !draft.trim())) return
+    if (!catalog?.enabled || !catalog.available) return
+    if (isHome) setHomeStarted(true)
     void requestAssistantNotificationPermission()
     setSending(true); setError(""); followTail.current = true
     const text = answer?.text ?? draft
@@ -735,23 +785,21 @@ export default function DirectorAssistantProvider({ children, csrfToken, project
     })}</div></div>
   }
 
-  return <AssistantContext.Provider value={{ enabled, ready: !!catalog || !!catalogError, setOpen, registerEditor }}>
-    <div className={`assistant-app-host${isEditing && open ? " has-editing-assistant" : ""}`} style={isEditing && open ? { paddingRight: dockWidth } : undefined}>{children}</div>
-    {(enabled || catalogError) && !open && <Tooltip classNames={{ root: "director-assistant-tooltip" }} title={catalogError || "打开智能助手"}><Button className="director-assistant-launcher" type="primary" icon={<Sparkles size={18} />} onClick={() => { if (catalogError) void refreshCatalog().catch(e => setCatalogError(director2ErrorDetail(e, "助手加载失败"))); changeOpen(true, true) }}>智能助手</Button></Tooltip>}
-    <Drawer title={<span className="assistant-title"><Sparkles size={16} />{isEditing ? "智能剪辑助手" : "智能助手"}</span>} open={open} onClose={() => changeOpen(false, true)} closable={false} mask={false} autoFocus={false} size={isEditing ? dockWidth : expanded ? Math.min(800, window.innerWidth - 100) : 480} rootClassName={`director-assistant-drawer${isEditing ? " is-editing-assistant" : ""}`} zIndex={1000} styles={{ root: { pointerEvents: "none" }, wrapper: { pointerEvents: "auto" }, body: { padding: 0, overflow: "hidden" }, header: { padding: "10px 14px" } }} extra={<Space size={2}>
-      <Tooltip classNames={{ root: "director-assistant-tooltip" }} title="新对话"><Button type="text" size="small" aria-label="新对话" disabled={busy} icon={<Plus size={16} />} onClick={newConversation} /></Tooltip>
-      <Dropdown trigger={["click"]} onOpenChange={value => { if (value) assistantGet<AssistantSession[]>("/sessions").then(sessions => setHistory(sessions.filter(s => matchesAssistantScope(s, projectId, editingContext)))).catch(e => message.error(director2ErrorDetail(e, "读取历史失败"))) }} menu={{ items: scopedHistory.length ? scopedHistory.map(s => ({ key: s.id, label: <span className="assistant-history-title">{s.title}<small>{s.project_id ? "工程对话" : "独立创作"}</small></span> })) : [{ key: "empty", label: "还没有历史对话", disabled: true }], onClick: ({ key }) => selectHistorySession(key), style: { maxWidth: 360, maxHeight: 420, overflowY: "auto" } }}><Button type="text" size="small" aria-label="历史对话" disabled={busy} icon={<History size={15} />} /></Dropdown>
-      {!isEditing && <Tooltip classNames={{ root: "director-assistant-tooltip" }} title={expanded ? "收起宽度" : "展开宽度"}><Button type="text" size="small" aria-label={expanded ? "收起宽度" : "展开宽度"} icon={expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />} onClick={() => setExpanded(v => !v)} /></Tooltip>}
-      <ThemeToggle tooltipClassName="director-assistant-tooltip" />
-      <Button type="text" size="small" aria-label="关闭智能助手" icon={<X size={16} />} onClick={() => changeOpen(false, true)} />
-    </Space>}>
-      <div className="assistant-workspace">
+  function historyControl() { return <Dropdown trigger={["click"]} onOpenChange={value => { if (value) assistantGet<AssistantSession[]>("/sessions").then(sessions => setHistory(sessions.filter(s => matchesAssistantScope(s, projectId, editingContext)))).catch(e => message.error(director2ErrorDetail(e, "读取历史失败"))) }} menu={{ items: scopedHistory.length ? scopedHistory.map(s => ({ key: s.id, label: <span className="assistant-history-title">{s.title}<small>{s.project_id ? "工程对话" : "独立创作"}</small></span> })) : [{ key: "empty", label: "还没有历史对话", disabled: true }], onClick: ({ key }) => selectHistorySession(key), style: { maxWidth: 360, maxHeight: 420, overflowY: "auto" } }}><Button type="text" size="small" aria-label="历史对话" disabled={busy} icon={<History size={isHome ? 13 : 15} />}>{isHome ? "历史对话" : null}</Button></Dropdown> }
+  const workspace = (
+      <div className={`assistant-workspace${isHome ? ` director-assistant-home ${homeStarted ? "is-conversation" : "is-start"}` : ""}`}>
+        {isHome && homeStarted && <div className="assistant-home-nav">
+          <Button type="text" icon={<ArrowLeft size={14} />} disabled={busy} onClick={resetHomeDraft}>返回首页</Button>
+          <strong title={detail?.session.title}>{detail?.session.title || "新的创作"}</strong>
+          <div><Button type="text" icon={<Plus size={14} />} disabled={busy} onClick={newConversation}>新对话</Button>{historyControl()}</div>
+        </div>}
+        {(!isHome || homeStarted) && <>
         <div className="assistant-project-link"><BookOpen size={13} /><span>{isEditing ? `${projectName || "当前工程"} · ${activeEditor?.sequenceName || "加载剪辑中…"}` : detail?.session.project_id ? `关联工程：${projectName || detail.session.project_id}` : projectId && !detail ? "新对话将关联当前工程" : "独立创作 · 采纳时选择工程"}</span>{detail?.session.project_id && <Button type="link" size="small" onClick={() => navigate(director2ProjectPath(detail.session.project_id!, "content"))}>查看</Button>}</div>
-        {workflowProjectId && <WorkflowProgressCard projectId={workflowProjectId} csrfToken={csrfToken} open={open} busy={busy} canPrompt={!!catalog?.available} onPrompt={text => { void send({ text }) }} onNavigate={(menu, episodeId) => navigate(director2ProjectPath(workflowProjectId, menu, episodeId))} />}
+        {workflowProjectId && !isProject && <WorkflowProgressCard projectId={workflowProjectId} csrfToken={csrfToken} open={open} busy={busy} canPrompt={!!catalog?.available} onPrompt={text => { void send({ text }) }} onNavigate={(menu, episodeId) => navigate(director2ProjectPath(workflowProjectId, menu, episodeId))} />}
         {!!legacy && <Alert className="assistant-legacy-notice" type="info" title="此工程有待继续的旧版 AI 任务" action={<Button size="small" onClick={() => setLegacyOpen(true)}>继续旧任务</Button>} />}
         <div ref={feed} className="assistant-feed" onScroll={() => { const node = feed.current; if (node) followTail.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80 }} aria-live="polite">
           {loading && <Spin className="assistant-loading" />}
-          {!loading && !detail?.messages.length && (isEditing ? <div className="assistant-welcome assistant-edit-welcome"><div className="assistant-welcome-symbol"><Sparkles size={25} /></div><h2>Hi，我是您的智能剪辑助手</h2><p>铺轨、精剪、速剪、高光合集、引流剪辑、自动字幕与音轨字幕，<br />先读取画面理解或音轨转写依据，再预览清单，确认后写入时间线。</p>{understandingCard()}{transcriptCard()}{editingTools()}<p className="assistant-welcome-example">也可以直接说：“按分镜帮我铺轨”、“做一版3秒进冲突的引流剪辑”或“转写音频后按真实声音上字幕”。</p></div> : <div className="assistant-welcome"><div className="assistant-welcome-symbol"><Sparkles size={25} /></div><h2>从一个想法开始</h2><p>选一个 Skill，带上专家和参考资料，<br />我们一步步把故事做出来。</p><div className="assistant-welcome-skills">{catalog?.resources.filter(r => r.resource_type === "skill" && r.builtin).map(r => <Button key={r.id} className="assistant-welcome-skill" disabled={busy} onClick={() => selectResource(r)}><ResourceCover resource={r} variant="picker" /><span><strong>{r.name}</strong><small>{r.category}</small></span></Button>)}</div><p className="assistant-welcome-example">也可以直接说：“我想做一个西游悬疑故事，帮我找方向。”</p></div>)}
+          {!isHome && !loading && !detail?.messages.length && (isEditing ? <div className="assistant-welcome assistant-edit-welcome"><div className="assistant-welcome-symbol"><Sparkles size={25} /></div><h2>Hi，我是您的智能剪辑助手</h2><p>铺轨、精剪、速剪、高光合集、引流剪辑、自动字幕与音轨字幕，<br />先读取画面理解或音轨转写依据，再预览清单，确认后写入时间线。</p>{understandingCard()}{transcriptCard()}{editingTools()}<p className="assistant-welcome-example">也可以直接说：“按分镜帮我铺轨”、“做一版3秒进冲突的引流剪辑”或“转写音频后按真实声音上字幕”。</p></div> : <div className="assistant-welcome"><div className="assistant-welcome-symbol"><Sparkles size={25} /></div><h2>{isProject ? "继续完善你的故事" : "从一个想法开始"}</h2><p>{isProject ? "告诉我想调整的情节或人物，我会先给出草稿，采纳后写入当前剧本。" : <>选一个 Skill，带上专家和参考资料，<br />我们一步步把故事做出来。</>}</p>{!isProject && <div className="assistant-welcome-skills">{catalog?.resources.filter(r => r.resource_type === "skill" && r.builtin).map(r => <Button key={r.id} className="assistant-welcome-skill" disabled={busy} onClick={() => selectResource(r)}><ResourceCover resource={r} variant="picker" /><span><strong>{r.name}</strong><small>{r.category}</small></span></Button>)}</div>}<p className="assistant-welcome-example">也可以直接说：“我想做一个西游悬疑故事，帮我找方向。”</p></div>)}
           {isEditing && !!detail?.messages.length && <Collapse className="assistant-edit-toolbox" ghost size="small" items={[{ key: "tools", label: "剪辑工具", children: editingTools() }]} />}
           {isEditing && !!detail?.messages.length && understandingCard()}
           {isEditing && !!detail?.messages.length && transcriptCard()}
@@ -765,7 +813,7 @@ export default function DirectorAssistantProvider({ children, csrfToken, project
                 const a = detail.artifacts.find(a => a.id === part.artifact_id)
                 return a ? <section className="assistant-deliverable" key={index}><div><FileText size={17} /><strong>{a.title}</strong><Tag>{artifactLabels[a.artifact_type]}</Tag></div><p>第 {a.revision} 版 · {a.application_id ? "已采纳到工程" : "会话草稿，尚未写入工程"}</p><Button size="small" onClick={() => setArtifact(a)}>查看{a.application_id ? "内容" : "并采纳"}</Button></section> : <Spin key={index} size="small" />
               }
-              if (part.type === "approval") { const proposal = detail.proposals.find(p => p.id === part.proposal_id); return proposal ? renderProposal(proposal, detail.executions.find(e => e.id === proposal.execution_id)) : null }
+              if (part.type === "approval") { const proposal = detail.proposals.find(p => p.id === part.proposal_id); return proposal ? <Fragment key={index}>{renderProposal(proposal, detail.executions.find(e => e.id === proposal.execution_id))}</Fragment> : null }
               if (part.type === "edit_action") {
                 const action = detail.edit_proposals?.find(p => p.id === part.action_id)
                 return action ? <section className="assistant-deliverable" key={index}><div><Wand2 size={17} /><strong>{action.title}</strong><Tag>{action.status === "succeeded" ? "已完成并保存" : action.count ? "待确认" : "无需执行"}</Tag></div><p>{actionSummary(action)}</p>{action.operation === "video_arrange" && (action.missing_video_count || 0) > 0 && <p>{action.missing_video_count} 个分镜尚无视频，未用分镜图替代。</p>}{action.status === "pending" && <Button size="small" disabled={busy || !activeEditor} onClick={() => void openEditingAction(action)}>{ACTION_BUTTONS[action.operation]}</Button>}</section> : null
@@ -776,7 +824,7 @@ export default function DirectorAssistantProvider({ children, csrfToken, project
                 const usage = part.usage
                 const cached = usage.cached_tokens || 0
                 const requests = usage.requests || 0
-                return <div className="assistant-usage-line">输入 {usage.prompt_tokens.toLocaleString("zh-CN")} · 输出 {usage.completion_tokens.toLocaleString("zh-CN")} tokens{cached > 0 && ` · 缓存命中 ${cached.toLocaleString("zh-CN")}`}{requests > 1 && ` · ${requests} 次请求`}</div>
+                return <div key={index} className="assistant-usage-line">输入 {usage.prompt_tokens.toLocaleString("zh-CN")} · 输出 {usage.completion_tokens.toLocaleString("zh-CN")} tokens{cached > 0 && ` · 缓存命中 ${cached.toLocaleString("zh-CN")}`}{requests > 1 && ` · ${requests} 次请求`}</div>
               }
               return null
             })}
@@ -786,27 +834,54 @@ export default function DirectorAssistantProvider({ children, csrfToken, project
           {busy && <div className="assistant-phase"><Spin size="small" /><span>{editingBusy && editingOperation ? `正在准备${OPERATION_TITLES[editingOperation]}…` : confirmingAction && editingOperation ? `正在应用${OPERATION_TITLES[editingOperation]}并保存…` : phase || "正在准备回复…"}</span></div>}
           {isEditing && actionFeedback && !detail?.edit_proposals?.some(p => p.id === actionFeedback.id) && <Alert className="assistant-edit-feedback" showIcon type={actionFeedback.status === "succeeded" ? "success" : "info"} title={actionFeedback.status === "succeeded" ? successText(actionFeedback) : emptyHint(actionFeedback.operation)} description={actionFeedback.status === "succeeded" ? feedbackDetail(actionFeedback) : "请先完成对应素材准备后重试。"} />}
         </div>
+        </>}
         {error && <Alert className="assistant-error" type="error" showIcon title={error} action={sid ? <Button size="small" onClick={() => { setError(""); void restoreSession(sid) }}>重新加载</Button> : undefined} closable onClose={() => setError("")} />}
         {catalogError && <Alert type="error" title={catalogError} action={<Button size="small" onClick={() => refreshCatalog().catch(e => setCatalogError(director2ErrorDetail(e, "加载失败")))}>重试</Button>} />}
-        {catalog && !catalog.available && <Alert type="warning" title={catalog.unavailable_reason || "请管理员配置大模型服务后开始对话"} />}
+        {catalog && (!catalog.enabled || !catalog.available) && <Alert type="warning" title={catalog.unavailable_reason || "请管理员配置大模型服务后开始对话"} />}
         <div className="assistant-composer-shell">
           <div className="assistant-composer">
-            {chosenSkillName && <div className="assistant-selection-chips"><Tooltip classNames={{ root: "director-assistant-tooltip" }} title={chosenSkillName}><Tag className="assistant-skill-tag" icon={<Zap size={11} />} closable={!busy} closeIcon={<X size={11} aria-label="移除 Skill" />} onClose={e => { e.preventDefault(); if (!busy) void select({ ...selections, skill_id: null }) }}><span className="assistant-chip-label">{chosenSkillName}</span></Tag></Tooltip></div>}
-            <Input.TextArea value={draft} onChange={e => setDraft(e.target.value)} placeholder={isEditing ? "试试说：“按分镜帮我铺轨”、“先转写音频”或“按真实声音上字幕”…" : "说说你的想法，或告诉我接下来想做什么…"} aria-label="给智能助手发送消息" autoSize={{ minRows: 2, maxRows: 10 }} maxLength={50000} disabled={sending || confirmingAction} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (!busy && catalog?.available) void send() } }} variant="borderless" />
+            {isHome && <div className="assistant-home-composer-heading"><span><Sparkles size={13} />{chosenSkillName || "短剧创作"}{chosenSkillName && <Button type="text" size="small" aria-label="移除 Skill" disabled={busy} icon={<X size={11} />} onClick={() => void select({ ...selections, skill_id: null })} />}</span>{!homeStarted && historyControl()}</div>}
+            <div className="assistant-composer-body">
+            {!isHome && chosenSkillName && <div className="assistant-selection-chips"><Tooltip classNames={{ root: "director-assistant-tooltip" }} title={chosenSkillName}><Tag className="assistant-skill-tag" icon={<Zap size={11} />} closable={!busy} closeIcon={<X size={11} aria-label="移除 Skill" />} onClose={e => { e.preventDefault(); if (!busy) void select({ ...selections, skill_id: null }) }}><span className="assistant-chip-label">{chosenSkillName}</span></Tag></Tooltip></div>}
+            <Input.TextArea ref={composerInput} value={draft} onChange={e => setDraft(e.target.value)} placeholder={isHome && !homeStarted ? "说说你的故事想法，也可以粘贴已有剧本…" : isEditing ? "试试说：“按分镜帮我铺轨”、“先转写音频”或“按真实声音上字幕”…" : "说说你的想法，或告诉我接下来想做什么…"} aria-label="给智能助手发送消息" autoSize={isHome ? false : { minRows: 2, maxRows: 10 }} maxLength={50000} disabled={sending || confirmingAction} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (!busy && enabled && catalog?.available) void send() } }} variant="borderless" />
             <div className="assistant-composer-toolbar">
-              <Popover trigger="click" placement="topLeft" destroyOnHidden open={picker === "skill"} onOpenChange={value => setPicker(value ? "skill" : null)} classNames={{ root: "director-assistant-tooltip assistant-picker-popover" }} content={resourcePicker("skill")}><Button type="text" size="small" disabled={busy} icon={<Zap size={14} />}>Skill</Button></Popover>
+              <Popover trigger="click" placement="topLeft" destroyOnHidden open={picker === "skill"} onOpenChange={value => setPicker(value ? "skill" : null)} classNames={{ root: "director-assistant-tooltip assistant-picker-popover" }} content={resourcePicker("skill")}><Button type="text" size="small" disabled={busy} icon={<Zap size={14} />}>Skill{isHome && <ChevronDown size={10} />}</Button></Popover>
               <Popover trigger="click" placement="topLeft" destroyOnHidden open={picker === "expert"} onOpenChange={value => setPicker(value ? "expert" : null)} classNames={{ root: "director-assistant-tooltip assistant-picker-popover" }} content={resourcePicker("expert")}><Tooltip classNames={{ root: "director-assistant-tooltip" }} title={chosenExpertName || "选择专家"}><Button type="text" size="small" aria-label="专家" aria-pressed={!!chosenExpertName} className={chosenExpertName ? "assistant-tool-selected" : undefined} disabled={busy} icon={<Wand2 size={14} />}><span className="assistant-expert-label">{chosenExpertName || "专家"}</span></Button></Tooltip></Popover>
-              <Popover trigger="click" placement="topLeft" content={<div className="assistant-picker"><Select aria-label="选择知识库" mode="multiple" placeholder="选择参考知识库" value={selections.knowledge_ids} disabled={busy} options={catalog?.knowledge.map(k => ({ label: k.name, value: k.id, disabled: !k.documents.some(d => d.status === "ready") }))} onChange={v => { void select({ ...selections, knowledge_ids: v }) }} /><Button type="text" block onClick={() => setKnowledgeOpen(true)}>管理知识库与资料</Button></div>}><Tooltip classNames={{ root: "director-assistant-tooltip" }} title={chosenKnowledgeNames.length ? <div>{chosenKnowledgeNames.map((name, i) => <div key={selections.knowledge_ids[i]}>{name}</div>)}</div> : "选择知识库"}><Button type="text" size="small" aria-label="知识库" aria-pressed={selections.knowledge_ids.length > 0} className={selections.knowledge_ids.length ? "assistant-tool-selected" : undefined} disabled={busy} icon={<BookOpen size={14} />}>知识库{selections.knowledge_ids.length > 0 && <span className="assistant-knowledge-count">{selections.knowledge_ids.length}</span>}</Button></Tooltip></Popover>
+              <Popover trigger="click" placement="topLeft" content={<div className="assistant-picker"><Select aria-label="选择知识库" mode="multiple" placeholder="选择参考知识库" value={selections.knowledge_ids} disabled={busy} options={catalog?.knowledge.map(k => ({ label: k.name, value: k.id, disabled: !k.documents.some(d => d.status === "ready") }))} onChange={v => { void select({ ...selections, knowledge_ids: v }) }} /><Button type="text" block onClick={() => setKnowledgeOpen(true)}>管理知识库与资料</Button></div>}><Tooltip classNames={{ root: "director-assistant-tooltip" }} title={chosenKnowledgeNames.length ? <div>{chosenKnowledgeNames.map((name, i) => <div key={selections.knowledge_ids[i]}>{name}</div>)}</div> : "选择知识库"}><Button type="text" size="small" aria-label="知识库" aria-pressed={selections.knowledge_ids.length > 0} className={selections.knowledge_ids.length ? "assistant-tool-selected" : undefined} disabled={busy} icon={<BookOpen size={14} />}>{isHome ? "参考资料" : "知识库"}{selections.knowledge_ids.length > 0 && <span className="assistant-knowledge-count">{selections.knowledge_ids.length}</span>}</Button></Tooltip></Popover>
               <Popover trigger="click" placement="topRight" content={<div className="assistant-picker"><strong>推理模型</strong><Select aria-label="选择助手模型" showSearch value={selections.model_id || undefined} options={catalog?.models.map(m => ({ label: m.label, value: m.id }))} disabled={busy} onChange={v => { void select({ ...selections, model_id: v }) }} /><p className="assistant-secondary">由管理员开放，切换仅影响本会话后续任务。</p></div>}><Button type="text" size="small" disabled={busy} icon={<Sparkles size={13} />}>模型<ChevronDown size={10} /></Button></Popover>
               <Tooltip classNames={{ root: "director-assistant-tooltip" }} title={webSearchSupported ? (selections.web_search ? "已开启联网搜索，本轮可获取实时信息" : "开启联网搜索，获取实时信息并标注来源") : "当前模型未开放联网搜索"}><Button type="text" size="small" aria-label="联网搜索" aria-pressed={!!selections.web_search} className={selections.web_search && webSearchSupported ? "assistant-tool-selected" : undefined} disabled={busy || !webSearchSupported} icon={<Globe size={14} />} onClick={() => { if (!busy) void select({ ...selections, web_search: !selections.web_search }) }}>联网</Button></Tooltip>
               <span className="assistant-toolbar-spacer" />
-              {isAssistantRunning(detail?.run) ? <Tooltip classNames={{ root: "director-assistant-tooltip" }} title="停止回复"><Button className="assistant-send" type="primary" shape="circle" aria-label="停止回复" icon={<Square size={12} />} onClick={stop} /></Tooltip> : <Button className="assistant-send" type="primary" shape="circle" aria-label="发送消息" loading={sending} disabled={!draft.trim() || !catalog?.available || busy || (isEditing && !activeEditor)} icon={<ArrowUp size={16} />} onClick={() => send()} />}
+              {isAssistantRunning(detail?.run) ? <Tooltip classNames={{ root: "director-assistant-tooltip" }} title="停止回复"><Button className="assistant-send" type="primary" shape="circle" aria-label="停止回复" icon={<Square size={12} />} onClick={stop} /></Tooltip> : <Button className="assistant-send" type="primary" shape="circle" aria-label="发送消息" loading={sending} disabled={!draft.trim() || !enabled || !catalog?.available || busy || (isEditing && !activeEditor)} icon={<ArrowUp size={16} />} onClick={() => send()} />}
+            </div>
             </div>
           </div>
-          <p className="assistant-composer-hint" title={selections.model_id}>{selections.model_id || "尚未选择模型"} · Enter 发送，Shift+Enter 换行</p>
+          {(!isHome || homeStarted) && <p className="assistant-composer-hint" title={selections.model_id}>{selections.model_id || "尚未选择模型"} · Enter 发送，Shift+Enter 换行</p>}
         </div>
+        {isHome && !homeStarted && <div className="assistant-home-suggestions">
+          {[
+            ["写一个短剧", "帮我写一个短剧，先和我确认故事方向。"],
+            ["修改剧本", "我想修改一个剧本，请先了解我希望调整的内容。"],
+            ["拆分镜", "帮我把剧本拆成分镜，请先确认剧本和画面风格。"],
+          ].map(([label, prompt]) => <Button key={label} disabled={busy} onClick={() => { setDraft(prompt); composerInput.current?.focus() }}><span aria-hidden="true">/</span>{label}</Button>)}
+          <Button disabled={busy} onClick={() => setMarket("skill")}>更多技能</Button>
+        </div>}
       </div>
-    </Drawer>
+  )
+
+  return <AssistantContext.Provider value={{ enabled, ready: !!catalog || !!catalogError, open, setOpen: changeOpen, prompt: text => { setDraft(text); changeOpen(true, true); composerInput.current?.focus() }, registerEditor }}>
+    <AssistantHomeContext.Provider value={{ active: homeStarted, surface: isHome ? workspace : null, creating: creatingProject, available: !!catalog?.available && enabled, startProject }}>
+    <div className={`assistant-app-host${isEditing && open ? " has-editing-assistant" : ""}${isProject && open ? " has-project-assistant" : ""}`} style={isEditing && open ? { paddingRight: dockWidth } : undefined}>{children}{isProject && open && <aside className="director-assistant-drawer director-project-assistant" aria-label="短剧助手"><header><span className="assistant-title"><Sparkles size={16} />短剧助手</span><Space size={2}>{historyControl()}<Button type="text" size="small" aria-label="新对话" disabled={busy} icon={<Plus size={16} />} onClick={newConversation}/><Button type="text" size="small" aria-label="关闭智能助手" icon={<X size={16} />} onClick={() => changeOpen(false, true)}/></Space></header>{workspace}</aside>}</div>
+    </AssistantHomeContext.Provider>
+    {!isHome && (enabled || catalogError) && !open && <Tooltip classNames={{ root: "director-assistant-tooltip" }} title={catalogError || "打开智能助手"}><Button className="director-assistant-launcher" type="primary" icon={<Sparkles size={18} />} onClick={() => { if (catalogError) void refreshCatalog().catch(e => setCatalogError(director2ErrorDetail(e, "助手加载失败"))); changeOpen(true, true) }}>智能助手</Button></Tooltip>}
+    {!isHome && !isProject && <Drawer title={<span className="assistant-title"><Sparkles size={16} />{isEditing ? "智能剪辑助手" : "智能助手"}</span>} open={open} onClose={() => changeOpen(false, true)} closable={false} mask={false} autoFocus={false} size={isEditing ? dockWidth : expanded ? Math.min(800, window.innerWidth - 100) : 480} rootClassName={`director-assistant-drawer${isEditing ? " is-editing-assistant" : ""}`} zIndex={1000} styles={{ root: { pointerEvents: "none" }, wrapper: { pointerEvents: "auto" }, body: { padding: 0, overflow: "hidden" }, header: { padding: "10px 14px" } }} extra={<Space size={2}>
+      <Tooltip classNames={{ root: "director-assistant-tooltip" }} title="新对话"><Button type="text" size="small" aria-label="新对话" disabled={busy} icon={<Plus size={16} />} onClick={newConversation} /></Tooltip>
+      {historyControl()}
+      {!isEditing && <Tooltip classNames={{ root: "director-assistant-tooltip" }} title={expanded ? "收起宽度" : "展开宽度"}><Button type="text" size="small" aria-label={expanded ? "收起宽度" : "展开宽度"} icon={expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />} onClick={() => setExpanded(v => !v)} /></Tooltip>}
+      <ThemeToggle tooltipClassName="director-assistant-tooltip" />
+      <Button type="text" size="small" aria-label="关闭智能助手" icon={<X size={16} />} onClick={() => changeOpen(false, true)} />
+    </Space>}>
+      {workspace}
+    </Drawer>}
     <Modal title={editingAction ? `${editingAction.title} · 需要你的授权` : "需要你的授权"} open={!!editingAction} onCancel={() => { if (!confirmingAction) { setEditingAction(null); setEditingOrder([]) } }} onOk={() => void confirmEditing()} confirmLoading={confirmingAction} okText={editingAction ? CONFIRM_LABELS[editingAction.operation] : "确认"} cancelText="关闭" width={480} centered zIndex={1200} maskClosable={!confirmingAction} keyboard={!confirmingAction} closable={!confirmingAction} cancelButtonProps={{ disabled: confirmingAction }} rootClassName="director-assistant-drawer assistant-edit-approval">
       {editingAction && <><p className="assistant-edit-approval-intro">{editingAction.operation === "video_arrange" ? `将按以下顺序把 ${editingAction.count} 条视频铺到画面主轨：` : editingAction.operation === "subtitle_arrange" ? `将从分集对白生成 ${editingAction.count} 条字幕，放入时间线文字轨：` : editingAction.operation === "audio_subtitle" ? `将从音轨转写的 ${editingAction.transcript?.segment_count ?? 0} 段真实语音生成 ${editingAction.count} 条字幕，放入时间线文字轨：` : editingAction.operation === "hook_cut" ? `将按「${editingAction.strategy_title || "引流剪辑"}」重建画面与配音，保留 ${editingAction.count} 个镜头：` : `将按策略重建画面与配音，保留 ${editingAction.count} 个镜头：`}</p>{isCutOperation(editingAction.operation) && <p className="assistant-edit-approval-evidence">理解依据：{understandingEvidence(editingAction)}</p>}{editingAction.operation === "audio_subtitle" && <p className="assistant-edit-approval-evidence">语音依据：{transcriptEvidence(editingAction)}</p>}<ol className="assistant-edit-approval-list">{orderedEditingItems.map((item, i) => <li key={`${item.asset_id || item.beat_id || item.name}-${i}`}><span title={item.name}>{item.name}</span>{editingAction.operation === "video_arrange" ? <span className="assistant-edit-approval-order"><small>{item.duration?.toFixed(2)} 秒</small><Button size="small" type="text" aria-label="上移" disabled={i === 0 || confirmingAction} icon={<ArrowUp size={12} />} onClick={() => moveEditingItem(i, -1)} /><Button size="small" type="text" aria-label="下移" disabled={i === orderedEditingItems.length - 1 || confirmingAction} icon={<ArrowDown size={12} />} onClick={() => moveEditingItem(i, 1)} /></span> : <span className="assistant-edit-approval-meta"><small>{editingAction.operation === "audio_subtitle" ? `${item.start?.toFixed(2)}–${((item.start ?? 0) + (item.duration ?? 0)).toFixed(2)} 秒` : isCutOperation(editingAction.operation) ? `${item.action === "trim" ? "截取" : "保留"} ${item.duration?.toFixed(2)} 秒` : `${item.duration?.toFixed(2)} 秒`}</small>{item.reason && <small className="assistant-edit-approval-reason" title={item.reason}>{item.reason}</small>}</span>}</li>)}</ol>{editingAction.operation === "hook_cut" && editingAction.principle && <p className="assistant-secondary">策略原则：{editingAction.principle}</p>}{editingAction.operation === "video_arrange" ? <p className="assistant-secondary">从 {(editingAction.append_at || 0).toFixed(2)} 秒处追加，共 {editingAction.total_duration.toFixed(2)} 秒。已有剪辑、文字和独立音频保留。</p> : editingAction.operation === "subtitle_arrange" ? <p className="assistant-secondary">共 {editingAction.total_duration.toFixed(2)} 秒。会替换上次自动生成的字幕，手动文字保留。</p> : editingAction.operation === "audio_subtitle" ? <p className="assistant-secondary">共 {editingAction.total_duration.toFixed(2)} 秒字幕时长。只替换上次自动生成的字幕，手动文字与画面剪辑保持不变。{editingAction.inaudible_count ? `${editingAction.inaudible_count} 段语音落在镜头外，本次未使用。` : ""}{editingAction.skipped_count ? `${editingAction.skipped_count} 处位置已有文字，已跳过。` : ""}</p> : <p className="assistant-secondary">共 {editingAction.total_duration.toFixed(2)} 秒{editingAction.dropped_count ? `，略过 ${editingAction.dropped_count} 个镜头` : ""}{editingAction.trimmed_count ? `，截短 ${editingAction.trimmed_count} 个镜头` : ""}。手动文字保留，执行后可在工具栏一次撤销。</p>}{editingAction.operation === "video_arrange" && (editingAction.skipped_count || 0) > 0 && <p className="assistant-secondary">跳过 {editingAction.skipped_count} 项已铺轨或重复视频。</p>}{editingAction.operation === "video_arrange" && (editingAction.missing_video_count || 0) > 0 && <p className="assistant-secondary">{editingAction.missing_video_count} 个分镜尚无视频，未用分镜图替代。</p>}{isCaptionOperation(editingAction.operation) && !!editingAction.replaced_count && <p className="assistant-secondary">替换 {editingAction.replaced_count} 条上次自动字幕{editingAction.skipped_count ? `，跳过 ${editingAction.skipped_count} 处无对白或占用位置` : ""}。</p>}{actionError && <Alert showIcon type="error" title={actionError} />}</>}
     </Modal>

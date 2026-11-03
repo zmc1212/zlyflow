@@ -15,6 +15,7 @@ _JOB_LIST_KEYS = {
     "images",
     "target_type",
     "asset_id",
+    "identity_id",
     "episode_id",
     "beat_id",
     "beat_ids",
@@ -61,6 +62,9 @@ _JOB_LIST_KEYS = {
     "queue_number",
     "prompt_source",
     "prompt_warning",
+    "preparation",
+    "prepare_keyframes",
+    "prompt_generation_progress",
     "api_url",
     "model",
     "image_size",
@@ -154,9 +158,39 @@ def _slim_episodes_done(value: Any) -> list[dict[str, Any]]:
     return slim
 
 
+_CHUNK_SHOT_STATUS = {
+    "succeeded": "succeeded",
+    "awaiting_refine": "awaiting_refine",
+    "submitted": "running",
+    "running": "running",
+}
+
+
+def _shot_render_status(chunks: list[dict[str, Any]]) -> dict[str, str]:
+    """逐镜渲染阶段，让工坊在整批完成前就能区分已出片 / 正在生成 / 排队。"""
+    status: dict[str, str] = {}
+    for chunk in chunks:
+        stage = _CHUNK_SHOT_STATUS.get(str(chunk.get("status") or ""), "queued")
+        for beat_id in chunk.get("shot_ids") or []:
+            key = str(beat_id or "").strip()
+            if key:
+                status[key] = stage
+    return status
+
+
 def slim_job_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
     source = payload or {}
     slim = {key: source[key] for key in _JOB_LIST_KEYS if key in source}
+    plan = source.get("render_plan")
+    raw_chunks = plan.get("chunks") if isinstance(plan, dict) else None
+    chunks = [item for item in raw_chunks if isinstance(item, dict)] if isinstance(raw_chunks, list) else []
+    if chunks:
+        completed = sum(item.get("status") == "succeeded" for item in chunks)
+        current = next((index + 1 for index, item in enumerate(chunks) if item.get("status") != "succeeded"), len(chunks))
+        slim["render_progress"] = {"total": len(chunks), "completed": completed, "current": current}
+        shot_status = _shot_render_status(chunks)
+        if shot_status:
+            slim["shot_status"] = shot_status
     include_prompt = source.get("prompt_source") == "program_preview"
     shots = _slim_shots(source.get("shots"), include_prompt=include_prompt)
     if shots:

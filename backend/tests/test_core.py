@@ -694,6 +694,13 @@ class ApiDocumentationTests(unittest.TestCase):
                     JobMode.WAN_VACE_DEPTH_V2V.value,
                     JobMode.NVIDIA_RTX_VSR.value,
                     JobMode.SEEDVR2_UPSCALE.value,
+                    JobMode.SCAIL2_REPLACEMENT.value,
+                    JobMode.STEM_SPLIT.value,
+                    JobMode.IMAGE_BACKGROUND_REMOVE.value,
+                    JobMode.IMAGE_LAYER_SPLIT.value,
+                    JobMode.IMAGE_INPAINT.value,
+                    JobMode.IMAGE_ERASER.value,
+                    JobMode.IMAGE_OUTPAINT.value,
                 }
                 for workflow in WORKFLOWS
             )

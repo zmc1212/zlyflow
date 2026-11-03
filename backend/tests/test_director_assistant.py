@@ -837,6 +837,80 @@ class AssistantTests(unittest.TestCase):
             self.assertEqual(len(conn.execute("SELECT * FROM ai_project_documents").fetchall()), 1)
             self.assertEqual(conn.execute("SELECT name FROM ai_projects WHERE id='p'").fetchone()["name"], "雨夜取经")
 
+    def test_bracketed_script_adoption_saves_readable_episodes_and_is_idempotent(self):
+        text = (Path(__file__).parent / "fixtures" / "director_bracketed_script.md").read_text(encoding="utf-8")
+        artifact = self.draft(content=text)
+        preview = self.service.actions.preview("alice", artifact["id"], "p")
+        self.assertIn("第1集", preview["changes"][0]["label"])
+        adopted = self.service.actions.apply("alice", preview["id"])
+        self.assertEqual(adopted["id"], self.service.actions.apply("alice", preview["id"])["id"])
+        with self.store.connection() as conn:
+            rows = conn.execute("SELECT * FROM ai_project_documents").fetchall()
+            self.assertEqual(1, len(rows))
+            self.assertEqual(text, rows[0]["raw_text"])
+            analysis = json.loads(rows[0]["analysis_json"])
+            self.assertEqual([1, 2, 3], [ep["episode_num"] for ep in analysis["episodes"]])
+            self.assertTrue(analysis["primary_script"])
+            self.assertIn("循环机制", analysis["story_setting_text"])
+            self.assertEqual([], conn.execute("SELECT * FROM ai_project_episodes").fetchall())
+
+    def test_new_script_document_is_allowed_during_generation(self):
+        statuses = ("queued", "preparing", "running", "prompt_generation", "uploading", "comfy_queued", "upscaling", "assembling", "downloading")
+        for index, status in enumerate(statuses):
+            with self.subTest(status=status):
+                artifact = self.draft(title="第二集")
+                job_id = f"generation-{index}"
+                with self.store.connection() as conn:
+                    conn.execute("INSERT INTO ai_project_jobs (id,project_id,job_type,status,payload_json) VALUES (?,'p','video_generation',?,?)", (job_id, status, dumps({"episode_id": "first-episode", "beat_id": "first-beat"})))
+                preview = self.service.actions.preview("alice", artifact["id"], "p", {"document": "", "script_action": "new_document"})
+                self.assertEqual([(item["entity"], item["operation"]) for item in preview["changes"]], [("document", "add")])
+                adopted = self.service.actions.apply("alice", preview["id"])
+                self.assertEqual(adopted["status"], "applied")
+                self.assertEqual(self.service.actions.apply("alice", preview["id"])["id"], adopted["id"])
+                with self.store.connection() as conn:
+                    document = conn.execute("SELECT raw_text FROM ai_project_documents WHERE id=?", (preview["changes"][0]["target_id"],)).fetchone()
+                    self.assertEqual(document["raw_text"], artifact["content"])
+                    job = conn.execute("SELECT status,payload_json FROM ai_project_jobs WHERE id=?", (job_id,)).fetchone()
+                    self.assertEqual(job["status"], status)
+                    self.assertEqual(json.loads(job["payload_json"]), {"episode_id": "first-episode", "beat_id": "first-beat"})
+        with self.store.connection() as conn:
+            self.assertEqual(len(conn.execute("SELECT id FROM ai_project_documents").fetchall()), len(statuses))
+
+    def test_new_script_can_be_applied_if_generation_starts_after_preview(self):
+        artifact = self.draft()
+        preview = self.service.actions.preview("alice", artifact["id"], "p")
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO ai_project_jobs (id,project_id,job_type,status) VALUES ('generation','p','asset_image','running')")
+        self.assertEqual(self.service.actions.apply("alice", preview["id"])["status"], "applied")
+
+    def test_existing_script_update_stays_blocked_during_generation(self):
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO ai_project_documents (id,project_id,filename,raw_text) VALUES ('first-script','p','第一集','保留第一集正文')")
+        artifact = self.draft()
+        preview = self.service.actions.preview("alice", artifact["id"], "p", {"document": "first-script"})
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO ai_project_jobs (id,project_id,job_type,status) VALUES ('generation','p','video_generation','running')")
+        with self.assertRaisesRegex(AssistantConflict, "进行中的生成任务"):
+            self.service.actions.preview("alice", artifact["id"], "p", {"document": "first-script"})
+        with self.assertRaisesRegex(AssistantConflict, "进行中的生成任务"):
+            self.service.actions.apply("alice", preview["id"])
+        with self.store.connection() as conn:
+            self.assertEqual(conn.execute("SELECT raw_text FROM ai_project_documents WHERE id='first-script'").fetchone()["raw_text"], "保留第一集正文")
+        self.assertEqual(self.repo.get("alice", preview["id"], "application")["status"], "previewed")
+        self.assertFalse(self.repo.get("alice", artifact["id"], "artifact").get("application_id"))
+
+    def test_episode_adoption_stays_blocked_during_generation(self):
+        artifact = self.draft("episodes", data={"episodes": [{"episode_num": 2, "title": "第二集", "summary": "大纲"}]})
+        preview = self.service.actions.preview("alice", artifact["id"], "p")
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO ai_project_jobs (id,project_id,job_type,status) VALUES ('generation','p','video_generation','running')")
+        with self.assertRaisesRegex(AssistantConflict, "进行中的生成任务"):
+            self.service.actions.preview("alice", artifact["id"], "p")
+        with self.assertRaisesRegex(AssistantConflict, "进行中的生成任务"):
+            self.service.actions.apply("alice", preview["id"])
+        with self.store.connection() as conn:
+            self.assertEqual(len(conn.execute("SELECT id FROM ai_project_episodes").fetchall()), 0)
+
     def test_existing_manual_metadata_is_preserved(self):
         with self.store.connection() as conn:
             conn.execute("UPDATE ai_projects SET name='手动名称',description='手动简介',settings_json=? WHERE id='p'", (dumps({"extra": {"name_source": "manual", "description_source": "manual"}}),))
@@ -844,6 +918,236 @@ class AssistantTests(unittest.TestCase):
         with self.store.connection() as conn:
             project = conn.execute("SELECT * FROM ai_projects WHERE id='p'").fetchone()
         self.assertEqual((project["name"], project["description"]), ("手动名称", "手动简介"))
+
+    def seed_script_document(self, doc_id="main", number=1, *, status="ready", analysis_extra=None):
+        from backend.app.director_assistant.script_documents import parsed_script
+        text = f"# 第{number}集：原文{number}\n\n### 镜头 1\n场景：夜市 / 夜 / 外\n人物：阿文\n阿文：保留这一集的对白与动作。"
+        analysis = {**parsed_script(text), **(analysis_extra or {})}
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO ai_project_documents (id,project_id,filename,raw_text,analysis_json,status,created_at) VALUES (?,'p','主剧本',?,?,?,?)", (doc_id, text, dumps(analysis), status, f"2026-11-0{number}"))
+        return text, analysis
+
+    def test_continuation_defaults_to_current_script_and_preserves_first_episode(self):
+        original, analysis = self.seed_script_document(analysis_extra={"story_setting_text": "全剧设定", "custom_setting": "保留"})
+        second = "# 第二集：反客为主\n\n### 镜头 1\n场景：夜市 / 夜 / 外\n阿文：这次由我开价。"
+        artifact = self.draft(title="第二集", content=second)
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO ai_project_episodes (id,project_id,episode_num,title,data_json) VALUES ('production','p',1,'已出片',?)", (dumps({"beats": [{"id": "b", "video_url": "kept.mp4"}]}),))
+            conn.execute("INSERT INTO ai_project_jobs (id,project_id,job_type,status) VALUES ('video','p','video_generation','running')")
+        preview = self.service.actions.preview("alice", artifact["id"], "p")
+        self.assertEqual(preview["changes"][0]["target_id"], "main")
+        self.assertEqual(preview["changes"][0]["label"], "新增 · 第2集")
+        result = self.service.actions.apply("alice", preview["id"])
+        self.assertEqual(self.service.actions.apply("alice", preview["id"])["id"], result["id"])
+        with self.store.connection() as conn:
+            rows = conn.execute("SELECT * FROM ai_project_documents").fetchall()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["raw_text"], original + "\n\n" + second)
+            merged = json.loads(rows[0]["analysis_json"])
+            self.assertEqual(merged["episodes"][0], analysis["episodes"][0])
+            self.assertEqual([ep["episode_num"] for ep in merged["episodes"]], [1, 2])
+            self.assertEqual(merged["story_setting_text"], "全剧设定")
+            self.assertEqual(json.loads(conn.execute("SELECT data_json FROM ai_project_episodes WHERE id='production'").fetchone()["data_json"])["beats"][0]["video_url"], "kept.mp4")
+
+    def test_continuation_rejects_existing_episode_until_scoped_update_is_chosen(self):
+        self.seed_script_document()
+        artifact = self.draft(content="# 第1集：修改稿\n\n### 镜头 1\n阿文：修改对白。")
+        with self.assertRaisesRegex(AssistantConflict, "已存在"):
+            self.service.actions.preview("alice", artifact["id"], "p")
+        preview = self.service.actions.preview("alice", artifact["id"], "p", {"script_action": "update_episodes"})
+        self.assertEqual(preview["changes"][0]["label"], "更新 · 第1集")
+
+    def test_appending_during_document_planning_is_blocked(self):
+        self.seed_script_document()
+        artifact = self.draft(content="# 第2集：续集\n\n### 镜头 1\n阿文：新对白。")
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO ai_project_jobs (id,project_id,job_type,status,payload_json) VALUES ('planning','p','shot_plan','queued',?)", (dumps({"document_id": "main"}),))
+        with self.assertRaisesRegex(AssistantConflict, "规划镜头"):
+            self.service.actions.preview("alice", artifact["id"], "p")
+
+    def test_script_changed_after_preview_rejects_continuation(self):
+        self.seed_script_document()
+        artifact = self.draft(content="# 第2集：续集\n\n### 镜头 1\n阿文：新对白。")
+        preview = self.service.actions.preview("alice", artifact["id"], "p")
+        with self.store.connection() as conn:
+            conn.execute("UPDATE ai_project_documents SET raw_text='人工修改' WHERE id='main'")
+        with self.assertRaisesRegex(AssistantConflict, "已被修改"):
+            self.service.actions.apply("alice", preview["id"])
+
+    def test_scoped_episode_edit_preserves_other_body_and_analysis(self):
+        first, first_analysis = self.seed_script_document()
+        second = "## 第2集：第二集原文\n\n### 镜头 1\n阿文：旧对白。"
+        artifact = self.draft(content=second)
+        preview = self.service.actions.preview("alice", artifact["id"], "p")
+        self.service.actions.apply("alice", preview["id"])
+        replacement = "# 第2集：第二集新稿\n\n### 镜头 1\n阿文：新对白。"
+        result = self.service.actions.edit_script_episode("alice", "p", "main", 2, replacement, first + "\n\n" + second)
+        self.assertTrue(result["raw_text"].startswith(first + "\n\n"))
+        self.assertEqual(result["analysis"]["episodes"][0], first_analysis["episodes"][0])
+        self.assertIn("新对白", result["analysis"]["episodes"][1]["body"])
+        with self.assertRaises(AssistantConflict):
+            self.service.actions.edit_script_episode("alice", "p", "main", 2, replacement, first)
+        with self.assertRaises(ValueError):
+            self.service.actions.edit_script_episode("alice", "p", "main", 2, "# 第1集：错误集号", result["raw_text"])
+
+    def test_new_episode_placeholder_can_be_filled_without_creating_a_production(self):
+        first, analysis = self.seed_script_document()
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO ai_project_jobs (id,project_id,job_type,status) VALUES ('video','p','video_generation','running')")
+        created = self.service.actions.create_script_episode("alice", "p", "main", first)
+        self.assertEqual(created["episode_num"], 2)
+        with self.store.connection() as conn:
+            row = conn.execute("SELECT * FROM ai_project_documents WHERE id='main'").fetchone()
+            self.assertEqual(row["raw_text"], first)
+            self.assertEqual(len(conn.execute("SELECT id FROM ai_project_episodes").fetchall()), 0)
+        second = "# 第2集：把甲方谈成乙方\n\n### 镜头 1\n阿文：这次由我开价。"
+        saved = self.service.actions.edit_script_episode("alice", "p", "main", 2, second, first)
+        self.assertEqual(saved["raw_text"], first + "\n\n" + second)
+        self.assertEqual(saved["analysis"]["episodes"][0], analysis["episodes"][0])
+
+    def test_delete_unextracted_episode_preserves_locked_first_and_its_production(self):
+        first, _ = self.seed_script_document(analysis_extra={"assets_extracted_episode_nums": [1]})
+        self.service.actions.create_script_episode("alice", "p", "main", first)
+        second = "# 第2集：续集\n\n### 镜头 1\n阿文：新对白。"
+        saved = self.service.actions.edit_script_episode("alice", "p", "main", 2, second, first)
+        production = dumps({"beats": [{"id": "b", "video_url": "keep.mp4"}]})
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO ai_project_episodes (id,project_id,episode_num,data_json) VALUES ('production','p',1,?)", (production,))
+        with self.assertRaises(AssistantConflict):
+            self.service.actions.delete_script_episode("alice", "p", "main", 2, first)
+        self.service.actions.delete_script_episode("alice", "p", "main", 2, saved["raw_text"])
+        with self.store.connection() as conn:
+            row = conn.execute("SELECT * FROM ai_project_documents WHERE id='main'").fetchone()
+            self.assertEqual(row["raw_text"], first)
+            self.assertEqual([ep["episode_num"] for ep in json.loads(row["analysis_json"])["episodes"]], [1])
+            self.assertEqual(conn.execute("SELECT data_json FROM ai_project_episodes WHERE id='production'").fetchone()["data_json"], production)
+        revisions = self.repo.list("alice", "script_revision", parent="main")
+        self.assertTrue(any(revision.get("deleted_episode_num") == 2 and revision["document"]["raw_text"] == saved["raw_text"] for revision in revisions))
+
+    def test_extracted_episode_cannot_be_edited_deleted_or_replaced_by_assistant(self):
+        first, _ = self.seed_script_document(analysis_extra={"assets_extracted_episode_nums": [1]})
+        changed = "# 第1集：篡改\n\n### 镜头 1\n阿文：改变原稿。"
+        with self.assertRaisesRegex(AssistantConflict, "资产已拆解"):
+            self.service.actions.edit_script_episode("alice", "p", "main", 1, changed, first)
+        with self.assertRaisesRegex(AssistantConflict, "资产已拆解"):
+            self.service.actions.delete_script_episode("alice", "p", "main", 1, first)
+        artifact = self.draft(content=changed)
+        with self.assertRaisesRegex(AssistantConflict, "资产已拆解"):
+            self.service.actions.preview("alice", artifact["id"], "p", {"script_action": "update_episodes"})
+
+    def test_adoption_rechecks_production_lock_acquired_after_preview(self):
+        self.seed_script_document()
+        artifact = self.draft(content="# 第1集：修改\n\n### 镜头 1\n阿文：改稿。")
+        preview = self.service.actions.preview("alice", artifact["id"], "p", {"script_action": "update_episodes"})
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO ai_project_episodes (id,project_id,episode_num,data_json) VALUES ('production','p',1,'{}')")
+        with self.assertRaisesRegex(AssistantConflict, "已进入制作工坊"):
+            self.service.actions.apply("alice", preview["id"])
+
+    def test_assistant_can_update_unextracted_second_episode_while_first_is_generating(self):
+        first, _ = self.seed_script_document(analysis_extra={"assets_extracted_episode_nums": [1]})
+        self.service.actions.create_script_episode("alice", "p", "main", first)
+        second = "# 第2集：续集\n\n### 镜头 1\n阿文：旧对白。"
+        self.service.actions.edit_script_episode("alice", "p", "main", 2, second, first)
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO ai_project_jobs (id,project_id,job_type,status) VALUES ('video','p','video_generation','running')")
+        artifact = self.draft(content=second.replace("旧对白", "新对白"))
+        preview = self.service.actions.preview("alice", artifact["id"], "p", {"script_action": "update_episodes"})
+        self.service.actions.apply("alice", preview["id"])
+        with self.store.connection() as conn:
+            text = conn.execute("SELECT raw_text FROM ai_project_documents WHERE id='main'").fetchone()["raw_text"]
+        self.assertEqual(text, first + "\n\n" + second.replace("旧对白", "新对白"))
+
+    def test_episode_menu_http_creates_and_deletes_only_unlocked_episode(self):
+        from backend.app.media_studio.routers.project_router import register_project_routes
+        first, _ = self.seed_script_document(analysis_extra={"assets_extracted_episode_nums": [1]})
+        app = FastAPI(); app.state.director_assistant = self.service
+        register_project_routes(app, current_user=lambda: {"id": "alice"}, mutating_user=lambda: {"id": "alice"})
+        with TestClient(app) as client:
+            path = "/api/projects/p/documents/main/episodes"
+            self.assertEqual(client.post(path, json={"base_raw_text": "stale"}).status_code, 409)
+            self.assertEqual(client.post(path, json={"base_raw_text": first}).json()["episode_num"], 2)
+            self.assertEqual(client.request("DELETE", path + "/1", json={"base_raw_text": first}).status_code, 409)
+            self.assertEqual(client.request("DELETE", path + "/2", json={"base_raw_text": first}).status_code, 200)
+            self.assertEqual(client.request("DELETE", path + "/2", json={"base_raw_text": first}).status_code, 400)
+
+    def test_outline_is_saved_to_main_script_without_creating_production_episode(self):
+        original, analysis = self.seed_script_document()
+        artifact = self.draft("episodes", data={"episodes": [{"episode_num": 2, "title": "新大纲", "summary": "联名谈判"}]})
+        preview = self.service.actions.preview("alice", artifact["id"], "p")
+        self.service.actions.apply("alice", preview["id"])
+        with self.store.connection() as conn:
+            row = conn.execute("SELECT * FROM ai_project_documents WHERE id='main'").fetchone()
+            merged = json.loads(row["analysis_json"])
+            self.assertEqual(row["raw_text"], original)
+            self.assertEqual(merged["episodes"], analysis["episodes"])
+            self.assertEqual(merged["episode_outlines"][0]["episode_num"], 2)
+            self.assertEqual(len(conn.execute("SELECT id FROM ai_project_episodes").fetchall()), 0)
+
+    def test_setting_draft_preserves_all_episode_bodies(self):
+        original, analysis = self.seed_script_document()
+        artifact = self.draft(data={"section": "setting"}, content="更新后的全剧故事设定")
+        preview = self.service.actions.preview("alice", artifact["id"], "p")
+        self.service.actions.apply("alice", preview["id"])
+        with self.store.connection() as conn:
+            row = conn.execute("SELECT * FROM ai_project_documents WHERE id='main'").fetchone()
+        self.assertEqual(row["raw_text"], original)
+        self.assertEqual(json.loads(row["analysis_json"])["episodes"], analysis["episodes"])
+        self.assertEqual(json.loads(row["analysis_json"])["story_setting_text"], "更新后的全剧故事设定")
+
+    def test_setting_changes_stay_blocked_while_media_is_generating(self):
+        self.seed_script_document()
+        artifact = self.draft(data={"section": "setting"}, content="全剧故事设定")
+        with self.store.connection() as conn:
+            conn.execute("INSERT INTO ai_project_jobs (id,project_id,job_type,status) VALUES ('video','p','video_generation','running')")
+        with self.assertRaisesRegex(AssistantConflict, "进行中的生成任务"):
+            self.service.actions.preview("alice", artifact["id"], "p")
+
+    def test_full_script_edit_preserves_setting_outlines_and_unchanged_episode(self):
+        from backend.app.media_studio.services.project_detail_service import ProjectDetailService
+        first, original = self.seed_script_document(analysis_extra={"primary_script": True, "story_setting_text": "全剧设定", "episode_outlines": [{"episode_num": 2, "title": "续集", "summary": "保留大纲"}], "source_document_ids": ["archived"]})
+        with self.store.connection() as conn:
+            row = dict(conn.execute("SELECT * FROM ai_project_documents WHERE id='main'").fetchone())
+        text = first + "\n\n# 第2集：续集\n\n### 镜头 1\n阿文：第二集正文。"
+        with patch("backend.app.media_studio.services.project_detail_service.query_one", return_value=row), patch("backend.app.media_studio.services.project_detail_service.query_all", return_value=[]), patch("backend.app.media_studio.services.project_detail_service.execute_sql", return_value=1), patch("backend.app.media_studio.services.shot_plan_job_service.ShotPlanJobService.active_job_ids_by_document", return_value={}):
+            saved = ProjectDetailService.update_document("p", "main", text, first)
+        self.assertEqual(saved["analysis"]["story_setting_text"], "全剧设定")
+        self.assertEqual(saved["analysis"]["episode_outlines"], original["episode_outlines"])
+        self.assertEqual(saved["analysis"]["source_document_ids"], ["archived"])
+        self.assertEqual(saved["analysis"]["episodes"][0], original["episodes"][0])
+        self.assertEqual(saved["analysis"]["script_changes"]["episode_nums"], [2])
+
+    def test_legacy_episode_documents_merge_transactionally_and_keep_sources(self):
+        first, analysis = self.seed_script_document()
+        second, _ = self.seed_script_document("source", 2)
+        result = self.service.actions.consolidate_scripts("alice", "p", "main", ["source"])
+        self.assertEqual(result["document_id"], "main")
+        self.service.actions.consolidate_scripts("alice", "p", "main", ["source"])
+        with self.store.connection() as conn:
+            main = conn.execute("SELECT * FROM ai_project_documents WHERE id='main'").fetchone()
+            source = conn.execute("SELECT * FROM ai_project_documents WHERE id='source'").fetchone()
+        self.assertEqual(main["raw_text"], first + "\n\n" + second)
+        self.assertEqual(json.loads(main["analysis_json"])["episodes"][0], analysis["episodes"][0])
+        self.assertEqual(source["raw_text"], second)
+        self.assertEqual(source["status"], "merged")
+        self.assertEqual(json.loads(source["analysis_json"])["merged_into_document_id"], "main")
+
+    def test_conflicting_legacy_documents_roll_back_entire_merge(self):
+        first, _ = self.seed_script_document()
+        self.seed_script_document("second", 2)
+        self.seed_script_document("collision", 1)
+        with self.assertRaises(AssistantConflict):
+            self.service.actions.consolidate_scripts("alice", "p", "main", ["second", "collision"])
+        with self.store.connection() as conn:
+            self.assertEqual(conn.execute("SELECT raw_text FROM ai_project_documents WHERE id='main'").fetchone()["raw_text"], first)
+            self.assertEqual(conn.execute("SELECT status FROM ai_project_documents WHERE id='second'").fetchone()["status"], "ready")
+
+    def test_two_initial_previews_cannot_create_two_main_scripts(self):
+        one, two = self.draft(), self.draft()
+        previews = [self.service.actions.preview("alice", draft["id"], "p") for draft in (one, two)]
+        self.service.actions.apply("alice", previews[0]["id"])
+        with self.assertRaisesRegex(AssistantConflict, "当前剧本已创建"):
+            self.service.actions.apply("alice", previews[1]["id"])
 
     def test_concurrent_target_edit_rejects_entire_adoption(self):
         with self.store.connection() as conn:
@@ -862,7 +1166,7 @@ class AssistantTests(unittest.TestCase):
             conn.execute("INSERT INTO ai_project_episodes (id,project_id,episode_num,title,data_json) VALUES ('ep','p',1,'旧分集','{}')")
         a = self.draft("episodes", data={"episodes": [{"episode_num": 1, "title": "新分集", "summary": "大纲"}]})
         with self.assertRaises(AssistantConflict):
-            self.service.actions.preview("alice", a["id"], "p")
+            self.service.actions.preview("alice", a["id"], "p", {"episode:1": ""})
         preview = self.service.actions.preview("alice", a["id"], "p", {"episode:1": "ep"})
         self.assertEqual(preview["changes"][0]["operation"], "update")
 
@@ -992,7 +1296,7 @@ class AssistantTests(unittest.TestCase):
     def test_episode_created_after_preview_requires_refresh(self):
         first = self.draft("episodes", data={"episodes": [{"episode_num": 1, "title": "甲", "summary": "大纲"}]})
         second = self.draft("episodes", data={"episodes": [{"episode_num": 1, "title": "乙", "summary": "另一版"}]})
-        previews = [self.service.actions.preview("alice", draft["id"], "p") for draft in (first, second)]
+        previews = [self.service.actions.preview("alice", draft["id"], "p", {"episode:1": ""}) for draft in (first, second)]
         self.service.actions.apply("alice", previews[0]["id"])
         with self.assertRaises(AssistantConflict):
             self.service.actions.apply("alice", previews[1]["id"])
@@ -1056,6 +1360,32 @@ class AssistantTests(unittest.TestCase):
             self.assertEqual(client.get("/api/director-assistant/catalog").status_code, 200)
             self.assertEqual(client.get(f"/api/director-assistant/sessions/{session['id']}").status_code, 404)
 
+    def test_script_consolidation_http_is_scoped_and_retains_source(self):
+        from backend.app.media_studio.routers.project_router import register_project_routes
+        first, _ = self.seed_script_document()
+        second, _ = self.seed_script_document("source", 2)
+        app = FastAPI(); app.state.director_assistant = self.service
+        register_project_routes(app, current_user=lambda: {"id": "alice"}, mutating_user=lambda: {"id": "alice"})
+        with TestClient(app) as client:
+            self.assertEqual(client.post("/api/projects/p/script/consolidate", json={"document_id": "main", "source_document_ids": []}).status_code, 400)
+            self.assertEqual(client.post("/api/projects/other/script/consolidate", json={"document_id": "main", "source_document_ids": ["source"]}).status_code, 404)
+            response = client.post("/api/projects/p/script/consolidate", json={"document_id": "main", "source_document_ids": ["source"]})
+        self.assertEqual(response.status_code, 200)
+        with self.store.connection() as conn:
+            self.assertEqual(conn.execute("SELECT raw_text FROM ai_project_documents WHERE id='main'").fetchone()["raw_text"], first + "\n\n" + second)
+
+    def test_episode_editor_http_keeps_number_and_rejects_stale_base(self):
+        from backend.app.media_studio.routers.project_router import register_project_routes
+        first, _ = self.seed_script_document()
+        app = FastAPI(); app.state.director_assistant = self.service
+        register_project_routes(app, current_user=lambda: {"id": "alice"}, mutating_user=lambda: {"id": "alice"})
+        with TestClient(app) as client:
+            payload = {"episode_num": 1, "raw_text": "# 第1集：新稿\n\n### 镜头 1\n阿文：新对白。", "base_raw_text": first}
+            self.assertEqual(client.put("/api/projects/p/documents/main", json=payload).status_code, 200)
+            self.assertEqual(client.put("/api/projects/p/documents/main", json=payload).status_code, 409)
+            payload["episode_num"] = 2
+            self.assertEqual(client.put("/api/projects/p/documents/main", json=payload).status_code, 400)
+
     def test_full_text_workflow_commits_structured_assets_episodes_and_beats(self):
         script = self.draft()
         app = self.service.actions.preview("alice", script["id"], "p")
@@ -1067,9 +1397,10 @@ class AssistantTests(unittest.TestCase):
         outline = self.draft("episodes", data={"episodes": [{"episode_num": 1, "title": "真假", "summary": "古寺疑案"}]})
         outline_app = self.service.actions.preview("alice", outline["id"], "p")
         self.service.actions.apply("alice", outline_app["id"])
-        episode_id = outline_app["changes"][0]["target_id"]
-        board = self.draft("storyboard", data={"episodes": [{"episode_num": 1, "episode_id": episode_id, "title": "真假", "beats": [{"action": "悟空抬眼", "duration": 8, "character_ids": [char_id], "scene_id": scene_id, "prompt": "A rainy temple."}]}]})
+        self.assertEqual(outline_app["changes"][0]["target_id"], app["changes"][0]["target_id"])
+        board = self.draft("storyboard", data={"episodes": [{"episode_num": 1, "title": "真假", "beats": [{"action": "悟空抬眼", "duration": 8, "character_ids": [char_id], "scene_id": scene_id, "prompt": "A rainy temple."}]}]})
         board_app = self.service.actions.preview("alice", board["id"], "p")
+        episode_id = board_app["changes"][0]["target_id"]
         self.service.actions.apply("alice", board_app["id"])
         with self.store.connection() as conn:
             episode = conn.execute("SELECT * FROM ai_project_episodes WHERE id=?", (episode_id,)).fetchone()

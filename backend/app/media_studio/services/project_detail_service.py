@@ -45,12 +45,14 @@ from .episode_image_prompts import (
     beat_sketch_prompt,
 )
 from .grs_client import GrsClient, GrsError
+from .workshop_prompt import normalize_workshop_prompt, invalidate_changed_prompt
 from .episode_shot_planner import document_needs_shot_plan
 from ...skill_packs.aspect import document_aspect_hint, persist_workshop_aspect_ratio
 from .llm_service import LlmService
 from ..provider_bridge import credential_manager, grs_row
 from .qiniu_service import QiniuService
 from .script_parser import StandardScriptParser
+from .script_asset_extraction import ASSET_EXTRACTION_REVISION, asset_source_hash, merge_extracted_assets, script_asset_extraction_required
 from .voice_profile import (
     MAX_VOICE_AUDIO_BYTES,
     clone_voice_id,
@@ -120,12 +122,32 @@ def match_named_asset_ids(names: list[Any], name_map: dict[str, str]) -> list[st
     return matched
 
 
+def _document_asset_match_key(kind: str, name: str) -> tuple[str, str]:
+    normalized = str(name or "").strip()
+    if kind == "scene":
+        normalized = re.sub(r"(?:\s*[/／|｜·]\s*(?:白天|夜晚|清晨|傍晚|黄昏|内景|外景|日|夜|内|外))+\s*$", "", normalized).strip() or normalized
+    return kind, normalized
+
+
 def _legacy_scene_title(title: Any) -> bool:
     return bool(re.match(r"\s*\**\s*场景\s*\**\s*[：:]", str(title or "")))
 
 
+def _has_analysis_content(value: Any) -> bool:
+    """解析结果里的「这一节有没有内容」：列表看元素，字典看任意非空字段，字符串看去空白。"""
+    if isinstance(value, dict):
+        return any(_has_analysis_content(item) for item in value.values())
+    if isinstance(value, (list, tuple, set)):
+        return any(_has_analysis_content(item) for item in value)
+    return bool(str(value or "").strip())
+
+
 _ASSET_IMAGE_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="asset-image")
 _ASSET_IMAGE_ACTIVE_STATUSES = ("queued", "running", "preparing", "storing")
+
+
+class BeatInputChangedError(ValueError):
+    """A generated draft no longer matches the editable beat it was based on."""
 
 
 class ProjectDetailService:
@@ -144,15 +166,20 @@ class ProjectDetailService:
         if stale and raw_text.strip():
             parsed = StandardScriptParser.parse(raw_text)
             if parsed.get("episodes"):
-                analysis = parsed
+                recovered = dict(analysis or {})
+                for key, value in parsed.items():
+                    if key in {"episodes", "summary", "logs", "model"} or not _has_analysis_content(recovered.get(key)):
+                        recovered[key] = value
+                analysis = recovered
                 if persist and row.get("id"):
                     execute_sql(
-                        "UPDATE ai_project_documents SET analysis_json = %s WHERE id = %s",
-                        (json.dumps(parsed, ensure_ascii=False), row["id"]),
+                        "UPDATE ai_project_documents SET analysis_json = %s WHERE id = %s AND COALESCE(raw_text, '') = %s AND COALESCE(analysis_json, '') = %s",
+                        (json.dumps(analysis, ensure_ascii=False), row["id"], raw_text, raw_json or ""),
                     )
             elif analysis is None:
                 analysis = parsed
         analysis = cls._recover_scene_analysis(row, analysis, persist=persist)
+        analysis = cls._recover_analysis_sections(row, analysis, persist=persist)
         merged = cls._merge_pipeline_recipe_assets(row, analysis, persist=persist)
         if merged:
             summary = merged.get("summary")
@@ -225,6 +252,42 @@ class ProjectDetailService:
         return recovered
 
     @classmethod
+    def _recover_analysis_sections(
+        cls, row: dict[str, Any], analysis: dict[str, Any] | None, *, persist: bool
+    ) -> dict[str, Any] | None:
+        # 旧文档存的是当时那版解析器的结果：裸标题「主要人物」认不出、章节名写成
+        # 「故事定位」时整节定位直接丢失。按原文补解析一次，只填空位，
+        # 已有值一律不覆盖（镜头可能是 LLM 规划结果，道具本来就没写）。
+        if not analysis or analysis.get("analysis_sections_revision"):
+            return analysis
+        pending = [key for key in ("characters", "positioning", "visual_style", "production_advice")
+                   if not _has_analysis_content(analysis.get(key))]
+        if not pending:
+            return analysis
+        raw_text = str(row.get("raw_text") or "")
+        if not raw_text.strip():
+            return analysis
+        parsed = StandardScriptParser.parse(raw_text)
+        filled = False
+        for key in pending:
+            value = parsed.get(key)
+            if _has_analysis_content(value):
+                analysis[key] = value
+                filled = True
+        # 剧本本来就没写这些章节时不盖章也不回写，免得每次读内容库都多一条 UPDATE；
+        # 重解析的代价只是几次正则，远小于把旧文档永久标成「已处理」的风险。
+        if not filled:
+            return analysis
+        analysis["analysis_sections_revision"] = 1
+        cls._refresh_analysis_shot_summary(analysis)
+        if persist and row.get("id"):
+            execute_sql(
+                "UPDATE ai_project_documents SET analysis_json = %s WHERE id = %s",
+                (json.dumps(analysis, ensure_ascii=False), row["id"]),
+            )
+        return analysis
+
+    @classmethod
     def _latest_pipeline_recipe(cls, project_id: str | None) -> dict[str, Any] | None:
         if not project_id:
             return None
@@ -265,7 +328,7 @@ class ProjectDetailService:
     @classmethod
     def list_documents(cls, project_id: str) -> list[dict[str, Any]]:
         rows = query_all(
-            "SELECT * FROM ai_project_documents WHERE project_id = %s ORDER BY updated_at DESC",
+            "SELECT * FROM ai_project_documents WHERE project_id = %s AND COALESCE(status,'') <> 'merged' ORDER BY updated_at DESC",
             (project_id,),
         )
         from .shot_plan_job_service import ShotPlanJobService
@@ -273,6 +336,8 @@ class ProjectDetailService:
         from ...skill_packs.recipe import get_pack
 
         job_ids = ShotPlanJobService.active_job_ids_by_document(project_id)
+        from ...director_assistant.script_documents import episode_locks
+        production_rows = query_all("SELECT episode_num,status,data_json FROM ai_project_episodes WHERE project_id = %s", (project_id,)) if rows else []
         project = None
         recipe = None
         try:
@@ -283,6 +348,7 @@ class ProjectDetailService:
         items = []
         for r in rows:
             analysis = cls._analysis_for_document_row(r, persist=True)
+            locks = episode_locks({**r, "analysis_json": analysis or {}}, production_rows)
             items.append({
                 "id": r["id"],
                 "project_id": r["project_id"],
@@ -294,6 +360,9 @@ class ProjectDetailService:
                 "visual_style": r["visual_style"],
                 "raw_text": r["raw_text"],
                 "analysis": analysis,
+                "asset_extraction_required": script_asset_extraction_required(str(r.get("raw_text") or ""), analysis),
+                "locked_episode_nums": sorted(locks),
+                "episode_lock_reasons": {str(number): reason for number, reason in locks.items()},
                 "shot_plan_job_id": job_ids.get(r["id"]),
                 "aspect_hint": document_aspect_hint(
                     str(r.get("raw_text") or ""),
@@ -367,6 +436,54 @@ class ProjectDetailService:
             "created_at": timestamp,
             "updated_at": timestamp,
         }
+
+    @classmethod
+    def update_document(cls, project_id: str, doc_id: str, raw_text: str, base_raw_text: str) -> dict[str, Any]:
+        """Save the same script without changing production assets or episodes."""
+        from .shot_plan_job_service import ShotPlanJobService
+
+        row = query_one("SELECT * FROM ai_project_documents WHERE id = %s AND project_id = %s", (doc_id, project_id))
+        if not row:
+            raise ValueError("文档不存在")
+        if not raw_text.strip():
+            raise ValueError("剧本正文不能为空")
+        if len(raw_text) > 500_000:
+            raise ValueError("剧本正文最多 500000 个字符")
+        if str(row.get("raw_text") or "") != base_raw_text:
+            raise ValueError("文档已更新，请重新加载后再保存")
+        if ShotPlanJobService.active_job_ids_by_document(project_id).get(doc_id):
+            raise ValueError("镜头规划正在进行，请完成后再编辑剧本")
+        if raw_text == base_raw_text:
+            return {**row, "analysis": cls._analysis_for_document_row(row), "shot_plan_job_id": None}
+
+        analysis = StandardScriptParser.parse(raw_text)
+        from ...director_assistant.script_documents import document_analysis, parsed_script
+        previous = document_analysis(row)
+        if previous.get("primary_script"):
+            parsed = parsed_script(raw_text)
+            for key in ("story_setting_text", "story_setting_fields"):
+                if previous.get(key):
+                    parsed[key] = previous[key]
+            original = {ep["episode_num"]: ep for ep in parsed_script(base_raw_text).get("episodes", [])}
+            saved = {ep["episode_num"]: ep for ep in previous.get("episodes", [])}
+            changed = [ep["episode_num"] for ep in parsed.get("episodes", []) if ep.get("body") != original.get(ep["episode_num"], {}).get("body")]
+            parsed["episodes"] = [saved.get(ep["episode_num"], ep) if ep["episode_num"] not in changed else ep for ep in parsed.get("episodes", [])]
+            analysis = {**previous, **parsed, "script_changes": {"section": "body", "episode_nums": changed, "assets_need_review": bool(changed)}}
+        from ...director_assistant.script_documents import episode_locks, ensure_locked_bodies_unchanged
+        productions = query_all("SELECT episode_num,status,data_json FROM ai_project_episodes WHERE project_id = %s", (project_id,))
+        ensure_locked_bodies_unchanged(row, {"raw_text": raw_text, "analysis_json": analysis}, episode_locks(row, productions))
+        status = "awaiting_aspect" if document_needs_shot_plan(analysis, input_mode=str(row.get("input_mode") or "paste")) else "ready"
+        timestamp = now_str()
+        size = len(raw_text.encode("utf-8"))
+        changed = execute_sql(
+            "UPDATE ai_project_documents SET raw_text = %s, file_size = %s, analysis_json = %s, status = %s, updated_at = %s "
+            "WHERE id = %s AND project_id = %s AND COALESCE(analysis_json, '') = %s AND COALESCE(raw_text, '') = %s",
+            (raw_text, size, json.dumps(analysis, ensure_ascii=False), status, timestamp, doc_id, project_id, row.get("analysis_json") or "", base_raw_text),
+        )
+        if not changed:
+            raise ValueError("文档已更新，请重新加载后再保存")
+        return {**row, "raw_text": raw_text, "file_size": size, "analysis": analysis, "status": status,
+                "updated_at": timestamp, "shot_plan_job_id": None}
 
     @classmethod
     def enqueue_document_shot_plan(
@@ -461,19 +578,26 @@ class ProjectDetailService:
         return aff > 0
 
     @classmethod
-    def transfer_assets_from_document(cls, project_id: str, doc_id: str) -> dict[str, Any]:
+    def transfer_assets_from_document(cls, project_id: str, doc_id: str, *, mode: str = "merge") -> dict[str, Any]:
+        if mode not in {"merge", "append"}:
+            raise ValueError("资产同步方式无效")
         row = query_one("SELECT id, analysis_json, raw_text FROM ai_project_documents WHERE id = %s AND project_id = %s", (doc_id, project_id))
         if not row:
             raise ValueError("文档不存在或尚未完成分析")
         analysis = cls._analysis_for_document_row(row, persist=True) or {}
+        if script_asset_extraction_required(str(row.get("raw_text") or ""), analysis):
+            analysis = cls._extract_prose_document_assets(project_id, row)
         ts = now_str()
         chars = analysis.get("characters") or []
         scenes = analysis.get("scenes") or []
         props = analysis.get("props") or []
+        if not any(item.get("name", "").strip() for item in [*chars, *scenes, *props]):
+            raise ValueError("未识别到制作资产，请在剧本中补充角色、场景或道具后重试拆解")
 
         # 查询已有资产以做平滑更新或去重
         existing_rows = query_all("SELECT id, kind, name FROM ai_project_assets WHERE project_id = %s", (project_id,))
         existing_map = {(r["kind"], r["name"]): r["id"] for r in existing_rows}
+        append_names = {_document_asset_match_key(r["kind"], r["name"]) for r in existing_rows}
 
         c_count = 0
         s_count = 0
@@ -488,6 +612,8 @@ class ProjectDetailService:
             desc = c.get("description") or f"{c.get('gender', '')} 角色设定"
             prompt = c.get("visual_prompt") or ""
             key = ("character", c_name)
+            if mode == "append" and _document_asset_match_key(*key) in append_names:
+                continue
             if key in existing_map:
                 execute_sql(
                     "UPDATE ai_project_assets SET role = %s, description = %s, visual_prompt = %s, updated_at = %s WHERE id = %s",
@@ -503,6 +629,7 @@ class ProjectDetailService:
                     (aid, project_id, c_name, role, desc, prompt, ts, ts),
                 )
             c_count += 1
+            append_names.add(_document_asset_match_key(*key))
 
         # 2. 场景转入（保存场景名、氛围与描述）
         for s in scenes:
@@ -512,6 +639,8 @@ class ProjectDetailService:
             role = s.get("type") or "固定场景"
             desc = s.get("description") or f"规划场景: {s_name}"
             key = ("scene", s_name)
+            if mode == "append" and _document_asset_match_key(*key) in append_names:
+                continue
             if key in existing_map:
                 execute_sql(
                     "UPDATE ai_project_assets SET role = %s, description = %s, updated_at = %s WHERE id = %s",
@@ -527,6 +656,7 @@ class ProjectDetailService:
                     (aid, project_id, s_name, role, desc, ts, ts),
                 )
             s_count += 1
+            append_names.add(_document_asset_match_key(*key))
 
         # 3. 道具转入（保存道具名、重要性与关联角色）
         for p in props:
@@ -535,8 +665,10 @@ class ProjectDetailService:
                 continue
             role = p.get("kind") or "核心道具"
             rel_char = p.get("related_character") or "场景公用"
-            desc = f"类型: {role}，关联角色/场景: {rel_char}"
+            desc = p.get("description") or f"类型: {role}，关联角色/场景: {rel_char}"
             key = ("prop", p_name)
+            if mode == "append" and _document_asset_match_key(*key) in append_names:
+                continue
             if key in existing_map:
                 execute_sql(
                     "UPDATE ai_project_assets SET role = %s, description = %s, updated_at = %s WHERE id = %s",
@@ -552,7 +684,18 @@ class ProjectDetailService:
                     (aid, project_id, p_name, role, desc, ts, ts),
                 )
             p_count += 1
+            append_names.add(_document_asset_match_key(*key))
 
+        extracted_numbers = sorted({int(number) for number in analysis.get("assets_extracted_episode_nums", [])} | {int(ep["episode_num"]) for ep in analysis.get("episodes", [])})
+        placeholders = ",".join("%s" for _ in extracted_numbers)
+        marked = execute_sql(
+            "UPDATE ai_project_documents SET analysis_json=JSON_SET(COALESCE(analysis_json,'{}'),'$.assets_extracted_episode_nums',JSON_ARRAY(" + placeholders + ")),updated_at=%s WHERE id=%s AND project_id=%s AND COALESCE(raw_text,'')=%s",
+            (*extracted_numbers, ts, doc_id, project_id, str(row.get("raw_text") or "")),
+        )
+        if marked == 0:
+            current = query_one("SELECT raw_text FROM ai_project_documents WHERE id=%s AND project_id=%s", (doc_id, project_id))
+            if not current or str(current.get("raw_text") or "") != str(row.get("raw_text") or ""):
+                raise ValueError("剧本已更新，已提取的资产保留，请重新核对分集后操作")
         return {
             "transferred": {
                 "characters": c_count,
@@ -561,6 +704,30 @@ class ProjectDetailService:
             },
             "total": c_count + s_count + p_count,
         }
+
+    @classmethod
+    def _extract_prose_document_assets(cls, project_id: str, row: dict[str, Any]) -> dict[str, Any]:
+        # LLM requests run only after an explicit extraction action, never while
+        # listing documents. Refresh after any deterministic read recovery.
+        current = query_one("SELECT id,raw_text,analysis_json FROM ai_project_documents WHERE id=%s AND project_id=%s", (row["id"], project_id))
+        if not current or str(current.get("raw_text") or "") != str(row.get("raw_text") or ""):
+            raise ValueError("剧本已更新，请重新加载后拆解资产")
+        analysis = cls._analysis_for_document_row(current, persist=False) or {}
+        text = str(current.get("raw_text") or "")
+        if not script_asset_extraction_required(text, analysis):
+            return analysis
+        extracted = LlmService.extract_script_assets(text, analysis)
+        merged = merge_extracted_assets(analysis, extracted)
+        merged["script_asset_extraction"] = {"revision": ASSET_EXTRACTION_REVISION,
+                                               "source_hash": asset_source_hash(text, analysis), "created_at": now_str()}
+        cls._refresh_analysis_shot_summary(merged)
+        changed = execute_sql(
+            "UPDATE ai_project_documents SET analysis_json=%s WHERE id=%s AND project_id=%s AND COALESCE(raw_text,'')=%s AND COALESCE(analysis_json,'')=%s",
+            (json.dumps(merged, ensure_ascii=False), row["id"], project_id, text, current.get("analysis_json") or ""),
+        )
+        if changed == 0:
+            raise ValueError("剧本在拆解期间已更新，结果尚未写入资产库，请重新加载后重试")
+        return merged
 
     @classmethod
     @staticmethod
@@ -612,6 +779,7 @@ class ProjectDetailService:
             s_audio = shot.get("audio") or ""
             s_chars = shot.get("characters") or []
             s_props = shot.get("props") or []
+            speaker = next((name for name in s_chars if re.match(rf"^[*_`\s]*{re.escape(name)}[*_`\s]*[：:]", s_dialogue)), s_chars[0] if s_chars else "")
             matched_char_ids = match_named_asset_ids(s_chars, char_map)
             explicit_scene = bool(str(s_scene or "").strip())
             s_scene, matched_scene_id = resolve_shot_scene(
@@ -627,7 +795,7 @@ class ProjectDetailService:
                 "sequence": s_num,
                 "kind": "dialogue" if s_dialogue else "action",
                 "heading": heading,
-                "speaker": s_chars[0] if s_chars else "",
+                "speaker": speaker,
                 "dialogue": s_dialogue,
                 "action": s_action,
                 "camera": s_camera,
@@ -820,11 +988,11 @@ class ProjectDetailService:
                 is_interior = any(w in (row.get("name") or "") for w in ["堂", "房", "斋", "室内", "舍", "阁", "楼", "院内", "私塾"])
                 extra["scene_type"] = "interior" if is_interior else "exterior"
             if not extra.get("environment_prompt"):
-                extra["environment_prompt"] = row.get("visual_prompt") or f"{row['name']}，电影级空镜空间全景，宋式古典建筑美学，自然光影，8k"
+                extra["environment_prompt"] = row.get("visual_prompt") or row.get("description") or f"{row['name']}，电影级空镜空间全景，忠于剧本的时代与环境设定，自然光影"
             if not extra.get("reverse_prompt"):
                 extra["reverse_prompt"] = f"{row['name']}，对立反打机位视角，180度反向景深透视，影视级空间镜头，8k"
             if not extra.get("pano_prompt"):
-                extra["pano_prompt"] = f"{row['name']}，360度球形等距柱状全景图，无缝环视无死角，宋式古风环境空间漫游，8k"
+                extra["pano_prompt"] = f"{row['name']}，360度球形等距柱状全景图，忠于剧本的时代与环境设定，无缝环视"
 
         # 3. 道具类型 (严格参考 source2: 参考图 + 转面图三视图 + 细节特写 + 归属人物 + 道具类别)
         elif kind == "prop":
@@ -995,6 +1163,9 @@ class ProjectDetailService:
 
         row = cls._hydrate_asset(raw_row)
         target_type = payload.get("target_type") or "asset"  # 'avatar' | 'identity' | 'scene_master' | 'scene_reverse' | 'scene_pano' | 'prop_reference' | 'asset'
+        target_kind = "character" if target_type in {"avatar", "identity"} else "scene" if target_type.startswith("scene_") else "prop" if target_type.startswith("prop_") else None
+        if target_kind and row.get("kind") != target_kind:
+            raise ValueError("生图目标与资产类型不匹配，请重新打开对应资产后生成")
         identity_id = payload.get("identity_id")
         prompt = (payload.get("prompt") or "").strip()
         # 解析请求的模型参数，默认为 gpt-image-2
@@ -1265,12 +1436,18 @@ class ProjectDetailService:
         # -------- GRS 调用结束 --------
 
         ts = now_str()
+        generation_extra = extra
+        latest_asset_row = query_one("SELECT * FROM ai_project_assets WHERE id = %s AND project_id = %s", (asset_id, project_id))
+        if latest_asset_row:
+            # Generation may take minutes. Bind only its media to the current asset,
+            # retaining node positions, references and text saved in the meantime.
+            extra = cls._hydrate_asset(latest_asset_row).get("extra") or {}
 
         # 根据 target_type 更新对应字段
         if target_type == "avatar":
             extra["avatar_url"] = image_url
             extra["avatar_object_key"] = object_key
-            if prompt:
+            if prompt and extra.get("avatar_prompt") == generation_extra.get("avatar_prompt"):
                 extra["avatar_prompt"] = prompt
             extra_json = json.dumps(extra, ensure_ascii=False)
             execute_sql(
@@ -1311,7 +1488,7 @@ class ProjectDetailService:
             )
         elif target_type == "scene_master":
             extra["master_url"] = image_url
-            if prompt:
+            if prompt and extra.get("environment_prompt") == generation_extra.get("environment_prompt"):
                 extra["environment_prompt"] = prompt
             extra_json = json.dumps(extra, ensure_ascii=False)
             execute_sql(
@@ -1415,7 +1592,7 @@ class ProjectDetailService:
             "job_id": jid,
             "target_type": target_type,
             "identity_id": identity_id,
-            "source_reference_count": len(source_reference_urls(extra)),
+            "source_reference_count": job_payload["source_reference_count"],
             "asset": hydrated,
         }
 
@@ -1438,6 +1615,75 @@ class ProjectDetailService:
         if not updated_row:
             raise ValueError("资产不存在")
         return cls._hydrate_asset(updated_row)
+
+    @classmethod
+    def upload_asset_image(
+        cls, project_id: str, asset_id: str, *, target_type: str, identity_id: str = "",
+        filename: str, content: bytes, content_type: str = "",
+    ) -> dict[str, Any]:
+        """Bind an uploaded image to a production slot without adding a source reference."""
+        targets = {
+            "identity": ("character", None), "scene_master": ("scene", "master_url"),
+            "scene_reverse": ("scene", "reverse_url"), "scene_pano": ("scene", "pano_url"),
+            "prop_reference": ("prop", "reference_url"), "prop_turnaround": ("prop", "turnaround_url"),
+            "prop_detail": ("prop", "detail_url"),
+        }
+        row = query_one("SELECT * FROM ai_project_assets WHERE id = %s AND project_id = %s", (asset_id, project_id))
+        if not row:
+            raise ValueError("资产不存在")
+        target = targets.get(target_type)
+        if not target or row.get("kind") != target[0]:
+            raise ValueError("图片目标与资产类型不匹配")
+        asset = cls._hydrate_asset(row)
+        if target_type == "identity" and (not identity_id or not any(str(item.get("id") or "") == identity_id for item in asset["extra"].get("identities", []))):
+            raise ValueError("找不到该造型")
+        if not content or len(content) > MAX_SOURCE_REFERENCE_BYTES:
+            raise ValueError("图片不能为空且不能超过 10 MB")
+        from io import BytesIO
+        from PIL import Image
+        try:
+            with Image.open(BytesIO(content)) as image:
+                if image.format not in {"JPEG", "PNG", "WEBP", "GIF"}:
+                    raise ValueError("不支持的图片格式")
+                image.verify()
+        except Exception as err:
+            raise ValueError("图片无法读取，请上传有效的 JPG / PNG / WebP / GIF") from err
+        suffix = sniff_image_suffix(content, filename, content_type)
+        object_key, image_url = QiniuService.store_bytes("asset-image", filename or f"image{suffix}", content)
+        # Re-read after storage so text/layout changes made during upload are retained.
+        latest = query_one("SELECT * FROM ai_project_assets WHERE id = %s AND project_id = %s", (asset_id, project_id))
+        if not latest:
+            raise ValueError("资产不存在")
+        current = cls._hydrate_asset(latest)
+        extra = current.get("extra") or {}
+        image = current.get("image_url") or ""
+        if target_type == "identity":
+            found = False
+            identities = []
+            for item in extra.get("identities", []):
+                if str(item.get("id") or "") == identity_id:
+                    item = {**item, "image_url": image_url, "object_key": object_key}
+                    found = True
+                identities.append(item)
+            if not found:
+                raise ValueError("造型已移除，请重新选择上传目标")
+            extra["identities"] = identities
+            if not image or (identities and str(identities[0].get("id") or "") == identity_id):
+                image = image_url
+        else:
+            field = target[1]
+            extra[field] = image_url
+            extra[field.removesuffix("_url") + "_object_key"] = object_key
+            if target_type in {"scene_master", "prop_reference"}:
+                image = image_url
+        execute_sql(
+            "UPDATE ai_project_assets SET image_url = %s, extra_json = %s, updated_at = %s WHERE id = %s AND project_id = %s",
+            (image, json.dumps(extra, ensure_ascii=False), now_str(), asset_id, project_id),
+        )
+        saved = query_one("SELECT * FROM ai_project_assets WHERE id = %s AND project_id = %s", (asset_id, project_id))
+        if not saved:
+            raise ValueError("资产不存在")
+        return cls._hydrate_asset(saved)
 
     @classmethod
     def add_asset_source_reference(
@@ -1874,7 +2120,7 @@ class ProjectDetailService:
             "characters", "character_ids", "character_look_id", "character_look_ids", "props", "prop_ids", "visual_prompt", "sketch_prompt",
             "sketch_url", "sketch_job_id", "render_url", "render_prompt",
             "render_job_id", "render_status", "video_url", "upscaled_video_url", "video_take_id", "video_takes",
-            "video_prompt_zh", "video_duration", "status",
+            "video_prompt_zh", "video_duration", "status", "workshop_prompt_document",
             "h3_prompt", "h3_prompt_source", "dialogue_turns", "visible_text",
             "parent_beat_id", "take_role", "story_shot", "merge_as_one", "take_source",
             "triptych_url", "triptych_panels", "triptych_job_id", "triptych_prompt", "triptych_status",
@@ -1883,6 +2129,8 @@ class ProjectDetailService:
             "authored_en_valid",
         ]
         updates = {key: payload[key] for key in allowed_fields if key in payload}
+        if updates.get("workshop_prompt_document") is not None:
+            updates.update(normalize_workshop_prompt(updates["workshop_prompt_document"], cls.list_assets(project_id)))
         target = cls._update_episode_beat_atomic(
             project_id,
             episode_id,
@@ -1904,6 +2152,7 @@ class ProjectDetailService:
         completed_job: dict[str, Any] | None = None,
         expected_job_id: str | None = None,
         expected_job_field: str | None = None,
+        expected_fields: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Lock the episode briefly and merge only one beat into the latest JSON."""
         ts = now_str()
@@ -1927,7 +2176,9 @@ class ProjectDetailService:
                 raise ValueError("分镜不存在")
             if expected_job_id and expected_job_field and target.get(expected_job_field) != expected_job_id:
                 raise ValueError("任务结果已过期，较新的生成任务已替代该任务")
-            target.update(updates)
+            if expected_fields is not None and any(target.get(key) != value for key, value in expected_fields.items()):
+                raise BeatInputChangedError("片段已修改，保留当前正文与提示词")
+            target.update(invalidate_changed_prompt(target, updates))
             data["beats"] = beats
 
             cursor.execute(
@@ -1952,6 +2203,48 @@ class ProjectDetailService:
                     ),
                 )
             return dict(target)
+
+    @classmethod
+    def delete_episode_beats(cls, project_id: str, episode_id: str, beat_ids: list[str]) -> dict[str, Any]:
+        if not isinstance(beat_ids, list) or not beat_ids or any(not isinstance(item, str) or not item.strip() for item in beat_ids):
+            raise ValueError("请选择要删除的片段")
+        requested = {item.strip() for item in beat_ids}
+        from .episode_video_service import EpisodeVideoService
+
+        with transaction_cursor() as cursor:
+            cursor.execute("SELECT data_json FROM ai_project_episodes WHERE id = %s AND project_id = %s FOR UPDATE", (episode_id, project_id))
+            row = cursor.fetchone()
+            if not row:
+                raise ValueError("分集不存在")
+            try:
+                data = json.loads(row.get("data_json") or "{}")
+            except (TypeError, json.JSONDecodeError) as err:
+                raise ValueError("分集数据格式无效，无法安全删除片段") from err
+            if not isinstance(data, dict) or not isinstance(data.get("beats"), list) or any(not isinstance(beat, dict) for beat in data["beats"]):
+                raise ValueError("分集数据格式无效，无法安全删除片段")
+            beats = data["beats"]
+            available = {str(beat.get("id") or "") for beat in beats}
+            if not requested <= available:
+                raise ValueError("片段列表已变化，请刷新后重新选择")
+            if len(requested) >= len(beats):
+                raise ValueError("至少保留 1 个片段")
+
+            cursor.execute("SELECT job_type, payload_json FROM ai_project_jobs WHERE project_id = %s AND status NOT IN ('completed', 'succeeded', 'failed', 'cancelled', 'canceled')", (project_id,))
+            for job in cursor.fetchall() or []:
+                payload = parse_job_payload(job.get("payload_json"))
+                if str(payload.get("episode_id") or "") != episode_id:
+                    continue
+                affected = EpisodeVideoService._job_beat_ids(payload)
+                if not affected or requested & affected or payload.get("render_scope") in {"episode", "compose"}:
+                    raise RuntimeError("选中片段或本集正在生成，请完成后再删除")
+
+            remaining = [beat for beat in beats if beat.get("id") not in requested]
+            data["beats"] = remaining
+            # The prior whole-episode result no longer represents this cut; its job and cloud file remain.
+            for key in ("episode_video_url", "episode_video_source", "episode_video_job_id"):
+                data.pop(key, None)
+            cursor.execute("UPDATE ai_project_episodes SET data_json = %s, shots_count = %s, updated_at = %s WHERE id = %s AND project_id = %s", (json.dumps(data, ensure_ascii=False), len(remaining), now_str(), episode_id, project_id))
+            return {"status": "ok", "deleted_beat_ids": [beat["id"] for beat in beats if beat.get("id") in requested], "beats": remaining}
 
     @classmethod
     def replace_episode_beats(
@@ -2411,8 +2704,8 @@ class ProjectDetailService:
             from .tts_generation_job_service import TtsGenerationJobService
             return TtsGenerationJobService.retry(project_id, job_id)
         payload = json.loads((row or {}).get("payload_json") or "{}")
-        if payload.get("target_type") in {"beat_sketch", "beat_render"}:
-            from .storyboard_image_service import StoryboardImageService
+        from .storyboard_image_service import BEAT_IMAGE_TARGETS, StoryboardImageService
+        if payload.get("target_type") in BEAT_IMAGE_TARGETS:
             return StoryboardImageService.retry(project_id, job_id)
         if payload.get("asset_id"):
             return cls._retry_asset_image(project_id, row or {}, payload)

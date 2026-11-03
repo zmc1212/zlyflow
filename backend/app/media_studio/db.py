@@ -44,6 +44,10 @@ def ensure_schema(*, force: bool = False) -> None:
 
 
 def _connect_mysql(*, autocommit: bool = True) -> pymysql.Connection:
+    from ..db import is_isolated_sqlite_runtime
+
+    if is_isolated_sqlite_runtime():
+        raise RuntimeError("隔离测试禁止连接真实 MySQL；请使用临时 SQLite 或 mock 数据库连接")
     cfg = get_mysql_config()
     return pymysql.connect(
         host=cfg["host"],

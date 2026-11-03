@@ -37,6 +37,12 @@ import {
 import DirectorAssetSummaryCard from "../../director/components/DirectorAssetSummaryCard"
 import { normalizeDirectorAssetCard } from "../../director/components/director-asset-card"
 import { contentLibraryHeaderTagText } from "./content-library-header"
+import {
+  hasVisualStyleContent,
+  positioningEntries,
+  type PositioningSection,
+  type VisualStyleSection,
+} from "./content-library-globals"
 import ContentLibraryShotCard from "./content-library-shot-card"
 import ShotPlanSlimProgress from "./shot-plan-slim-progress"
 import {
@@ -87,13 +93,7 @@ interface ContentLibraryPaneProps {
 type DocAnalysis = {
   summary?: string
   logs?: string[]
-  positioning?: {
-    genre?: string
-    worldview?: string
-    duration_per_episode?: string
-    shots_per_episode?: string | number
-    main_storyline?: string
-  }
+  positioning?: PositioningSection
   episodes?: Array<{
     episode_num: number
     title: string
@@ -138,7 +138,7 @@ type DocAnalysis = {
     related_character?: string
     count?: number
   }>
-  visual_style?: { description?: string; prohibited?: string }
+  visual_style?: VisualStyleSection
   production_advice?: string
 }
 
@@ -195,6 +195,8 @@ export default function ContentLibraryPane({
 
   const headerGenreTag = contentLibraryHeaderTagText(selectedDoc?.analysis?.positioning?.genre)
   const headerWorldviewTag = contentLibraryHeaderTagText(selectedDoc?.analysis?.positioning?.worldview)
+  const positioningList = positioningEntries(selectedDoc?.analysis?.positioning)
+  const styleSectionHasContent = hasVisualStyleContent(selectedDoc?.analysis?.visual_style)
   const planning = isDocumentShotPlanning(selectedDoc)
   const planningJobId = String(selectedDoc?.shot_plan_job_id || "")
   const canPlanShots = documentCanPlanShots(selectedDoc)
@@ -935,35 +937,24 @@ export default function ContentLibraryPane({
                                 <span>视频定位与世界观</span>
                               </div>
                               <div className="positioning-list">
-                                {selectedDoc.analysis?.positioning?.genre && (
-                                  <div className="pos-item">
-                                    <span className="k">作品类型：</span>
-                                    <span className="v">{selectedDoc.analysis.positioning.genre}</span>
+                                {positioningList.map((entry) => (
+                                  <div className="pos-item" key={entry.key}>
+                                    {entry.label && <span className="k">{entry.label}：</span>}
+                                    <span
+                                      className={
+                                        entry.label && entry.key !== "main_storyline"
+                                          ? "v"
+                                          : "v storyline-v"
+                                      }
+                                    >
+                                      {entry.text}
+                                    </span>
                                   </div>
-                                )}
-                                {selectedDoc.analysis?.positioning?.worldview && (
-                                  <div className="pos-item">
-                                    <span className="k">世界观设定：</span>
-                                    <span className="v">{selectedDoc.analysis.positioning.worldview}</span>
-                                  </div>
-                                )}
-                                {selectedDoc.analysis?.positioning?.duration_per_episode && (
-                                  <div className="pos-item">
-                                    <span className="k">单集时长：</span>
-                                    <span className="v">{selectedDoc.analysis.positioning.duration_per_episode}</span>
-                                  </div>
-                                )}
-                                {selectedDoc.analysis?.positioning?.shots_per_episode && (
-                                  <div className="pos-item">
-                                    <span className="k">镜头规划：</span>
-                                    <span className="v">{selectedDoc.analysis.positioning.shots_per_episode}</span>
-                                  </div>
-                                )}
-                                {selectedDoc.analysis?.positioning?.main_storyline && (
-                                  <div className="pos-item">
-                                    <span className="k">主线剧情：</span>
-                                    <span className="v storyline-v">{selectedDoc.analysis.positioning.main_storyline}</span>
-                                  </div>
+                                ))}
+                                {!positioningList.length && (
+                                  <p className="global-empty">
+                                    剧本未写「视频定位 / 故事定位」章节，或该章节没有可识别条目。完整原文见「剧本原文预览」。
+                                  </p>
                                 )}
                               </div>
                             </div>
@@ -984,6 +975,11 @@ export default function ContentLibraryPane({
                                   <span className="prohibited-title">⚠️ 禁止与负向提示词：</span>
                                   <p className="prohibited-text">{selectedDoc.analysis.visual_style.prohibited}</p>
                                 </div>
+                              )}
+                              {!styleSectionHasContent && (
+                                <p className="global-empty">
+                                  剧本未写「统一视觉风格」章节。生图与分镜的画风取项目与资产上的画风设置，本节只作阅读。
+                                </p>
                               )}
                             </div>
 
