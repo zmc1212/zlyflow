@@ -795,7 +795,7 @@ export default function DirectorAssistantProvider({ children, csrfToken, project
         </div>}
         {(!isHome || homeStarted) && <>
         <div className="assistant-project-link"><BookOpen size={13} /><span>{isEditing ? `${projectName || "当前工程"} · ${activeEditor?.sequenceName || "加载剪辑中…"}` : detail?.session.project_id ? `关联工程：${projectName || detail.session.project_id}` : projectId && !detail ? "新对话将关联当前工程" : "独立创作 · 采纳时选择工程"}</span>{detail?.session.project_id && <Button type="link" size="small" onClick={() => navigate(director2ProjectPath(detail.session.project_id!, "content"))}>查看</Button>}</div>
-        {workflowProjectId && !isProject && <WorkflowProgressCard projectId={workflowProjectId} csrfToken={csrfToken} open={open} busy={busy} canPrompt={!!catalog?.available} onPrompt={text => { void send({ text }) }} onNavigate={(menu, episodeId) => navigate(director2ProjectPath(workflowProjectId, menu, episodeId))} />}
+        {workflowProjectId && <WorkflowProgressCard projectId={workflowProjectId} csrfToken={csrfToken} open={open} busy={busy} canPrompt={!!catalog?.available} onPrompt={text => { void send({ text }) }} onNavigate={(menu, episodeId) => navigate(director2ProjectPath(workflowProjectId, menu, episodeId))} />}
         {!!legacy && <Alert className="assistant-legacy-notice" type="info" title="此工程有待继续的旧版 AI 任务" action={<Button size="small" onClick={() => setLegacyOpen(true)}>继续旧任务</Button>} />}
         <div ref={feed} className="assistant-feed" onScroll={() => { const node = feed.current; if (node) followTail.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80 }} aria-live="polite">
           {loading && <Spin className="assistant-loading" />}
