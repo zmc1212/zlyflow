@@ -112,6 +112,51 @@ class LlmEndpointCredentialTests(unittest.TestCase):
             self.service.test({"base_url": QINIU_URL, "model": "qiniu/conatus-free", "api_key": "sk-fresh"})
             self.assertEqual(client_cls.call_args.kwargs["api_key"], "sk-fresh")
 
+    def test_switch_away_with_key_backfills_missing_previous_endpoint(self) -> None:
+        """带新 Key 切走时，旧端点若不在档案，其密文必须先补档，不能被覆盖丢失。"""
+        self.save_config(base_url=QINIU_URL, model="qiniu/conatus-free", api_key="sk-qiniu-secret")
+        # 模拟升级前的历史配置：主配置有密文，档案表为空。
+        with self.store.connection() as connection:
+            connection.execute("DELETE FROM llm_endpoint_credentials")
+        self.save_config(base_url=INTERNAI_URL, model="intern-s2", api_key="sk-internai-secret")
+        records = {row["base_url"] for row in self.store.list_llm_endpoint_credentials()}
+        self.assertIn(QINIU_URL, records)
+        self.assertIn(INTERNAI_URL, records)
+        # 切回七牛不再要求重新粘贴 Key。
+        back = self.save_config(base_url=QINIU_URL, model="qiniu/conatus-free", api_key=None)
+        self.assertTrue(back["has_api_key"])
+        self.assertEqual(self.service.api_key(), "sk-qiniu-secret")
+
+    def test_adopting_vault_key_on_switch_backfills_previous_endpoint(self) -> None:
+        """不提交 Key、直接采用新端点档案时，旧端点凭据同样先补档（今日切 DeepSeek 的实际路径）。"""
+        self.save_config(base_url=QINIU_URL, model="qiniu/conatus-free", api_key="sk-qiniu-secret")
+        with self.store.connection() as connection:
+            connection.execute("DELETE FROM llm_endpoint_credentials")
+        # 端砚已在档案，七牛不在。
+        self.store.upsert_llm_endpoint_credential(
+            INTERNAI_URL, self.service.credentials.encrypt("sk-internai-secret"), "intern-s2"
+        )
+        switched = self.save_config(base_url=INTERNAI_URL, model="intern-s2", api_key=None)
+        self.assertEqual(switched["base_url"], INTERNAI_URL)
+        self.assertEqual(self.service.api_key(), "sk-internai-secret")
+        # 补档生效后，回切七牛自动带出原 Key。
+        self.assertIsNotNone(self.store.get_llm_endpoint_credential(QINIU_URL))
+        self.save_config(base_url=QINIU_URL, model="qiniu/conatus-free", api_key=None)
+        self.assertEqual(self.service.api_key(), "sk-qiniu-secret")
+
+    def test_switch_to_local_backfills_previous_remote_endpoint(self) -> None:
+        """切到本机地址会清空主配置密文；远程旧端点凭据应先补档以便回切。"""
+        self.save_config(base_url=QINIU_URL, model="qiniu/conatus-free", api_key="sk-qiniu-secret")
+        with self.store.connection() as connection:
+            connection.execute("DELETE FROM llm_endpoint_credentials")
+        result = self.save_config(base_url=LOCAL_URL, model="qwen2.5:7b", api_key=None)
+        self.assertEqual(result["base_url"], LOCAL_URL)
+        self.assertIsNone(self.store.get_llm_settings()["api_key_encrypted"])
+        self.assertIsNotNone(self.store.get_llm_endpoint_credential(QINIU_URL))
+        # 从本机切回七牛，凭据自动归位。
+        self.save_config(base_url=QINIU_URL, model="qiniu/conatus-free", api_key=None)
+        self.assertEqual(self.service.api_key(), "sk-qiniu-secret")
+
     def test_vault_records_survive_independent_of_active_config(self) -> None:
         first = self.store.upsert_llm_endpoint_credential(QINIU_URL, "cipher-a", "model-a")
         self.assertEqual(first["model"], "model-a")

@@ -184,9 +184,18 @@ class LlmProviderService:
 
         api_key = normalize_api_key(payload.get("api_key"))
         previous = self.store.get_llm_settings()
-        changed_endpoint = values["base_url"] != str(previous.get("base_url") or "").rstrip("/")
+        previous_base_url = str(previous.get("base_url") or "").rstrip("/")
+        changed_endpoint = values["base_url"] != previous_base_url
         if changed_endpoint or values["model"] != previous.get("model") or (api_key and api_key != self.api_key()):
             values.update(last_test_status=None, last_test_message=None, last_test_at=None)
+        # 换端点即将覆盖主配置里的密文：先把旧端点凭据补进档案表，避免下次切回旧端点还要重新粘贴 Key。
+        # 同端点保存与空端点（首次配置）不触发；本机地址本就无需 Key，跳过补档。
+        if changed_endpoint and previous.get("api_key_encrypted") and previous_base_url \
+                and not is_local_base_url(previous_base_url) \
+                and not self.store.get_llm_endpoint_credential(previous_base_url):
+            self.store.upsert_llm_endpoint_credential(
+                previous_base_url, previous["api_key_encrypted"], str(previous.get("model") or "")
+            )
         if api_key:
             if not self.credentials.ready:
                 raise ValueError(self.credentials.error or "凭证主密钥不可用")
