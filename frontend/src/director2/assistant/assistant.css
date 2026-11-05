@@ -46,7 +46,7 @@
 .assistant-workspace { display: flex; flex-direction: column; height: 100%; min-height: 0; font-size: 13px; background: var(--director-surface); }
 .assistant-project-link { display: flex; align-items: center; gap: 7px; padding: 8px 16px; min-height: 34px; color: var(--director-ink-2); border-bottom: 1px solid var(--director-line); font-size: 11.5px; }
 .assistant-project-link > span { min-width: 0; flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.assistant-workflow { margin: 12px 16px 0; padding: 12px 14px; border-radius: 12px; background: var(--director-inset); box-shadow: var(--director-shadow-card); }
+.assistant-workflow { margin: 12px 16px 0; padding: 12px 14px; border-radius: 12px; background: var(--director-inset); box-shadow: var(--director-shadow-card); container-type: inline-size; container-name: assistant-workflow; }
 .assistant-workflow-head { display: flex; align-items: center; gap: 8px; }
 .assistant-workflow-head strong { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--director-ink); }
 .assistant-workflow-count { margin-left: auto; font-size: 11px; color: var(--director-ink-2); font-variant-numeric: tabular-nums; }
@@ -78,6 +78,14 @@
 .assistant-workflow-actions .ant-btn-text:not(:disabled):hover { color: var(--director-ink); background: var(--director-hover); }
 .assistant-workflow-next .ant-btn-primary:not(:disabled) { background: var(--director-ink); border-color: var(--director-ink); color: var(--director-surface); box-shadow: var(--director-shadow-btn); }
 .assistant-workflow-next .ant-btn-primary:not(:disabled):hover { background: var(--director-ink-2) !important; border-color: var(--director-ink-2) !important; color: var(--director-surface) !important; }
+/* 工程侧栏 380px、抽屉 480px 里，说明文字与「进入工坊 + 提交 N 个逐镜任务」同行会被压成每行约 10 字；
+   窄容器改为文案整宽在上、按钮一行在下。首页会话区（≈1170px）与展开宽度继续用同行排版。 */
+@container assistant-workflow (max-width: 560px) {
+  .assistant-workflow-next { flex-direction: column; align-items: stretch; gap: 8px; }
+  .assistant-workflow-copy { flex: 0 1 auto; }
+  .assistant-workflow-actions { justify-content: flex-end; }
+  .assistant-workflow-actions .ant-btn-text { margin-inline-end: auto; }
+}
 .assistant-workflow-status { display: flex; align-items: center; gap: 6px; margin: 10px 0 0; font-size: 11.5px; color: var(--director-ink-2); }
 .assistant-workflow-status.is-error { flex-wrap: wrap; color: var(--director-orange); }
 .assistant-shoot-prep { display: flex; flex-direction: column; gap: 3px; margin-top: 10px; padding: 9px 10px; border: 1px solid var(--director-line); border-radius: 10px; background: var(--director-inset); font-size: 11.5px; line-height: 1.55; color: var(--director-ink-2); }
