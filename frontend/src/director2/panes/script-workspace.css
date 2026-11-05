@@ -9,7 +9,7 @@
 .script-directory .is-current { background:var(--studio-surface-raised); color:var(--studio-text); }
 .script-directory-sections { display:grid; gap:3px; margin:6px 0 14px 15px; }
 .script-directory-import { flex:none; border-top:1px solid var(--studio-border)!important; margin-top:12px; padding-top:12px!important; height:44px!important; border-radius:0!important; }
-.script-document-workspace { display:flex; flex-direction:column; flex:1; min-width:0; min-height:0; padding:22px 28px 0; }
+.script-document-workspace { display:flex; flex-direction:column; flex:1; min-width:480px; min-height:0; padding:22px 28px 0; }
 .script-document-heading { flex:none; display:flex; align-items:center; justify-content:space-between; gap:8px; }
 .script-document-heading>div { display:flex; align-items:center; gap:12px; min-width:0; }
 .script-document-heading>div:first-child { align-items:flex-start; flex-direction:column; gap:6px; }

@@ -26,7 +26,7 @@
 .project-pack-setting { display:grid; gap:10px; color:var(--studio-text); }
 .project-pack-setting+p { color:var(--studio-text-muted); margin-top:20px; }
 /* The existing official paired --director-* tokens and message/composer styles remain in use. */
-.assistant-app-host.has-project-assistant { display:flex; min-width:0; height:100%; overflow:hidden; }
+.assistant-app-host.has-project-assistant { position:relative; display:flex; min-width:0; height:100%; overflow:hidden; }
 .assistant-app-host.has-project-assistant>.director2-app { flex:1; min-width:0; width:0; }
 .director-project-assistant { flex:0 0 380px; width:380px; display:flex; flex-direction:column; min-height:0; margin:0 8px 8px 0; border-radius:10px; overflow:hidden; background:var(--director-surface); color:var(--director-ink); box-shadow:var(--director-shadow-card); }
 .director-project-assistant>header { display:flex; justify-content:space-between; align-items:center; height:52px; flex:none; padding:10px 14px; border-bottom:1px solid var(--director-line); }
@@ -40,3 +40,8 @@
 .director-project-assistant .assistant-composer-toolbar .ant-btn { column-gap:4px; }
 .director-project-assistant .assistant-composer-toolbar .assistant-send { width:28px; min-width:28px; height:28px; }
 @media (min-width:1700px) { .director-project-assistant { flex-basis:420px; width:420px; } }
+/* 窗口窄到停靠后正文放不下时（65 导航 + 190 目录 + 480 正文 + 388 助手栏 ≈1123px），
+   助手栏改为右侧浮层，主区拿回全宽；≥1120px 继续用上方的 flex 停靠排版。 */
+@media (max-width:1119.98px) {
+  .assistant-app-host.has-project-assistant>.director-project-assistant { position:absolute; top:0; right:8px; bottom:8px; z-index:60; flex:none; width:min(380px, calc(100vw - 16px)); margin:0; box-shadow:0 18px 44px #10182840, var(--director-shadow-card); }
+}
