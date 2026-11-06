@@ -75,6 +75,8 @@ import "./assets-library.css"
 import { assetReadiness } from "../project-flow"
 import { planAssetGeneration, visibleAssetSelection } from "../asset-library-generation"
 import "./production-assets.css"
+import { creativeStyleText } from "../creative-presets"
+import { assetCreativeSettings, compileAssetCreativePrompt } from "../asset-canvas-creative"
 import AssetCreationCanvas, { AssetCanvasCreateModal, type AssetCanvasActions } from "./AssetCreationCanvas"
 import { appendCanvasReference, assetCanvasJobNode, assetNodeId, assetSlotPrompt, buildAssetCanvas, canvasIdentities, patchAssetSlotPrompt, readAssetCanvasLayout, targetKey, type AssetCanvasTarget } from "../asset-canvas-model"
 import AssetCanvasVoiceModal from "./assets/AssetCanvasVoiceModal"
@@ -82,6 +84,7 @@ import AssetCanvasVoiceModal from "./assets/AssetCanvasVoiceModal"
 interface AssetsLibraryPaneProps {
   csrfToken: string
   projectId: string
+  projectName?: string
   onChanged?: () => void
   onBack?: () => void
   onContinue?: () => void | Promise<void>
@@ -102,7 +105,7 @@ const AUTO_SAVE_STATUS_TEXT: Record<AutoSaveState, string> = {
 }
 
 const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneProps>(function AssetsLibraryPane(
-  { csrfToken, projectId, onChanged, onBack, onContinue },
+  { csrfToken, projectId, projectName, onChanged, onBack, onContinue },
   ref,
 ) {
   const { openMediaPreview } = useMediaPreview()
@@ -124,7 +127,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
   const [flowModal, flowModalContext] = Modal.useModal()
   const [assets, setAssets] = useState<Director2Asset[]>([])
   const [selectedAsset, setSelectedAsset] = useState<Director2Asset | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [autoSaveState, setAutoSaveState] = useState<AutoSaveState>("idle")
 
@@ -758,7 +761,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
         target_type: "identity",
         identity_id: ident.id,
         prompt: costume,
-        model: "gpt-image-2",
+        model: "gpt-image-2.5",
         aspect_ratio: "16:9",
         ...characterStylePayload(sel),
       })) as GenerateImageResult
@@ -811,7 +814,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
     try {
       const res = (await generateAssetImage(csrfToken, projectId, sel.id, {
         target_type: "scene_reverse",
-        model: "gpt-image-2",
+        model: "gpt-image-2.5",
         aspect_ratio: "16:9",
         visual_style: extra.visual_style || "",
         art_style_id: extra.art_style_id || "",
@@ -839,7 +842,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
     try {
       const res = (await generateAssetImage(csrfToken, projectId, sel.id, {
         target_type: "scene_pano",
-        model: "gpt-image-2",
+        model: "gpt-image-2.5",
         aspect_ratio: "2:1",
         visual_style: extra.visual_style || "",
         art_style_id: extra.art_style_id || "",
@@ -862,7 +865,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
     try {
       const res = (await generateAssetImage(csrfToken, projectId, sel.id, {
         target_type: "prop_reference",
-        model: "gpt-image-2",
+        model: "gpt-image-2.5",
         aspect_ratio: "16:9",
         visual_style: extra.visual_style || "",
         art_style_id: extra.art_style_id || "",
@@ -890,7 +893,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
     try {
       const res = (await generateAssetImage(csrfToken, projectId, sel.id, {
         target_type: "prop_turnaround",
-        model: "gpt-image-2",
+        model: "gpt-image-2.5",
         aspect_ratio: "16:9",
         visual_style: extra.visual_style || "",
         art_style_id: extra.art_style_id || "",
@@ -918,7 +921,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
     try {
       const res = (await generateAssetImage(csrfToken, projectId, sel.id, {
         target_type: "prop_detail",
-        model: "gpt-image-2",
+        model: "gpt-image-2.5",
         aspect_ratio: "16:9",
         visual_style: extra.visual_style || "",
         art_style_id: extra.art_style_id || "",
@@ -1271,7 +1274,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
       if (JSON.stringify(looks) !== JSON.stringify(asset.extra?.identities)) patchCanvasAsset(id, {}, { identities: looks })
     }
   }
-  async function canvasGenerate(id: string, target: AssetCanvasTarget) {
+  async function canvasGenerate(id: string, target: AssetCanvasTarget, context: { prompt?: string; images?: string[] } = {}) {
     if (batchGeneratingRef.current || canvasWorkingRef.current || canvasRecoveredWorkRef.current || canvasJobsLoading) return
     const key = assetNodeId(id, targetKey(target))
     canvasWorkingRef.current = key; setCanvasWorking(key)
@@ -1280,7 +1283,18 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
       ensureCanvasIdentity(id, target)
       await saveCanvasChanges()
       const asset = canvasAsset(id)
-      const result = await generateAssetImage(csrfToken, projectId, id, { target_type: target.type, identity_id: target.identityId, prompt: assetSlotPrompt(asset, target), aspect_ratio: target.type === "scene_pano" ? "2:1" : "16:9" })
+      const creative = assetCreativeSettings(asset, target)
+      const design = creative.design || {}
+      const result = await generateAssetImage(csrfToken, projectId, id, {
+        target_type: target.type, identity_id: target.identityId,
+        images: context.images || [],
+        prompt: compileAssetCreativePrompt(context.prompt ?? assetSlotPrompt(asset, target), creative),
+        aspect_ratio: target.type === "scene_pano" ? "2:1" : creative.aspectRatio || "16:9",
+        ...(creative.style ? { visual_style: creativeStyleText(creative.style) } : {}),
+        ...(design["性别表达"] ? { gender: design["性别表达"] } : {}),
+        ...(design["体型"] ? { body_type: design["体型"] } : {}),
+        ...(design["区域 / 文化背景"] ? { ethnicity: [design["区域 / 文化背景"], design["地区细分（可选）"]].filter(Boolean).join(" / ") } : {}),
+      })
       applyGeneratedAsset(id, result)
       message.success(`「${asset.name}」节点图片已更新`)
     } catch (err) {
@@ -1314,6 +1328,9 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
     } catch (err) { message.error(director2ErrorDetail(err, "图片上传失败")) }
     finally { canvasWorkingRef.current = null; setCanvasWorking(null) }
   }
+  // 稳定传给画布的资产数组引用：否则父组件任意 re-render（轮询/保存态）都会生成新数组，
+  // 导致画布 buildAssetCanvas/effect 重建空转，干扰 xyflow 测量与草稿自动保存。
+  const canvasAssets = useMemo(() => assets.map(asset => selectedAsset?.id === asset.id ? selectedAsset : asset), [assets, selectedAsset])
   const canvasActions: AssetCanvasActions = {
     select: id => openAsset(canvasAsset(id)), showList: closeAsset,
     create: (kind, position) => { canvasCreateOrigin.current = position ? { ...position } : null; setTab(kind); openCreateModal() },
@@ -1326,7 +1343,11 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
       await saveCanvasChanges()
     },
     prompt: (id, target, prompt) => { patchCanvasAsset(id, {}, patchAssetSlotPrompt(canvasAsset(id), target, prompt)) },
-    position: (id, key, position) => { const layout = readAssetCanvasLayout(canvasAsset(id)); patchCanvasAsset(id, {}, { creation_canvas: { ...layout, positions: { ...layout.positions, [key]: position } } }) },
+    configure: async (id, target, settings) => {
+      const asset = canvasAsset(id)
+      patchCanvasAsset(id, {}, { canvas_settings: { ...(asset.extra?.canvas_settings || {}), [targetKey(target)]: { ...assetCreativeSettings(asset, target), ...settings } } })
+      await saveCanvasChanges()
+    },
     generate: canvasGenerate, upload: canvasUpload,
     removeReference: async (id, refId) => { try { await saveCanvasChanges(); const result = await deleteAssetSourceReference(csrfToken, projectId, id, refId); patchCanvasAsset(id, {}, { source_references: result.extra.source_references }); await saveCanvasChanges() } catch (err) { message.error(director2ErrorDetail(err, "移除参考图失败")) } },
     connect: (sourceId, targetId) => {
@@ -1402,7 +1423,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
 
   return (
     <div className={`assets-library-pane d2-assets-library production-assets${detailOpen ? " is-asset-canvas" : ""}`}>
-      {detailOpen ? <AssetCreationCanvas projectId={projectId} assets={assets.map(asset => selectedAsset?.id === asset.id ? selectedAsset : asset)} selectedId={selectedAsset?.id} selectedNode={searchParams.get("node")} saveStatus={autoSaveStatusText} saveError={autoSaveState === "error"} loading={loading || canvasJobsLoading} working={canvasWorking || canvasRecoveredWork} errors={canvasErrors} actions={canvasActions}/> : <>
+      {detailOpen ? <AssetCreationCanvas projectId={projectId} projectTitle={projectName} csrfToken={csrfToken} assets={canvasAssets} selectedId={selectedAsset?.id} selectedNode={searchParams.get("node")} saveStatus={autoSaveStatusText} saveError={autoSaveState === "error"} loading={loading || canvasJobsLoading} working={canvasWorking || canvasRecoveredWork} errors={canvasErrors} actions={canvasActions}/> : <>
       {/* 顶部操作栏 */}
       <div className="sub-pane-header">
         <div className="header-copy">
@@ -1455,8 +1476,18 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
           </> : <Button autoInsertSpace={false} disabled={!filteredAssets.length || loading} onClick={() => { setSelectedAssetIds([]); setSelectionMode(true) }}>多选</Button>}
         </div>
       </div>
-      <Spin spinning={loading}>
-        {assets.length === 0 ? (
+      <Spin spinning={loading && assets.length > 0}>
+        {loading && assets.length === 0 ? (
+          <div className="production-assets-loading" role="status" aria-busy="true" aria-label="正在加载资产">
+            {Array.from({ length: 10 }, (_, index) => (
+              <div className="pa-loading-card" key={index} aria-hidden="true">
+                <span className="studio-skeleton-bar pa-loading-cover" />
+                <span className="studio-skeleton-bar" style={{ width: "64%" }} />
+                <span className="studio-skeleton-bar" style={{ width: "40%" }} />
+              </div>
+            ))}
+          </div>
+        ) : assets.length === 0 ? (
           <div className="empty-asset-box">
             <Boxes size={48} className="empty-icon" />
             <h3>资产库暂无资产</h3>

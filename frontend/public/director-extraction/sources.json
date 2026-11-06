@@ -1,0 +1,54 @@
+{
+  "purpose": "用户指定即梦参考页中公开展示的拆解演示素材，仅作功能说明示例，不代表当前项目生成结果",
+  "page": "https://jimeng.jianying.com/novel/detail/script?projectId=13573784997644",
+  "assets": [
+    {
+      "file": "character-daily.webp",
+      "source": "https://p11-xiaoyunque.byteimg.com/tos-cn-i-men7yzdrs1/sha256-2e329ddcfed7c001837b39113b70a3d02659159df8c02203e308f264fe522c5f.webp~tplv-men7yzdrs1-webp.webp"
+    },
+    {
+      "file": "character-work.webp",
+      "source": "https://p11-xiaoyunque.byteimg.com/tos-cn-i-men7yzdrs1/sha256-9be249cba1382226c1f8b78eb25079bbb933cba964beb7928dd2812b9ec778e1.webp~tplv-men7yzdrs1-webp.webp"
+    },
+    {
+      "file": "character-evening.webp",
+      "source": "https://p11-xiaoyunque.byteimg.com/tos-cn-i-men7yzdrs1/sha256-b9006d6565786bacf5d4c6ac52e1d5cc3e7fe936c053de0a4d0ddcf69578df1f.webp~tplv-men7yzdrs1-webp.webp"
+    },
+    {
+      "file": "office-wide.webp",
+      "source": "https://p11-xiaoyunque.byteimg.com/tos-cn-i-men7yzdrs1/sha256-57394c5a83f6f8337eaaf789307780d1c0d393a628f5b5ff634d045b961b74e0.webp~tplv-men7yzdrs1-webp.webp"
+    },
+    {
+      "file": "office-medium.webp",
+      "source": "https://p11-xiaoyunque.byteimg.com/tos-cn-i-men7yzdrs1/sha256-15248d3105002f0645ea7d12b459f7616c30f339926c9556c0ad58a96274234e.webp~tplv-men7yzdrs1-webp.webp"
+    },
+    {
+      "file": "office-close.webp",
+      "source": "https://p11-xiaoyunque.byteimg.com/tos-cn-i-men7yzdrs1/sha256-b220e887e647b458a73b039cdccb47af9e489b5cabcf7ae7e6bad02c47c5684b.webp~tplv-men7yzdrs1-webp.webp"
+    },
+    {
+      "file": "banquet-wide.webp",
+      "source": "https://p11-xiaoyunque.byteimg.com/tos-cn-i-men7yzdrs1/sha256-b67d0e23ddd7763fc2d3a606bc53e6bc3337e674dc332675a815798fd98b3f40.webp~tplv-men7yzdrs1-webp.webp"
+    },
+    {
+      "file": "banquet-medium.webp",
+      "source": "https://p11-xiaoyunque.byteimg.com/tos-cn-i-men7yzdrs1/sha256-9be84d86cd84be621ce7002bb3f417151c23d9bd3b70fa4f53f1c55a71e0b184.webp~tplv-men7yzdrs1-webp.webp"
+    },
+    {
+      "file": "banquet-close.webp",
+      "source": "https://p11-xiaoyunque.byteimg.com/tos-cn-i-men7yzdrs1/sha256-3e0102844307f2a6f67bef45a54105a9a0fb8d6768d5e5ab29c90138f8c3a2ec.webp~tplv-men7yzdrs1-webp.webp"
+    },
+    {
+      "file": "apartment-wide.webp",
+      "source": "https://p11-xiaoyunque.byteimg.com/tos-cn-i-men7yzdrs1/sha256-3ae00a3eb4d01553e27656aff219a5bfc82b1283061dbd8a0db9dedde0117974.webp~tplv-men7yzdrs1-webp.webp"
+    },
+    {
+      "file": "apartment-medium.webp",
+      "source": "https://p11-xiaoyunque.byteimg.com/tos-cn-i-men7yzdrs1/sha256-f984266b2c8e3f2476d5e31821019480f85b7d90dc5ae60866ba926a6660ca91.webp~tplv-men7yzdrs1-webp.webp"
+    },
+    {
+      "file": "apartment-close.webp",
+      "source": "https://p11-xiaoyunque.byteimg.com/tos-cn-i-men7yzdrs1/sha256-7065d2ea224f6ef63dff723529d18ae564cb902324543dd3f8467bdc1ef73b98.webp~tplv-men7yzdrs1-webp.webp"
+    }
+  ]
+}

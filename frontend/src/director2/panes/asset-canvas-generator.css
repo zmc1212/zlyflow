@@ -1,0 +1,12 @@
+/* 资产画布 generator / 视频结果卡片：沿用 ac-* 设计语言，仅补充画布侧节点形态。 */
+.asset-creation-canvas .ac-node-generator { border-style: dashed; }
+.ac-generator-refs { padding:8px 12px 0; font-size:11px; color:var(--studio-text-muted); }
+.ac-generator-form { display:flex; flex-direction:column; gap:8px; padding:10px 12px; }
+.ac-generator-params { display:flex; flex-wrap:wrap; gap:8px; }
+.ac-generator-params label { display:inline-flex; align-items:center; gap:6px; font-size:11px; color:var(--studio-text-muted); }
+.ac-generator-status { padding:0 12px 8px; font-size:11px; color:var(--studio-text-muted); }
+.ac-generator-status.is-error { color:var(--studio-danger, #d4380d); }
+.ac-generator-footer { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 12px; border-top:1px solid var(--studio-border); }
+.ac-video-body { position:relative; margin:8px 12px; border-radius:8px; overflow:hidden; background:var(--studio-surface); }
+.ac-video-body video { display:block; width:100%; aspect-ratio:16/9; background:#000; }
+.ac-video-meta { padding:0 12px 8px; font-size:11px; color:var(--studio-text-muted); }

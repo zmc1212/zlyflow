@@ -382,7 +382,9 @@ def build_identity_generation(
     has_costume_reference: bool = False,
 ) -> dict[str, Any]:
     extra = extra if isinstance(extra, dict) else {}
-    costume = look_costume_text(look) or (prompt or "").strip()
+    # Explicit canvas context/design applies to this request; it must not be
+    # discarded merely because the persisted look already has a description.
+    costume = (prompt or "").strip() or look_costume_text(look)
     if not costume and not follow_source_photos:
         raise ValueError("请先填写外观描述，造型图需要服装关键词")
     packed = {**look, "appearance_details": costume, "description": costume}

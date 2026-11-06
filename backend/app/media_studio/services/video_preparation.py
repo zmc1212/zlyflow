@@ -1,10 +1,9 @@
-"""Prepare a submitted video's prompt and optional keyframes outside the GPU lock."""
+"""Prepare a submitted video's prompt outside the GPU lock."""
 from __future__ import annotations
 
 import copy
 import hashlib
 import json
-import time
 from typing import Any, Callable
 
 from ...llm_client import LlmStreamHook
@@ -30,7 +29,6 @@ def video_prompt_signature(shot: dict[str, Any]) -> str:
     fields = (
         "action", "camera", "dialogue", "dialogue_turns", "speaker", "narration", "visible_text", "audio",
         "scene_description", "character_references", "reference_urls", "skill_pack_id", "aspect_ratio", "duration_sec",
-        "triptych_url", "triptych_panels",
     )
     raw = json.dumps({key: shot.get(key) for key in fields}, ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
@@ -49,8 +47,6 @@ def author_video_prompt(
         "prop_ids": shot.get("prop_ids") or [],
         "skill_pack_id": shot.get("skill_pack_id") or "",
         "aspect_ratio": str(payload.get("aspect_ratio") or ""),
-        "triptych_url": shot.get("triptych_url") or "",
-        "triptych_panels": shot.get("triptych_panels") or {},
         "timestamped_zh_prompt": shot.get("timestamped_zh_prompt") or "",
     })
     # Use exactly the references that will be uploaded, in the same Picture order.
@@ -92,50 +88,3 @@ def cache_video_prompt(shot: dict[str, Any], payload: dict[str, Any], updates: d
         return True
     except BeatInputChangedError:
         return False
-
-
-def prepare_video_keyframes(
-    shot: dict[str, Any], payload: dict[str, Any], checkpoint: Callable[[], None],
-) -> dict[str, Any]:
-    """Reuse an existing plan or await its real image job; never enqueue twice on polling."""
-    from ...skill_packs.aspect import WORKSHOP_ASPECT_KEY
-    from .storyboard_image_service import StoryboardImageService
-
-    project_id, episode_id, beat_id = payload["project_id"], payload["episode_id"], shot["beat_id"]
-    if shot.get("triptych_url") or (shot.get("triptych_panels") or {}).get("start"):
-        return shot
-    jobs = payload.setdefault("keyframe_jobs", {})
-    job_id = jobs.get(beat_id) or shot.get("triptych_job_id")
-    job = ProjectDetailService.get_job(project_id, job_id) if job_id else None
-    if job and job.get("status") == "failed":
-        result = StoryboardImageService.retry(project_id, job_id)
-        job_id = result["job_id"]
-    elif not job:
-        detail = ProjectDetailService.get_episode_detail(project_id, episode_id)
-        current = next((beat for beat in detail.get("beats", []) if beat.get("id") == beat_id), {})
-        if snapshot_prompt_inputs(current) != shot.get("prompt_cache_base"):
-            raise ValueError("片段内容已修改，请按当前正文重新生成视频")
-        result = StoryboardImageService.enqueue(
-            project_id, episode_id, beat_id,
-            {WORKSHOP_ASPECT_KEY: payload.get("aspect_ratio") or "16:9"}, "triptych",
-        )
-        job_id = result["job_id"]
-    jobs[beat_id] = job_id
-    checkpoint()
-    deadline = time.monotonic() + 1800
-    while True:
-        job = ProjectDetailService.get_job(project_id, job_id) or {}
-        status = job.get("status")
-        if status in {"completed", "succeeded"}:
-            detail = ProjectDetailService.get_episode_detail(project_id, episode_id)
-            beat = next((item for item in detail.get("beats", []) if item.get("id") == beat_id), {})
-            if snapshot_prompt_inputs(beat) != shot.get("prompt_cache_base"):
-                raise ValueError("关键帧已保留，但片段内容已修改，请按当前正文重新生成视频")
-            if not beat.get("triptych_url"):
-                raise ValueError("关键帧任务完成但画面未回填，请在任务中心查看")
-            return beat
-        if status in {"failed", "cancelled", "interrupted"} or not job:
-            raise ValueError("关键帧规划失败：" + str(job.get("error_message") or "任务未完成"))
-        if time.monotonic() >= deadline:
-            raise ValueError("关键帧仍在准备，任务已保留；稍后重试将继续等待原任务")
-        time.sleep(1)

@@ -1,0 +1,92 @@
+{
+  "capturedAt": "2026-11-02T18:40:46.385Z",
+  "url": "http://127.0.0.1:5173/director",
+  "metrics": {
+    "fontsLoaded": "loaded",
+    "group": {
+      "height": 35.99138259887695,
+      "width": 479.9973449707031,
+      "x": 566.0964965820312,
+      "y": 183.24354553222656
+    },
+    "imagesLoaded": true,
+    "panel": {
+      "height": 302.9903259277344,
+      "width": 1057.2872314453125,
+      "x": 277.4515380859375,
+      "y": 182.3814697265625
+    },
+    "strip": {
+      "height": 35.99138259887695,
+      "width": 1055.5631103515625,
+      "x": 278.3135986328125,
+      "y": 183.24354553222656
+    },
+    "tabs": [
+      {
+        "height": 35.99138259887695,
+        "text": "导入剧本",
+        "width": 239.9919281005859,
+        "x": 566.0964965820312
+      },
+      {
+        "height": 35.99138259887695,
+        "text": "剧本创作",
+        "width": 240.00540161132812,
+        "x": 806.08837890625
+      }
+    ],
+    "theme": "dark",
+    "title": "ZLY AI 视频创作平台",
+    "url": "http://127.0.0.1:5173/director",
+    "viewport": {
+      "dpr": 1.159999966621399,
+      "height": 960,
+      "width": 1536
+    }
+  },
+  "importState": {
+    "group": {
+      "height": 35.99138259887695,
+      "width": 479.9973449707031,
+      "x": 566.0964965820312
+    },
+    "panelHeight": 302.9903259277344,
+    "selected": "导入剧本",
+    "text": "界面验证草稿"
+  },
+  "captureOptions": {
+    "clip": {
+      "x": 0,
+      "y": 0,
+      "width": 1781.7599487304688,
+      "height": 1113.599967956543
+    }
+  },
+  "previousBaseline": "../verification.json",
+  "checks": {
+    "group480": true,
+    "eachTab240": true,
+    "groupCentered": true,
+    "header36": true,
+    "modeWidthStable": true,
+    "modePositionStable": true,
+    "modeHeightStable": true,
+    "draftRetained": true,
+    "fontsLoaded": true,
+    "imagesLoaded": true
+  },
+  "validation": {
+    "typescript": "pnpm --dir frontend exec tsc -b passed",
+    "desktopThemes": [
+      "light",
+      "dark"
+    ],
+    "noCreationSubmitted": true
+  },
+  "screenshots": [
+    "light-home.jpg",
+    "dark-home.jpg",
+    "light-import.jpg"
+  ]
+}

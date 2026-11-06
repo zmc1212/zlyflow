@@ -1,0 +1,93 @@
+/* Keyframe narrative tool: per-card anchor editor on top of the shared
+   motion tool layout (motion-transfer-tool.css provides hero/card/grid). */
+.studio-keyframe-materials {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.studio-keyframe-material {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 150px;
+  overflow: hidden;
+  border: 1px solid var(--studio-border);
+  border-radius: 12px;
+  background: var(--studio-surface-raised);
+}
+.studio-keyframe-material img {
+  display: block;
+  width: 100%;
+  height: 96px;
+  object-fit: cover;
+  cursor: zoom-in;
+}
+.studio-keyframe-material[data-role="opening"] img { cursor: zoom-in; }
+.studio-keyframe-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #0009;
+  color: #fff;
+  font-size: 11px;
+  line-height: 16px;
+  pointer-events: none;
+}
+.studio-keyframe-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+}
+.studio-keyframe-actions .ant-btn { padding-inline: 6px; font-size: 12px; }
+.studio-keyframe-anchor {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--studio-border);
+  color: var(--studio-text-secondary);
+  font-size: 11px;
+}
+.studio-keyframe-anchor .ant-input-number { width: 76px; flex: none; }
+.studio-keyframe-anchor-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  cursor: pointer;
+}
+.studio-keyframe-add {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 150px;
+  min-height: 148px;
+  border: 1px dashed var(--studio-border-strong, var(--studio-border));
+  border-radius: 12px;
+  background: transparent;
+  color: var(--studio-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color .15s ease, color .15s ease;
+}
+.studio-keyframe-add:hover:not(:disabled) {
+  border-color: var(--studio-primary, var(--studio-border-strong, var(--studio-border)));
+  color: var(--studio-text);
+}
+.studio-keyframe-add:disabled { cursor: not-allowed; opacity: .55; }
+.studio-keyframe-add small { color: var(--studio-text-muted); font-size: 11px; }
+.studio-keyframe-anchor-mode {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  color: var(--studio-text-secondary);
+  font-size: 13px;
+}
+.studio-keyframe-anchor-mode small { color: var(--studio-text-muted); font-size: 12px; }

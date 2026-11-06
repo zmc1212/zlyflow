@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlparse
 import requests
 
@@ -294,13 +294,107 @@ class LlmService:
         raise RuntimeError(str(last_error or "大模型请求失败"))
 
     @classmethod
-    def extract_script_assets(cls, raw_text: str, analysis: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
-        from .script_asset_extraction import asset_extraction_prompts, ground_asset_evidence, normalize_extracted_assets
+    def extract_script_assets(
+        cls,
+        raw_text: str,
+        analysis: dict[str, Any],
+        *,
+        on_phase: Callable[[str, bool], None] | None = None,
+    ) -> dict[str, list[dict[str, Any]]]:
+        from .asset_extraction_skills import (
+            ASSET_SKILLS,
+            asset_describe_prompt,
+            asset_name_prompt,
+            deterministic_asset_hints,
+        )
+        from .script_asset_extraction import (
+            ASSET_GROUPS,
+            ExtractedAssets,
+            check_asset_coverage,
+            collect_name_context,
+            normalize_group_items,
+            normalize_name_candidates,
+        )
 
-        system, user = asset_extraction_prompts(raw_text, analysis)
-        raw = cls.chat_text(system, user, max_tokens=12000, temperature=0.1, timeout=180.0)
-        payload = ground_asset_evidence(cls._parse_json_object(raw), raw_text, analysis)
-        return normalize_extracted_assets(payload, raw_text, analysis)
+        hints = deterministic_asset_hints(raw_text, analysis)
+        correction = ""
+        frozen: dict[str, list[dict[str, str]]] = {group: [] for group in ASSET_GROUPS}
+        skipped: list[dict[str, str]] = []
+        # Pass 1 freezes the name list; later passes may only describe those names.
+        for attempt in range(2):
+            if on_phase:
+                on_phase(
+                    "正在从原文确定角色、场景与道具名称" if attempt == 0 else "名称核对未通过，正在按原文重新确定名称",
+                    True,
+                )
+            system, user = asset_name_prompt(raw_text, analysis, hints, correction=correction)
+            raw = cls.chat_text(system, user, max_tokens=4000, temperature=0.1, timeout=180.0)
+            frozen, skipped = normalize_name_candidates(cls._parse_json_object(raw), raw_text, analysis, hints)
+            if not skipped:
+                break
+            if attempt == 0:
+                correction = (
+                    "上一次清单中有名称未通过原文核对：" + "、".join(item["name"] for item in skipped[:8]) +
+                    "。请只使用原文原词作为名称，evidence 逐字摘录包含该名称的连续原文；"
+                    "不要改写、缩写、拼接或合并原文中的独立名称。"
+                )
+        if not any(frozen.values()):
+            raise ValueError("未从剧本中确定可核对的角色、场景或道具名称，请检查剧本正文后重试")
+
+        assets: dict[str, list[dict[str, Any]]] = {}
+        for group in ASSET_GROUPS:
+            entries = frozen.get(group) or []
+            assets[group] = cls._describe_asset_group(group, entries, raw_text, analysis, on_phase=on_phase)
+            described = {item["name"] for item in assets[group]}
+            for entry in entries:
+                if entry["name"] not in described:
+                    skipped.append({"group": group, "name": entry["name"], "reason": "未能生成可核对的描述"})
+        if not any(assets.values()):
+            raise ValueError("未从剧本中整理出可用的制作资产，请检查剧本正文后重试")
+        check_asset_coverage(assets, raw_text, strict=False)
+        return ExtractedAssets(assets, skipped)
+
+    @classmethod
+    def _describe_asset_group(
+        cls,
+        group: str,
+        frozen: list[dict[str, str]],
+        raw_text: str,
+        analysis: dict[str, Any],
+        *,
+        on_phase: Callable[[str, bool], None] | None = None,
+    ) -> list[dict[str, Any]]:
+        from .asset_extraction_skills import ASSET_SKILLS, asset_describe_prompt
+        from .script_asset_extraction import collect_name_context, normalize_group_items
+
+        if not frozen:
+            return []
+        skill = ASSET_SKILLS[group]
+        if on_phase:
+            on_phase(f"正在整理{skill.label}资产（共 {len(frozen)} 项）", True)
+        normalized: dict[str, dict[str, Any]] = {}
+        pending = list(frozen)
+        correction = ""
+        for attempt in range(2):
+            if not pending:
+                break
+            context = "\n\n".join(
+                part for part in (collect_name_context(raw_text, analysis, entry["name"], group) for entry in pending) if part
+            )[:20000]
+            system, user = asset_describe_prompt(
+                group, [{"name": entry["name"]} for entry in pending], context, analysis, correction=correction,
+            )
+            raw = cls.chat_text(system, user, max_tokens=6000, temperature=0.2, timeout=180.0)
+            values, _failed = normalize_group_items(cls._parse_json_object(raw), group, pending, raw_text, analysis)
+            for value in values:
+                normalized[value["name"]] = value
+            pending = [entry for entry in frozen if entry["name"] not in normalized]
+            if pending:
+                correction = (
+                    "上一次输出未覆盖以下冻结名称，或描述与原文依据不完整：" + "、".join(item["name"] for item in pending[:8]) +
+                    "。name 必须原样复制 frozen_names；每项给出 description 和逐字连续原文 evidence。"
+                )
+        return list(normalized.values())
 
     @classmethod
     def plan_episode_shots(cls, episode: dict[str, Any], *, aspect_ratio: str | None = None) -> list[dict[str, Any]]:
@@ -650,6 +744,28 @@ class LlmService:
         return errors
 
     @classmethod
+    def _rescue_thickness(
+        cls,
+        prompt: str,
+        mode: str,
+        beat_info: dict[str, Any],
+        shot: dict[str, Any],
+        errors: list[str],
+    ) -> tuple[str, list[str]]:
+        """Last-resort deterministic fill for the camera/lighting/sound keyword gate.
+
+        Only clears the cosmetic thickness keywords; content errors (dialogue, references,
+        section order, thin word count) are left untouched so they still hard-fail.
+        """
+        if not errors:
+            return prompt, errors
+        filled = H3PromptBuilder.ensure_thickness_terms(prompt, shot)
+        filled_errors = cls._validate_h3_prompt(filled, mode, beat_info)
+        if not filled_errors:
+            return filled, []
+        return prompt, errors
+
+    @classmethod
     def generate_h3_prompt(cls, beat_info: dict[str, Any]) -> str:
         from ...skill_packs import resolve_skill_pack_id
 
@@ -702,6 +818,7 @@ class LlmService:
                 prompt = cls._request_h3_prompt(system_prompt, retry_user, beat_info)
                 prompt = H3PromptBuilder.prepare_generated_prompt(prompt, shot, pad_thickness=False)
                 errors = cls._validate_h3_prompt(prompt, mode, beat_info)
+            prompt, errors = cls._rescue_thickness(prompt, mode, beat_info, shot, errors)
             if errors:
                 raise ValueError("H3 提示词未通过规则校验：" + "；".join(errors))
             _sync_workshop_fields()
@@ -813,7 +930,9 @@ class LlmService:
                     if heading_only and workshop_heading_ok:
                         prompt = workshop_prompt
                     else:
-                        raise ValueError("H3 提示词未通过规则校验：" + "；".join(errors))
+                        prompt, errors = cls._rescue_thickness(prompt, mode, beat_info, shot, errors)
+                        if errors:
+                            raise ValueError("H3 提示词未通过规则校验：" + "；".join(errors))
             _sync_workshop_fields()
             return prompt
         system_prompt = cls._h3_system_prompt(mode, duration_seconds, skill_pack_id=pack_id or None)
@@ -827,6 +946,7 @@ class LlmService:
             prompt = cls._request_h3_prompt(system_prompt, retry_user, beat_info)
             prompt = H3PromptBuilder.prepare_generated_prompt(prompt, shot)
             errors = cls._validate_h3_prompt(prompt, mode, beat_info)
+        prompt, errors = cls._rescue_thickness(prompt, mode, beat_info, shot, errors)
         if errors:
             raise ValueError("H3 提示词未通过规则校验：" + "；".join(errors))
         return prompt

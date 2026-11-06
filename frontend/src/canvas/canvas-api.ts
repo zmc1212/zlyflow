@@ -27,6 +27,11 @@ export function getCanvasProject(projectId: string): Promise<CanvasProjectDetail
   return requestJson<CanvasProjectDetail>(`/api/canvas/projects/${encodeURIComponent(projectId)}`)
 }
 
+/** 导演项目资产画布：按 (用户, 导演项目) 幂等获取绑定的 linked 画布。 */
+export function ensureLinkedCanvas(csrfToken: string, directorProjectId: string, title: string): Promise<CanvasProjectDetail> {
+  return requestJson<CanvasProjectDetail>("/api/canvas/linked", jsonMutation(csrfToken, { director_project_id: directorProjectId, title }))
+}
+
 export type CanvasProjectPatch = {
   title?: string
   tags?: string[]

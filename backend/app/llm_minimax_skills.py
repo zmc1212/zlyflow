@@ -1313,8 +1313,7 @@ non_diegetic_music:
                 (pack_overlay + "\n\n") if pack_overlay else ""
             ) + (
                 "This skill pack polishes official Ref2VA six-section English. "
-                "detailed_description may use local clip ranges such as 00:00–00:05. "
-                "Do not generate a triptych image in this optimize-prompt path."
+                "detailed_description may use local clip ranges such as 00:00–00:05."
             )
         if recipe.packing_overrides.allow_multi_camera_path:
             pack_overlay = (

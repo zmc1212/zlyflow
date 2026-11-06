@@ -1,0 +1,189 @@
+{
+  "source": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\canvas-workrally-dark-v001.png",
+  "source_sha256": "779277c7e3c3a53ba6a01f9314b305ff373472e2aa2829732b2ce2780c78e736",
+  "source_size": [
+    1536,
+    864
+  ],
+  "css_mapping": {
+    "assumed_viewport_width": 1536,
+    "css_per_image_pixel": 1.0,
+    "meaning": "实现约定，不证明参考图原始 DPR 或 CSS 视口"
+  },
+  "regions": [
+    {
+      "name": "canvas-stage",
+      "kind": "color",
+      "box_type": "sample",
+      "box": [
+        1120,
+        600,
+        220,
+        170
+      ],
+      "normalized_box": [
+        0.729167,
+        0.694444,
+        0.143229,
+        0.196759
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        1120.0,
+        600.0,
+        220.0,
+        170.0
+      ],
+      "dom_comparable": false,
+      "color": {
+        "median_hex": "#0A0D12",
+        "rgb_channels": [
+          {
+            "median": 10.0,
+            "p10": 9.0,
+            "p90": 11.0
+          },
+          {
+            "median": 13.0,
+            "p10": 12.0,
+            "p90": 14.0
+          },
+          {
+            "median": 18.0,
+            "p10": 17.0,
+            "p90": 19.0
+          }
+        ],
+        "opaque_samples": 31416,
+        "excluded_nonopaque": 0,
+        "sample_box": [
+          1128,
+          608,
+          204,
+          154
+        ],
+        "max_channel_p90_minus_p10": 2.0,
+        "meaning": "局部像素统计，不证明原始色值、纯色或渐变模型"
+      }
+    },
+    {
+      "name": "selected-generator",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        590,
+        220,
+        394,
+        289
+      ],
+      "normalized_box": [
+        0.384115,
+        0.25463,
+        0.25651,
+        0.334491
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        590.0,
+        220.0,
+        394.0,
+        289.0
+      ],
+      "selector": ".react-flow__node[data-id=\"review-image-generator\"]",
+      "dom_comparable": true
+    },
+    {
+      "name": "context-composer",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        590,
+        527,
+        394,
+        190
+      ],
+      "normalized_box": [
+        0.384115,
+        0.609954,
+        0.25651,
+        0.219907
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        590.0,
+        527.0,
+        394.0,
+        190.0
+      ],
+      "selector": ".canvas-generator-composer",
+      "dom_comparable": true
+    },
+    {
+      "name": "text-node",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        208,
+        147,
+        255,
+        125
+      ],
+      "normalized_box": [
+        0.135417,
+        0.170139,
+        0.166016,
+        0.144676
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        208.0,
+        147.0,
+        255.0,
+        125.0
+      ],
+      "selector": ".react-flow__node[data-id=\"review-text\"]",
+      "dom_comparable": true
+    },
+    {
+      "name": "zoom-toolbar",
+      "kind": "box",
+      "box_type": "element",
+      "box": [
+        90,
+        790,
+        291,
+        39
+      ],
+      "normalized_box": [
+        0.058594,
+        0.914352,
+        0.189453,
+        0.045139
+      ],
+      "boundary_evidence": "Agent 选择的标注范围，非自动识别的真实元素边界",
+      "css_box": [
+        90.0,
+        790.0,
+        291.0,
+        39.0
+      ],
+      "selector": ".canvas-bottombar",
+      "dom_comparable": true
+    }
+  ],
+  "groups": [],
+  "vertical_scans": [],
+  "expected": {
+    "url": "http://127.0.0.1:5173/@fs/D:/zlyun/Toonflow/%E6%9C%AC%E5%9C%B0%E8%A7%86%E9%A2%91%E5%B7%A5%E4%BD%9C%E5%8F%B0/test-results/canvas-workrally/review.html?scenario=visual",
+    "title": "ZLY AI 视频创作平台",
+    "viewport": {
+      "width": 1536,
+      "height": 864
+    },
+    "dpr": 1.159999966621399,
+    "full_page": false,
+    "screenshot_scale": "css"
+  },
+  "expected_assets": {},
+  "input_manifest_sha256": "e3cd9abce1b150c8d94900231c29672b2d289269f73122700b7dd075a931e2df"
+}

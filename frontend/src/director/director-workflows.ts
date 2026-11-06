@@ -63,6 +63,16 @@ export const FALLBACK_DIRECTOR_WORKFLOW_FAMILIES: DirectorWorkflowFamily[] = [
     },
   },
   {
+    id: "h3_action",
+    label: "动作与打斗",
+    order: 18,
+    routes: {
+      t2v: "minimax-h3-action-t2v",
+      i2v: "minimax-h3-action-i2v",
+      r2v: "minimax-h3-action-r2v",
+    },
+  },
+  {
     id: "official_h3",
     label: "MiniMax H3",
     order: 20,

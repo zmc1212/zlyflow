@@ -54,6 +54,10 @@ export type CanvasWorkflowMode = {
   min_references?: number
   max_references?: number
   reference_labels?: string[]
+  reference_slots?: ("image" | "video" | "audio")[]
+  accepts_video_reference?: boolean
+  accepts_audio_reference?: boolean
+  default_prompt?: string | null
   accepts_negative_prompt?: boolean
   accepts_image_size?: boolean
   available?: boolean
@@ -107,6 +111,9 @@ export type CanvasGeneratorLive = {
   progress?: number
   error?: string | null
   result?: CanvasJobResult | null
+  results?: CanvasJobResult[]
+  completedCount?: number
+  requestedCount?: number
   updatedAt: number
 }
 
@@ -360,12 +367,15 @@ export function canvasReferenceLabel(node: CanvasNode, index: number): string {
   return String(node.data.label ?? "").trim() || `参考图 ${index}`
 }
 
-export async function canvasImageNodeFile(node: CanvasNode, index: number): Promise<File> {
+export async function canvasImageNodeFile(node: CanvasNode, index: number, expectedKind: "image" | "video" | "audio" = "image"): Promise<File> {
   const url = canvasImageReferenceUrl(node.data)
   if (!url) throw new Error(`参考图 ${index}「${canvasReferenceLabel(node, index)}」没有可用地址`)
   let response: Response
   try {
-    response = await fetch(url, { credentials: "include" })
+    // 跨源 CDN（如七牛图片域名）不返回带凭据的 CORS 头，credentials:"include" 会被直接拦截；
+    // 公开图片无凭据读取即可，同源 /api/ 仍带 cookie。
+    const crossOrigin = /^https?:\/\//i.test(url) && new URL(url).origin !== location.origin
+    response = await fetch(url, { credentials: crossOrigin ? "omit" : "include" })
   } catch {
     throw new Error(`参考图 ${index} 无法读取，可能受跨域限制；请从作品库重新插入该图片`)
   }
@@ -377,7 +387,7 @@ export async function canvasImageNodeFile(node: CanvasNode, index: number): Prom
     throw new Error(`参考图 ${index} 读取失败（HTTP ${response.status}）`)
   }
   const blob = await response.blob()
-  return fileFromReferenceBlob(blob, index, blob.type || response.headers.get("content-type") || "")
+  return fileFromReferenceBlob(blob, index, blob.type || response.headers.get("content-type") || "", expectedKind)
 }
 
 export function generatorPromptIssue(
@@ -484,8 +494,14 @@ export function canvasJobOutputs(job: CanvasJob): CanvasJobOutput[] {
 }
 
 export function canvasJobResult(job: CanvasJob): CanvasJobResult | null {
+  return canvasJobResults(job)[0] ?? null
+}
+
+export function canvasJobResults(job: CanvasJob): CanvasJobResult[] {
   const outputs = canvasJobOutputs(job)
   const ordered = [...outputs.filter((output) => output.render_pass !== "preview"), ...outputs.filter((output) => output.render_pass === "preview")]
+  const results: CanvasJobResult[] = []
+  const seen = new Set<string>()
   for (const output of ordered) {
     if (output.delivery_status === "expired") continue
     const kind = output.kind === "video" || output.kind === "image" ? output.kind : job.media_type
@@ -493,9 +509,22 @@ export function canvasJobResult(job: CanvasJob): CanvasJobResult | null {
       || output.cloud_url
       || (output.path ? `/api/media/${encodeURIComponent(output.path)}` : "")
     if (!url) continue
-    return { url, kind, path: output.path, label: output.label }
+    if (results.length && output.render_pass === "preview") continue
+    if (seen.has(url)) continue
+    seen.add(url)
+    results.push({ url, kind, path: output.path, label: output.label })
   }
-  return null
+  return results
+}
+
+export function canvasJobLiveDetails(job: CanvasJob) {
+  const results = canvasJobResults(job)
+  const items = (job.rounds ?? []).at(-1)?.generation_items ?? []
+  return {
+    results,
+    completedCount: results.length,
+    requestedCount: items.length > results.length ? items.length : job.status === "partial" ? undefined : results.length,
+  }
 }
 
 export function isCanvasJobActive(status: string | null | undefined): boolean {
@@ -637,7 +666,7 @@ export function generatorParameterSummary(
   return generatorParameterFields(mode, values).primary.slice(0, 3).map(([name, definition]) => {
     const value = values[name] ?? definition.default
     const option = definition.ui_options?.find((item) => String(item.value) === String(value))
-    const text = option?.label ?? String(value)
+    const text = option?.label ?? (typeof value === "boolean" ? value ? "开启" : "关闭" : String(value))
     return `${definition.label} ${text}${definition.unit && !option ? definition.unit : ""}`
   })
 }

@@ -9,9 +9,10 @@ type AssetOutput = {
   delivery_status?: string
   download_url?: string | null
   cloud_url?: string | null
+  path?: string | null
 }
 
-type AssetJob = {
+export type AssetJob = {
   id: string
   media_type: "image" | "video"
   status: string
@@ -39,15 +40,19 @@ export function collectImageOutputs(jobs: AssetJob[]): AssetPickerItem[] {
   const items: AssetPickerItem[] = []
   const seen = new Set<string>()
   for (const job of jobs) {
-    const direct = (job.outputs ?? []).map((output, index) => ({ output, index, itemId: "job" }))
     const fromRounds = (job.rounds ?? []).flatMap((round) =>
       (round.generation_items ?? []).flatMap((item) => (item.outputs ?? []).map((output, index) => ({ output, index, itemId: item.id || "item" }))))
+    // 任务顶层的 outputs 是最新一轮生成物的镜像；有轮次产物时只读轮次，避免同一张图出现两条下载路径。
+    const direct = fromRounds.length ? [] : (job.outputs ?? []).map((output, index) => ({ output, index, itemId: "job" }))
     for (const entry of [...direct, ...fromRounds]) {
       const { output } = entry
       if (output.kind !== "image") continue
       const url = output.download_url ?? output.cloud_url
-      if (!url || seen.has(url)) continue
-      seen.add(url)
+      if (!url) continue
+      // 下载路径按来源不同而不同，按底层文件身份（path / cloud_url）去重更稳。
+      const identity = output.path || output.cloud_url || url
+      if (seen.has(identity)) continue
+      seen.add(identity)
       items.push({
         id: `${job.id}:${entry.itemId}:${entry.index}`,
         jobId: job.id,

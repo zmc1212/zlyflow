@@ -1,0 +1,13 @@
+/* Action shot tool: prompt header keeps the template shortcut on the label row
+   while reusing the ordered-reference cards from keyframe-narrative-tool.css. */
+.studio-action-shot .studio-tool-motion-materials { align-self: start; }
+.studio-action-shot-prompt-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 9px;
+}
+.studio-action-shot-prompt-head .studio-tool-section-label { margin-bottom: 0; }
+.studio-action-shot-prompt-head .ant-btn { flex: none; color: var(--studio-text-secondary); font-size: 12px; }
+.studio-action-shot-prompt-head .ant-btn:hover { color: var(--studio-text); }

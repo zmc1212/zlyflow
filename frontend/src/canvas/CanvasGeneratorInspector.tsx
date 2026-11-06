@@ -4,7 +4,7 @@ import {
   ChevronDown, ChevronLeft, ChevronRight, Image as ImageIcon, LoaderCircle, Play, Plus,
   Sparkles, Square, Type, Video,
 } from "lucide-react"
-import { useMemo } from "react"
+import { useId, useMemo } from "react"
 import type { CanvasMediaPreview } from "./CanvasNodes"
 import {
   canvasImageReferenceUrl,
@@ -491,7 +491,7 @@ export function CanvasGeneratorInspector({
   )
 }
 
-function GeneratorOptionField({
+export function GeneratorOptionField({
   name, definition, value, disabled, onChange,
 }: {
   name: string
@@ -508,7 +508,8 @@ function GeneratorOptionField({
     value: String(item),
     label: `${item}${definition.unit ? ` ${definition.unit}` : ""}`,
   })) ?? []
-  const fieldId = `canvas-generator-option-${name}`
+  const instanceId = useId()
+  const fieldId = `canvas-generator-option-${name}-${instanceId}`
 
   return (
     <div className={`canvas-inspector-field${definition.type === "boolean" ? " is-inline" : ""}`}>

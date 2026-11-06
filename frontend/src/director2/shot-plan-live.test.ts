@@ -3,7 +3,6 @@ import {
   applyShotPlanJobSnapshot,
   applyShotPlanStreamEvent,
   assemblingShotsFromLive,
-  documentCanPlanShots,
   documentShotPlanHeaderTag,
   emptyShotPlanLiveState,
   episodeShotPlanError,
@@ -147,26 +146,10 @@ describe("shot plan live merge", () => {
     expect(markShotPlanLiveFinished(emptyShotPlanLiveState("job-1")).message).toBe("镜头规划完成")
   })
 
-  it("gates sync and the plan button from document status", () => {
+  it("gates episode sync from the document planning status", () => {
     expect(isDocumentShotPlanning({ status: "planning" })).toBe(true)
     expect(isDocumentShotPlanning({ status: "ready", shot_plan_job_id: "job-1" })).toBe(true)
     expect(isDocumentShotPlanning({ status: "ready" })).toBe(false)
-    expect(documentCanPlanShots({
-      status: "ready",
-      input_mode: "paste",
-      analysis: { episodes: [{ episode_num: 1, shots_source: "" }] },
-    })).toBe(true)
-    expect(documentCanPlanShots({
-      status: "ready",
-      input_mode: "paste",
-      analysis: { episodes: [{ episode_num: 1, shots_source: "llm" }] },
-    })).toBe(false)
-    expect(documentCanPlanShots({
-      status: "ready",
-      input_mode: "ai_pipeline",
-      analysis: { episodes: [{ episode_num: 1 }] },
-    })).toBe(false)
-    expect(documentCanPlanShots({ status: "planning", analysis: { episodes: [{ episode_num: 1 }] } })).toBe(false)
   })
 
   it("labels parser shots as unplanned instead of hiding the tag", () => {

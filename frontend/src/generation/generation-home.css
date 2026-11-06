@@ -25,20 +25,20 @@ main.studio-generation-home {
   inset: auto;
   width: 100%;
   max-width: none;
-  min-height: 202px;
+  min-height: 180px;
   margin: 0;
   transform: none;
   border: 1px solid var(--studio-border);
   border-radius: 20px;
   background: var(--studio-surface);
-  padding: 16px 20px 26px;
+  padding: 16px 20px;
   box-shadow: 0 6px 24px color-mix(in srgb, var(--studio-text) 4%, transparent);
 }
 .studio-generation-home .studio-composer-service-meta { display: none; }
-.studio-generation-home #studio-composer[data-media-type="image"] .studio-composer-service-meta { position: static; display: flex; max-width: none; justify-content: flex-end; margin-bottom: 8px; color: var(--studio-text-muted); font-size: 11px; }
+.studio-generation-home #studio-composer[data-media-type="image"] .studio-composer-service-meta { top: -40px; right: 0; display: flex; max-width: none; justify-content: flex-end; color: var(--studio-text-muted); font-size: 11px; }
 .studio-generation-home .studio-composer-service-meta > span:not(.studio-ai-badge),
 .studio-generation-home .studio-composer-service-meta > span span { color: var(--studio-text-secondary); }
-.studio-generation-home .studio-composer-prompt { min-height: 102px; grid-template-columns: 150px minmax(0, 1fr); gap: 18px; }
+.studio-generation-home .studio-composer-prompt { min-height: 98px; grid-template-columns: 112px minmax(0, 1fr); gap: 16px; }
 .studio-generation-home .studio-composer-prompt > :first-child { min-height: 88px; align-self: start; }
 .studio-generation-home .studio-reference-slot { height: 88px; border-color: var(--studio-border-strong); border-radius: 9px; background: var(--studio-surface-raised); }
 .studio-generation-home .studio-reference-slot:hover { border-color: var(--studio-primary); background: var(--studio-primary-soft); }
@@ -65,38 +65,6 @@ main.studio-generation-home {
 }
 .studio-generation-home #studio-composer .studio-prompt-input::placeholder { color: var(--studio-text-muted); }
 .studio-generation-home .studio-home-upload-hint { margin: 2px 0 0; color: var(--studio-text-muted); font-size: 11px; line-height: 16px; }
-.studio-generation-home .studio-composer-toolbar { position: static; flex-direction: row; align-items: flex-end; gap: 12px; border: 0; margin-top: 12px; padding-top: 0; }
-.studio-generation-home .studio-composer-toolbar > div:first-child { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.studio-generation-home .studio-composer-toolbar .studio-media-select { width: 136px; }
-.studio-generation-home #studio-composer .studio-composer-toolbar .studio-control-shell,
-.studio-generation-home #studio-composer .studio-composer-toolbar .studio-media-select,
-.studio-generation-home #studio-composer .studio-composer-toolbar .studio-parameter-trigger,
-.studio-generation-home #studio-composer .studio-more-settings {
-  height: 36px;
-  border-color: var(--studio-border);
-  background: var(--studio-surface);
-  color: var(--studio-text-secondary);
-  box-shadow: none;
-  font-size: 12px;
-}
-.studio-generation-home #studio-composer .studio-composer-toolbar .studio-select .ant-select-selection-item { color: var(--studio-text); font-size: 12px; }
-.studio-generation-home #studio-composer :is(.studio-control-shell, .studio-media-select) .ant-select {
-  height: 34px !important;
-  border: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-}
-.studio-generation-home #studio-composer :is(.studio-control-shell, .studio-media-select) .ant-select-selector {
-  border: 0 !important;
-  background: transparent !important;
-  padding: 0 !important;
-  box-shadow: none !important;
-}
-.studio-generation-home #studio-composer .studio-composer-toolbar svg { color: var(--studio-accent-text); }
-.studio-generation-home #studio-composer .studio-generate-submit { width: 136px; height: 36px; border-radius: 9px; font-size: 13px; }
-.studio-generation-home #studio-composer .studio-generate-submit svg { color: inherit; }
-.studio-generation-home .studio-home-submit-shortcut { position: absolute; right: 42px; bottom: 6px; color: var(--studio-text-muted); font-size: 10px; line-height: 14px; }
-.studio-generation-home #studio-composer .studio-more-settings:hover { border-color: var(--studio-primary); color: var(--studio-accent-text); }
 .studio-generation-home .studio-prompt-tool,
 .studio-generation-home .studio-prompt-polish,
 .studio-generation-home .studio-prompt-optimize { color: var(--studio-text-secondary); font-size: 11px; }
@@ -177,12 +145,12 @@ a.studio-home-wall-card:hover .studio-home-wall-media img { transform: scale(1.0
 .studio-home-media-tabs .ant-tabs-content-holder { display: none; }
 .studio-home-view-all { display: inline-flex; flex: none; align-items: center; gap: 6px; margin-left: auto; color: var(--studio-text-muted); font-size: 11px; line-height: 24px; }
 .studio-home-view-all:hover { color: var(--studio-accent-text); }
-.studio-home-gallery { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(0, .8fr) minmax(0, 1.06fr) minmax(0, .92fr); gap: 12px; align-items: start; }
-.studio-home-gallery-column { display: flex; min-width: 0; flex-direction: column; gap: 16px; }
+/* 作品墙：四列等宽 + 统一 3:4 缩略图（画面居中裁切铺满），卡片尺寸一致、行列严格对齐。 */
+.studio-home-gallery { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px 12px; align-items: start; }
 .studio-home-creation { min-width: 0; }
 .studio-home-creation-open { display: block; width: 100%; border: 0; border-radius: 9px; background: transparent; padding: 0; color: inherit; text-align: left; cursor: pointer; }
 .studio-home-creation-open:focus-visible { outline: 2px solid var(--studio-primary); outline-offset: 4px; }
-.studio-home-preview { position: relative; overflow: hidden; min-height: 90px; max-height: 360px; border-radius: 9px; background: var(--studio-surface-raised); }
+.studio-home-preview { position: relative; overflow: hidden; width: 100%; aspect-ratio: 3 / 4; border-radius: 9px; background: var(--studio-surface-raised); }
 .studio-home-preview > img,
 .studio-home-preview > video { display: block; width: 100%; height: 100%; object-fit: cover; transition: transform 300ms cubic-bezier(.16, 1, .3, 1); }
 .studio-home-creation-open:is(:hover, :focus-visible) .studio-home-preview > :is(img, video) { transform: scale(1.025); }
@@ -194,9 +162,10 @@ a.studio-home-wall-card:hover .studio-home-wall-media img { transform: scale(1.0
 .studio-home-creation-title { overflow: hidden; border: 0; background: transparent; padding: 0; color: var(--studio-text); font-size: 13px; font-weight: 550; line-height: 22px; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .studio-home-creation-caption > p { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; margin: 0; color: var(--studio-text-muted); font-size: 10px; line-height: 18px; }
 .studio-home-creation-caption > .ant-btn { width: 24px; height: 24px; color: var(--studio-text-muted); }
-.studio-home-loading { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.studio-home-loading { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px 12px; }
 .studio-home-loading .ant-skeleton,
-.studio-home-loading .ant-skeleton-image { width: 100% !important; height: 172px !important; }
+.studio-home-loading .ant-skeleton-element { width: 100% !important; }
+.studio-home-loading .ant-skeleton-image { width: 100% !important; height: auto !important; aspect-ratio: 3 / 4; }
 .studio-home-empty { display: flex; min-height: 150px; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border: 1px dashed var(--studio-border); border-radius: 12px; color: var(--studio-text-secondary); font-size: 13px; text-align: center; }
 .studio-home-empty > p { margin: 0; }
 .studio-home-empty > span { max-width: 70ch; color: var(--studio-text-muted); font-size: 12px; }
@@ -212,7 +181,6 @@ a.studio-home-wall-card:hover .studio-home-wall-media img { transform: scale(1.0
 @media (min-width: 1024px) and (max-width: 1439px) {
   main.studio-generation-home { padding-right: 24px; padding-left: 24px; }
   .studio-generation-home .studio-composer-prompt { grid-template-columns: 128px minmax(0, 1fr); gap: 14px; }
-  .studio-generation-home .studio-composer-toolbar .studio-media-select { width: 120px; }
   .studio-home-side-copy { padding-left: 14px; }
 }
 @media (prefers-reduced-motion: reduce) {

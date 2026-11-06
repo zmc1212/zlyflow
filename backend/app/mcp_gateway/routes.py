@@ -145,7 +145,7 @@ def register_mcp_routes(app, *, current_user, mutating_user, settings, submit_ge
     registration = ClientRegistrationOptions(enabled=True, valid_scopes=SCOPES, default_scopes=SCOPES)
     revocation = RevocationOptions(enabled=True)
     sdk = MCPServer("ZLY AI Studio", version="1.0.0", token_verifier=provider,
-        instructions="先查询可用工作流与参数，再创建图片或视频任务。参考图先在工作台 /mcp 上传并按 ID 顺序引用，只有图片参考的工作流会出现在 studio_list_workflows 中。每次新创作生成唯一 request_id，重试保持该标识和参数不变。任务异步执行，使用 studio_get_job 查询，完成后 studio_get_results 获取临时下载链接；状态为 awaiting_refine 时说明一采预览已就绪并暂停，需要精修成片调 studio_confirm_refine，保留一采调 studio_skip_refine，不处理则不会继续出片。导演台整片流程：studio_list_projects 与 studio_get_project 看清现状，studio_get_script 取正文和 base_raw_text，studio_save_script 写剧本，studio_plan_script 入队拆解并用 studio_list_project_jobs 轮询，studio_extract_script_assets 转入资产库，studio_generate_asset_image 出资产图，studio_apply_script_episodes 把分集分镜同步进工坊，studio_get_episode 与 studio_update_beat 核对角色场景绑定，studio_generate_storyboard 出分镜图，studio_generate_beat_prompt 出 H3 提示词，studio_generate_episode_video 一键出片（工坊任务停在 awaiting_refine 时用 studio_confirm_project_refine 或 studio_skip_project_refine），studio_generate_dubbing 出配音，最后用 studio_prepare_edit_episode、studio_preview_edit、studio_confirm_edit、studio_export_edit 完成剪辑与整集导出。剪辑时间线先 studio_list_edit_projects 获取工程与 sequence_id，studio_get_timeline 读取版本，studio_preview_edit 生成待确认方案后再 studio_confirm_edit；标题用 studio_add_text。音轨字幕先 studio_start_transcript 并轮询 studio_get_transcript。成片用 studio_export_edit 导出，可传本机绝对 output_dir 指定保存目录，再用 studio_get_edit_export 轮询。创作任务、参考图与剪辑时间线只覆盖当前授权账号自己的内容；导演台项目库和工作台一样属于同一共享工作区，写入前先读取最新状态，删除类操作请留在工作台人工执行。",
+        instructions="先查询可用工作流与参数，再创建图片或视频任务。参考图先在工作台 /mcp 上传并按 ID 顺序引用，只有图片参考的工作流会出现在 studio_list_workflows 中。每次新创作生成唯一 request_id，重试保持该标识和参数不变。任务异步执行，使用 studio_get_job 查询，完成后 studio_get_results 获取临时下载链接；状态为 awaiting_refine 时说明一采预览已就绪并暂停，需要精修成片调 studio_confirm_refine，保留一采调 studio_skip_refine，不处理则不会继续出片。导演台整片流程：studio_list_projects 与 studio_get_project 看清现状，studio_get_script 取正文和 base_raw_text，studio_save_script 写剧本，studio_plan_script 入队拆解并用 studio_list_project_jobs 轮询，studio_extract_script_assets 转入资产库，studio_generate_asset_image 出资产图，studio_apply_script_episodes 把分集分镜同步进工坊，studio_get_episode 与 studio_update_beat 核对角色场景绑定，studio_generate_beat_prompt 出 H3 提示词，studio_generate_episode_video 一键出片（工坊任务停在 awaiting_refine 时用 studio_confirm_project_refine 或 studio_skip_project_refine），studio_generate_dubbing 出配音，最后用 studio_prepare_edit_episode、studio_preview_edit、studio_confirm_edit、studio_export_edit 完成剪辑与整集导出。剪辑时间线先 studio_list_edit_projects 获取工程与 sequence_id，studio_get_timeline 读取版本，studio_preview_edit 生成待确认方案后再 studio_confirm_edit；标题用 studio_add_text。音轨字幕先 studio_start_transcript 并轮询 studio_get_transcript。成片用 studio_export_edit 导出，可传本机绝对 output_dir 指定保存目录，再用 studio_get_edit_export 轮询。创作任务、参考图与剪辑时间线只覆盖当前授权账号自己的内容；导演台项目列表与新建工程同样按账号隔离，各账号只能列出和创建自己名下的短剧项目，同名剧目在不同账号下互不可见，写入前先读取最新状态，删除类操作请留在工作台人工执行。",
         auth=AuthSettings(issuer_url=AnyHttpUrl(config.issuer), resource_server_url=AnyHttpUrl(config.resource),
                           required_scopes=[], validate_token_resource=True))
 
@@ -183,8 +183,13 @@ def register_mcp_routes(app, *, current_user, mutating_user, settings, submit_ge
 
     @sdk.tool(annotations=read, structured_output=True)
     async def studio_list_reference_assets() -> dict[str, Any]:
-        """列出自己的参考图 ID、名称和尺寸。用户可在工作台 /mcp 上传或选取生成图片。"""
+        """列出自己的参考图 ID、名称和尺寸。提交创作时用 reference_asset_ids 按顺序引用（<Picture n> 与此顺序一致）；库里没有的图先用 studio_import_reference 导入（在线图用 url，本地图用 image_base64）。"""
         return await run("studio:read", lambda user: {"references": service.list_references(user)})
+
+    @sdk.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True), structured_output=True)
+    async def studio_import_reference(url: str | None = None, image_base64: str | None = None, name: str | None = None) -> dict[str, Any]:
+        """把图片导入用户的参考图库并返回素材 ID，之后用 reference_asset_ids 引用。url 与 image_base64 二选一：url 为在线图片直链（http/https，≤ 50 MB）；image_base64 为本地图片的 base64（允许 data: 前缀，PNG/JPEG/WebP，≤ 50 MB）——用户在对话里附了本地图片时，读取该文件并转 base64 后传入。"""
+        return await run("studio:generate", lambda user: asyncio.to_thread(service.import_reference, user, url, image_base64, name))
 
     @sdk.tool(annotations=create, structured_output=True)
     async def studio_create_image(workflow_id: str, prompt: str, request_id: str, options: dict[str, Any] | None = None,
@@ -233,8 +238,8 @@ def register_mcp_routes(app, *, current_user, mutating_user, settings, submit_ge
 
     @sdk.tool(annotations=read, structured_output=True)
     async def studio_list_projects(limit: int = 30) -> dict[str, Any]:
-        """列出导演台项目（轻量：ID、名称、状态、更新时间），按最近更新排序，最多 100 条。"""
-        return await run("studio:read", lambda user: director.projects(limit))
+        """列出自己账号名下的导演台项目（轻量：ID、名称、状态、更新时间），按最近更新排序，最多 100 条。"""
+        return await run("studio:read", lambda user: director.projects(limit, user))
 
     @sdk.tool(annotations=read, structured_output=True)
     async def studio_get_project(project_id: str) -> dict[str, Any]:
@@ -255,8 +260,8 @@ def register_mcp_routes(app, *, current_user, mutating_user, settings, submit_ge
 
     @sdk.tool(annotations=create, structured_output=True)
     async def studio_create_project(name: str, description: str = "") -> dict[str, Any]:
-        """新建导演台项目，返回 project_id 和工作台链接。"""
-        return await run("studio:generate", lambda user: director.create_project(name, description))
+        """在当前账号名下新建导演台项目，返回 project_id 和工作台链接。"""
+        return await run("studio:generate", lambda user: director.create_project(name, description, user))
 
     @sdk.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=True), structured_output=True)
     async def studio_plan_script(project_id: str, document_id: str, aspect_ratio: str = "") -> dict[str, Any]:
@@ -283,13 +288,13 @@ def register_mcp_routes(app, *, current_user, mutating_user, settings, submit_ge
     @sdk.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True), structured_output=True)
     async def studio_generate_asset_image(project_id: str, asset_id: str, target_type: str = "", prompt: str = "",
                                            identity_id: str = "") -> dict[str, Any]:
-        """为资产出图，服务端同步完成并返回最新资产；target_type 留空按资产类型取默认（角色 avatar、场景 scene_master、道具 prop_reference），角色造型可传 identity_id。会消耗图片供应商额度。"""
+        """为资产出图，服务端同步完成并返回最新资产；target_type 留空按资产类型取默认（角色生成首个造型卡 identity，场景 scene_master，道具 prop_reference）。出片参考图取角色造型卡与场景主图，头像仅用于界面展示；角色造型可传 identity_id 指定造型。会消耗图片供应商额度。"""
         return await run("studio:generate", lambda user: director.generate_asset_image(
             project_id, asset_id, target_type, prompt, identity_id))
 
     @sdk.tool(annotations=read, structured_output=True)
     async def studio_get_episode(project_id: str, episode_id: str) -> dict[str, Any]:
-        """读取工坊单集的分镜表：每镜的绑定（角色/场景/造型）、提示词、草图/三联/成片与超清地址、状态和配音计数。"""
+        """读取工坊单集的分镜表：每镜的绑定（角色/场景/造型）、提示词、成片与超清地址、状态和配音计数。"""
         return await run("studio:read", lambda user: director.episode(project_id, episode_id))
 
     @sdk.tool(annotations=write, structured_output=True)
@@ -297,14 +302,6 @@ def register_mcp_routes(app, *, current_user, mutating_user, settings, submit_ge
                                  patch: dict[str, Any]) -> dict[str, Any]:
         """修改单个分镜：绑定角色场景（character_ids/scene_id/character_look_ids）、改动作台词、写 h3_prompt 或 video_duration。只接受白名单字段，媒体地址由生成流程写入。"""
         return await run("studio:generate", lambda user: director.update_beat(project_id, episode_id, beat_id, patch))
-
-    @sdk.tool(annotations=create, structured_output=True)
-    async def studio_generate_storyboard(project_id: str, episode_id: str, stage: str,
-                                         beat_ids: list[str] | None = None, visual_style: str = "",
-                                         ethnicity: str = "") -> dict[str, Any]:
-        """批量生成分镜图：stage 为 sketch、render 或 triptych；beat_ids 留空表示整集。渲染需先有草图，三联需先绑定角色与场景，前置不足会在 skipped 里逐条说明。入队后用 studio_list_project_jobs 轮询。"""
-        return await run("studio:generate", lambda user: director.generate_storyboard(
-            project_id, episode_id, stage, beat_ids, visual_style, ethnicity))
 
     @sdk.tool(annotations=create, structured_output=True)
     async def studio_generate_beat_prompt(project_id: str, episode_id: str, beat_id: str,
@@ -315,11 +312,14 @@ def register_mcp_routes(app, *, current_user, mutating_user, settings, submit_ge
 
     @sdk.tool(annotations=create, structured_output=True)
     async def studio_generate_episode_video(project_id: str, episode_id: str, beat_ids: list[str] | None = None,
-                                            force: bool = False, workflow: str = "",
+                                            force: bool = False, workflow: str = "", strategy: str = "",
                                             options: dict[str, Any] | None = None) -> dict[str, Any]:
-        """一键出片：留 beat_ids 生成整集（已有成片的镜头自动跳过，force=true 重做），传 beat_ids 只出勾选镜头。workflow 选 H3 工作流，options 只接受工作流的创作参数（如 aspect_ratio、refine_enabled），技术参数由工作台托管。任务排队后用 studio_list_project_jobs 轮询；缺角色/场景/提示词会直接返回原因。"""
+        """一键出片：留 beat_ids 生成整集（已有成片的镜头自动跳过，force=true 重做），传 beat_ids 只出勾选镜头（此时忽略 strategy）。
+        strategy=gap_fill 按最大连续缺失区间只补跑未生成镜头，每区间以上一镜真实尾帧做严格首帧锚定；
+        strategy=continue 在已出片构成连续前缀时从第 k+1 镜续写整集，不构成前缀自动回退 gap_fill。
+        workflow 选 H3 工作流，options 只接受工作流的创作参数（如 aspect_ratio、refine_enabled），技术参数由工作台托管。任务排队后用 studio_list_project_jobs 轮询；缺角色/场景/提示词会直接返回原因。"""
         return await run("studio:generate", lambda user: director.generate_episode_video(
-            project_id, episode_id, beat_ids, force, workflow, options))
+            project_id, episode_id, beat_ids, force, workflow, strategy, options))
 
     @sdk.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True), structured_output=True)
     async def studio_confirm_project_refine(project_id: str, job_id: str) -> dict[str, Any]:
@@ -343,22 +343,22 @@ def register_mcp_routes(app, *, current_user, mutating_user, settings, submit_ge
 
     @sdk.tool(annotations=read, structured_output=True)
     async def studio_list_project_jobs(project_id: str, job_id: str = "", limit: int = 30) -> dict[str, Any]:
-        """轮询导演台任务：拆解、分镜图、H3 提示词、出片、超分、配音都在 ai_project_jobs。传 job_id 查单条；返回 next_poll_seconds 建议下次轮询间隔。"""
+        """轮询导演台任务：拆解、资产图、H3 提示词、出片、超分、配音都在 ai_project_jobs。传 job_id 查单条；返回 next_poll_seconds 建议下次轮询间隔。"""
         return await run("studio:read", lambda user: director.jobs(project_id, job_id or None, limit))
 
     edit = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False)
 
     @sdk.tool(annotations=read, structured_output=True)
     async def studio_list_edit_projects() -> dict[str, Any]:
-        """列出可剪辑的导演工程与分集；sequence_id 为 main 表示工程自由剪辑，其余为分集剪辑。"""
-        return await run("studio:read", lambda user: editing.projects())
+        """列出自己账号名下的可剪辑导演工程与分集；sequence_id 为 main 表示工程自由剪辑，其余为分集剪辑。"""
+        return await run("studio:read", lambda user: editing.projects(user))
 
     @sdk.tool(annotations=edit, structured_output=True)
     async def studio_prepare_edit_episode(project_name: str, episode_code: str, title: str = "",
                                            version: str = "v001", script_text: str = "") -> dict[str, Any]:
         """按准确剧名、集号和版本复用或建立剪辑目标，返回 project_id/sequence_id。同版本剧本不覆盖，版本隔离既有剪辑；同名歧义时报错。只用于用户指定的本地剧目。"""
         return await run("studio:edit", lambda user: editing.prepare_episode(
-            project_name, episode_code, title=title, version=version, script_text=script_text))
+            user, project_name, episode_code, title=title, version=version, script_text=script_text))
 
     @sdk.tool(annotations=edit, structured_output=True)
     async def studio_import_edit_media(project_id: str, sequence_id: str, paths: list[str],

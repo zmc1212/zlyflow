@@ -12,7 +12,7 @@ from fastapi import HTTPException
 
 from ..media_studio.models import ProjectCreateRequest
 from ..media_studio.services.dubbing_service import DubbingService
-from ..media_studio.services.episode_video_service import EpisodeVideoService
+from ..media_studio.services.episode_video_service import ACCEPTED_FILL_STRATEGIES, EpisodeVideoService
 from ..media_studio.services.project_detail_service import ProjectDetailService
 from ..media_studio.services.project_service import ProjectService
 from ..media_studio.services.tts_generation_job_service import TtsGenerationJobService
@@ -157,10 +157,10 @@ class DirectorService:
         return list(dict.fromkeys(item.strip() for item in values))
 
     # --- 读取 ---
-    def projects(self, limit: int) -> dict[str, Any]:
+    def projects(self, limit: int, user: dict[str, Any]) -> dict[str, Any]:
         if isinstance(limit, bool) or not 1 <= limit <= 100:
             raise HTTPException(422, "limit 需在 1–100 之间")
-        rows = self._guard(ProjectService.list_projects)
+        rows = self._guard(ProjectService.list_projects, user["id"])
         return {"projects": [{**_present(row.model_dump(), ("id", "name", "description", "cover_url", "status",
                                                             "created_at", "updated_at")),
                               "workspace_url": f"/director2/{row.id}"}
@@ -224,12 +224,13 @@ class DirectorService:
                         for row in rows) else 0
 
     # --- 项目与剧本 ---
-    def create_project(self, name: str, description: str) -> dict[str, Any]:
+    def create_project(self, name: str, description: str, user: dict[str, Any]) -> dict[str, Any]:
         name = name.strip()
         if not name or len(name) > 255:
             raise HTTPException(422, "项目名称需为 1–255 字")
         project = self._guard(ProjectService.create_project,
-                              ProjectCreateRequest(name=name, description=description.strip() or None))
+                              ProjectCreateRequest(name=name, description=description.strip() or None),
+                              owner_user_id=user["id"])
         return {"project": _present(project.model_dump(), ("id", "name", "description", "status", "updated_at")),
                 "workspace_url": f"/director2/{project.id}"}
 
@@ -292,14 +293,35 @@ class DirectorService:
         asset = next((item for item in assets if item.get("id") == asset_id), None)
         if not asset:
             raise HTTPException(404, "资产不存在")
-        chosen = target_type.strip() or str(ASSET_TARGET_BY_KIND.get(asset.get("kind")) or "asset")
+        extra = asset.get("extra") if isinstance(asset.get("extra"), dict) else {}
+        looks = [item for item in (extra.get("identities") or [])
+                 if isinstance(item, dict) and str(item.get("id") or "").strip()]
+        chosen = target_type.strip()
+        if not chosen:
+            # 出片参考图取角色造型卡与场景主图，头像只用于界面展示；角色缺省直接
+            # 出造型卡，避免客户端按旧默认生成头像后仍卡在出片前置检查。
+            chosen = "identity" if asset.get("kind") == "character" and looks \
+                else str(ASSET_TARGET_BY_KIND.get(asset.get("kind")) or "asset")
         payload: dict[str, Any] = {"target_type": chosen}
+        if chosen == "identity":
+            if identity_id.strip():
+                payload["identity_id"] = identity_id.strip()
+            elif looks:
+                # 不指定造型时取第一个还没有图的造型；都已出图则重生成第一个。
+                pending = next((item for item in looks if not str(item.get("image_url") or "").strip()), looks[0])
+                payload["identity_id"] = str(pending.get("id") or "")
         if prompt.strip():
             payload["prompt"] = prompt.strip()[:2000]
-        if identity_id.strip():
-            payload["identity_id"] = identity_id.strip()
         result = self._guard(ProjectDetailService.generate_asset_image, project_id, asset_id, payload)
-        return {**result, "note": "资产出图在服务端同步完成，返回即为最终结果"}
+        note = "资产出图在服务端同步完成，返回即为最终结果"
+        if chosen == "identity":
+            note += "；造型卡是出片参考图，角色出片前置已就绪" if looks \
+                else "；该角色还没有造型槽位，请先在工作台添加造型或改用 target_type=avatar"
+        elif chosen == "scene_master":
+            note += "；场景主图是出片参考图"
+        elif chosen == "avatar":
+            note += "；头像仅用于界面展示，出片需要造型卡（target_type=identity）"
+        return {**result, "note": note}
 
     # --- 工坊 ---
     def update_beat(self, project_id: str, episode_id: str, beat_id: str, patch: dict[str, Any]) -> dict[str, Any]:
@@ -311,29 +333,13 @@ class DirectorService:
                                "；可改字段：" + "、".join(BEAT_PATCH_FIELDS))
         return self._guard(ProjectDetailService.update_episode_beat, project_id, episode_id, beat_id, dict(patch))
 
-    def generate_storyboard(self, project_id: str, episode_id: str, stage: str, beat_ids: list[str],
-                            visual_style: str, ethnicity: str) -> dict[str, Any]:
-        if stage not in {"sketch", "render", "triptych"}:
-            raise HTTPException(422, "stage 需为 sketch、render 或 triptych")
-        chosen = self._ids(beat_ids, "beat_ids", MAX_BEAT_IDS)
-        if not chosen:
-            detail = self._guard(ProjectDetailService.get_episode_detail, project_id, episode_id)
-            chosen = [str(beat.get("id")) for beat in _beats(detail) if beat.get("id")]
-            if not chosen:
-                raise HTTPException(409, "本集还没有分镜，请先拆解并同步到工坊")
-        payload: dict[str, Any] = {"stage": stage, "beat_ids": chosen}
-        for key, value in (("visual_style", visual_style), ("ethnicity", ethnicity)):
-            if value.strip():
-                payload[key] = value.strip()
-        return self._guard(ProjectDetailService.generate_beat_images_batch, project_id, episode_id, payload)
-
     def generate_beat_prompt(self, project_id: str, episode_id: str, beat_id: str,
                              merge_as_one: bool) -> dict[str, Any]:
         return self._guard(ProjectDetailService.generate_beat_h3_prompt, project_id, episode_id, beat_id,
                            {"merge_as_one": bool(merge_as_one)})
 
     def generate_episode_video(self, project_id: str, episode_id: str, beat_ids: list[str] | None, force: bool,
-                              workflow: str, options: dict[str, Any] | None) -> dict[str, Any]:
+                              workflow: str, strategy: str, options: dict[str, Any] | None) -> dict[str, Any]:
         if options is not None and not isinstance(options, dict):
             raise HTTPException(422, "options 需要是对象")
         chosen = self._ids(beat_ids, "beat_ids", MAX_BEAT_IDS) if beat_ids is not None else None
@@ -345,6 +351,11 @@ class DirectorService:
             body["beat_ids"] = chosen
         if force:
             body["force"] = True
+        fill_strategy = str(strategy or "").strip().lower()
+        if fill_strategy:
+            if fill_strategy not in ACCEPTED_FILL_STRATEGIES:
+                raise HTTPException(422, "strategy 仅支持 gap_fill 或 continue")
+            body["strategy"] = fill_strategy
         self._reject_hidden_options(chosen_workflow or str(EpisodeVideoService.DEFAULTS["workflow"]), body)
         if "duration" in body:
             raise HTTPException(422, "工坊出片时长按镜头取，请改分镜的 video_duration，不要传整体 duration")

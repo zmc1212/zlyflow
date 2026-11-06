@@ -453,7 +453,16 @@ class JobWorker:
                 return
             context = self.store.generation_context(generation_item_id)
             mode = context["mode"]
-            available, reason = self.grs_provider.availability(mode)
+            if mode in COMPOSITE_IMAGE_MODES:
+                # 复合图片工作流本身不在 GRS 模型目录（mode 不是模型 key）；按其内部 provider_model 校验。
+                provider_model = str(
+                    (context.get("options") or {}).get("provider_model") or DEFAULT_COMPOSITE_PROVIDER_MODEL,
+                )
+                available, reason = self.grs_provider.availability()
+                if available and not self.grs_provider.model_enabled(provider_model):
+                    available, reason = False, "该生图模型已被管理员停用或不存在。"
+            else:
+                available, reason = self.grs_provider.availability(mode)
             if not available:
                 self.store.update_generation(
                     generation_item_id, status=JobStatus.FAILED, stage="GRS 配置不可用", error=reason or "GRS 不可用",

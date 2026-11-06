@@ -45,6 +45,7 @@ import { ApiRequestError } from "../api"
 import { useStudioTheme } from "../ThemeProvider"
 import CanvasExportDialog from "./CanvasExportDialog"
 import CanvasFlowEdge from "./CanvasFlowEdge"
+import { reorderCanvasReferenceEdges } from "./canvas-composer"
 import { canvasConnectEdge, canvasConnectMenuPosition, canvasConnectTargets } from "./canvas-connections"
 import { claimCanvasRecovery, clearCanvasRecovery, normalizedCanvasContent, readCanvasRecovery, resolveCanvasRecovery, writeCanvasRecovery } from "./canvas-recovery"
 import {
@@ -131,12 +132,15 @@ import {
   cancelCanvasJob,
   canvasImageNodeFile,
   canvasJobResult,
+  canvasJobResults,
+  canvasJobLiveDetails,
   canvasPendingResultFill,
   canvasPromptEligible,
   canvasReferenceEligible,
   canvasResultHistory,
   canvasResultVersionIndex,
   canvasResultVersionPatch,
+  selectCanvasResultVersion,
   canvasRunSnapshotForJob,
   canvasWorkflowList,
   defaultGeneratorOptionValues,
@@ -187,15 +191,7 @@ import {
   type CanvasMediaPreview,
   type CanvasNodeActions,
 } from "./CanvasNodes"
-
-const nodeTypes: NodeTypes = {
-  text: TextCanvasNode,
-  image: ImageCanvasNode,
-  video: VideoCanvasNode,
-  artboard: ArtboardCanvasNode,
-  generator: GeneratorCanvasNode,
-  unknown: UnknownCanvasNode,
-}
+import { baseNodeTypes } from "./node-registry"
 
 const edgeTypes: EdgeTypes = {
   canvasFlow: CanvasFlowEdge,
@@ -454,7 +450,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
   const [selectedEdgeIds, setSelectedEdgeIds] = useState<string[]>([])
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
   const [tool, setTool] = useState<CanvasTool>("select")
-  const [panelOpen, setPanelOpen] = useState(true)
+  const [panelOpen, setPanelOpen] = useState(false)
   const [panelTab, setPanelTab] = useState<CanvasPanelTab>("properties")
   const [contextMenu, setContextMenu] = useState<CanvasContextMenuState | null>(null)
   const [connectMenu, setConnectMenu] = useState<CanvasConnectMenuState | null>(null)
@@ -474,6 +470,8 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
   const [assetOpen, setAssetOpen] = useState(false)
   const [assetKind, setAssetKind] = useState<CanvasMediaKind>("image")
   const [assetTargetNodeId, setAssetTargetNodeId] = useState<string | null>(null)
+  const [assetGeneratorId, setAssetGeneratorId] = useState<string | null>(null)
+  const [assetReferenceSourceId, setAssetReferenceSourceId] = useState<string | null>(null)
   const [assetSearch, setAssetSearch] = useState("")
   const [librarySearch, setLibrarySearch] = useState("")
   const [pendingImport, setPendingImport] = useState<{
@@ -484,6 +482,8 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
   const [searchParams, setSearchParams] = useSearchParams()
   const insertRequest = readCanvasAssetInsert(searchParams)
   const [preview, setPreview] = useState<CanvasMediaPreview | null>(null)
+  const [previewZoom, setPreviewZoom] = useState(1)
+  useEffect(() => { setPreviewZoom(1) }, [preview?.url])
   const [draggingAsset, setDraggingAsset] = useState<CanvasLibraryItem | null>(null)
   const [dropPoint, setDropPoint] = useState<{ x: number; y: number } | null>(null)
   const [liveJobs, setLiveJobs] = useState<Record<string, CanvasGeneratorLive>>({})
@@ -1121,12 +1121,12 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
   const applyGeneratorJobSnapshot = useCallback((jobId: string, job: CanvasJob) => {
     if (isCanvasJobActive(job.status) && job.status !== "awaiting_refine") return
     const matchingNodes = nodesRef.current.filter((item) => item.type === "generator" && item.data.jobId === jobId)
-    const result = job.status === "succeeded" || job.status === "partial" ? canvasJobResult(job) : null
+    const results = job.status === "succeeded" || job.status === "partial" ? canvasJobResults(job) : []
+    const result = results[0] ?? null
     for (const node of matchingNodes) {
       const history = canvasResultHistory(node.data)
-      const last = history[history.length - 1]
-      const resultChanged = result !== null
-        && (!last || last.url !== result.url || (last.path ?? "") !== (result.path ?? ""))
+      const newResults = results.filter((candidate) => !history.some((entry) => entry.url === candidate.url && (entry.path ?? "") === (candidate.path ?? "")))
+      const resultChanged = newResults.length > 0
       const statusChanged = node.data.jobStatus !== job.status
         || (node.data.jobError ?? null) !== (job.error ?? null)
       if (statusChanged || resultChanged) {
@@ -1134,7 +1134,13 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
           jobStatus: job.status,
           jobError: job.error ?? null,
         }
-        if (result) Object.assign(patch, canvasResultVersionPatch(node.data, result, jobId))
+        if (resultChanged) {
+          let versionData = node.data
+          for (const candidate of newResults) versionData = { ...versionData, ...canvasResultVersionPatch(versionData, candidate, jobId) }
+          Object.assign(patch, { resultHistory: versionData.resultHistory })
+          const first = canvasResultHistory(versionData).findIndex((entry) => entry.url === result?.url)
+          Object.assign(patch, selectCanvasResultVersion(versionData, first) ?? canvasResultVersionPatch(versionData, newResults[0], jobId))
+        }
         updateNodeData(node.id, patch)
       }
       if (result) {
@@ -1165,7 +1171,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
       if (!isCanvasJobActive(live.status) || live.status === "awaiting_refine") {
         applyGeneratorJobSnapshot(live.jobId, {
           id: live.jobId, media_type: live.result?.kind ?? "video", status: live.status,
-          error: live.error, outputs: live.result ? [{ kind: live.result.kind, download_url: live.result.url, path: live.result.path, label: live.result.label }] : [],
+          error: live.error, outputs: live.results?.length ? live.results.map((item) => ({ kind: item.kind, download_url: item.url, path: item.path, label: item.label })) : live.result ? [{ kind: live.result.kind, download_url: live.result.url, path: live.result.path, label: live.result.label }] : [],
         })
       }
     }
@@ -1185,19 +1191,20 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     appendResultNode(node, result, jobId, direction)
   }, [appendResultNode])
 
-  const generatorActiveJobKey = useMemo(() => {
+  const generatorJobPollKey = useMemo(() => {
     const jobIds = new Set<string>()
     for (const node of nodesRef.current) {
       if (node.type !== "generator" || !node.data.jobId) continue
       const status = liveJobs[node.data.jobId]?.status ?? node.data.jobStatus
-      if (isCanvasJobActive(status)) jobIds.add(node.data.jobId)
+      // Hydrate finished jobs once after opening a draft, including partial counts.
+      if (!liveJobs[node.data.jobId] || isCanvasJobActive(status)) jobIds.add(node.data.jobId)
     }
     return [...jobIds].sort().join("|")
   }, [liveJobs, nodeDataRevision])
 
   useEffect(() => {
-    if (!generatorActiveJobKey) return
-    const jobIds = generatorActiveJobKey.split("|")
+    if (!generatorJobPollKey) return
+    const jobIds = generatorJobPollKey.split("|")
     let cancelled = false
     const poll = async () => {
       const snapshots = await Promise.all(jobIds.map(async (jobId) => {
@@ -1217,13 +1224,17 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
         const next = { ...previous }
         for (const [jobId, job] of found) {
           const result = canvasJobResult(job)
+          const details = canvasJobLiveDetails(job)
           const previousLive = previous[jobId]
           if (previousLive
             && previousLive.status === job.status
             && previousLive.stage === job.stage
             && previousLive.progress === job.progress
             && (previousLive.error ?? null) === (job.error ?? null)
-            && (previousLive.result?.url ?? null) === (result?.url ?? null)) continue
+            && (previousLive.result?.url ?? null) === (result?.url ?? null)
+            && previousLive.completedCount === details.completedCount
+            && previousLive.requestedCount === details.requestedCount
+            && JSON.stringify(previousLive.results) === JSON.stringify(details.results)) continue
           next[jobId] = {
             jobId,
             status: job.status,
@@ -1231,6 +1242,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
             progress: job.progress,
             error: job.error ?? null,
             result,
+            ...details,
             updatedAt: Date.now(),
           }
         }
@@ -1244,7 +1256,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [applyGeneratorJobSnapshot, generatorActiveJobKey])
+  }, [applyGeneratorJobSnapshot, generatorJobPollKey])
 
   const submitGenerator = useCallback(async (nodeId: string) => {
     const node = nodesRef.current.find((item) => item.id === nodeId && item.type === "generator")
@@ -1302,6 +1314,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
           progress: job.progress,
           error: job.error ?? null,
           result,
+          ...canvasJobLiveDetails(job),
           updatedAt: Date.now(),
         },
       }))
@@ -1345,6 +1358,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
           progress: job.progress,
           error: job.error ?? null,
           result,
+          ...canvasJobLiveDetails(job),
           updatedAt: Date.now(),
         },
       }))
@@ -1366,7 +1380,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
       if (!mountedRef.current) return
       setLiveJobs((previous) => ({ ...previous, [jobId]: {
         jobId, status: job.status, stage: job.stage, progress: job.progress,
-        error: job.error ?? null, result: canvasJobResult(job), updatedAt: Date.now(),
+        error: job.error ?? null, result: canvasJobResult(job), ...canvasJobLiveDetails(job), updatedAt: Date.now(),
       } }))
       applyGeneratorJobSnapshot(jobId, job)
       message.success(action === "confirm" ? "已确认二采精修" : "已保留一采预览")
@@ -1477,7 +1491,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
   ) => {
     const center = stageCenter()
     const fallbackSize = kind === "generator"
-      ? { width: 356, height: 446 }
+      ? { width: 400, height: 290 }
       : kind === "text"
         ? { width: 260, height: 120 }
         : kind === "artboard"
@@ -1696,15 +1710,6 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     updateNodeData(nodeId, patch)
   }, [updateNodeData])
 
-  const nodeActions = useMemo<CanvasNodeActions>(() => ({
-    openProperties,
-    branchGenerate,
-    duplicateNode,
-    deleteNode,
-    downloadNode,
-    updateCover: updateNodeCover,
-  }), [branchGenerate, deleteNode, downloadNode, duplicateNode, openProperties, updateNodeCover])
-
   const deleteSelected = useCallback(() => {
     if (!selectedNodeIds.length && !selectedEdgeIds.length) return
     const nodeIds = new Set(selectedNodeIds)
@@ -1796,6 +1801,8 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
   const closeAssetLibrary = useCallback(() => {
     setAssetOpen(false)
     setAssetTargetNodeId(null)
+    setAssetGeneratorId(null)
+    setAssetReferenceSourceId(null)
     setAssetSearch("")
     setLibrarySearch("")
   }, [])
@@ -1816,6 +1823,8 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
   const openAssetLibrary = useCallback((kind: CanvasMediaKind = "image", targetNodeId: string | null = null) => {
     setAssetKind(kind)
     setAssetTargetNodeId(targetNodeId)
+    setAssetGeneratorId(null)
+    setAssetReferenceSourceId(null)
     setAssetOpen(true)
   }, [])
 
@@ -1824,6 +1833,28 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     dropAt: { x: number; y: number } | null = null,
     options: { replace?: boolean } = {},
   ) => {
+    if (assetGeneratorId && options.replace !== false) {
+      const target = nodesRef.current.find((node) => node.id === assetGeneratorId && node.type === "generator")
+      const workflow = generationModes.find((mode) => mode.id === target?.data.workflowId)
+      if (!target || !workflow || item.kind === "video") return
+      if (isCanvasJobActive(target.data.jobId ? liveJobsRef.current[target.data.jobId]?.status ?? target.data.jobStatus : target.data.jobStatus) || submittingGeneratorIds.has(target.id)) return
+      const references = incomingGeneratorReferenceNodes(nodesRef.current, edgesRef.current, target.id)
+      if (!assetReferenceSourceId && references.length >= (workflow.max_references ?? 0)) {
+        message.warning("已达到当前工作流的参考图上限")
+        return
+      }
+      const reference = createLibraryNode(item, { x: target.position.x - 420, y: target.position.y + references.length * 48 })
+      if (!reference) { message.warning("该素材暂不可用"); return }
+      reference.position = findCanvasFreePosition(reference.position, canvasNodeSize(reference), nodesRef.current.filter((node) => node.type !== "artboard"))
+      const edge = canvasConnectEdge(reference.id, target.id, "in")
+      setNodes((current) => [...current.map((node) => ({ ...node, selected: node.id === target.id })), { ...reference, selected: false }])
+      setEdges((current) => assetReferenceSourceId
+        ? current.map((old) => old.target === target.id && old.source === assetReferenceSourceId ? { ...edge, targetHandle: old.targetHandle || "in", id: buildEdgeId(reference.id, target.id, "out", old.targetHandle || "in") } : old)
+        : [...current, edge])
+      closeAssetLibrary()
+      message.success("参考图已连接")
+      return
+    }
     const replaceTargetId = options.replace === false ? null : assetTargetNodeId
     if (replaceTargetId) {
       const url = libraryItemUrl(item)
@@ -1860,7 +1891,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     appendNodes([node])
     revealAddedNode(node)
     message.success(item.kind === "video" ? "视频已插入画布" : "图片已插入画布")
-  }, [appendNodes, assetTargetNodeId, closeAssetLibrary, revealAddedNode, stageCenter, updateNodeData])
+  }, [appendNodes, assetGeneratorId, assetReferenceSourceId, assetTargetNodeId, closeAssetLibrary, generationModes, revealAddedNode, setEdges, setNodes, stageCenter, submittingGeneratorIds, updateNodeData])
 
   useEffect(() => {
     if (!insertRequest) return
@@ -2308,6 +2339,17 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     (nodeId: string, kind: CanvasMediaKind) => openAssetLibrary(kind, nodeId),
     [openAssetLibrary],
   )
+  const nodeActions = useMemo<CanvasNodeActions>(() => ({
+    openProperties,
+    branchGenerate,
+    duplicateNode,
+    deleteNode,
+    downloadNode,
+    updateCover: updateNodeCover,
+    chooseMedia: (nodeId, kind) => openAssetLibrary(kind, nodeId),
+    saveCanvas: () => { void saveDraft(true) },
+  }), [branchGenerate, deleteNode, downloadNode, duplicateNode, openProperties, openAssetLibrary, saveDraft, updateNodeCover])
+
   const reloadModesFromPanel = useCallback(() => {
     void modesQuery.refetch()
   }, [modesQuery.refetch])
@@ -2630,6 +2672,16 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
       modeFor: (workflowId?: string) => generationModes.find((mode) => mode.id === workflowId) ?? null,
       liveFor: (jobId?: string | null) => (jobId ? liveJobs[jobId] ?? null : null),
       referenceCountFor: (nodeId: string) => incomingGeneratorReferenceNodes(nodesRef.current, edgesRef.current, nodeId).length,
+      referencesFor: (nodeId: string) => incomingGeneratorReferenceNodes(nodesRef.current, edgesRef.current, nodeId),
+      chooseReference: (nodeId: string, sourceId?: string) => {
+        setAssetKind("image")
+        setAssetTargetNodeId(null)
+        setAssetGeneratorId(nodeId)
+        setAssetReferenceSourceId(sourceId ?? null)
+        setAssetOpen(true)
+      },
+      removeReference: (nodeId: string, sourceId: string) => setEdges((current) => current.filter((edge) => !(edge.target === nodeId && edge.source === sourceId))),
+      moveReference: (nodeId: string, sourceId: string, direction: -1 | 1) => setEdges((current) => reorderCanvasReferenceEdges(current, nodesRef.current, nodeId, sourceId, direction)),
       promptInfoFor: promptStateFor,
       issueFor: (nodeId: string) => {
         const currentNodes = nodesRef.current
@@ -2715,9 +2767,10 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
 
   return (
     <div className="canvas-workspace canvas-editor-workspace">
-      <header className="canvas-editor-header">
+      <header className="canvas-editor-header canvas-chrome-bar">
+        <div className="canvas-editor-project">
         <Tooltip title="返回画布列表"><Button type="text" loading={leaving} icon={<ChevronLeft size={20} />} aria-label="返回画布列表" onClick={() => { void leaveCanvas() }} /></Tooltip>
-        <span className="canvas-editor-breadcrumb">画布 <span>/</span></span>
+        <span className="canvas-editor-breadcrumb">无限画布 <span>/</span></span>
         <Input
           id="canvas-title"
           name="canvas-title"
@@ -2737,8 +2790,10 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
             {saveStateLabels[saveState]}
           </span>
         </Tooltip>
-        <div className="canvas-editor-header-spacer" />
+        </div>
+        <div className="canvas-editor-controls">
         <Button className="canvas-header-history" type="text" icon={<History size={22} />} onClick={openHistoryPanel}>历史</Button>
+        <Tooltip title="图层"><Button type="text" icon={<PanelRight size={16} />} aria-label="图层" onClick={() => { setPanelOpen(true); changePanelTab("layers") }} /></Tooltip>
         <Button className="canvas-header-settings" type="text" icon={<Settings size={22} />} onClick={openCanvasSettings}>设置</Button>
         <Tooltip title={panelOpen ? "收起属性面板" : "展开属性面板"}>
           <Button className={panelOpen ? "canvas-panel-toggle is-active" : "canvas-panel-toggle"} type="text" icon={<ImageIcon size={22} />} aria-pressed={panelOpen} onClick={() => setPanelOpen((open) => !open)}>属性</Button>
@@ -2748,12 +2803,14 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
           classNames={{ root: "canvas-popup canvas-file-menu" }}
           menu={{
             items: [
+              { key: "save", icon: <Check size={15} />, label: "立即保存" },
               { key: "export-png", icon: <ImageIcon size={15} />, label: "导出 PNG" },
               { type: "divider" },
               { key: "export", icon: <Download size={15} />, label: "导出 JSON" },
               { key: "import", icon: <Upload size={15} />, label: "导入 JSON" },
             ],
             onClick: ({ key }) => {
+              if (key === "save") void saveDraft(true)
               if (key === "export-png") setExportOpen(true)
               if (key === "export") exportJson()
               if (key === "import") fileInputRef.current?.click()
@@ -2762,20 +2819,18 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
         >
           <Button type="text" icon={<MoreHorizontal size={18} />} aria-label="更多画布操作" />
         </Dropdown>
-        <span className="canvas-editor-divider" />
-        <Button type="primary" aria-label="保存" aria-busy={saveState === "saving"} loading={saveState === "saving"} onClick={() => { void saveDraft(true) }}>
-          保存
-        </Button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="application/json,.json"
-          className="hidden"
-          tabIndex={-1}
-          aria-hidden="true"
-          onChange={(event) => { void handleImportFile(event) }}
-        />
+        <Button className="canvas-header-export" icon={<Download size={15} />} onClick={() => setExportOpen(true)}>导出</Button>
+        </div>
       </header>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="application/json,.json"
+        className="hidden"
+        tabIndex={-1}
+        aria-hidden="true"
+        onChange={(event) => { void handleImportFile(event) }}
+      />
 
       {conflictVersionNumber !== null ? (
         <Alert
@@ -2800,7 +2855,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
 
       <div className="canvas-editor-body">
         <div
-          className={`canvas-stage canvas-tool-${tool} canvas-connections-${settings.connectionMode}`}
+          className={`canvas-stage canvas-flow canvas-tool-${tool} canvas-connections-${settings.connectionMode}`}
           ref={stageRef}
           onDragEnter={handleStageDragEnter}
           onDragOver={handleStageDragOver}
@@ -2856,7 +2911,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
             <ReactFlow
               nodes={nodes}
               edges={visibleEdges}
-              nodeTypes={nodeTypes}
+              nodeTypes={baseNodeTypes}
               edgeTypes={edgeTypes}
               onNodesChange={handleNodesChange}
               onEdgesChange={onEdgesChange}
@@ -2904,7 +2959,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
               zoomOnDoubleClick={false}
               elementsSelectable
             >
-              {settings.gridVisible ? <Background gap={22.67} size={2.2} color="var(--canvas-grid-dot)" /> : null}
+              {settings.gridVisible ? <Background gap={22} size={1} color="var(--canvas-grid-dot)" /> : null}
               <ViewportPortal>
                 {guides.vertical.map((x, index) => (
                   <div
@@ -2940,8 +2995,8 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
                   maskColor={themeMode === "dark" ? "rgba(9, 12, 17, 0.72)" : "rgba(245, 247, 250, 0.72)"}
                   style={{
                     margin: "0 0 77px 13px",
-                    width: 174,
-                    height: 101,
+                    width: 148,
+                    height: 86,
                     background: "var(--studio-surface)",
                     border: "1px solid var(--studio-border)",
                   }}
@@ -3214,7 +3269,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
       <Drawer
         className="canvas-asset-panel"
         rootClassName="canvas-asset-drawer"
-        title={assetTargetNodeId ? `替换${assetKind === "video" ? "视频" : "图片"}素材` : "从作品库插入素材"}
+        title={assetGeneratorId ? "选择生成参考图" : assetTargetNodeId ? `替换${assetKind === "video" ? "视频" : "图片"}素材` : "从作品库插入素材"}
         placement="right"
         size={560}
         mask={false}
@@ -3226,7 +3281,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
       >
         <div className="canvas-asset-toolbar">
           <div className="canvas-asset-toolbar-row">
-            {assetTargetNodeId ? (
+            {assetGeneratorId ? <Tag>按选择顺序添加参考图</Tag> : assetTargetNodeId ? (
               <Tag className="canvas-asset-target">
                 替换：{assetTargetNode?.data.label || "选中节点"}
               </Tag>
@@ -3252,7 +3307,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
             />
           </div>
           <span className="canvas-asset-hint">
-            {assetTargetNodeId
+            {assetGeneratorId ? "选择图片将创建素材节点，并连接为当前生成节点的参考图；替换不会修改原素材。" : assetTargetNodeId
               ? "点击素材会替换当前节点的地址与来源，保留已有标签。"
               : "点击素材插入画布中心，或直接拖到画布上的目标位置；已交付到本机或已过期的资源不可用。"}
           </span>
@@ -3288,8 +3343,8 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
                     type="button"
                     key={canvasLibraryItemKey(item)}
                     className="canvas-asset-card"
-                    draggable={!assetTargetNodeId && Boolean(url)}
-                    title={assetTargetNodeId ? "点击替换当前节点素材" : "点击插入画布中心，或拖拽到画布目标位置"}
+                    draggable={!assetTargetNodeId && !assetGeneratorId && Boolean(url)}
+                    title={assetGeneratorId ? "选择为生成参考图" : assetTargetNodeId ? "点击替换当前节点素材" : "点击插入画布中心，或拖拽到画布目标位置"}
                     onClick={() => insertLibraryItem(item)}
                     onDragStart={(event) => startAssetDrag(item, event)}
                     onDragEnd={endAssetDrag}
@@ -3333,7 +3388,14 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
         className="canvas-dialog canvas-media-dialog"
         title={preview?.label || (preview?.kind === "video" ? "视频预览" : "图片预览")}
         open={Boolean(preview)}
-        footer={null}
+        footer={preview ? <Space size={6}>
+          {preview.kind === "image" ? <>
+            <Button aria-label="缩小预览" icon={<Minus size={15} />} disabled={previewZoom <= 0.25} onClick={() => setPreviewZoom((value) => Math.max(0.25, value - 0.25))} />
+            <Button aria-label="适配图片" onClick={() => setPreviewZoom(1)}>{Math.round(previewZoom * 100)}%</Button>
+            <Button aria-label="放大预览图片" icon={<Plus size={15} />} disabled={previewZoom >= 3} onClick={() => setPreviewZoom((value) => Math.min(3, value + 0.25))} />
+          </> : null}
+          <Button icon={<Download size={14} />} href={preview.url} target="_blank" rel="noopener noreferrer">下载素材</Button>
+        </Space> : null}
         width={preview?.kind === "video" ? 960 : 920}
         onCancel={() => setPreview(null)}
         destroyOnHidden
@@ -3342,7 +3404,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
           preview.kind === "video" ? (
             <video className="canvas-preview-media" src={preview.url} poster={preview.poster} controls autoPlay playsInline />
           ) : (
-            <img className="canvas-preview-media" src={preview.url} alt={preview.label || "画布图片预览"} />
+            <div className="canvas-image-preview-viewport"><img className="canvas-preview-media" src={preview.url} alt={preview.label || "画布图片预览"} style={{ zoom: previewZoom }} /></div>
           )
         ) : null}
       </Modal>

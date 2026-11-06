@@ -243,6 +243,7 @@ class DubbingService:
         audio = provider.synthesize(
             str(line.get("text") or ""),
             voice=(asset or {}).get("voice_id"),
+            gender=gender,
             spk_audio=spk_audio or None,
             spk_filename=filename,
             emotion=str(line.get("emotion") or voice.get("default_emotion") or "calm"),

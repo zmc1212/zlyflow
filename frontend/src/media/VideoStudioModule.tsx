@@ -1,30 +1,23 @@
 import { Button, ConfigProvider, Dropdown, Slider, Tooltip, message } from "antd"
-import { ChevronDown, Clapperboard, Download, FileSliders, Frame, HardDrive, LoaderCircle, Maximize2, MoreHorizontal, Pause, Play, Trash2, Volume2, VolumeX, WandSparkles } from "lucide-react"
+import { Download, HardDrive, Maximize2, MoreHorizontal, Pause, Play, Sparkles, Volume2, VolumeX, type LucideIcon } from "lucide-react"
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from "react"
 import { mediaAspectVars, parseMediaAspect, type MediaAspectSize } from "../lib/utils"
+import type { MediaHandoffSource } from "../media-handoff"
 import { cloudThumbnailSrc } from "../media-thumbnails"
-import { isUpscaleOutput } from "../video-upscale"
+import { mediaActionBar, mediaActionMenu, type MediaActionItem } from "./media-actions"
 import { formatVideoTime, videoResultKey, type VideoResult } from "./video-result-model"
 import "./video-results.css"
 
 export type { VideoResult } from "./video-result-model"
 
-export type VideoUpscaleEngine = {
-  id: "rtx" | "seedvr2"; label: string; hint?: string; disabled?: boolean
-}
-
-export type VideoUpscaleAction = {
-  disabled: boolean; pending?: boolean; hint?: string; engines?: VideoUpscaleEngine[]
-  onClick: (engine?: "rtx" | "seedvr2") => void
-}
-
 type ResultActions = {
   onDownload: (result: VideoResult) => void
   onPreview?: (result: VideoResult) => void
-  onAddToCanvas?: (result: VideoResult) => void
-  onExportJianying?: (result: VideoResult) => void
-  onShowRuntime?: () => void
-  onDeleteTask?: () => void
+  onEnhance?: (result: VideoResult) => void
+  enhancing?: boolean
+  /** 卡片按每个视频版本自己的定位符取动作，注册表仍由宿主持有。 */
+  resolveActions?: (source: MediaHandoffSource) => MediaActionItem[]
+  onAction?: (action: MediaActionItem, result: VideoResult) => void
 }
 
 const videoSeekTheme = {
@@ -33,8 +26,12 @@ const videoSeekTheme = {
   },
 }
 
-function VideoResultCard({ result, aspectRatio, upscale, ...actions }: ResultActions & {
-  result: VideoResult; aspectRatio?: string; upscale?: VideoUpscaleAction
+function ActionIcon({ icon: Icon, size }: { icon: LucideIcon; size: number }) {
+  return <Icon size={size} />
+}
+
+function VideoResultCard({ result, aspectRatio, ...actions }: ResultActions & {
+  result: VideoResult; aspectRatio?: string
 }) {
   const hint = useMemo(() => parseMediaAspect(aspectRatio), [aspectRatio])
   const [measured, setMeasured] = useState<MediaAspectSize>()
@@ -43,7 +40,6 @@ function VideoResultCard({ result, aspectRatio, upscale, ...actions }: ResultAct
   const [playing, setPlaying] = useState(false)
   const [muted, setMuted] = useState(true)
   const [menuOpen, setMenuOpen] = useState(false)
-  const [upscaleMenuOpen, setUpscaleMenuOpen] = useState(false)
   const [playError, setPlayError] = useState(false)
   const [seekEngaged, setSeekEngaged] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -137,14 +133,22 @@ function VideoResultCard({ result, aspectRatio, upscale, ...actions }: ResultAct
     } catch { actions.onPreview?.(result) }
   }
 
+  const source = result.jobId
+    ? { jobId: result.jobId, generationItemId: result.generationItemId, outputIndex: result.outputIndex, kind: "video" as const }
+    : null
+  const registry = source ? actions.resolveActions?.(source) ?? [] : []
+  const bar = mediaActionBar(registry)
+  // 运行参数与删除不依赖视频本身能不能播放，其余动作在没有结果时按住。
+  const alwaysEnabled = (item: MediaActionItem) => item.id === "params" || item.id === "remove"
   const moreItems = [
-    ...(actions.onAddToCanvas ? [{ key: "canvas", label: "加入画布", icon: <Frame size={16} />, disabled: !available }] : []),
-    ...(actions.onExportJianying ? [{ key: "jianying", label: "导出剪映", icon: <Clapperboard size={16} />, disabled: !available }] : []),
-    ...(actions.onShowRuntime ? [{ key: "runtime", label: "查看运行参数", icon: <FileSliders size={16} /> }] : []),
-    ...(actions.onDeleteTask ? [{ type: "divider" as const }, { key: "delete", label: "删除任务", icon: <Trash2 size={16} />, danger: true }] : []),
+    ...(actions.onEnhance ? [{ key: "enhance", label: actions.enhancing ? "智能高清处理中" : "SeedVR2 2× 智能高清", icon: <Sparkles size={16} />, disabled: !available || actions.enhancing }] : []),
+    ...mediaActionMenu(registry).map((item) => ({
+      key: item.id, label: item.label, danger: item.danger, disabled: !alwaysEnabled(item) && !available,
+      icon: <ActionIcon icon={item.icon} size={16} />,
+    })),
   ]
 
-  return <article className={`studio-video-result-card ${portrait ? "is-portrait" : "is-landscape"} ${menuOpen || upscaleMenuOpen ? "is-menu-open" : ""}`} style={mediaAspectVars(aspect) as CSSProperties}>
+  return <article className={`studio-video-result-card ${portrait ? "is-portrait" : "is-landscape"} ${menuOpen ? "is-menu-open" : ""}`} style={mediaAspectVars(aspect) as CSSProperties}>
     {messageHolder}
     <div ref={mediaRef} className="studio-video-result-media">
       {available ? <video ref={videoRef} className="studio-video-player" src={result.src}
@@ -183,10 +187,9 @@ function VideoResultCard({ result, aspectRatio, upscale, ...actions }: ResultAct
           }}>{menu}</div>}
           menu={{ id: menuId, items: moreItems, onClick: ({ key }) => {
             setMenuOpen(false)
-            if (key === "canvas") actions.onAddToCanvas?.(result)
-            if (key === "jianying") actions.onExportJianying?.(result)
-            if (key === "runtime") actions.onShowRuntime?.()
-            if (key === "delete") actions.onDeleteTask?.()
+            if (key === "enhance") { actions.onEnhance?.(result); return }
+            const item = registry.find((entry) => entry.id === key)
+            if (item) actions.onAction?.(item, result)
           } }}>
           <Button ref={moreRef} type="text" className="studio-video-tool" icon={<MoreHorizontal size={19} />} aria-label="更多视频操作" aria-expanded={menuOpen} />
         </Dropdown> : null}
@@ -197,41 +200,13 @@ function VideoResultCard({ result, aspectRatio, upscale, ...actions }: ResultAct
           <div className="studio-video-playback">
             <Tooltip title={playing ? "暂停" : "播放"}><Button type="text" className="studio-video-play-button" icon={playing ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />} aria-label={playing ? "暂停视频" : "播放视频"} onClick={() => void togglePlayback()} /></Tooltip>
             <span className="studio-video-time">{formatVideoTime(currentTime)} / {formatVideoTime(duration)}</span>
-          </div>
-          <div className="studio-video-quick-tools">
-            {upscale ? <Tooltip title={upscale.hint || "2× 超分"}><span className="studio-video-quick-item">
-              {upscale.engines?.length ? <Dropdown
-                trigger={["click"]}
-                disabled={upscale.disabled || upscale.pending}
-                classNames={{ root: "studio-video-upscale-popup" }}
-                open={upscaleMenuOpen}
-                onOpenChange={setUpscaleMenuOpen}
-                menu={{
-                  items: upscale.engines.map((engine) => ({
-                    key: engine.id,
-                    disabled: engine.disabled,
-                    label: <span className="studio-video-upscale-option">
-                      <span>{engine.label}</span>
-                      {engine.hint ? <em className="studio-video-upscale-hint">{engine.hint}</em> : null}
-                    </span>,
-                  })),
-                  onClick: ({ key }) => {
-                    setUpscaleMenuOpen(false)
-                    upscale.onClick(key as "rtx" | "seedvr2")
-                  },
-                }}
-              >
-                <Button type="text" disabled={upscale.disabled || upscale.pending} aria-label="超分当前任务" className="studio-video-quick-button">
-                  {upscale.pending ? <LoaderCircle size={16} className="animate-spin" /> : <WandSparkles size={16} />}<span>2× 超分</span><ChevronDown size={13} />
-                </Button>
-              </Dropdown> : <Button type="text" disabled={upscale.disabled || upscale.pending} onClick={() => upscale.onClick()} aria-label="2× 超分当前任务" className="studio-video-quick-button">
-                {upscale.pending ? <LoaderCircle size={16} className="animate-spin" /> : <WandSparkles size={16} />}<span>2× 超分</span>
-              </Button>}
-            </span></Tooltip> : null}
-            {actions.onAddToCanvas ? <Tooltip title="将当前视频加入画布"><Button type="text" onClick={() => actions.onAddToCanvas?.(result)} aria-label="将当前视频加入画布" className="studio-video-quick-button"><Frame size={16} /><span>加入画布</span></Button></Tooltip> : null}
-            {actions.onExportJianying ? <Tooltip title="将当前视频导出为剪映草稿"><Button type="text" onClick={() => actions.onExportJianying?.(result)} aria-label="导出当前视频到剪映" className="studio-video-quick-button"><Clapperboard size={16} /><span>导出剪映</span></Button></Tooltip> : null}
             <Tooltip title={muted ? "开启声音" : "静音"}><Button type="text" className="studio-video-volume-button" icon={muted ? <VolumeX size={17} /> : <Volume2 size={17} />} aria-label={muted ? "开启声音" : "静音"} onClick={() => { if (videoRef.current) videoRef.current.muted = !muted }} /></Tooltip>
           </div>
+          {bar.length ? <div className="studio-video-quick-tools">
+            {bar.map((item) => <Tooltip key={item.id} title={item.label}>
+              <Button type="text" className="studio-video-quick-button" icon={<ActionIcon icon={item.icon} size={17} />} aria-label={item.label} onClick={() => actions.onAction?.(item, result)} />
+            </Tooltip>)}
+          </div> : null}
         </div>
         <div ref={seekAreaRef} className={`studio-video-seek-area ${seekEngaged ? "is-seek-engaged" : ""}`}
           onPointerDownCapture={(event) => {
@@ -258,14 +233,14 @@ function VideoResultCard({ result, aspectRatio, upscale, ...actions }: ResultAct
   </article>
 }
 
-export default function VideoStudioModule({ results, roundCount, embedded = false, showHeading = true, aspectRatio, upscale, upscaleStage, ...actions }: ResultActions & {
+export default function VideoStudioModule({ results, roundCount, embedded = false, showHeading = true, aspectRatio, upscaleStage, ...actions }: ResultActions & {
   results: VideoResult[]; roundCount: number; embedded?: boolean; showHeading?: boolean
-  aspectRatio?: string; upscale?: VideoUpscaleAction; upscaleStage?: string
+  aspectRatio?: string; upscaleStage?: string
 }) {
   const videos = results.filter((result) => result.output.kind === "video")
   return <section className={`studio-video-results ${embedded ? "" : "is-standalone"}`} aria-label="视频生成结果">
     {showHeading ? <div className="studio-video-results-heading"><h2>视频结果</h2><p>共 {roundCount} 轮</p></div> : null}
     {upscaleStage ? <p className="studio-video-upscale-stage">{upscaleStage}</p> : null}
-    <div className="studio-video-result-grid is-single">{videos.map((result) => <VideoResultCard key={videoResultKey(result)} result={result} aspectRatio={aspectRatio} upscale={isUpscaleOutput(result.output) ? undefined : upscale} {...actions} />)}</div>
+    <div className="studio-video-result-grid is-single">{videos.map((result) => <VideoResultCard key={videoResultKey(result)} result={result} aspectRatio={aspectRatio} {...actions} />)}</div>
   </section>
 }

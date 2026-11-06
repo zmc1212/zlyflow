@@ -3,6 +3,7 @@ import { Alert, AutoComplete, Button, Input, Select, Switch, Tag, message } from
 import { Bot, CheckCircle2, ExternalLink, KeyRound, RefreshCw, Sparkles } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { jsonMutation, requestJson } from "../api"
+import { CopyFieldButton } from "./FieldCopy"
 import { buildModelOptions, modelPriceLabel, modelPriceTagStyle, providerPresetFor, resolveModelFree, sameProviderEndpoint } from "./provider-models"
 import type { CatalogModel, CatalogResponse, ProviderPresetsResponse } from "./provider-models"
 
@@ -357,6 +358,7 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
               placeholder="https://api-inference.modelscope.cn/v1"
+              suffix={<CopyFieldButton label="Base URL" value={baseUrl} csrfToken={csrfToken} />}
             />
           </div>
 
@@ -366,14 +368,17 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
                 <label className="block text-xs font-medium text-[#4b5563]">Model (模型名称)</label>
                 <Tag style={modelPriceTagStyle(selectedModelFree)}>{modelPriceLabel(selectedModelFree)}</Tag>
               </div>
-              <Button
-                size="small"
-                loading={catalog.isPending}
-                onClick={() => catalog.mutate()}
-                icon={<RefreshCw size={13} />}
-              >
-                拉取官方列表
-              </Button>
+              <div className="flex items-center gap-1">
+                <CopyFieldButton label="模型名称" value={model} csrfToken={csrfToken} />
+                <Button
+                  size="small"
+                  loading={catalog.isPending}
+                  onClick={() => catalog.mutate()}
+                  icon={<RefreshCw size={13} />}
+                >
+                  拉取官方列表
+                </Button>
+              </div>
             </div>
             <AutoComplete
               className="mt-1.5 w-full"
@@ -411,7 +416,7 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
                 type="info"
                 showIcon
                 message="工坊写稿会带参考图调用此模型"
-                description="当前名称可识别为多模态。剧集工坊生成 H3 提示词时会把角色卡、场景卡和三联一并送给该模型，不必再抄到 VLM 页。"
+                description="当前名称可识别为多模态。剧集工坊生成 H3 提示词时会把角色卡和场景卡一并送给该模型，不必再抄到 VLM 页。"
               />
             ) : (
               <p className="mt-1.5 text-[11px] leading-4 text-[#6b7280]">
@@ -451,6 +456,7 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
                     || (savedEndpointCredential ? `已保存 ${savedEndpointCredential.api_key_masked ?? "Key"}，留空自动沿用` : null)
                     || "输入平台生成的 API Key / Token"
               }
+              suffix={<CopyFieldButton label="API Key" value={apiKey} csrfToken={csrfToken} provider="llm" />}
             />
             {savedEndpointCredential && !savedKeyMatches ? (
               <p className="mt-1.5 text-[11px] leading-4 text-[#6b7280]">

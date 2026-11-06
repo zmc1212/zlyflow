@@ -19,6 +19,15 @@ class QiniuProviderService:
             self.credentials.decrypt(config.get("secret_key_encrypted")),
         )
 
+    def reveal_secret(self, field: str) -> str | None:
+        """管理页「复制 Key」取回的明文。"""
+        access_key, secret_key = self._secrets()
+        if field == "access_key":
+            return access_key
+        if field == "secret_key":
+            return secret_key
+        raise ValueError("七牛云只支持复制 Access Key / Secret Key")
+
     def storage(self) -> QiniuStorage:
         config = self.store.get_qiniu_settings()
         access_key, secret_key = self._secrets()

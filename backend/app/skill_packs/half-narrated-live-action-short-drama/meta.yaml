@@ -13,17 +13,12 @@ director2_overlay:
   episodes: inject_craft
   storyboard: inject_craft
 workshop_shot:
-  - generate_shot_triptych
-  - extract_triptych_panels
   - write_timestamped_zh_prompt
   - polish_ref2va
   - bind_r2v_slots
 r2v_slots:
   - source: characters
   - source: scene
-  - source: triptych.start
-  - source: triptych.mid
-  - source: triptych.end
 packing_overrides:
   allow_timeranges: true
   allow_multi_camera_path: true

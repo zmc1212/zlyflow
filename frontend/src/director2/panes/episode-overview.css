@@ -119,6 +119,8 @@
 .series-delete-modal .series-delete-icon { flex-shrink: 0; color: var(--studio-danger); }
 .series-delete-content strong { display: block; margin-top: 16px; color: var(--studio-text); font-size: 18px; line-height: 28px; overflow-wrap: anywhere; }
 .series-delete-content p { margin: 12px 0 4px; color: var(--studio-text-secondary); font-size: 14px; line-height: 24px; }
+.series-delete-list { margin: 16px 0 0; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; max-height: 216px; overflow-y: auto; list-style: none; border: 1px solid var(--studio-border); border-radius: 10px; background: var(--studio-surface-raised); }
+.series-delete-list li { color: var(--studio-text); font-size: 14px; line-height: 22px; overflow-wrap: anywhere; }
 
 @keyframes series-status-rotate { to { transform: rotate(360deg); } }
 .series-status-spinner { animation: series-status-rotate 1.8s linear infinite; }

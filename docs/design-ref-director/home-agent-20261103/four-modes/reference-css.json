@@ -1,0 +1,1431 @@
+{
+  "url": "https://jimeng.jianying.com/ai-tool/novel",
+  "capturedAt": "2026-11-03T02:36:25.942Z",
+  "viewport": {
+    "dpr": 1,
+    "h": 863,
+    "w": 1920
+  },
+  "metrics": {
+    "composer": {
+      "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+      "border": "0px none rgb(255, 255, 255)",
+      "cls": "overflow-hidden composer-QQJ09W",
+      "color": "rgb(255, 255, 255)",
+      "content": "normal",
+      "display": "flex",
+      "font": "14px / 21px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+      "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+      "gap": "normal",
+      "margin": "0px",
+      "opacity": "1",
+      "padding": "16px",
+      "radius": "0px",
+      "rect": {
+        "h": 265,
+        "w": 1198,
+        "x": 481,
+        "y": 209.234375
+      },
+      "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "tag": "DIV"
+    },
+    "editor": {
+      "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+      "border": "0px none rgb(255, 255, 255)",
+      "cls": "box-border break-words editorText-_Ixrq4",
+      "color": "rgb(255, 255, 255)",
+      "content": "normal",
+      "display": "block",
+      "font": "",
+      "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+      "gap": "normal",
+      "margin": "0px",
+      "opacity": "1",
+      "padding": "6px",
+      "radius": "0px",
+      "rect": {
+        "h": 185,
+        "w": 872,
+        "x": 747,
+        "y": 225.234375
+      },
+      "shadow": "none",
+      "tag": "DIV"
+    },
+    "footerButtons": [
+      {
+        "metric": {
+          "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box padding-box",
+          "border": "1px solid rgba(0, 0, 0, 0)",
+          "cls": "box-border cursor-pointer items-center justify-center whitespace-nowrap",
+          "color": "rgb(255, 255, 255)",
+          "content": "normal",
+          "display": "flex",
+          "font": "500 13px / 14.95px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+          "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+          "gap": "normal",
+          "margin": "0px",
+          "opacity": "1",
+          "padding": "0px",
+          "radius": "8px",
+          "rect": {
+            "h": 32,
+            "w": 32,
+            "x": 501,
+            "y": 426.234375
+          },
+          "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+          "tag": "BUTTON"
+        },
+        "name": "上传剧本/图/视频"
+      },
+      {
+        "metric": {
+          "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box padding-box",
+          "border": "1px solid rgba(0, 0, 0, 0)",
+          "cls": "box-border cursor-pointer items-center justify-center whitespace-nowrap",
+          "color": "rgb(255, 255, 255)",
+          "content": "normal",
+          "display": "flex",
+          "font": "500 13px / 14.95px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+          "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+          "gap": "normal",
+          "margin": "0px",
+          "opacity": "1",
+          "padding": "0px",
+          "radius": "8px",
+          "rect": {
+            "h": 32,
+            "w": 32,
+            "x": 535,
+            "y": 426.234375
+          },
+          "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+          "tag": "BUTTON"
+        },
+        "name": "参考素材"
+      },
+      {
+        "metric": {
+          "background": "rgba(255, 255, 255, 0.04) none repeat scroll 0% 0% / auto padding-box border-box",
+          "border": "0px none rgba(255, 255, 255, 0.7)",
+          "cls": "box-border cursor-pointer items-center justify-center whitespace-nowrap",
+          "color": "rgba(255, 255, 255, 0.7)",
+          "content": "normal",
+          "display": "inline-flex",
+          "font": "500 12px / 13.8px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+          "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+          "gap": "4px",
+          "margin": "0px",
+          "opacity": "1",
+          "padding": "1px 12px",
+          "radius": "32px",
+          "rect": {
+            "h": 0,
+            "w": 0,
+            "x": 0,
+            "y": 0
+          },
+          "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+          "tag": "BUTTON"
+        },
+        "name": "技能"
+      },
+      {
+        "metric": {
+          "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+          "border": "1px solid rgba(0, 0, 0, 0)",
+          "cls": "box-border cursor-pointer items-center justify-center whitespace-nowrap button-fWUSuu styleTrigger-jG4qaw",
+          "color": "rgb(255, 255, 255)",
+          "content": "normal",
+          "display": "flex",
+          "font": "500 12px / 20px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+          "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+          "gap": "4px",
+          "margin": "0px",
+          "opacity": "1",
+          "padding": "0px 8px",
+          "radius": "8px",
+          "rect": {
+            "h": 32,
+            "w": 62,
+            "x": 578,
+            "y": 426.234375
+          },
+          "shadow": "none",
+          "tag": "BUTTON"
+        },
+        "name": "风格"
+      },
+      {
+        "metric": {
+          "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+          "border": "1px solid rgba(0, 0, 0, 0)",
+          "cls": "box-border cursor-pointer items-center justify-center whitespace-nowrap",
+          "color": "rgb(255, 255, 255)",
+          "content": "normal",
+          "display": "flex",
+          "font": "500 12px / 20px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+          "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+          "gap": "4px",
+          "margin": "0px",
+          "opacity": "1",
+          "padding": "0px 8px",
+          "radius": "8px",
+          "rect": {
+            "h": 32,
+            "w": 62,
+            "x": 642,
+            "y": 426.234375
+          },
+          "shadow": "none",
+          "tag": "BUTTON"
+        },
+        "name": "选题"
+      },
+      {
+        "metric": {
+          "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+          "border": "1px solid rgba(0, 0, 0, 0)",
+          "cls": "box-border cursor-pointer items-center justify-center whitespace-nowrap ratioTrigger-V5FnJz",
+          "color": "rgb(255, 255, 255)",
+          "content": "normal",
+          "display": "flex",
+          "font": "500 12px / 20px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+          "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+          "gap": "4px",
+          "margin": "0px",
+          "opacity": "1",
+          "padding": "0px 8px",
+          "radius": "8px",
+          "rect": {
+            "h": 32,
+            "w": 62,
+            "x": 706,
+            "y": 426.234375
+          },
+          "shadow": "none",
+          "tag": "BUTTON"
+        },
+        "name": "画面比例"
+      },
+      {
+        "metric": {
+          "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+          "border": "0px none rgb(255, 255, 255)",
+          "cls": "generationSettingsTrigger-Ng81_I",
+          "color": "rgb(255, 255, 255)",
+          "content": "normal",
+          "display": "flex",
+          "font": "500 12px / 20px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+          "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+          "gap": "4px",
+          "margin": "0px",
+          "opacity": "1",
+          "padding": "0px 8px",
+          "radius": "8px",
+          "rect": {
+            "h": 32,
+            "w": 259.171875,
+            "x": 770,
+            "y": 426.234375
+          },
+          "shadow": "none",
+          "tag": "BUTTON"
+        },
+        "name": "生成设置"
+      },
+      {
+        "metric": {
+          "background": "rgba(255, 255, 255, 0.16) none repeat scroll 0% 0% / auto padding-box border-box",
+          "border": "1px solid rgba(0, 0, 0, 0)",
+          "cls": "box-border cursor-pointer items-center justify-center whitespace-nowrap button-YD2l_R",
+          "color": "rgba(255, 255, 255, 0.2)",
+          "content": "normal",
+          "display": "inline-flex",
+          "font": "500 13px / 14.95px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+          "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+          "gap": "normal",
+          "margin": "0px",
+          "opacity": "1",
+          "padding": "6px",
+          "radius": "50%",
+          "rect": {
+            "h": 32,
+            "w": 32,
+            "x": 1631,
+            "y": 426.234375
+          },
+          "shadow": "none",
+          "tag": "BUTTON"
+        },
+        "name": "立即生成"
+      }
+    ],
+    "heading": {
+      "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+      "border": "0px none rgb(255, 255, 255)",
+      "cls": "title-VdjqSx",
+      "color": "rgb(255, 255, 255)",
+      "content": "normal",
+      "display": "block",
+      "font": "500 30px / 38px FZYaShiHeiS, \"Founder Yashi Black\", \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+      "fontFamily": "FZYaShiHeiS, \"Founder Yashi Black\", \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+      "gap": "normal",
+      "margin": "0px 0px 28px",
+      "opacity": "1",
+      "padding": "0px",
+      "radius": "0px",
+      "rect": {
+        "h": 38,
+        "w": 1600,
+        "x": 280,
+        "y": 106.234375
+      },
+      "shadow": "none",
+      "tag": "H1"
+    },
+    "outerAncestors": [
+      {
+        "children": [
+          {
+            "cls": "",
+            "tag": "DIV"
+          },
+          {
+            "cls": "",
+            "tag": "INPUT"
+          },
+          {
+            "cls": "",
+            "tag": "SPAN"
+          }
+        ],
+        "metric": {
+          "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+          "border": "0px none rgb(255, 255, 255)",
+          "cls": "composerHost-Cp_HPq",
+          "color": "rgb(255, 255, 255)",
+          "content": "normal",
+          "display": "flex",
+          "font": "14px / 21px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+          "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+          "gap": "normal",
+          "margin": "0px",
+          "opacity": "1",
+          "padding": "0px",
+          "radius": "0px",
+          "rect": {
+            "h": 265,
+            "w": 1198,
+            "x": 481,
+            "y": 209.234375
+          },
+          "shadow": "none",
+          "tag": "DIV"
+        }
+      },
+      {
+        "children": [
+          {
+            "cls": "composerHost-Cp_HPq",
+            "tag": "DIV"
+          }
+        ],
+        "metric": {
+          "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+          "border": "0px none rgb(255, 255, 255)",
+          "cls": "",
+          "color": "rgb(255, 255, 255)",
+          "content": "normal",
+          "display": "block",
+          "font": "14px / 21px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+          "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+          "gap": "normal",
+          "margin": "0px",
+          "opacity": "1",
+          "padding": "0px",
+          "radius": "0px",
+          "rect": {
+            "h": 265,
+            "w": 1198,
+            "x": 481,
+            "y": 209.234375
+          },
+          "shadow": "none",
+          "tag": "DIV"
+        }
+      },
+      {
+        "children": [
+          {
+            "cls": "",
+            "tag": "DIV"
+          }
+        ],
+        "metric": {
+          "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+          "border": "0px none rgb(255, 255, 255)",
+          "cls": "",
+          "color": "rgb(255, 255, 255)",
+          "content": "normal",
+          "display": "block",
+          "font": "14px / 21px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+          "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+          "gap": "normal",
+          "margin": "0px",
+          "opacity": "1",
+          "padding": "0px",
+          "radius": "0px",
+          "rect": {
+            "h": 265,
+            "w": 1198,
+            "x": 481,
+            "y": 209.234375
+          },
+          "shadow": "none",
+          "tag": "DIV"
+        }
+      },
+      {
+        "children": [
+          {
+            "cls": "tabs-w2ZxxA",
+            "tag": "DIV"
+          },
+          {
+            "cls": "",
+            "tag": "DIV"
+          }
+        ],
+        "metric": {
+          "background": "rgba(0, 0, 0, 0) linear-gradient(rgba(26, 26, 26, 0.72), rgba(42, 42, 42, 0.72) 106.67%) repeat scroll 0% 0% / auto padding-box border-box",
+          "border": "1px solid rgba(255, 255, 255, 0.08)",
+          "cls": "homeComposer-yRnKsN",
+          "color": "rgb(255, 255, 255)",
+          "content": "normal",
+          "display": "flex",
+          "font": "14px / 21px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+          "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+          "gap": "0px",
+          "margin": "0px 65px",
+          "opacity": "1",
+          "padding": "0px",
+          "radius": "24px",
+          "rect": {
+            "h": 303,
+            "w": 1200,
+            "x": 480,
+            "y": 172.234375
+          },
+          "shadow": "none",
+          "tag": "DIV"
+        }
+      },
+      {
+        "children": [
+          {
+            "cls": "homeComposer-yRnKsN",
+            "tag": "DIV"
+          }
+        ],
+        "metric": {
+          "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+          "border": "0px none rgb(255, 255, 255)",
+          "cls": "content-M4uhsI",
+          "color": "rgb(255, 255, 255)",
+          "content": "normal",
+          "display": "block",
+          "font": "14px / 21px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+          "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+          "gap": "normal",
+          "margin": "0px",
+          "opacity": "1",
+          "padding": "0px",
+          "radius": "0px",
+          "rect": {
+            "h": 303,
+            "w": 1330,
+            "x": 415,
+            "y": 172.234375
+          },
+          "shadow": "none",
+          "tag": "DIV"
+        }
+      }
+    ],
+    "placeholder": {
+      "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+      "border": "0px none rgba(255, 255, 255, 0.35)",
+      "cls": "is-empty",
+      "color": "rgba(255, 255, 255, 0.35)",
+      "content": "\"上传素材或描述故事想法，AI 将拆解人物、结构与情节\"",
+      "display": "block",
+      "font": "",
+      "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+      "gap": "normal",
+      "margin": "0px",
+      "opacity": "1",
+      "padding": "0px",
+      "radius": "0px",
+      "rect": {
+        "h": 21,
+        "w": 860,
+        "x": 753,
+        "y": 231.234375
+      },
+      "shadow": "none",
+      "tag": "P"
+    },
+    "tab": {
+      "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+      "border": "0px none rgba(0, 0, 0, 0)",
+      "cls": "cursor-pointer items-center justify-center whitespace-nowrap transition-colors",
+      "color": "rgb(255, 255, 255)",
+      "content": "normal",
+      "display": "flex",
+      "font": "500 12px / 20px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+      "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+      "gap": "4px",
+      "margin": "0px",
+      "opacity": "1",
+      "padding": "0px",
+      "radius": "0px",
+      "rect": {
+        "h": 36,
+        "w": 299.5,
+        "x": 780.5,
+        "y": 173.234375
+      },
+      "shadow": "none",
+      "tag": "BUTTON"
+    },
+    "tabParent": {
+      "background": "color(srgb 0.129412 0.129412 0.129412) none repeat scroll 0% 0% / auto padding-box border-box",
+      "border": "0px none rgba(255, 255, 255, 0.5)",
+      "cls": "items-center justify-start scroll-smooth overflow-visible growingControl-Qh6VcT",
+      "color": "rgba(255, 255, 255, 0.5)",
+      "content": "normal",
+      "display": "grid",
+      "font": "14px / 21px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+      "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+      "gap": "0px",
+      "margin": "0px",
+      "opacity": "1",
+      "padding": "0px",
+      "radius": "0px",
+      "rect": {
+        "h": 36,
+        "w": 898.5,
+        "x": 481,
+        "y": 173.234375
+      },
+      "shadow": "none",
+      "tag": "DIV"
+    },
+    "tabParentChildren": [
+      {
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "border": "0px none rgba(0, 0, 0, 0)",
+        "cls": "cursor-pointer items-center justify-center whitespace-nowrap transition-colors",
+        "color": "rgba(255, 255, 255, 0.7)",
+        "content": "normal",
+        "display": "flex",
+        "font": "12px / 20px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+        "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+        "gap": "4px",
+        "margin": "0px",
+        "opacity": "1",
+        "padding": "0px",
+        "radius": "0px",
+        "rect": {
+          "h": 36,
+          "w": 299.5,
+          "x": 481,
+          "y": 173.234375
+        },
+        "shadow": "none",
+        "tag": "BUTTON"
+      },
+      {
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "border": "0px none rgba(0, 0, 0, 0)",
+        "cls": "cursor-pointer items-center justify-center whitespace-nowrap transition-colors",
+        "color": "rgb(255, 255, 255)",
+        "content": "normal",
+        "display": "flex",
+        "font": "500 12px / 20px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+        "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+        "gap": "4px",
+        "margin": "0px",
+        "opacity": "1",
+        "padding": "0px",
+        "radius": "0px",
+        "rect": {
+          "h": 36,
+          "w": 299.5,
+          "x": 780.5,
+          "y": 173.234375
+        },
+        "shadow": "none",
+        "tag": "BUTTON"
+      },
+      {
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "border": "0px none rgba(255, 255, 255, 0.5)",
+        "cls": "remakeAnchor-PCB9X8",
+        "color": "rgba(255, 255, 255, 0.5)",
+        "content": "normal",
+        "display": "flex",
+        "font": "14px / 21px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+        "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+        "gap": "normal",
+        "margin": "0px",
+        "opacity": "1",
+        "padding": "0px",
+        "radius": "0px",
+        "rect": {
+          "h": 36,
+          "w": 299.5,
+          "x": 1080,
+          "y": 173.234375
+        },
+        "shadow": "none",
+        "tag": "SPAN"
+      },
+      {
+        "background": "rgb(26, 26, 26) none repeat scroll 0% 0% / auto padding-box border-box",
+        "border": "0px none rgba(255, 255, 255, 0.5)",
+        "cls": "tabSelection-kjuwvP",
+        "color": "rgba(255, 255, 255, 0.5)",
+        "content": "normal",
+        "display": "block",
+        "font": "14px / 21px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+        "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+        "gap": "normal",
+        "margin": "0px",
+        "opacity": "1",
+        "padding": "0px",
+        "radius": "12px 12px 0px 0px",
+        "rect": {
+          "h": 36,
+          "w": 299.5,
+          "x": 780.5,
+          "y": 173.234375
+        },
+        "shadow": "none",
+        "tag": "SPAN"
+      }
+    ],
+    "theme": "",
+    "upload": {
+      "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box padding-box",
+      "border": "1px solid rgba(0, 0, 0, 0)",
+      "cls": "box-border cursor-pointer items-center justify-center overflow-hidden whitespace-normal text-center materialGuide-kuRe_8",
+      "color": "rgb(255, 255, 255)",
+      "content": "normal",
+      "display": "inline-flex",
+      "font": "500 12px / 13.8px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+      "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+      "gap": "4px",
+      "margin": "0px",
+      "opacity": "1",
+      "padding": "0px",
+      "radius": "12px",
+      "rect": {
+        "h": 185,
+        "w": 230,
+        "x": 497,
+        "y": 225.234375
+      },
+      "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "tag": "BUTTON"
+    },
+    "uploadChildren": [
+      {
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "border": "0px none rgba(255, 255, 255, 0.08)",
+        "cls": "overflow-visible",
+        "color": "rgba(255, 255, 255, 0.08)",
+        "content": "normal",
+        "display": "block",
+        "font": "500 12px / 13.8px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+        "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+        "gap": "normal",
+        "margin": "0px",
+        "opacity": "1",
+        "padding": "0px",
+        "radius": "0px",
+        "rect": {
+          "h": 183,
+          "w": 228,
+          "x": 498,
+          "y": 226.234375
+        },
+        "shadow": "none",
+        "tag": "svg"
+      },
+      {
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "border": "0px none rgb(255, 255, 255)",
+        "cls": "",
+        "color": "rgb(255, 255, 255)",
+        "content": "normal",
+        "display": "block",
+        "font": "500 12px / 13.8px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+        "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+        "gap": "normal",
+        "margin": "0px",
+        "opacity": "1",
+        "padding": "0px",
+        "radius": "15px",
+        "rect": {
+          "h": 181,
+          "w": 226,
+          "x": 499,
+          "y": 227.234375
+        },
+        "shadow": "none",
+        "tag": "SPAN"
+      },
+      {
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "border": "0px none rgb(255, 255, 255)",
+        "cls": "items-center justify-center",
+        "color": "rgb(255, 255, 255)",
+        "content": "normal",
+        "display": "flex",
+        "font": "500 12px / 13.8px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+        "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+        "gap": "normal",
+        "margin": "0px",
+        "opacity": "1",
+        "padding": "0px",
+        "radius": "0px",
+        "rect": {
+          "h": 36,
+          "w": 166,
+          "x": 529,
+          "y": 278.234375
+        },
+        "shadow": "none",
+        "tag": "SPAN"
+      },
+      {
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "border": "0px none rgb(255, 255, 255)",
+        "cls": "items-center justify-center",
+        "color": "rgb(255, 255, 255)",
+        "content": "normal",
+        "display": "flex",
+        "font": "500 12px / 13.8px \"PingFang SC\", \"Noto Sans SC\", \"Microsoft YaHei\", sans-serif",
+        "fontFamily": "\"PingFang SC\", \"Noto Sans SC\", \"Microsoft YaHei\", sans-serif",
+        "gap": "4px",
+        "margin": "0px",
+        "opacity": "1",
+        "padding": "0px 8px",
+        "radius": "0px",
+        "rect": {
+          "h": 39,
+          "w": 228,
+          "x": 498,
+          "y": 318.234375
+        },
+        "shadow": "none",
+        "tag": "SPAN"
+      }
+    ],
+    "viewport": {
+      "dpr": 1,
+      "h": 863,
+      "w": 1920
+    }
+  },
+  "uploadDetail": {
+    "after": {
+      "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+      "border": "0px none rgb(255, 255, 255)",
+      "content": "none",
+      "fontSize": "12px",
+      "gap": "normal",
+      "lineHeight": "13.8px",
+      "margin": "0px",
+      "mask": "none",
+      "outline": "rgb(255, 255, 255) none 3px",
+      "padding": "0px",
+      "rect": {
+        "h": 185,
+        "w": 230,
+        "x": 497,
+        "y": 225.234375
+      },
+      "tag": "BUTTON",
+      "weight": "500"
+    },
+    "before": {
+      "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+      "border": "0px none rgb(255, 255, 255)",
+      "content": "none",
+      "fontSize": "12px",
+      "gap": "normal",
+      "lineHeight": "13.8px",
+      "margin": "0px",
+      "mask": "none",
+      "outline": "rgb(255, 255, 255) none 3px",
+      "padding": "0px",
+      "rect": {
+        "h": 185,
+        "w": 230,
+        "x": 497,
+        "y": 225.234375
+      },
+      "tag": "BUTTON",
+      "weight": "500"
+    },
+    "children": [
+      {
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "border": "0px none rgba(255, 255, 255, 0.08)",
+        "content": "normal",
+        "fontSize": "12px",
+        "gap": "normal",
+        "lineHeight": "13.8px",
+        "margin": "0px",
+        "mask": "none",
+        "outline": "rgba(255, 255, 255, 0.08) none 3px",
+        "padding": "0px",
+        "rect": {
+          "h": 184,
+          "w": 229,
+          "x": 497.5,
+          "y": 225.734375
+        },
+        "tag": "rect",
+        "text": "",
+        "weight": "500"
+      },
+      {
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "border": "0px none rgb(255, 255, 255)",
+        "content": "normal",
+        "fontSize": "12px",
+        "gap": "normal",
+        "lineHeight": "13.8px",
+        "margin": "0px",
+        "mask": "none",
+        "outline": "rgb(255, 255, 255) none 3px",
+        "padding": "0px",
+        "rect": {
+          "h": 181,
+          "w": 226,
+          "x": 499,
+          "y": 227.234375
+        },
+        "tag": "SPAN",
+        "text": "",
+        "weight": "500"
+      },
+      {
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "border": "0px none rgb(255, 255, 255)",
+        "content": "normal",
+        "fontSize": "12px",
+        "gap": "normal",
+        "lineHeight": "13.8px",
+        "margin": "0px",
+        "mask": "none",
+        "outline": "rgb(255, 255, 255) none 3px",
+        "padding": "0px",
+        "rect": {
+          "h": 36,
+          "w": 166,
+          "x": 529,
+          "y": 278.234375
+        },
+        "tag": "SPAN",
+        "text": "",
+        "weight": "500"
+      },
+      {
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "border": "0px none rgb(255, 255, 255)",
+        "content": "normal",
+        "fontSize": "12px",
+        "gap": "normal",
+        "lineHeight": "13.8px",
+        "margin": "0px",
+        "mask": "none",
+        "outline": "rgb(255, 255, 255) none 3px",
+        "padding": "0px",
+        "rect": {
+          "h": 24,
+          "w": 24,
+          "x": 600,
+          "y": 284.234375
+        },
+        "tag": "SPAN",
+        "text": "",
+        "weight": "500"
+      },
+      {
+        "background": "rgb(64, 64, 64) none repeat scroll 0% 0% / auto padding-box border-box",
+        "border": "1px solid rgba(204, 221, 255, 0.08)",
+        "content": "normal",
+        "fontSize": "12px",
+        "gap": "normal",
+        "lineHeight": "13.8px",
+        "margin": "0px",
+        "mask": "none",
+        "outline": "rgb(255, 255, 255) none 3px",
+        "padding": "0px",
+        "rect": {
+          "h": 24,
+          "w": 24,
+          "x": 600,
+          "y": 284.234375
+        },
+        "tag": "SPAN",
+        "text": "",
+        "weight": "500"
+      },
+      {
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "border": "0px none rgb(255, 255, 255)",
+        "content": "normal",
+        "fontSize": "12px",
+        "gap": "normal",
+        "lineHeight": "13.8px",
+        "margin": "0px",
+        "mask": "none",
+        "outline": "rgb(255, 255, 255) none 3px",
+        "padding": "0px",
+        "rect": {
+          "h": 0,
+          "w": 0,
+          "x": 0,
+          "y": 0
+        },
+        "tag": "path",
+        "text": "",
+        "weight": "500"
+      },
+      {
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "border": "0px none rgb(255, 255, 255)",
+        "content": "normal",
+        "fontSize": "12px",
+        "gap": "normal",
+        "lineHeight": "13.8px",
+        "margin": "0px",
+        "mask": "none",
+        "outline": "rgb(255, 255, 255) none 3px",
+        "padding": "0px",
+        "rect": {
+          "h": 0,
+          "w": 0,
+          "x": 0,
+          "y": 0
+        },
+        "tag": "path",
+        "text": "",
+        "weight": "500"
+      },
+      {
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "border": "0px none rgb(255, 255, 255)",
+        "content": "normal",
+        "fontSize": "12px",
+        "gap": "normal",
+        "lineHeight": "13.8px",
+        "margin": "0px",
+        "mask": "url(\"#hi-mask-ro\")",
+        "outline": "rgb(255, 255, 255) none 3px",
+        "padding": "0px",
+        "rect": {
+          "h": 12,
+          "w": 12,
+          "x": 606,
+          "y": 290.234375
+        },
+        "tag": "path",
+        "text": "",
+        "weight": "500"
+      },
+      {
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "border": "0px none rgb(255, 255, 255)",
+        "content": "normal",
+        "fontSize": "12px",
+        "gap": "4px",
+        "lineHeight": "13.8px",
+        "margin": "0px",
+        "mask": "none",
+        "outline": "rgb(255, 255, 255) none 3px",
+        "padding": "0px 8px",
+        "rect": {
+          "h": 39,
+          "w": 228,
+          "x": 498,
+          "y": 318.234375
+        },
+        "tag": "SPAN",
+        "text": "上传剧本/图/视频格式要求单文件不超过 200MB\n最多 30 张图片、10 个视频",
+        "weight": "500"
+      },
+      {
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "border": "0px none rgb(255, 255, 255)",
+        "content": "normal",
+        "fontSize": "12px",
+        "gap": "normal",
+        "lineHeight": "18px",
+        "margin": "0px",
+        "mask": "none",
+        "outline": "rgb(255, 255, 255) none 3px",
+        "padding": "0px",
+        "rect": {
+          "h": 18,
+          "w": 93.421875,
+          "x": 565.28125,
+          "y": 318.234375
+        },
+        "tag": "SPAN",
+        "text": "上传剧本/图/视频",
+        "weight": "400"
+      },
+      {
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "border": "0px none rgba(255, 255, 255, 0.5)",
+        "content": "normal",
+        "fontSize": "12px",
+        "gap": "4px",
+        "lineHeight": "17px",
+        "margin": "0px",
+        "mask": "none",
+        "outline": "rgba(255, 255, 255, 0.5) none 3px",
+        "padding": "0px",
+        "rect": {
+          "h": 17,
+          "w": 63,
+          "x": 580.5,
+          "y": 340.234375
+        },
+        "tag": "SPAN",
+        "text": "格式要求单文件不超过 200MB\n最多 30 张图片、10 个视频",
+        "weight": "400"
+      },
+      {
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "border": "0px none rgba(255, 255, 255, 0.5)",
+        "content": "normal",
+        "fontSize": "12px",
+        "gap": "normal",
+        "lineHeight": "17px",
+        "margin": "0px",
+        "mask": "none",
+        "outline": "rgba(255, 255, 255, 0.5) none 3px",
+        "padding": "0px",
+        "rect": {
+          "h": 17,
+          "w": 63,
+          "x": 580.5,
+          "y": 340.234375
+        },
+        "tag": "SPAN",
+        "text": "格式要求单文件不超过 200MB\n最多 30 张图片、10 个视频",
+        "weight": "400"
+      }
+    ],
+    "row": [
+      {
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "border": "0px none rgb(255, 255, 255)",
+        "content": "normal",
+        "fontSize": "14px",
+        "gap": "normal",
+        "lineHeight": "21px",
+        "margin": "0px",
+        "mask": "none",
+        "outline": "rgb(255, 255, 255) none 3px",
+        "padding": "0px",
+        "rect": {
+          "h": 185,
+          "w": 230,
+          "x": 497,
+          "y": 225.234375
+        },
+        "tag": "DIV",
+        "text": "上传剧本/图/视频格式要求单文件不超过 200MB\n最多 30 张图片、10 个视频",
+        "weight": "400"
+      },
+      {
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "border": "0px none rgb(255, 255, 255)",
+        "content": "normal",
+        "fontSize": "14px",
+        "gap": "normal",
+        "lineHeight": "21px",
+        "margin": "0px",
+        "mask": "none",
+        "outline": "rgb(255, 255, 255) none 3px",
+        "padding": "0px",
+        "rect": {
+          "h": 185,
+          "w": 872,
+          "x": 747,
+          "y": 225.234375
+        },
+        "tag": "DIV",
+        "text": "[data-radix-scroll-area-viewport]{scrollbar-w",
+        "weight": "400"
+      },
+      {
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "border": "0px none rgb(255, 255, 255)",
+        "content": "normal",
+        "fontSize": "14px",
+        "gap": "normal",
+        "lineHeight": "21px",
+        "margin": "0px",
+        "mask": "none",
+        "outline": "rgb(255, 255, 255) none 3px",
+        "padding": "0px",
+        "rect": {
+          "h": 185,
+          "w": 24,
+          "x": 1639,
+          "y": 225.234375
+        },
+        "tag": "DIV",
+        "text": "",
+        "weight": "400"
+      }
+    ],
+    "upload": {
+      "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box padding-box",
+      "border": "1px solid rgba(0, 0, 0, 0)",
+      "content": "normal",
+      "fontSize": "12px",
+      "gap": "4px",
+      "lineHeight": "13.8px",
+      "margin": "0px",
+      "mask": "none",
+      "outline": "rgb(255, 255, 255) none 3px",
+      "padding": "0px",
+      "rect": {
+        "h": 185,
+        "w": 230,
+        "x": 497,
+        "y": 225.234375
+      },
+      "tag": "BUTTON",
+      "text": "上传剧本/图/视频格式要求单文件不超过 200MB\n最多 30 张图片、10 个视频",
+      "weight": "500"
+    }
+  },
+  "svg": {
+    "declaredDash": "6 6",
+    "computedDash": "3px, 3px",
+    "radius": 16,
+    "strokeWidth": 1
+  },
+  "pairedTokens": [
+    {
+      "selector": "body [data-lv-theme-force=\"dark\"], body [lv-theme=\"dark\"], body body[lv-theme-version=\"2.0\"], html [data-lv-theme-force=\"dark\"], html [lv-theme=\"dark\"], html body[lv-theme-version=\"2.0\"]",
+      "values": {
+        "--bg-block-secondary-hover": "#ffffff14",
+        "--component-input-bg-end": "#2a2a2ab8",
+        "--component-input-bg-start": "#1a1a1ab8",
+        "--component-upload-button-default": "#404040",
+        "--component-upload-button-hover": "#5a5a5a",
+        "--stroke-primary": "#ffffff14",
+        "--stroke-secondary": "#ffffff0a",
+        "--text-placeholder": "#ffffff59",
+        "--text-primary": "#fff",
+        "--text-secondary": "#ffffffb2"
+      }
+    },
+    {
+      "selector": "body [data-lv-theme-force=\"light\"], body body[lv-theme-version=\"2.0\"][lv-theme=\"light\"], html [data-lv-theme-force=\"light\"], html body[lv-theme-version=\"2.0\"][lv-theme=\"light\"]",
+      "values": {
+        "--bg-block-secondary-hover": "#0000000d",
+        "--component-input-bg-end": "#fff",
+        "--component-input-bg-start": "#fff",
+        "--component-upload-button-default": "#f0f0f0",
+        "--component-upload-button-hover": "#e5e5e5",
+        "--stroke-primary": "#00000012",
+        "--stroke-secondary": "#0000000d",
+        "--text-placeholder": "#737373a6",
+        "--text-primary": "#000",
+        "--text-secondary": "#737373"
+      }
+    }
+  ],
+  "cssom": {
+    "styleSheets": 75,
+    "accessible": 75,
+    "matchedRules": [
+      {
+        "selector": ".title-VdjqSx",
+        "css": "display: block; font-family: \"FZYaShiHeiS\",\"Founder Yashi Black\",var(--font-family); font-size: 30px; font-synthesis: none; font-weight: 500; line-height: 38px; margin: 0px 0px 28px; position: relative; text-align: center;"
+      },
+      {
+        "selector": ".title-VdjqSx",
+        "css": "font-size: 24px; line-height: 32px;"
+      },
+      {
+        "selector": ".homeComposer-yRnKsN, .homeComposerSuggestions-G5mFO7",
+        "css": "margin-inline: auto; max-width: var(--novel-home-composer-width,57.5rem); width: 100%;"
+      },
+      {
+        "selector": ".homeComposer-yRnKsN",
+        "css": "gap: 0px;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .homeComposer-yRnKsN",
+        "css": "backdrop-filter: blur(40px); background: linear-gradient(var(--component-input-bg-start),var(--component-input-bg-end) 106.67%); border: 1px solid var(--stroke-primary); border-radius: 24px; font-family: var(--font-family); overflow: hidden;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .homeComposer-yRnKsN [data-slot=\"tabs-content\"]",
+        "css": "margin: 0px;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .homeComposer-yRnKsN [data-slot=\"tabs-content\"] button[data-slot=\"dropdown-menu-trigger-button\"][data-variant]",
+        "css": "background: transparent; border-radius: 8px; font: 500 12px/20px var(--font-family); gap: 4px; height: 32px; min-width: 0px; padding: 0px 8px;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .homeComposer-yRnKsN [data-slot=\"tabs-content\"] button[data-slot=\"dropdown-menu-trigger-button\"][data-variant]:not(:disabled)",
+        "css": "color: var(--text-primary);"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .homeComposer-yRnKsN [data-slot=\"tabs-content\"] button[data-slot=\"dropdown-menu-trigger-button\"][data-variant]:is(:hover, :focus-visible, [aria-expanded=\"true\"])",
+        "css": "background: var(--bg-block-secondary-hover); color: var(--text-primary);"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .homeComposer-yRnKsN [data-slot=\"tabs-content\"] button[data-slot=\"dropdown-menu-trigger-button\"][data-variant]:active",
+        "css": "background: var(--bg-block-secondary-pressed); color: var(--text-primary);"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .homeComposer-yRnKsN .styleTrigger-jG4qaw:not(:has(img))::before",
+        "css": "background: currentcolor; content: \"\"; flex: 0 0 auto; height: 16px; mask: url([visual asset omitted]) center center / contain no-repeat; width: 16px;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .homeComposer-yRnKsN .styleTrigger-jG4qaw [data-slot=\"dropdown-menu-trigger-leading-icon\"]:not(:has(img))",
+        "css": "display: none;"
+      },
+      {
+        "selector": ".composer-QQJ09W",
+        "css": "box-sizing: border-box; height: var(--novel-home-composer-height,210px); max-height: var(--novel-home-composer-height,230px); min-height: var(--novel-home-composer-height,210px);"
+      },
+      {
+        "selector": ".composer-QQJ09W:has([data-slot=\"home-composer-attachment-card\"])",
+        "css": "height: var(--novel-home-composer-material-height,210px); max-height: var(--novel-home-composer-material-height,230px); min-height: var(--novel-home-composer-material-height,210px);"
+      },
+      {
+        "selector": ".growingControl-Qh6VcT",
+        "css": "flex: 1 1 0%;"
+      },
+      {
+        "selector": ".editorText-_Ixrq4",
+        "css": "cursor: text; overflow-wrap: anywhere;"
+      },
+      {
+        "selector": ".materialGuide-kuRe_8",
+        "css": "height: 100%;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W",
+        "css": "background: transparent; border-radius: 0px; padding: 16px;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W [data-slot=\"home-input-composer-footer\"]",
+        "css": "padding-inline-end: 0px;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W .materialGuide-kuRe_8",
+        "css": "border-radius: 12px; height: 185px; min-width: 230px; width: 230px;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W [data-slot=\"prompt-composer-editor-row\"]",
+        "css": "gap: 20px;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W [data-slot=\"home-input-composer-material-tray\"]",
+        "css": "height: 100% !important; min-height: 0px;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W [data-slot=\"home-input-composer-material-grid\"]",
+        "css": "align-items: center; display: flex; gap: 8px; height: 100%; justify-content: center; min-height: 0px; padding: var(--preview-tray-padding,16px) !important;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W [data-slot=\"home-input-composer-material-tray\"][data-collapsed-material-size=\"s\"] [data-slot=\"home-input-composer-material-grid\"]",
+        "css": "align-content: start; align-items: start; gap: 8px 6px; display: grid; grid-template-columns: repeat(4, minmax(0px, 1fr)); height: auto;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W [data-slot=\"attachment-preview-card\"][data-status]",
+        "css": "--material-padding: 10px; background: var(--color-fill-transparent-secondary-regular) !important;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W [data-slot=\"attachment-preview-card\"][data-status][data-material-size=\"l\"]",
+        "css": "--material-padding: 14px;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W [data-slot=\"attachment-preview-card\"][data-status][data-material-size=\"m\"]",
+        "css": "--material-padding: 13px;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W [data-slot=\"attachment-preview-card\"][data-status] [data-slot=\"attachment-preview-media-shell\"]",
+        "css": "box-sizing: border-box; padding: var(--preview-padding-y,var(--material-padding)) var(--preview-padding-x,var(--material-padding));"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W [data-slot=\"attachment-preview-card\"][data-status] [data-slot=\"attachment-preview-media\"]",
+        "css": "background: transparent; height: 100%; overflow: visible; transform: none; transition: none; width: 100%; will-change: auto;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W [data-slot=\"attachment-preview-card\"][data-status] [data-slot=\"attachment-preview-media\"]:has(> img, > video)",
+        "css": "flex-shrink: 0; height: calc(100% + 1.5px); width: calc(100% + 1.5px);"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W [data-slot=\"attachment-preview-card\"][data-status] [data-slot=\"attachment-preview-media\"]::after",
+        "css": "display: none;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W [data-slot=\"attachment-preview-card\"][data-status] [data-slot=\"attachment-preview-media\"] > img, [data-dreamina-short-drama] .composer-QQJ09W [data-slot=\"attachment-preview-card\"][data-status] [data-slot=\"attachment-preview-media\"] > video",
+        "css": "border-radius: inherit; height: auto; max-height: 100%; max-width: 100%; object-fit: contain; transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1); width: auto;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W [data-slot=\"attachment-preview-card\"][data-status][data-status=\"ready\"]:not([aria-disabled=\"true\"]):is(:hover, :focus-within) [data-slot=\"attachment-preview-media\"]",
+        "css": "transform: none;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W [data-slot=\"attachment-preview-card\"][data-status][data-status=\"ready\"]:not([aria-disabled=\"true\"]):is(:hover, :focus-within) [data-slot=\"attachment-preview-media\"] > img, [data-dreamina-short-drama] .composer-QQJ09W [data-slot=\"attachment-preview-card\"][data-status][data-status=\"ready\"]:not([aria-disabled=\"true\"]):is(:hover, :focus-within) [data-slot=\"attachment-preview-media\"] > video",
+        "css": "transform: scale(1.06);"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W [data-slot=\"attachment-preview-card\"][data-status] [data-slot=\"attachment-preview-media\"] > :is(img, video)",
+        "css": "transition: none; transform: none !important;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W [role=\"button\"]:focus-visible:not([aria-disabled=\"true\"]) [data-slot=\"attachment-preview-media\"] > :is(img, video)",
+        "css": "transform: scale(1.06);"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W [data-slot=\"home-input-composer-editor\"]",
+        "css": "padding: 0px;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W [data-slot=\"prompt-composer-resources\"]",
+        "css": "height: 185px; width: max-content;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W [data-slot=\"home-input-composer-toolbar-group\"], [data-dreamina-short-drama] .composer-QQJ09W [data-variant=\"composer-toolbar\"]",
+        "css": "background: transparent; box-shadow: none;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W [data-slot=\"home-input-composer-toolbar\"]:has(> button[data-variant=\"composer-toolbar-leading-plain\"]) > [data-slot=\"home-input-composer-toolbar-content\"]",
+        "css": "position: relative; padding-inline-start: 9px;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W [data-slot=\"home-input-composer-toolbar\"]:has(> button[data-variant=\"composer-toolbar-leading-plain\"]) > [data-slot=\"home-input-composer-toolbar-content\"]::before",
+        "css": "background: var(--stroke-primary); content: \"\"; height: 16px; inset-inline-start: 4px; pointer-events: none; position: absolute; top: 50%; transform: translateY(-50%); width: 1px;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W [data-slot=\"home-input-composer-toolbar-group\"]",
+        "css": "gap: 2px;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W button[data-variant=\"composer-toolbar-leading-plain\"]",
+        "css": "border-radius: 8px; height: 32px; width: 32px;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W button[data-variant=\"composer-toolbar-leading-plain\"]:not(:disabled)",
+        "css": "color: var(--text-primary);"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W button[data-variant=\"composer-toolbar-leading-plain\"]:is(:hover, :focus-visible, [aria-expanded=\"true\"])",
+        "css": "background: var(--bg-block-secondary-hover);"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W button[data-variant=\"composer-toolbar-leading-plain\"]:active",
+        "css": "background: var(--bg-block-secondary-pressed);"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W button[data-variant=\"composer-toolbar-leading-plain\"] svg",
+        "css": "height: 16px; width: 16px;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W .generationSettingsTrigger-Ng81_I",
+        "css": "font-weight: 500;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W .generationSettingsTrigger-Ng81_I:not(:disabled)",
+        "css": "color: var(--text-primary);"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W .generationSettingsTrigger-Ng81_I:is(:hover, :focus-visible, [data-state=\"open\"])",
+        "css": "background: var(--bg-block-secondary-hover);"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W .generationSettingsTrigger-Ng81_I:active",
+        "css": "background: var(--bg-block-secondary-pressed);"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W .skillGroup-Ey6QIT",
+        "css": "display: none;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W .toolbar-shO_S_ button > span:has([data-icon=\"inline-end\"])",
+        "css": "display: none;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W .toolbar-shO_S_ button[data-slot=\"dropdown-menu-trigger-button\"][data-variant=\"ghost\"]::before, [data-dreamina-short-drama] .ratioTrigger-V5FnJz:not([data-ratio])::before",
+        "css": "background: currentcolor; content: \"\"; flex: 0 0 auto; height: 16px; mask: url([visual asset omitted]) center center / contain no-repeat; width: 16px;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W .toolbar-shO_S_ button[data-slot=\"dropdown-menu-trigger-button\"][data-variant=\"ghost\"]::before",
+        "css": "mask-image: url([visual asset omitted]);"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W .editorText-_Ixrq4.ProseMirror p[data-placeholder]:first-child::before",
+        "css": "opacity: 1;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W .editorText-_Ixrq4.ProseMirror p:has(> .pippit-composer-inline-prefix)[data-placeholder]:first-child::after",
+        "css": "vertical-align: -2px;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W .materialGuide-kuRe_8",
+        "css": "min-width: 160px; width: 160px;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W [data-slot=\"prompt-composer-resources\"]",
+        "css": "width: 160px;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W [data-home-input-composer-rich-editor-leading-adornment-layout=\"flow\"]",
+        "css": "align-items: center; gap: 8px; padding-block-end: 8px;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W [data-slot=\"home-input-composer-rich-text-skill\"][data-native-skill-tag]",
+        "css": "background: transparent; border: 0px; border-radius: 0px; min-height: 24px; padding: 0px;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W [data-slot=\"home-input-composer-rich-text-skill\"]:is(:hover, :focus-within) > [data-native-reference-action]",
+        "css": "opacity: 1;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W [data-slot=\"home-input-composer-rich-text-skill\"] > [data-native-reference-action]:focus-visible",
+        "css": "outline: 2px solid var(--brand-main-default); outline-offset: 2px;"
+      },
+      {
+        "selector": "[data-dreamina-short-drama] .composer-QQJ09W [data-slot=\"home-input-composer-rich-text-skill\"] > [data-native-reference-action]",
+        "css": "opacity: 1;"
+      }
+    ]
+  },
+  "officialPromptBarSources": [
+    "https://raw.githubusercontent.com/TurboKach/ai-native-react-components/main/components/prompt-bar.tsx",
+    "https://raw.githubusercontent.com/TurboKach/ai-native-react-components/main/app/globals.css"
+  ]
+}

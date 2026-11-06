@@ -1,0 +1,124 @@
+{
+  "assets": {},
+  "captured_at": "2026-11-02T18:02:52.238Z",
+  "document_height": 864,
+  "document_overflow_x": false,
+  "dpr": 1.159999966621399,
+  "elements": [
+    {
+      "box": [
+        589.9967651367188,
+        230.99676513671875,
+        400.0000305175781,
+        289.991943359375
+      ],
+      "computed": {
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "color": "rgb(243, 245, 247)",
+        "display": "block",
+        "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "lineHeight": "24px",
+        "opacity": "1",
+        "visibility": "visible"
+      },
+      "count": 1,
+      "name": "selected-generator",
+      "selector": ".react-flow__node[data-id=\"review-image-generator\"]",
+      "status": "measured",
+      "text": "图片生成 · 镜头01已完成1 / 2",
+      "viewport_intersects": true
+    },
+    {
+      "box": [
+        589.9967651367188,
+        532.9967651367188,
+        400.0000305175781,
+        227.35723876953125
+      ],
+      "computed": {
+        "backgroundColor": "rgb(23, 26, 32)",
+        "color": "rgb(243, 245, 247)",
+        "display": "flex",
+        "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "lineHeight": "24px",
+        "opacity": "1",
+        "visibility": "visible"
+      },
+      "count": 1,
+      "name": "context-composer",
+      "selector": ".canvas-generator-composer",
+      "status": "measured",
+      "text": "123来自 1 个文字节点断开雨夜街头，人物撑伞回头。\n镜头缓缓推进，保持人物与场景一致。GPT Image 21:1 方形 · 1K · 1再次生成",
+      "viewport_intersects": true
+    },
+    {
+      "box": [
+        207.9967803955078,
+        160.9967803955078,
+        253.9870758056641,
+        123.9897689819336
+      ],
+      "computed": {
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "color": "rgb(243, 245, 247)",
+        "display": "block",
+        "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "lineHeight": "24px",
+        "opacity": "1",
+        "visibility": "visible"
+      },
+      "count": 1,
+      "name": "text-node",
+      "selector": ".react-flow__node[data-id=\"review-text\"]",
+      "status": "measured",
+      "text": "镜头描述雨夜街头，人物撑伞回头。\n镜头缓缓推进，保持人物与场景一致。",
+      "viewport_intersects": true
+    },
+    {
+      "box": [
+        91.98545837402344,
+        809.7926025390625,
+        321.26885986328125,
+        37.99838638305664
+      ],
+      "computed": {
+        "backgroundColor": "rgb(23, 26, 32)",
+        "color": "rgb(243, 245, 247)",
+        "display": "flex",
+        "fontFamily": "\"Microsoft YaHei\", \"Segoe UI\", sans-serif",
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "lineHeight": "24px",
+        "opacity": "1",
+        "visibility": "visible"
+      },
+      "count": 1,
+      "name": "zoom-toolbar",
+      "selector": ".canvas-bottombar",
+      "status": "measured",
+      "text": "100% 视角",
+      "viewport_intersects": true
+    }
+  ],
+  "fonts_ready": true,
+  "images_ready": true,
+  "measurement_sha256": "dc60a40d1e9f3c1c602a24357fe236e4a20a24e6886848ba6d9b0eac686e8c6d",
+  "scroll": {
+    "x": 0,
+    "y": 0
+  },
+  "title": "ZLY AI 视频创作平台",
+  "url": "http://127.0.0.1:5173/@fs/D:/zlyun/Toonflow/%E6%9C%AC%E5%9C%B0%E8%A7%86%E9%A2%91%E5%B7%A5%E4%BD%9C%E5%8F%B0/test-results/canvas-workrally/review.html?scenario=visual",
+  "viewport": {
+    "height": 864,
+    "width": 1536
+  },
+  "full_page": false,
+  "screenshot_scale": "css"
+}

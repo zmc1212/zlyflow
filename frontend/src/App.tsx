@@ -2,9 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Button, DatePicker, Drawer, Dropdown, Empty, Input, InputNumber, message, Modal, Pagination, Popover, Select, Slider, Switch, Tabs, Tooltip } from "antd"
 import type { TextAreaRef } from "antd/es/input/TextArea"
 import {
-  ArrowUpDown, Check, CheckCircle2, CircleAlert, Coins, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Clock3, FileVideo, Frame,
+  ArrowUp, ArrowUpDown, AudioLines, Check, CheckCircle2, CircleAlert, Coins, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Clock3, FileVideo, Frame,
   Download, ExternalLink, Filter, FolderOpen, Gauge, HardDrive, History, ImagePlus, LayoutGrid, Link2, ListChecks, LoaderCircle, Maximize2, Mic,
-  Languages, LockKeyhole, Minus, MoreHorizontal, MoveLeft, MoveRight, PanelLeftClose, PanelLeftOpen, Pencil, Pin, Plus, RotateCw, Search, Send, Settings2, SlidersHorizontal, Sparkles, CircleStop, Trash2, UserRound, Video, WalletCards, WandSparkles, X,
+  Languages, Lightbulb, LockKeyhole, Minus, MoreHorizontal, MoveLeft, MoveRight, PanelLeftClose, PanelLeftOpen, Pencil, Pin, Plus, RotateCw, Search, Send, Settings2, SlidersHorizontal, Sparkles, CircleStop, Trash2, UserRound, Video, WalletCards, WandSparkles, X,
 } from "lucide-react"
 import { Fragment, FormEvent, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { NavLink, useLocation, useNavigate } from "react-router-dom"
@@ -12,18 +12,15 @@ import { apiErrorMessage, jsonMutation, notifyUnauthorized, requestJson, User } 
 import { generateJobPath, isDirectorLegacyStudioPath, isGuestStudioPath, parseGeneratePath, PATHS, studioWorkspaceFromPath, type GenerateMediaType } from "./paths"
 import { elapsedCaption, executionCaption, isLiveStatus, jobElapsedMs, useNow } from "./job-elapsed"
 import type { ImageResult } from "./media/ImageStudioModule"
+import { mediaActions, type MediaActionHost, type MediaActionItem } from "./media/media-actions"
 import type { VideoResult } from "./media/VideoStudioModule"
 import VideoRoundHeader from "./media/VideoRoundHeader"
 import ImageRoundHeader from "./media/ImageRoundHeader"
 import { jobUpscaleSourceKey, selectVideoResult, videoResultKey } from "./media/video-result-model"
 import {
   activeUpscaleJob,
-  canRequestJobUpscale,
+  canUpscaleRound,
   extraUpscaleResults,
-  hasOriginalVideo,
-  isUpscaleJob,
-  upscaleDisabledReason,
-  type UpscaleEngine,
 } from "./video-upscale"
 import JianyingExportModal from "./media/JianyingExportModal"
 import type { JianyingMediaItem } from "./media/jianying-draft-builder"
@@ -31,15 +28,22 @@ import AddToCanvasModal, { type CanvasInsertAsset } from "./canvas/AddToCanvasMo
 import { formatRefineDuration, refineForceWarning, refinePlan } from "./director2/director2-video-settings"
 import { createLocalId } from "./lib/utils"
 import { restoreReferenceFiles, roundReferenceSources, type ReferenceSource } from "./reference-assets"
+import { fetchHandoffFile, type MediaHandoffSource, type MediaKind } from "./media-handoff"
+import { FACE_RESTORE_WORKFLOW } from "./generation/face-restore"
 import { cloudThumbnailSrc } from "./media-thumbnails"
-import MediaPreviewModal, { type MediaPreviewNavigation, type PreviewMediaKind } from "./components/MediaPreviewModal"
+import MediaPreviewModal, { type MediaPreviewAction, type MediaPreviewNavigation, type PreviewMediaKind } from "./components/MediaPreviewModal"
+import { groupedWorkflowOptions, WorkflowOptionRow, type WorkflowSelectOption } from "./components/WorkflowOptions"
+import { resolveCompareSource, type CompareSource } from "./media/image-compare"
 import RenameUserModal from "./components/RenameUserModal"
 import type { PromptReverseResult } from "./prompt-reverse"
+import type { ShowcaseItem } from "./inspiration/InspirationWorkspace"
 import StudioHeader from "./components/StudioHeader"
+import { parseDirector2Path } from "./director2/paths"
 import { StudioNavigationSymbol } from "./components/StudioSymbols"
 import GenerationHomeSections from "./generation/GenerationHomeSections"
 import MotionTransferReferences from "./generation/MotionTransferReferences"
-import { motionDurationError, motionReferenceError, type MotionReferenceAsset } from "./generation/motion-transfer"
+import MotionRefVideoReferences from "./generation/MotionRefVideoReferences"
+import { MOTION_TOOL_WORKFLOWS, motionDurationError, motionImageLimit, motionReferenceError, type MotionReferenceAsset } from "./generation/motion-transfer"
 import { groupTasksByCreatedAt } from "./task-groups"
 import JobErrorNotice from "./director/components/JobErrorNotice"
 import { useStudioTheme } from "./ThemeProvider"
@@ -58,10 +62,11 @@ const Director2App = lazy(() => import("./director2/Director2App"))
 const DirectorAssetLibrary = lazy(() => import("./director/DirectorAssetLibrary"))
 const CanvasWorkspace = lazy(() => import("./canvas/CanvasWorkspace"))
 const ToolsWorkspace = lazy(() => import("./tools/ToolsWorkspace"))
+const InspirationWorkspace = lazy(() => import("./inspiration/InspirationWorkspace"))
 
 type Status = "queued" | "running" | "awaiting_refine" | "succeeded" | "failed" | "interrupted" | "cancelled" | "partial"
 type Output = {
-  kind: "image" | "video"; path: string; label: string
+  kind: "image" | "video" | "audio"; path: string; label: string
   delivery_status?: "pending" | "local" | "cloud" | "expired"
   download_url?: string | null; cloud_url?: string | null; delivered_at?: string | null
 }
@@ -100,17 +105,19 @@ type AssetEntry = {
   id: string; job: Job; output: Output; outputIndex: number; generationItemId: string | null
 }
 type Workflow = {
-  is_default?: boolean
-  credit_cost?: number | null
   id: string; name: string; description: string; reference_mode: "none" | "keyframes" | "collection" | "fixed"
   min_references: number; max_references: number; reference_labels: string[]
   accepts_negative_prompt: boolean; accepts_image_size: boolean; supports_h3_options: boolean
   accepts_audio_reference?: boolean
   accepts_video_reference?: boolean
+  reference_slots?: string[]
+  result_compare?: string
   default_prompt?: string | null
   parameters: WorkflowParameter[]
   media_type: "image" | "video"; executor: string; available: boolean; unavailable_reason?: string | null
   catalog_group?: string; catalog_group_label?: string; catalog_group_order?: number
+  is_default?: boolean
+  credit_cost?: number | null
 }
 type OptionDefinition = {
   label: string; type: "string" | "number" | "integer" | "boolean"; default: string | number | boolean
@@ -128,9 +135,6 @@ type OptionDefinition = {
 type WorkflowParameter = { name: string; schema?: { properties?: Record<string, OptionDefinition> } | null }
 type OptionInputValue = string | boolean
 type ModesPayload = { modes: Workflow[]; image_sizes: string[]; presets: Record<string, string> }
-type UpscaleEngineCapability = { id: UpscaleEngine; label: string; available: boolean; reason?: string | null }
-type UpscaleCapabilities = { engines: UpscaleEngineCapability[]; default: UpscaleEngine }
-type UpscaleEngineOption = { id: UpscaleEngine; label: string; hint?: string; disabled?: boolean }
 type GrsBalanceSnapshot = { credits: number | null; queried_at: string | null; refresh_error?: string | null }
 type ReferenceAsset = MotionReferenceAsset
 
@@ -198,10 +202,22 @@ type MediaPreview = {
   description?: string
   job?: Job
   aspectRatio?: string
+  /** 编辑类图片结果的原图，存在时预览舞台提供叠层滑杆对比 */
+  compare?: CompareSource
   /** 同列表上下切换的完整序列与当前位置；存在时预览弹窗显示上一个 / 下一个 */
   list?: MediaPreview[]
   listIndex?: number
+  /** 预览侧栏的动作定位符：与卡片悬浮条共用一张注册表，缺定位符时只保留任务级动作。 */
+  source?: MediaHandoffSource
+  roundId?: string
 }
+/** 预览侧栏只有定位符，输出记录按它回查任务，保证和卡片用的是同一条结果。 */
+function findJobOutput(job: Job | undefined, source: MediaHandoffSource | null | undefined): Output | undefined {
+  if (!job || !source) return undefined
+  const item = job.rounds.flatMap((round) => round.generation_items).find((entry) => entry.id === source.generationItemId)
+  return item?.outputs[source.outputIndex]
+}
+
 type MediaDraft = {
   workflowId: string; prompt: string; negativePrompt: string; references: ReferenceAsset[]
   motionVideo?: ReferenceAsset | null
@@ -247,9 +263,14 @@ function jobDisplayPrompt(job: Job): string {
 }
 
 const FALLBACK_WORKFLOW = "minimax-h3-i2v"
+// 系统默认选中的视频工作流：H3 Director 加速版 多参考视频；注册表中缺失时回落到首个工作流。
+const DEFAULT_VIDEO_WORKFLOW = "minimax-h3-director-accel-r2v"
 
 function preferredDefaultWorkflow(workflows: Workflow[]): Workflow | undefined {
-  return workflows.find((item) => item.is_default) ?? workflows[0]
+  // 生图目录的显示顺序由管理员自定义，默认模型必须显式认 is_default，不能取列表首位。
+  return workflows.find((item) => item.id === DEFAULT_VIDEO_WORKFLOW)
+    ?? workflows.find((item) => item.is_default)
+    ?? workflows[0]
 }
 const PROMPT_OPTIMIZE_STORAGE_KEY = "zly-ai-video-studio.prompt-optimize"
 
@@ -364,10 +385,8 @@ function defaultOptionValues(workflow?: Workflow): Record<string, OptionInputVal
 }
 
 function compactSelectWidth(options: { label?: string }[]) {
-  const longest = options.reduce((max, item) => Math.max(max, String(item.label ?? "").length), 0)
-  if (longest > 18) return 300
-  if (longest > 12) return 240
-  return 188
+  const longest = options.reduce((max, item) => Math.max(max, Array.from(item.label ?? "").reduce((width, char) => width + (char.charCodeAt(0) > 255 ? 2 : 1), 0)), 0)
+  return Math.min(280, Math.max(96, longest * 7 + 64))
 }
 
 function optionVisible(definition: OptionDefinition, values: Record<string, OptionInputValue>) {
@@ -532,7 +551,8 @@ function outputPreviewSrc(item: Output, allowSameOriginVideo = true): string | u
 function MediaTile({ item, allowSameOriginVideo = true }: { item: Output; allowSameOriginVideo?: boolean }) {
   const src = outputPreviewSrc(item, allowSameOriginVideo)
   if (!src) return <div className="grid h-full w-full place-items-center bg-[#27282e] text-[#898993]">{item.kind === "video" ? <Video size={18} /> : <HardDrive size={18} />}</div>
-  const thumbnail = cloudThumbnailSrc(item.kind, item.cloud_url)
+  // 资产库已过滤纯音频产物；缩略图参数仅接受视觉两型，此处按图片兜底。
+  const thumbnail = cloudThumbnailSrc(item.kind === "audio" ? "image" : item.kind, item.cloud_url)
   return item.kind === "video"
     ? <video className="h-full w-full object-cover" muted playsInline preload="none" poster={thumbnail ?? undefined} src={src} />
     : <img
@@ -616,7 +636,7 @@ function TaskRow({ job, selected = false, showTime = true, onSelect, onPinToggle
     placement="right"
     mouseEnterDelay={0.35}
     title={<div className="grid max-w-[260px] gap-0.5">
-      <p className="m-0 text-xs font-medium leading-[18px] break-words">{title}</p>
+      <p className="studio-task-tooltip-prompt m-0 text-xs font-medium leading-[18px] break-words">{title}</p>
       {createdFull ? <span className="text-[11px] leading-4 tabular-nums opacity-70">创作时间 {createdFull}</span> : null}
     </div>}
   >{row}</Tooltip>
@@ -794,6 +814,8 @@ export default function App({
   const lastDirectorPathRef = useRef<string>(PATHS.director)
   const lastMediaTypeRef = useRef<GenerateMediaType>("video")
   const directorLegacyStudio = isDirectorLegacyStudioPath(location.pathname)
+  const directorProjectRoute = workspaceView === "director" && !directorLegacyStudio ? parseDirector2Path(location.pathname) : null
+  const workshopFocus = directorProjectRoute?.kind === "project"
   if (workspaceView === "generate" && generateRoute) {
     lastGeneratePathRef.current = location.pathname
     lastMediaTypeRef.current = generateRoute.mediaType
@@ -802,7 +824,7 @@ export default function App({
   const mediaType: GenerateMediaType = generateRoute?.mediaType ?? lastMediaTypeRef.current
   const headerUsesGrs = mediaType === "image" && (workspaceView === "generate" || workspaceView === "assets")
   const selectedJobId = workspaceView === "generate" ? generateRoute?.jobId : undefined
-  const [workflowId, setWorkflowId] = useState(FALLBACK_WORKFLOW)
+  const [workflowId, setWorkflowId] = useState(DEFAULT_VIDEO_WORKFLOW)
   const [prompt, setPrompt] = useState("")
   const [negativePrompt, setNegativePrompt] = useState("")
   const [references, setReferences] = useState<ReferenceAsset[]>([])
@@ -872,24 +894,6 @@ export default function App({
     const payload = await api<ModesPayload>("/api/modes")
     return { ...payload, modes: payload.modes.map(normalizeWorkflow) }
   } })
-  const upscaleCapabilitiesQuery = useQuery({
-    queryKey: ["upscale_capabilities"],
-    queryFn: () => api<UpscaleCapabilities>("/api/upscale/capabilities"),
-    staleTime: 60_000,
-    enabled: Boolean(user),
-  })
-  const upscaleEngines = useMemo<UpscaleEngineOption[] | undefined>(() => {
-    const caps = upscaleCapabilitiesQuery.data
-    if (!caps) return undefined
-    return caps.engines.map((engine) => ({
-      id: engine.id,
-      label: engine.id === "seedvr2" ? "高清增强（SeedVR2）" : "快速超分（RTX）",
-      disabled: !engine.available,
-      hint: engine.available
-        ? engine.id === "seedvr2" ? "生成式重建细节，整段通常需要几分钟" : "秒级完成，主要锐化与去块"
-        : engine.reason || "当前 ComfyUI 不可用",
-    }))
-  }, [upscaleCapabilitiesQuery.data])
   const isAdminViewer = user?.role === "admin" || user?.role === "super_admin"
   const adminUsersQuery = useQuery({
     queryKey: ["admin_users"],
@@ -1015,6 +1019,13 @@ export default function App({
     },
   })
   const selectedJob = selectedJobFromList ?? jobDetailQuery.data
+  const selectedJobWorkflow = useQuery({
+    queryKey: ["workflow-detail", selectedJob?.mode],
+    queryFn: () => api<Workflow>(`/api/modes/${encodeURIComponent(selectedJob!.mode)}`),
+    enabled: Boolean(user && selectedJob && modesQuery.data && !modesQuery.data.modes.some((item) => item.id === selectedJob.mode)),
+    staleTime: 60_000,
+    retry: false,
+  })
   const selectedJobMediaType = selectedJob?.media_type
   const selectedJobLoading = Boolean(selectedJobId && !selectedJob && (jobsQuery.isLoading || jobDetailQuery.isPending || jobDetailQuery.isFetching))
   const selectedJobMissing = Boolean(selectedJobId && !selectedJob && !selectedJobLoading)
@@ -1028,14 +1039,16 @@ export default function App({
         output,
         outputIndex,
         generationItemId: item.id,
-      }))))
-      return roundEntries.length ? roundEntries : job.outputs.map((output, outputIndex) => ({
-        id: `${job.id}:legacy:${outputIndex}`,
-        job,
-        output,
-        outputIndex,
-        generationItemId: null,
-      }))
+      })))).filter(({ output }) => output.kind !== "audio")
+      return roundEntries.length ? roundEntries : job.outputs
+        .filter((output) => output.kind !== "audio")
+        .map((output, outputIndex) => ({
+          id: `${job.id}:legacy:${outputIndex}`,
+          job,
+          output,
+          outputIndex,
+          generationItemId: null,
+        }))
     }),
     [allJobs, workspaceView, assetSection],
   )
@@ -1422,23 +1435,19 @@ export default function App({
     onError: (error: Error) => messageApi.error(error.message),
   })
 
-  const upscaleMutation = useMutation({
-    mutationFn: async ({ jobId, engine }: { jobId: string; engine?: UpscaleEngine }) => api<Job>(
-      `/api/jobs/${jobId}/upscale`,
-      jsonMutation(csrfToken, engine ? { engine } : {}),
-    ),
-    onSuccess: (_job, variables) => {
-      void queryClient.invalidateQueries({ queryKey: ["jobs", user?.id] })
-      messageApi.success(variables.engine === "seedvr2" ? "已提交 SeedVR2 高清增强" : "已提交 2x 超分")
-      void queryClient.invalidateQueries({ queryKey: ["upscale_capabilities"] })
-    },
-    onError: (error: Error) => messageApi.error(error.message),
-  })
-
   const cancelMutation = useMutation({
     mutationFn: async (jobId: string) => api<Job>(`/api/jobs/${jobId}/cancel`, {
       method: "POST", headers: { "X-CSRF-Token": csrfToken },
     }),
+    onSuccess: (job) => {
+      navigate(generateJobPath(job.media_type, job.id))
+      void queryClient.invalidateQueries({ queryKey: ["jobs", user?.id] })
+    },
+    onError: (error: Error) => messageApi.error(error.message),
+  })
+
+  const seedUpscaleMutation = useMutation({
+    mutationFn: async (jobId: string) => api<Job>(`/api/jobs/${encodeURIComponent(jobId)}/upscale`, jsonMutation(csrfToken, { engine: "seedvr2" })),
     onSuccess: (job) => {
       navigate(generateJobPath(job.media_type, job.id))
       void queryClient.invalidateQueries({ queryKey: ["jobs", user?.id] })
@@ -1576,6 +1585,61 @@ export default function App({
     requestAnimationFrame(() => promptRef.current?.focus())
   }
 
+  const useShowcaseInComposer = async (item: ShowcaseItem) => {
+    const allWorkflows = modesQuery.data?.modes ?? []
+    const target = allWorkflows.find((entry) => entry.id === item.mode)
+    if (!target) {
+      messageApi.error(`示例使用的工作流「${item.mode}」当前不可用`)
+      return
+    }
+    const definitions = workflowOptionDefinitions(target)
+    const references: ReferenceAsset[] = []
+    for (const reference of item.references) {
+      try {
+        const response = await fetch(reference.url)
+        if (!response.ok) throw new Error(String(response.status))
+        const blob = await response.blob()
+        references.push({
+          id: `${reference.name}-${createLocalId()}`,
+          file: new File([blob], reference.name, { type: blob.type || "application/octet-stream" }),
+          preview: URL.createObjectURL(blob),
+        })
+      } catch {
+        releaseAssets(references)
+        messageApi.error("示例的参考素材已失效，请手动重新上传后生成")
+        return
+      }
+    }
+    const targetMedia = target.media_type as GenerateMediaType
+    const presetValues: Record<string, OptionInputValue> = Object.fromEntries(
+      Object.entries(item.options ?? {})
+        .filter(([name]) => name in definitions)
+        .map(([name, value]) => [name, typeof value === "boolean" ? value : String(value)]),
+    )
+    const draft: MediaDraft = {
+      workflowId: target.id,
+      prompt: item.prompt,
+      negativePrompt: item.negative_prompt,
+      references,
+      optionValues: { ...defaultOptionValues(target), ...presetValues },
+      selectedJobId: undefined,
+      source: undefined,
+    }
+    if (targetMedia !== mediaType) {
+      draftsRef.current[mediaType] = currentDraft()
+      pendingMediaDraftRef.current = draft
+    } else {
+      applyMediaDraft(draft, targetMedia)
+    }
+    if (target.accepts_image_size && item.image_size) setImageSize(item.image_size)
+    setOptimizedPrompt(null)
+    navigate(generateJobPath(targetMedia))
+    messageApi.success(`已带回「${item.title}」的完整配方，可直接生成`)
+    requestAnimationFrame(() => promptRef.current?.focus())
+  }
+
+  const motionCharacterLimit = motionImageLimit(workflow)
+  const isMultiMotionWorkflow = Boolean(workflow?.accepts_video_reference && motionCharacterLimit > 1)
   const referenceCount = references.length + (workflow?.accepts_audio_reference && avatarAudio ? 1 : 0)
     + (workflow?.accepts_video_reference && motionVideo ? 1 : 0)
   const motionVideoError = workflow?.accepts_video_reference
@@ -1603,12 +1667,14 @@ export default function App({
     : ""
   const canSubmit = Boolean(!isInspectingOtherUser && workflow?.available && (prompt.trim() || workflow.default_prompt)
     && referenceCount >= workflow.min_references && referenceCount <= workflow.max_references
-    && (!workflow.accepts_video_reference || (references.length === 1 && motionVideo))
+    && (!workflow.accepts_video_reference || (references.length >= 1 && references.length <= motionCharacterLimit && motionVideo))
     && !motionVideoError && !optionError && !createMutation.isPending && !autoOptimizing && !optimizeMutation.isPending)
   const referenceHint = workflow?.accepts_audio_reference
     ? "形象图 1 张 + 口播音频 ≤5 秒"
     : workflow?.accepts_video_reference
-      ? "角色图 + 动作视频 · 留空提示词自动迁移"
+      ? isMultiMotionWorkflow
+        ? `角色图 ${references.length} / ${motionCharacterLimit} 张 + 动作视频 · 顺序对应表演者`
+        : "角色图 + 动作视频 · 留空提示词自动迁移"
       : workflow?.reference_mode === "collection"
       ? `已添加 ${referenceCount} / ${workflow.max_references} 张`
       : workflow?.reference_mode === "keyframes" ? "首帧必填更稳定，尾帧用于锁定结尾" : ""
@@ -1619,7 +1685,11 @@ export default function App({
       messageApi.warning("资源暂不可下载")
       return
     }
-    const extension = output.kind === "image" ? "png" : "mp4"
+    const extension = output.kind === "image"
+      ? "png"
+      : output.kind === "audio"
+        ? (output.path.match(/\.([a-z0-9]{1,10})$/i)?.[1] ?? "flac")
+        : "mp4"
     const title = (job.title || job.prompt.slice(0, 30) || `asset_${job.id.slice(0, 8)}`).replace(/[\\/:*?"<>|]/g, "_")
     const link = document.createElement("a")
     link.href = url
@@ -1630,23 +1700,21 @@ export default function App({
     link.remove()
   }
 
-  const createVideoFromImage = async (result: ImageResult) => {
-    if (!selectedJob) return
-    const url = result.output.download_url ?? result.output.cloud_url
-    if (!url) {
-      messageApi.error("原图暂不可下载，请稍后重试。")
-      return
-    }
+  /** 卡片上的结果不一定带 jobId（例如从他人任务查看），回退到当前选中的任务。 */
+  const mediaHandoffSource = (kind: MediaKind, item: { jobId?: string; generationItemId: string; outputIndex: number }): MediaHandoffSource | null => {
+    const jobId = item.jobId ?? selectedJob?.id
+    if (!jobId) return null
+    return { jobId, generationItemId: item.generationItemId, outputIndex: item.outputIndex, kind }
+  }
+
+  const createVideoFromImage = async (result: { jobId?: string; generationItemId: string; outputIndex: number }) => {
+    const source = mediaHandoffSource("image", result)
+    if (!source) return
     let file: File
     try {
-      const response = await fetch(url)
-      if (response.status === 401) notifyUnauthorized()
-      if (!response.ok) throw new Error("下载原图失败，请稍后重试。")
-      const blob = await response.blob()
-      const extension = result.output.path.match(/\.[a-z0-9]{1,10}$/i)?.[0] ?? ".png"
-      file = new File([blob], `reference${extension}`, { type: blob.type || "image/png" })
+      file = await fetchHandoffFile(source)
     } catch (error) {
-      messageApi.error(error instanceof Error ? error.message : "下载原图失败，请稍后重试。")
+      messageApi.error(error instanceof Error ? error.message : "读取原图失败，请稍后重试。")
       return
     }
     const asset = newAssets([file])[0]
@@ -1667,19 +1735,124 @@ export default function App({
     requestAnimationFrame(() => promptRef.current?.focus())
   }
 
+  /**
+   * 「用作参考图 / 用作参考视频」：把这张已产出的结果当作本次创作的输入素材，
+   * 走 appendFiles 这同一个入口，因此参考位、上限和替换行为都与手动上传完全一致。
+   */
+  const useMediaAsReference = async (source: MediaHandoffSource) => {
+    if (!workflow || workflow.reference_mode === "none") {
+      messageApi.warning("当前工作流不接收参考素材，请换个工作流")
+      return
+    }
+    if (source.kind === "video") {
+      if (!workflow.accepts_video_reference) {
+        messageApi.warning("当前工作流不接收参考视频，可改用动作迁移或多参考视频工作流")
+        return
+      }
+    } else {
+      const limit = workflow.accepts_video_reference ? motionImageLimit(workflow) : workflow.max_references
+      if (references.length >= limit) {
+        messageApi.warning(`参考图已达 ${limit} 张上限，请先移除一张`)
+        return
+      }
+    }
+    let file: File
+    try {
+      file = await fetchHandoffFile(source)
+    } catch (error) {
+      messageApi.error(error instanceof Error ? error.message : "读取素材失败，请稍后重试。")
+      return
+    }
+    appendFiles([file])
+    messageApi.success(source.kind === "video" ? "参考视频已加入本次创作" : "参考图已加入本次创作")
+    requestAnimationFrame(() => promptRef.current?.focus())
+  }
+
+  /**
+   * 卡片悬浮工具条与全屏预览侧栏共用同一个落地实现：注册表决定「出现哪些动作」，
+   * 这里只负责按 id 接线，避免同一动作在两个入口走出不同结果。
+   */
+  const runMediaAction = (
+    action: MediaActionItem,
+    target: { kind: MediaKind; result: { jobId?: string; generationItemId: string; outputIndex: number; output: Output; src?: string }; job: Job; roundId?: string },
+  ) => {
+    if (action.href) { navigate(action.href); return }
+    const source = mediaHandoffSource(target.kind, target.result)
+    switch (action.id) {
+      case "reference":
+        if (source) void useMediaAsReference(source)
+        break
+      case "to-video":
+        void createVideoFromImage(target.result)
+        break
+      case "canvas":
+        setCanvasInsertAsset({
+          jobId: source?.jobId ?? target.job.id,
+          generationItemId: target.result.generationItemId,
+          outputIndex: target.result.outputIndex,
+          label: target.result.output.label,
+        })
+        break
+      case "jianying":
+        setJianyingSelectedItems([{
+          id: videoResultKey({ jobId: target.result.jobId, generationItemId: target.result.generationItemId, outputIndex: target.result.outputIndex, output: target.result.output }),
+          title: target.result.output.label, kind: "video", path: target.result.output.path,
+          url: target.result.output.download_url ?? target.result.output.cloud_url ?? target.result.src ?? mediaUrl(target.result.output.path),
+        }])
+        setJianyingModalOpen(true)
+        break
+      case "params":
+        if (target.roundId) setVideoRoundDetails({ id: target.roundId, runtime: true })
+        break
+      case "remove":
+        confirmDelete(target.job)
+        break
+    }
+  }
+
+  /** 预览侧栏的动作表与卡片同源：先按定位符回查输出，再交给同一个 runMediaAction。 */
+  const previewMediaActions = (preview: MediaPreview): MediaPreviewAction[] => {
+    const job = preview.job
+    const actions: MediaPreviewAction[] = []
+    if (job) actions.push({
+      key: "open-job", label: "打开关联任务", icon: <ExternalLink size={15} />,
+      onClick: () => { setPreviewMedia(null); openGenerateJob(job) },
+    })
+    const output = findJobOutput(job, preview.source)
+    if (!job || !output || !preview.source) return actions
+    const host: MediaActionHost = preview.kind === "image"
+      ? { createVideo: !isInspectingOtherUser, canvas: !isInspectingOtherUser, reference: Boolean(workflow && workflow.reference_mode !== "none") }
+      : { reference: Boolean(workflow?.accepts_video_reference), canvas: !isInspectingOtherUser, jianying: true, params: Boolean(preview.roundId), remove: !isInspectingOtherUser }
+    const result = { jobId: preview.source.jobId, generationItemId: preview.source.generationItemId, outputIndex: preview.source.outputIndex, output }
+    return [...actions, ...mediaActions({
+      kind: preview.kind, source: preview.source, modes: modesQuery.data?.modes, host, inspectingOtherUser: isInspectingOtherUser,
+    }).map((item) => {
+      const Icon = item.icon
+      return {
+        key: item.id, label: item.label, danger: item.danger, icon: <Icon size={15} />,
+        onClick: () => {
+          // 弹层层级高于预览，不先收起预览会让确认框和创作台藏在遮罩后面。
+          setPreviewMedia(null)
+          runMediaAction(item, { kind: preview.kind, result, job, roundId: preview.roundId })
+        },
+      }
+    })]
+  }
+
   const currentDraft = (): MediaDraft => ({
     workflowId, prompt, negativePrompt, references, motionVideo, optionValues, selectedJobId: selectedJob?.id, source,
   })
 
   const applyMediaDraft = (draft: MediaDraft | undefined, nextMedia: GenerateMediaType) => {
     const targetWorkflows = (modesQuery.data?.modes ?? []).filter((item) => item.media_type === nextMedia)
+    const targetDefaultWorkflow = preferredDefaultWorkflow(targetWorkflows)
     restoringDraftRef.current = Boolean(draft)
-    setWorkflowId(draft?.workflowId ?? targetWorkflows[0]?.id ?? FALLBACK_WORKFLOW)
+    setWorkflowId(draft?.workflowId ?? targetDefaultWorkflow?.id ?? FALLBACK_WORKFLOW)
     setPrompt(draft?.prompt ?? "")
     setNegativePrompt(draft?.negativePrompt ?? "")
     setReferences(draft?.references ?? [])
     setMotionVideo(draft?.motionVideo ?? null)
-    setOptionValues(draft?.optionValues ?? defaultOptionValues(targetWorkflows[0]))
+    setOptionValues(draft?.optionValues ?? defaultOptionValues(targetDefaultWorkflow))
     setSource(draft?.source)
     setAdvancedOptionsOpen(false)
   }
@@ -1758,10 +1931,11 @@ export default function App({
         return current.slice(0, nextWorkflow.max_references)
       })
     }
-    if ((nextWorkflow?.accepts_audio_reference || nextWorkflow?.accepts_video_reference) && references.length > 1) {
+    const nextImageLimit = nextWorkflow?.accepts_video_reference ? motionImageLimit(nextWorkflow) : 1
+    if ((nextWorkflow?.accepts_audio_reference || nextWorkflow?.accepts_video_reference) && references.length > nextImageLimit) {
       setReferences((current) => {
-        releaseAssets(current.slice(1))
-        return current.slice(0, 1)
+        releaseAssets(current.slice(nextImageLimit))
+        return current.slice(0, nextImageLimit)
       })
     }
   }
@@ -1779,6 +1953,22 @@ export default function App({
     if (error) { messageApi.error(error); return }
     replaceKeyframe(0, [file])
   }
+  const appendMotionCharacters = (files: FileList | File[] | null) => {
+    if (!files) return
+    const incoming = Array.from(files)
+    for (const file of incoming) {
+      const error = motionReferenceError(file, "image")
+      if (error) { messageApi.error(error); return }
+    }
+    const added = newAssets(incoming)
+    setReferences((current) => {
+      const room = motionCharacterLimit - current.length
+      const allowed = added.slice(0, Math.max(0, room))
+      releaseAssets(added.slice(allowed.length))
+      if (allowed.length < added.length) messageApi.warning(`最多添加 ${motionCharacterLimit} 张角色形象图`)
+      return [...current, ...allowed]
+    })
+  }
   const pickMotionVideo = (files: FileList | File[] | null) => {
     const file = files?.[0]
     if (!file) return
@@ -1791,8 +1981,13 @@ export default function App({
     if (!files || !workflow || workflow.reference_mode === "none") return
     if (workflow.accepts_video_reference) {
       const incoming = Array.from(files)
-      const portrait = incoming.find((file) => file.type.startsWith("image/"))
       const video = incoming.find((file) => !file.type.startsWith("image/"))
+      if (motionImageLimit(workflow) > 1) {
+        appendMotionCharacters(incoming.filter((file) => file.type.startsWith("image/")))
+        if (video) pickMotionVideo([video])
+        return
+      }
+      const portrait = incoming.find((file) => file.type.startsWith("image/"))
       if (portrait) pickMotionPortrait([portrait])
       if (video) pickMotionVideo([video])
       return
@@ -1974,7 +2169,7 @@ export default function App({
   const togglePinned = (job: Job) => metadataMutation.mutate({ jobId: job.id, pinned: !job.pinned })
   const confirmDelete = (job: Job) => Modal.confirm({
     title: "删除任务？",
-    content: "任务记录与该任务的全部轮次将从工作台移除，已保存到本地目录的文件不会删除。",
+    content: "任务记录与全部轮次将移除，云端产物将永久删除；仍被其他任务、资产或画布引用时将阻止删除。已保存到本地目录的文件不会删除。",
     okText: "删除",
     cancelText: "取消",
     okButtonProps: { danger: true },
@@ -1991,6 +2186,19 @@ export default function App({
     onOk: () => cancelMutation.mutateAsync(job.id),
   })
   const reEditRound = async (job: Job, round: JobRound) => {
+    if (round.mode === FACE_RESTORE_WORKFLOW) {
+      navigate(`${PATHS.toolFaceRestore}?job=${encodeURIComponent(job.id)}&round=${encodeURIComponent(round.id)}`)
+      return
+    }
+    if (round.mode === "minimax-h3-video-edit") {
+      navigate(`${PATHS.toolVideoEdit}?job=${encodeURIComponent(job.id)}&round=${encodeURIComponent(round.id)}`)
+      return
+    }
+    if (MOTION_TOOL_WORKFLOWS.includes(round.mode)) {
+      // 三种动作迁移方式统一回到工具页恢复素材与参数（页内可切换迁移方式）。
+      navigate(`/tools/motion-transfer?job=${encodeURIComponent(job.id)}&round=${encodeURIComponent(round.id)}`)
+      return
+    }
     const targetWorkflow = (modesQuery.data?.modes ?? []).find((item) => item.id === round.mode)
     if (!targetWorkflow) {
       messageApi.error("这个任务使用的工作流当前不可用，无法带回编辑器。")
@@ -2012,9 +2220,10 @@ export default function App({
     setAdvancedOptionsOpen(false)
     setOptimizeUndo(null)
     setOptimizedPrompt(null)
-    const sources = roundReferenceSources(job, round).map((reference) => ({
+    const rawReferenceSources = roundReferenceSources(job, round)
+    const sources = rawReferenceSources.map((reference) => ({
       ...reference,
-      kind: reference.kind ?? (targetWorkflow.accepts_video_reference && reference.index === 2 ? "video" as const : "image" as const),
+      kind: reference.kind ?? (targetWorkflow.accepts_video_reference && reference.index === rawReferenceSources.length ? "video" as const : "image" as const),
     }))
     let restoredReferences: ReferenceAsset[] = []
     try {
@@ -2114,7 +2323,7 @@ export default function App({
 
     Modal.confirm({
       title: "批量删除资产与任务记录？",
-      content: `已选中 ${selectedEntries.length} 个资产项，涉及 ${jobsToDelete.length} 个生成任务。删除后任务记录及全部生成轮次将从工作台移除，已保存到本地磁盘的文件不会被删除。`,
+      content: `已选中 ${selectedEntries.length} 个资产项，涉及 ${jobsToDelete.length} 个生成任务。任务及全部轮次的云端产物将永久删除；仍被引用的任务会保留并提示失败。本地已下载文件不会删除。`,
       okText: "确认删除",
       cancelText: "取消",
       okButtonProps: { danger: true },
@@ -2146,7 +2355,8 @@ export default function App({
       return {
         id,
         title: job.title || job.prompt.slice(0, 30) || `素材_${outputIndex + 1}`,
-        kind: output.kind,
+        // targetEntries 已过滤纯音频产物；剪映草稿仅支持视觉两型。
+        kind: output.kind === "audio" ? "video" : output.kind,
         path: output.path,
         url,
         durationSeconds: output.kind === "image" ? 3.0 : undefined,
@@ -2234,10 +2444,11 @@ export default function App({
   ]
 
   return (
-    <div className={`${themeMode === "light" ? "studio-light" : "studio-dark"} ${workspaceView === "canvas" ? "studio-canvas-shell" : ""} ${isCanvasHome ? "studio-canvas-home-shell" : ""} min-h-screen overflow-x-hidden bg-[#f8f9fa] text-[#171a1f]`}>
+    <div className={`${themeMode === "light" ? "studio-light" : "studio-dark"} ${workspaceView === "canvas" ? "studio-canvas-shell" : ""} ${isCanvasHome ? "studio-canvas-home-shell" : ""} ${workshopFocus ? "studio-project-shell" : ""} min-h-screen overflow-x-hidden bg-[#f8f9fa] text-[#171a1f]`}>
       {messageContext}
       {profileOpen && user ? <RenameUserModal target={user} csrfToken={csrfToken} self onClose={() => setProfileOpen(false)} /> : null}
       <StudioHeader
+        compact={false}
         user={user}
         onRequestLogin={() => onRequestLogin()}
         provider={headerUsesGrs ? "GRS" : "ComfyUI"}
@@ -2253,6 +2464,7 @@ export default function App({
       <div className={`studio-workspace studio-floating-workspace relative mt-14 flex min-h-[calc(100vh-56px)] bg-[#f8f9fa] ${taskRailCollapsed || workspaceView !== "generate" ? "studio-task-rail-collapsed" : ""} ${workspaceView === "assets" ? "studio-asset-view" : ""} ${workspaceView === "canvas" ? "studio-canvas-view" : ""} ${directorLegacyStudio ? "studio-director-view" : ""} ${workspaceView === "director" && !directorLegacyStudio ? "studio-director2-view" : ""}`}>
         <nav className="studio-mobile-nav" aria-label="工作区导航">
           <NavLink to={lastGeneratePathRef.current} className={() => workspaceView === "generate" ? "is-active" : ""}><Sparkles size={16} />生成</NavLink>
+          <NavLink onClick={(event) => guardGuestNavigation(event, PATHS.inspiration)} to={PATHS.inspiration} className={() => workspaceView === "inspiration" ? "is-active" : ""}><Lightbulb size={16} />灵感</NavLink>
           <NavLink onClick={(event) => guardGuestNavigation(event, lastDirectorPathRef.current)} to={lastDirectorPathRef.current} className={() => workspaceView === "director" ? "is-active" : ""}><Clapperboard size={16} />导演台</NavLink>
           <NavLink onClick={(event) => guardGuestNavigation(event, PATHS.canvas)} to={PATHS.canvas} className={() => workspaceView === "canvas" ? "is-active" : ""}><Frame size={16} />画布</NavLink>
           <NavLink onClick={(event) => guardGuestNavigation(event, PATHS.tools)} to={PATHS.tools} className={() => workspaceView === "tools" ? "is-active" : ""}><LayoutGrid size={16} />工具</NavLink>
@@ -2261,6 +2473,7 @@ export default function App({
         <aside className="studio-icon-rail fixed bottom-0 left-0 top-14 z-20 hidden w-[76px] flex-col items-center border-r border-black/[0.05] bg-white pt-5 xl:flex">
           <div className="studio-global-nav-items flex flex-col items-center gap-2" role="navigation" aria-label="主菜单">
             <NavLink to={lastGeneratePathRef.current} title="生成" aria-label="生成" className={() => `studio-global-nav-item ${workspaceView === "generate" ? "studio-global-nav-item-active" : ""}`}><StudioNavigationSymbol name="generate" className="studio-global-nav-symbol" /><span>生成</span></NavLink>
+            <NavLink onClick={(event) => guardGuestNavigation(event, PATHS.inspiration)} to={PATHS.inspiration} title="灵感" aria-label="灵感" className={() => `studio-global-nav-item ${workspaceView === "inspiration" ? "studio-global-nav-item-active" : ""}`}><StudioNavigationSymbol name="inspiration" className="studio-global-nav-symbol" /><span>灵感</span></NavLink>
             <NavLink onClick={(event) => guardGuestNavigation(event, lastDirectorPathRef.current)} to={lastDirectorPathRef.current} title="导演台" aria-label="导演台" className={() => `studio-global-nav-item ${workspaceView === "director" ? "studio-global-nav-item-active" : ""}`}><StudioNavigationSymbol name="director" className="studio-global-nav-symbol" /><span>导演台</span></NavLink>
           <NavLink onClick={(event) => guardGuestNavigation(event, PATHS.canvas)} to={PATHS.canvas} title="无限画布" aria-label="画布" className={() => `studio-global-nav-item ${workspaceView === "canvas" ? "studio-global-nav-item-active" : ""}`}><StudioNavigationSymbol name="canvas" className="studio-global-nav-symbol" /><span>画布</span></NavLink>
           <NavLink onClick={(event) => guardGuestNavigation(event, PATHS.tools)} to={PATHS.tools} title="AI 工具" aria-label="工具" className={() => `studio-global-nav-item ${workspaceView === "tools" ? "studio-global-nav-item-active" : ""}`}><StudioNavigationSymbol name="tools" className="studio-global-nav-symbol" /><span>工具</span></NavLink>
@@ -2311,7 +2524,7 @@ export default function App({
           ? "director2-workspace-main relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-0"
           : workspaceView === "canvas"
           ? "canvas-workspace-main relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-0"
-          : `relative mx-auto min-h-[calc(100vh-56px)] w-full min-w-0 max-w-[1180px] px-4 pb-10 pt-[112px] sm:px-8 lg:pt-12 ${workspaceView === "assets" ? "studio-asset-main" : ""} ${workspaceView === "tools" ? "studio-tools-main" : ""} ${workspaceView === "generate" ? "studio-generate-main" : ""} ${workspaceView === "generate" && !selectedJob ? "studio-generate-empty" : ""} ${isGenerationHome ? "studio-generation-home" : ""}`
+          : `relative mx-auto min-h-[calc(100vh-56px)] w-full min-w-0 ${workspaceView === "tools" && location.pathname === PATHS.tools ? "max-w-[1680px]" : "max-w-[1180px]"} px-4 pb-10 pt-[112px] sm:px-8 lg:pt-12 ${workspaceView === "assets" ? "studio-asset-main" : ""} ${workspaceView === "inspiration" ? "studio-inspiration-main" : ""} ${workspaceView === "tools" ? "studio-tools-main" : ""} ${workspaceView === "generate" ? "studio-generate-main" : ""} ${workspaceView === "generate" && !selectedJob ? "studio-generate-empty" : ""} ${isGenerationHome ? "studio-generation-home" : ""}`
         }>
           {directorLegacyStudio ? (
             <Suspense fallback={<div className="py-24 text-center text-sm text-[#6b7280]"><LoaderCircle className="mx-auto mb-3 animate-spin text-[#7047f6]" size={24} />正在加载 AI 导演台...</div>}>
@@ -2323,11 +2536,15 @@ export default function App({
             </Suspense>
           ) : workspaceView === "director" ? (
             <Suspense fallback={<div className="py-24 text-center text-sm text-[#6b7280]"><LoaderCircle className="mx-auto mb-3 animate-spin text-[#7047f6]" size={24} />正在加载导演台...</div>}>
-              <Director2App csrfToken={csrfToken} onExitDirector={() => navigate(lastGeneratePathRef.current)} />
+              <Director2App csrfToken={csrfToken} isAdmin={isAdminViewer} onExitDirector={() => navigate(lastGeneratePathRef.current)} />
             </Suspense>
           ) : workspaceView === "canvas" ? (
             <Suspense fallback={<div className="py-24 text-center text-sm text-[#6b7280]"><LoaderCircle className="mx-auto mb-3 animate-spin text-[#7047f6]" size={24} />正在加载无限画布...</div>}>
               <CanvasWorkspace csrfToken={csrfToken} />
+            </Suspense>
+          ) : workspaceView === "inspiration" ? (
+            <Suspense fallback={<div className="py-24 text-center text-sm text-[#6b7280]"><LoaderCircle className="mx-auto mb-3 animate-spin text-[#7047f6]" size={24} />正在加载灵感示例库...</div>}>
+              <InspirationWorkspace onUseInComposer={useShowcaseInComposer} />
             </Suspense>
           ) : workspaceView === "tools" ? (
             <Suspense fallback={<div className="py-24 text-center text-sm text-[#6b7280]"><LoaderCircle className="mx-auto mb-3 animate-spin text-[#7047f6]" size={24} />正在加载 AI 工具...</div>}>
@@ -2608,29 +2825,38 @@ export default function App({
 
           {selectedJob && <section className={`studio-task-stream relative z-10 mb-8 ${mediaType === "image" ? "studio-image-task-stream" : ""}`} aria-label="任务详情">
             {selectedJob.rounds.map((round) => {
+              const roundWorkflow = modesQuery.data?.modes.find((mode) => mode.id === round.mode)
+                || (selectedJobWorkflow.data?.id === round.mode ? selectedJobWorkflow.data : undefined)
+              const roundModelName = roundWorkflow?.name || round.mode
+              const formatRoundParameter = (parameter: RequestParameter) => {
+                const name = parameter.name.startsWith("options.") ? parameter.name.slice(8) : ""
+                const field = roundWorkflow?.parameters.find((item) => item.name === "options")?.schema?.properties?.[name]
+                const display = field?.ui_options?.find((item) => String(item.value) === String(parameter.value))
+                return display ? String(display.label) : parameterValue(parameter)
+              }
               const roundResults = resultsForRound(round)
+              const roundCompare = resolveCompareSource(roundWorkflow, roundReferenceSources(selectedJob, round))
               const roundProgress = Math.max(0, Math.min(100, round.progress ?? 0))
               const canGenerateAgain = selectedJob.status === "succeeded" || selectedJob.status === "partial"
               const canRetryRound = round.status === "partial" || round.status === "failed" || round.status === "interrupted" || round.status === "cancelled"
               const canCancelRound = round.status === "queued" || round.status === "running" || round.status === "awaiting_refine" || round.status === "interrupted"
               const canRefineRound = round.status === "awaiting_refine"
               const relatedUpscale = activeUpscaleJob(allJobs, selectedJob.id)
-              const showUpscale = mediaType === "video" && !isUpscaleJob(selectedJob) && hasOriginalVideo(selectedJob) && !isInspectingOtherUser
               const failedItems = round.generation_items.filter((item) => item.status === "failed" || item.status === "interrupted" || item.status === "cancelled")
               const roundDisplayPrompt = round.display_prompt?.trim()
               const roundPromptShownInEnglish = roundPromptLanguage[round.id] === "en" || !roundDisplayPrompt
               const roundPromptText = roundPromptShownInEnglish ? round.prompt : roundDisplayPrompt
               const featuredVideo = selectVideoResult(roundResults, videoVersionByRound[round.id])
-              const isUpscaleSource = featuredVideo != null && videoResultKey(featuredVideo) === jobUpscaleSourceKey(selectedJob)
+              const audioResults = roundResults.filter((item) => item.output.kind === "audio")
               return <article key={round.id} className={`studio-round ${mediaType === "video" ? "studio-video-round" : "studio-image-round"}`}>
                 {mediaType === "video" ? <VideoRoundHeader
                   roundId={round.id} sequence={round.sequence} prompt={roundPromptText || ""}
                   expanded={isSelectedPromptExpanded} onExpand={() => setIsSelectedPromptExpanded((expanded) => !expanded)}
                   language={roundDisplayPrompt && roundDisplayPrompt !== round.prompt ? (roundPromptShownInEnglish ? "en" : "zh") : undefined}
                   onLanguageChange={() => setRoundPromptLanguage((current) => ({ ...current, [round.id]: roundPromptShownInEnglish ? "zh" : "en" }))}
-                  references={round.references} modelName={modesQuery.data?.modes.find((mode) => mode.id === round.mode)?.name || round.mode}
+                  references={round.references} modelName={roundModelName}
                   status={round.status} statusLabel={statusText[round.status]} stage={round.stage}
-                  parameters={round.request_parameters} formatParameter={parameterValue}
+                  parameters={round.request_parameters} formatParameter={formatRoundParameter}
                   elapsed={<RoundWait source={{ created_at: round.created_at || selectedJob.created_at, finished_at: round.finished_at, elapsed_ms: round.elapsed_ms, execution_elapsed_ms: round.execution_elapsed_ms, status: round.status }} />}
                   results={roundResults} selected={featuredVideo}
                   onSelect={(key) => setVideoVersionByRound((current) => ({ ...current, [round.id]: key }))}
@@ -2642,9 +2868,9 @@ export default function App({
                   expanded={isSelectedPromptExpanded} onExpand={() => setIsSelectedPromptExpanded((expanded) => !expanded)}
                   language={roundDisplayPrompt && roundDisplayPrompt !== round.prompt ? (roundPromptShownInEnglish ? "en" : "zh") : undefined}
                   onLanguageChange={() => setRoundPromptLanguage((current) => ({ ...current, [round.id]: roundPromptShownInEnglish ? "zh" : "en" }))}
-                  references={round.references} modelName={modesQuery.data?.modes.find((mode) => mode.id === round.mode)?.name || round.mode}
+                  references={round.references} modelName={roundModelName}
                   status={round.status} statusLabel={statusText[round.status]} stage={round.stage}
-                  parameters={round.request_parameters} formatParameter={parameterValue}
+                  parameters={round.request_parameters} formatParameter={formatRoundParameter}
                   elapsed={<RoundWait source={{ created_at: round.created_at || selectedJob.created_at, finished_at: round.finished_at, elapsed_ms: round.elapsed_ms, execution_elapsed_ms: round.execution_elapsed_ms, status: round.status }} />}
                   onReferencePreview={(index, url) => setPreviewMedia({ kind: "image", src: url, title: `参考图 ${index}` })}
                 />}
@@ -2670,42 +2896,49 @@ export default function App({
                   </div>
                 </div>}
 
-                {roundResults.length > 0 && <Suspense fallback={<div className="flex min-h-56 items-center justify-center text-sm text-[#65707c]">正在加载结果...</div>}>
-                  {mediaType === "image" ? <ImageStudioModule embedded showHeading={false} results={roundResults as ImageResult[]} roundCount={1} onDownload={(result) => downloadOutput(selectedJob, result.outputIndex, result.output)} onCreateVideo={isInspectingOtherUser ? undefined : (result) => void createVideoFromImage(result)} onPreview={(result) => {
+                {(mediaType === "image" ? roundResults.length > 0 : Boolean(featuredVideo)) && <Suspense fallback={<div className="flex min-h-56 items-center justify-center text-sm text-[#65707c]">正在加载结果...</div>}>
+                  {mediaType === "image" ? <ImageStudioModule embedded showHeading={false} results={roundResults as ImageResult[]} roundCount={1} compare={roundCompare} onDownload={(result) => downloadOutput(selectedJob, result.outputIndex, result.output)} resolveActions={(source) => mediaActions({ kind: "image", source, modes: modesQuery.data?.modes, host: { createVideo: !isInspectingOtherUser, canvas: !isInspectingOtherUser, reference: Boolean(workflow && workflow.reference_mode !== "none") }, inspectingOtherUser: isInspectingOtherUser })} onAction={(action, result) => runMediaAction(action, { kind: "image", result, job: selectedJob, roundId: round.id })} onPreview={(result) => {
                     if (!result.src) return
                     const withSrc = roundResults.filter((item) => item.src)
                     const index = withSrc.findIndex((item) => item.generationItemId === result.generationItemId && item.outputIndex === result.outputIndex)
-                    const list: MediaPreview[] = withSrc.map((item) => ({ kind: "image", src: item.src as string, title: item.output.label, description: roundDisplayPrompt || selectedJob.prompt, job: selectedJob, aspectRatio: mediaAspectHint(round) || mediaAspectHint(selectedJob) }))
+                    const previewOf = (item: { jobId?: string; generationItemId: string; outputIndex: number; output: { label: string }; src?: string }): MediaPreview => ({ kind: "image", src: item.src as string, title: item.output.label, description: roundDisplayPrompt || selectedJob.prompt, job: selectedJob, aspectRatio: mediaAspectHint(round) || mediaAspectHint(selectedJob), compare: roundCompare, source: mediaHandoffSource("image", item) ?? undefined, roundId: round.id })
+                    const list: MediaPreview[] = withSrc.map(previewOf)
                     const navigable = list.length > 1 && index >= 0
-                    setPreviewMedia({ kind: "image", src: result.src, title: result.output.label, description: roundDisplayPrompt || selectedJob.prompt, job: selectedJob, aspectRatio: mediaAspectHint(round) || mediaAspectHint(selectedJob), list: navigable ? list : undefined, listIndex: navigable ? index : undefined })
+                    setPreviewMedia({ ...previewOf(result), list: navigable ? list : undefined, listIndex: navigable ? index : undefined })
                   }} /> : <VideoStudioModule embedded showHeading={false}
                     results={featuredVideo ? [featuredVideo] : []} roundCount={1}
                     aspectRatio={mediaAspectHint(round) || mediaAspectHint(selectedJob)}
-                    upscale={showUpscale ? {
-                      disabled: !isUpscaleSource || !canRequestJobUpscale(selectedJob, allJobs, isInspectingOtherUser) || upscaleMutation.isPending,
-                      pending: upscaleMutation.isPending || Boolean(relatedUpscale),
-                      hint: upscaleDisabledReason(selectedJob, allJobs, isInspectingOtherUser) || (!isUpscaleSource ? "超分使用此任务的最新原片，请切换到对应原片版本" : "把此原片放大 2 倍，原片保留"),
-                      engines: upscaleEngines,
-                      onClick: (engine) => upscaleMutation.mutate({ jobId: selectedJob.id, engine }),
-                    } : undefined}
                     upscaleStage={relatedUpscale?.stage}
-                    onPreview={(result) => result.src && setPreviewMedia({ kind: "video", src: result.src, title: result.output.label, description: roundDisplayPrompt || selectedJob.prompt, job: allJobs.find((item) => item.id === result.jobId) ?? selectedJob, aspectRatio: mediaAspectHint(round) || mediaAspectHint(selectedJob) })}
+                    onEnhance={canUpscaleRound(selectedJob, round.id, isInspectingOtherUser, featuredVideo?.output)
+                      ? () => { if (!seedUpscaleMutation.isPending && !relatedUpscale) seedUpscaleMutation.mutate(selectedJob.id) }
+                      : undefined}
+                    enhancing={seedUpscaleMutation.isPending || Boolean(relatedUpscale)}
+                    onPreview={(result) => result.src && setPreviewMedia({ kind: "video", src: result.src, title: result.output.label, description: roundDisplayPrompt || selectedJob.prompt, job: allJobs.find((item) => item.id === result.jobId) ?? selectedJob, aspectRatio: mediaAspectHint(round) || mediaAspectHint(selectedJob), source: mediaHandoffSource("video", result) ?? undefined, roundId: round.id })}
                     onDownload={(result) => downloadOutput(allJobs.find((item) => item.id === result.jobId) ?? selectedJob, result.outputIndex, result.output)}
-                    onAddToCanvas={isInspectingOtherUser ? undefined : (result) => setCanvasInsertAsset({
-                      jobId: result.jobId ?? selectedJob.id, generationItemId: result.generationItemId,
-                      outputIndex: result.outputIndex, label: result.output.label,
-                    })}
-                    onExportJianying={(result) => {
-                      setJianyingSelectedItems([{
-                        id: videoResultKey(result), title: result.output.label, kind: "video", path: result.output.path,
-                        url: result.output.download_url ?? result.output.cloud_url ?? result.src ?? mediaUrl(result.output.path),
-                      }])
-                      setJianyingModalOpen(true)
-                    }}
-                    onShowRuntime={() => setVideoRoundDetails({ id: round.id, runtime: true })}
-                    onDeleteTask={() => confirmDelete(selectedJob)}
+                    resolveActions={(source) => mediaActions({ kind: "video", source, modes: modesQuery.data?.modes, host: { reference: Boolean(workflow?.accepts_video_reference), canvas: !isInspectingOtherUser, jianying: true, params: true, remove: !isInspectingOtherUser }, inspectingOtherUser: isInspectingOtherUser })}
+                    onAction={(action, result) => runMediaAction(action, { kind: "video", result, job: allJobs.find((item) => item.id === result.jobId) ?? selectedJob, roundId: round.id })}
                   />}
                 </Suspense>}
+
+                {audioResults.length > 0 && <div className="studio-audio-results" aria-label="音频结果">
+                  {audioResults.map((item) => (
+                    <div key={`${item.generationItemId}:${item.outputIndex}`} className="studio-audio-result">
+                      <div className="studio-audio-result-head">
+                        <AudioLines size={16} aria-hidden="true" />
+                        <span>{item.output.label}</span>
+                      </div>
+                      {item.src
+                        ? <audio controls preload="metadata" src={item.src} />
+                        : <p className="studio-audio-result-empty">音轨暂不可播放，稍后可下载</p>}
+                      {!isInspectingOtherUser && <button
+                        type="button"
+                        className="studio-audio-result-download"
+                        disabled={!item.src}
+                        onClick={() => downloadOutput(selectedJob, item.outputIndex, item.output)}
+                      ><Download size={14} />下载</button>}
+                    </div>
+                  ))}
+                </div>}
 
                 {failedItems.length > 0 && mediaType === "image" && <ul className="mt-3 space-y-2 text-xs leading-5 text-red-600">
                   {failedItems.map((item) => (
@@ -2768,9 +3001,27 @@ export default function App({
               </> : <>本地推理 <strong className="text-[#f0d567]">GPU</strong></>}
             </div>}
 
-            <div className="studio-composer-prompt grid min-h-[142px] grid-cols-1 gap-4 sm:grid-cols-[minmax(102px,154px)_minmax(0,1fr)]">
+            <div className="studio-composer-prompt grid min-h-[112px] grid-cols-1 gap-4 sm:grid-cols-[112px_minmax(0,1fr)]">
               {workflow?.accepts_video_reference
-                ? <MotionTransferReferences
+                ? isMultiMotionWorkflow
+                  ? <MotionRefVideoReferences
+                      labels={workflow.reference_labels}
+                      characters={references}
+                      maxCharacters={motionCharacterLimit}
+                      motion={motionVideo}
+                      onPickCharacters={appendMotionCharacters}
+                      onReplaceCharacter={replaceKeyframe}
+                      onRemoveCharacter={removeReference}
+                      onMoveCharacter={moveReference}
+                      onPreviewCharacter={openReferencePreview}
+                      onPickMotion={pickMotionVideo}
+                      onRemoveMotion={() => setMotionVideo((current) => { if (current) releaseAssets([current]); return null })}
+                      onPreviewMotion={() => motionVideo && setPreviewMedia({ kind: "video", src: motionVideo.preview, title: "动作参考视频" })}
+                      onMotionDuration={(id, duration) => {
+                        if (Number.isFinite(duration)) setMotionVideo((current) => current?.id === id && current.duration !== duration ? { ...current, duration } : current)
+                      }}
+                    />
+                  : <MotionTransferReferences
                     labels={workflow.reference_labels}
                     portrait={references[0]}
                     motion={motionVideo}
@@ -2895,6 +3146,7 @@ export default function App({
                 <Input.TextArea
                   aria-label="创作提示词"
                   ref={promptRef}
+                  variant="borderless"
                   value={prompt}
                   onFocus={() => { if (isComposerCompact) returnToComposer(true) }}
                   onChange={(event) => setPrompt(event.target.value)}
@@ -2911,23 +3163,23 @@ export default function App({
                     }
                   }}
                   placeholder={workflow?.default_prompt ? "可选：描述角色、场景和氛围；留空会按参考视频迁移动作…" : isGenerationHome ? (workflow?.reference_mode === "none" ? "描述画面、动作和运镜，让想法成为下一帧…" : "描述一个画面，或上传参考图开始创作…") : workflow?.description || "描述镜头、动作、运镜、音效和氛围"}
-                  className="studio-prompt-input h-[106px] w-full resize-none border-0 bg-transparent p-0 text-[15px] leading-6 text-[#d7d7dc] outline-none placeholder:text-[#777780]"
+                  className="studio-prompt-input h-[76px] w-full resize-none border-0 bg-transparent p-0 text-sm leading-6 text-[#d7d7dc] outline-none placeholder:text-[#777780]"
                 />
-                {isGenerationHome && workflow?.reference_mode !== "none" && !prompt.trim() && <p className="studio-home-upload-hint">{workflow?.accepts_video_reference ? "角色图锁定形象，视频提供动作；建议单人全身、固定镜头" : "支持粘贴图片，或拖入参考图"}</p>}
+                {isGenerationHome && workflow?.reference_mode !== "none" && !prompt.trim() && <p className="studio-home-upload-hint">{workflow?.accepts_video_reference ? (isMultiMotionWorkflow ? "角色图顺序对应视频中的表演者，可添加 1-6 个角色" : "角色图锁定形象，视频提供动作；建议单人全身、固定镜头") : "支持粘贴图片，或拖入参考图"}</p>}
                 {motionVideoError ? <p role="alert" className="studio-motion-validation">{motionVideoError}</p> : null}
                 {workflow?.reference_mode === "collection" && !workflow?.accepts_audio_reference && !workflow?.accepts_video_reference && references.length > 0 && <div className="studio-picture-tags mt-2 flex flex-wrap gap-1.5">{references.map((asset, index) => <button key={asset.id} type="button" onClick={() => addPictureTag(index + 1)} className="rounded-md border border-[#7047ff]/40 bg-[#7047ff]/10 px-2 py-1 text-[11px] text-[#b5a4ff] hover:bg-[#7047ff]/20">&lt;Picture {index + 1}&gt;</button>)}</div>}
               </div>
             </div>
 
 
-            <div className="studio-composer-toolbar mt-4 flex flex-col gap-3 border-t border-white/[0.08] pt-4 lg:flex-row lg:items-center">
-              <div className="grid min-w-0 flex-1 grid-cols-1 gap-2 sm:flex sm:flex-wrap">
-                <div className="studio-media-select flex h-9 min-w-0 items-center rounded-lg border border-[#37373b] bg-[#222226] px-1 shadow-[0_6px_16px_rgba(0,0,0,0.12)] sm:w-[140px]">
+            <div className="studio-composer-toolbar">
+              <div className="studio-composer-controls">
+                <div className="studio-media-select">
                   <Select aria-label="选择生成类型" value={mediaType} onChange={(value) => switchMedia(value as "image" | "video")} className="studio-select min-w-0 flex-1" popupClassName="studio-select-popup studio-media-select-popup" options={[{ value: "image", label: <span className="studio-select-option"><ImagePlus size={14} />图片生成</span> }, { value: "video", label: <span className="studio-select-option"><Video size={14} />视频生成</span> }]} />
                 </div>
-                <div className="studio-control-shell flex h-9 min-w-0 items-center gap-2 rounded-lg border border-[#37373b] bg-[#222226] px-3 shadow-[0_6px_16px_rgba(0,0,0,0.12)] sm:w-[280px]">
-                  <Settings2 size={16} className="shrink-0 text-[#947dff]" />
-                  <Select aria-label="选择工作流" value={workflowId} onChange={(value) => selectWorkflow(String(value))} showSearch optionFilterProp="label" className="studio-select min-w-0 flex-1" popupClassName="studio-select-popup studio-workflow-select-popup" options={groupedWorkflowOptions(workflows)} optionRender={(option) => <WorkflowOptionRow item={option.data as WorkflowSelectOption} />} />
+                <div className="studio-control-shell studio-compact-select" style={{ "--studio-compact-select-width": `${compactSelectWidth([{ label: workflow?.name }])}px` } as CSSProperties}>
+                  <Settings2 size={14} className="shrink-0" />
+                  <Select aria-label="选择工作流" value={workflowId} onChange={(value) => selectWorkflow(String(value))} showSearch optionFilterProp="label" className="studio-select min-w-0 flex-1" popupClassName="studio-select-popup studio-workflow-select-popup" popupMatchSelectWidth={360} options={groupedWorkflowOptions(workflows)} optionRender={(option) => <WorkflowOptionRow item={option.data as WorkflowSelectOption} />} />
                 </div>
                 {primaryValueOptionDefinitions.map(([name, definition]) => <OptionControl
                   key={name}
@@ -2939,10 +3191,28 @@ export default function App({
                   compact
                   onChange={(optionName, value) => setOptionValues((current) => ({ ...current, [optionName]: value }))}
                 />)}
-                {workflow?.accepts_image_size && <div className="studio-control-shell flex h-9 min-w-0 items-center gap-2 rounded-lg border border-[#37373b] bg-[#222226] px-3 shadow-[0_6px_16px_rgba(0,0,0,0.12)] sm:w-[172px]"><Maximize2 size={16} className="shrink-0 text-[#947dff]" /><Select aria-label="选择图片尺寸" value={imageSize} onChange={(value) => setImageSize(String(value))} className="studio-select min-w-0 flex-1" popupClassName="studio-select-popup" options={(modesQuery.data?.image_sizes ?? []).map((size) => ({ value: size, label: size }))} /></div>}
-                {advancedOptionDefinitions.length > 0 && <Button aria-expanded={advancedOptionsOpen} onClick={() => setAdvancedOptionsOpen((open) => !open)} className="studio-more-settings flex h-10 items-center justify-center gap-2 rounded-lg border border-[#37373b] bg-[#222226] px-3 text-sm text-[#d8d8df] transition hover:bg-[#29292f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7047ff]/45"><SlidersHorizontal size={16} className="text-[#947dff]" />更多设置</Button>}
-              </div>
-              <div className="studio-composer-actions flex shrink-0 flex-wrap items-center justify-between gap-2 lg:justify-end">
+                {workflow?.accepts_image_size && <div className="studio-control-shell studio-image-size-select"><Maximize2 size={14} className="shrink-0" /><Select aria-label="选择图片尺寸" value={imageSize} onChange={(value) => setImageSize(String(value))} className="studio-select min-w-0 flex-1" popupClassName="studio-select-popup" options={(modesQuery.data?.image_sizes ?? []).map((size) => ({ value: size, label: size }))} /></div>}
+                {advancedOptionDefinitions.length > 0 && <Popover
+                  trigger="click"
+                  placement="topLeft"
+                  arrow={false}
+                  open={advancedOptionsOpen}
+                  onOpenChange={setAdvancedOptionsOpen}
+                  classNames={{ root: "studio-advanced-popover" }}
+                  content={<section aria-label="更多生成设置" className="studio-advanced-options" onKeyDown={(event) => { if (event.key === "Escape") setAdvancedOptionsOpen(false) }}>
+                    {advancedOptionDefinitions.map(([name, definition]) => <OptionControl
+                      key={name}
+                      name={name}
+                      definition={definition}
+                      value={optionValues[name] ?? ""}
+                      definitions={optionDefinitions}
+                      values={optionValues}
+                      onChange={(optionName, value) => setOptionValues((current) => ({ ...current, [optionName]: value }))}
+                    />)}
+                  </section>}
+                >
+                  <Button type="text" size="small" aria-expanded={advancedOptionsOpen} onKeyDown={(event) => { if (event.key === "Escape") setAdvancedOptionsOpen(false) }} className="studio-more-settings"><SlidersHorizontal size={14} />更多设置</Button>
+                </Popover>}
                 {primaryToggleOptionDefinitions.map(([name, definition]) => <OptionControl
                   key={name}
                   name={name}
@@ -2953,6 +3223,8 @@ export default function App({
                   compact
                   onChange={(optionName, value) => setOptionValues((current) => ({ ...current, [optionName]: value }))}
                 />)}
+              </div>
+              <div className="studio-composer-actions">
                 {mediaType === "image" && typeof workflow?.credit_cost === "number" ? (
                   <Tooltip title={`GRS 平台标价：本模型每张消耗 ${workflow.credit_cost} 积分，实际扣费以上游结算为准。`}>
                     <span aria-label="本次生图消耗积分" className="studio-submit-cost flex shrink-0 items-center gap-1 text-xs">
@@ -2961,11 +3233,10 @@ export default function App({
                     </span>
                   </Tooltip>
                 ) : null}
-                <Tooltip title={!workflow?.available ? workflow?.unavailable_reason : undefined}>
-                  <Button htmlType="submit" type="primary" disabled={Boolean(user) && !canSubmit} className="studio-generate-submit flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl px-5 text-sm lg:w-[154px]">{(createMutation.isPending || autoOptimizing) ? <LoaderCircle className="animate-spin" size={17} /> : <Sparkles size={17} />}{autoOptimizing ? "正在润色…" : mediaType === "image" ? "开始生图" : "开始生成"}</Button>
+                <Tooltip title={!workflow?.available ? workflow?.unavailable_reason : `${autoOptimizing ? "正在润色…" : mediaType === "image" ? "开始生图" : "开始生成"} · Ctrl / ⌘ + Enter`}>
+                  <Button htmlType="submit" type="primary" disabled={Boolean(user) && !canSubmit} aria-label={autoOptimizing ? "正在润色…" : mediaType === "image" ? "开始生图" : "开始生成"} aria-busy={createMutation.isPending || autoOptimizing} className="studio-generate-submit">{(createMutation.isPending || autoOptimizing) ? <LoaderCircle className="animate-spin" size={18} /> : <ArrowUp size={20} />}</Button>
                 </Tooltip>
               </div>
-              {isGenerationHome && <span className="studio-home-submit-shortcut" aria-hidden>Ctrl + Enter</span>}
             </div>
             {refineHint ? (
               <p className="mt-3 text-xs leading-5 text-[#b9b6c9]">
@@ -2981,19 +3252,6 @@ export default function App({
                     : ""}
               </p>
             ) : null}
-            {advancedOptionsOpen && advancedOptionDefinitions.length > 0 && <section aria-label="更多生成设置" className="mt-4 border-t border-white/[0.08] pt-4">
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {advancedOptionDefinitions.map(([name, definition]) => <OptionControl
-                  key={name}
-                  name={name}
-                  definition={definition}
-                  value={optionValues[name] ?? ""}
-                  definitions={optionDefinitions}
-                  values={optionValues}
-                  onChange={(optionName, value) => setOptionValues((current) => ({ ...current, [optionName]: value }))}
-                />)}
-              </div>
-            </section>}
             {optionError && <p className="mt-3 text-xs text-amber-200">{optionError}</p>}
             {!workflow?.available && workflow?.unavailable_reason ? <p className="mt-3 rounded-lg border border-amber-300/20 bg-amber-300/[0.06] px-3 py-2 text-xs leading-5 text-amber-200">{workflow.unavailable_reason}</p> : null}
             {mediaType === "video" && workflow?.reference_mode === "collection" && references.length > 3 && <p className="mt-3 text-xs text-amber-200">较多参考图会显著增加显存和耗时，建议先使用 1K 预览。</p>}
@@ -3094,6 +3352,7 @@ export default function App({
         title={previewMedia.title}
         description={previewMedia.description}
         aspectRatio={previewMedia.aspectRatio}
+        compare={previewMedia.compare}
         onClose={() => setPreviewMedia(null)}
         navigation={previewMedia.list && previewMedia.listIndex !== undefined ? {
           hasPrev: previewMedia.listIndex > 0,
@@ -3111,12 +3370,7 @@ export default function App({
             return { ...current.list[next], list: current.list, listIndex: next }
           }),
         } : undefined}
-        actions={previewMedia.job ? [{
-          key: "open-job",
-          label: "打开关联任务",
-          icon: <ExternalLink size={15} />,
-          onClick: () => { openGenerateJob(previewMedia.job!); setPreviewMedia(null) },
-        }] : []}
+        actions={previewMediaActions(previewMedia)}
       />}
       {previewReference && referencePreviewIndex !== null && <div role="dialog" aria-modal="true" aria-label="参考图预览" onMouseDown={closeReferencePreview} className={`fixed inset-0 z-[110] flex items-center justify-center bg-[#090a0e]/90 p-3 backdrop-blur-sm sm:p-5 ${referencePreviewFullscreen ? "p-0" : ""}`}>
         <section onMouseDown={(event) => event.stopPropagation()} className={`grid w-full grid-rows-[auto_minmax(0,1fr)_auto] gap-3 border border-white/10 bg-[#111216] p-3 text-white shadow-[0_28px_90px_rgba(0,0,0,0.55)] sm:rounded-xl sm:p-4 ${referencePreviewFullscreen ? "h-full max-w-none rounded-none border-0" : "h-[90vh] max-w-[92vw]"}`}>
@@ -3441,7 +3695,7 @@ function ReferencePanel({
       })}
       {references.length < workflow.max_references && <label
         title="添加参考图"
-        className="group absolute left-0 top-2 flex h-[78px] w-[61px] cursor-pointer items-center justify-center rounded-md border-2 border-[#4d6bfe] bg-[#edf1ff] text-[#4d6bfe] shadow-[0_10px_22px_rgba(77,107,254,0.14)] transition-[transform,background-color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:-translate-y-1 hover:bg-[#e2e8ff]"
+        className="studio-reference-add group absolute left-0 top-2 flex h-[68px] w-[52px] cursor-pointer items-center justify-center rounded-md transition-[transform,background-color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:-translate-y-1"
         style={{ transform: `translate3d(${stackExpanded ? references.length * 65 : references.length ? Math.max(44, references.length * 4 + 38) : 0}px, 0, 0) rotate(-8deg)`, zIndex: stackExpanded ? references.length + 2 : 20 }}
       >
         <Plus className="transition group-hover:scale-110" size={23} /><span className="sr-only">添加参考图</span>

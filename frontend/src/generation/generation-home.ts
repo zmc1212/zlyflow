@@ -2,7 +2,7 @@ import { parseMediaAspect } from "../lib/utils"
 import { cloudThumbnailSrc } from "../media-thumbnails"
 
 export type HomeOutput = {
-  kind: "image" | "video"
+  kind: "image" | "video" | "audio"
   path: string
   label: string
   cloud_url?: string | null
@@ -60,8 +60,12 @@ export function recentCreations(jobs: readonly HomeJob[], limit = 12): RecentCre
         item.outputs.map((output) => ({ output, source: round })))),
       ...job.outputs.map((output) => ({ output, source: job })),
     ]
-    const chosen = candidates.find(({ output }) => output.delivery_status !== "expired"
-      && Boolean(output.cloud_url || output.download_url || output.path))
+    // 首页作品墙只展示视觉创作；人声/伴奏分离等纯音频产物不参与（CreationCard 仅支持视觉两型）。
+    type VisualOutput = HomeOutput & { kind: "image" | "video" }
+    const chosen = candidates.find((candidate): candidate is typeof candidate & { output: VisualOutput } =>
+      candidate.output.kind !== "audio"
+      && candidate.output.delivery_status !== "expired"
+      && Boolean(candidate.output.cloud_url || candidate.output.download_url || candidate.output.path))
     if (!chosen) continue
     const { output, source } = chosen
     const ratioValue = source.options?.aspect_ratio

@@ -5,6 +5,8 @@ import { Navigate, useLocation } from "react-router-dom"
 import { ConfigProvider } from "antd"
 import Director2StudioHome from "./Director2StudioHome"
 import Director2ProjectDetail from "./Director2ProjectDetail"
+import FeaturedWorkPage from "./FeaturedWorkPage"
+import FeaturedProcessPage from "./FeaturedProcessPage"
 import ScriptDiagnosisPage from "./script-diagnosis/ScriptDiagnosisPage"
 import DirectorAssistantProvider from "./assistant/DirectorAssistant"
 import { parseDirector2Path, director2HomePath } from "./paths"
@@ -21,7 +23,7 @@ const director2AntdTheme = {
   },
 }
 
-export default function Director2App({ csrfToken, onExitDirector }: { csrfToken: string; onExitDirector?: () => void }) {
+export default function Director2App({ csrfToken, isAdmin = false, onExitDirector }: { csrfToken: string; isAdmin?: boolean; onExitDirector?: () => void }) {
   const { mode } = useStudioTheme()
   const flowTheme = { ...director2AntdTheme, token: { ...director2AntdTheme.token, colorPrimary: mode === "dark" ? "#8bf0d6" : "#087f68" }, components: { Button: { primaryColor: mode === "dark" ? "#10251e" : "#ffffff" } } }
   const location = useLocation()
@@ -39,12 +41,32 @@ export default function Director2App({ csrfToken, onExitDirector }: { csrfToken:
     return <div className="director2-app director2-app-home"><ScriptDiagnosisPage csrfToken={csrfToken} /></div>
   }
 
+  if (route.kind === "featured") {
+    return (
+      <ConfigProvider theme={flowTheme}>
+        <div className="director2-app director2-app-home">
+          <FeaturedWorkPage featuredId={route.featuredId} csrfToken={csrfToken} />
+        </div>
+      </ConfigProvider>
+    )
+  }
+
+  if (route.kind === "featured-process") {
+    return (
+      <ConfigProvider theme={flowTheme}>
+        <div className="director2-app director2-app-home">
+          <FeaturedProcessPage featuredId={route.featuredId} csrfToken={csrfToken} />
+        </div>
+      </ConfigProvider>
+    )
+  }
+
   // 首页内嵌真实助手；项目与剪辑页面继续使用原来的抽屉。
   if (route.kind === "home") {
     return (
       <DirectorAssistantProvider csrfToken={csrfToken} projectId={null} presentation="home">
       <ConfigProvider theme={flowTheme}><div className="director2-app director2-app-home">
-        <Director2StudioHome csrfToken={csrfToken} onExitDirector={onExitDirector} />
+        <Director2StudioHome csrfToken={csrfToken} isAdmin={isAdmin} onExitDirector={onExitDirector} />
       </div></ConfigProvider>
       </DirectorAssistantProvider>
     )

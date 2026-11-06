@@ -4,15 +4,19 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  width: 100%;
   max-width: 1080px;
   margin: 0 auto;
 }
 
 /* ── 舞台 ─────────────────────────────────────────────── */
 
+/* 舞台高度必须与内容无关：PhotoEditTool / ImageLayerSplitTool 用 ResizeObserver 读这里的
+   实际尺寸来算"适配舞台"缩放，若高度由图片撑开会形成循环，缩放恒为 1 导致原图按像素铺满。 */
 .studio-photo-stage {
   display: flex;
-  min-height: 440px;
+  flex: none;
+  height: clamp(340px, calc(100vh - 480px), 700px);
   padding: 20px;
   border: 1px solid var(--studio-border);
   border-radius: 16px;

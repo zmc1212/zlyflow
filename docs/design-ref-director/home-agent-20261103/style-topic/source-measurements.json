@@ -1,0 +1,152 @@
+{
+  "styles": {
+    "cards": [
+      {
+        "bg": "rgba(0, 0, 0, 0)",
+        "borderRadius": "0px",
+        "font": "13.3333px / 15.3333px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+        "gap": "normal",
+        "height": 92.40625,
+        "width": 114.5,
+        "x": 594,
+        "y": 552.234375
+      },
+      {
+        "bg": "rgba(0, 0, 0, 0)",
+        "borderRadius": "0px",
+        "font": "13.3333px / 15.3333px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+        "gap": "normal",
+        "height": 92.40625,
+        "width": 114.5,
+        "x": 720.5,
+        "y": 552.234375
+      },
+      {
+        "bg": "rgba(0, 0, 0, 0)",
+        "borderRadius": "0px",
+        "font": "13.3333px / 15.3333px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+        "gap": "normal",
+        "height": 92.40625,
+        "width": 114.5,
+        "x": 847,
+        "y": 552.234375
+      },
+      {
+        "bg": "rgba(0, 0, 0, 0)",
+        "borderRadius": "0px",
+        "font": "13.3333px / 15.3333px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+        "gap": "normal",
+        "height": 92.40625,
+        "width": 114.5,
+        "x": 973.5,
+        "y": 552.234375
+      }
+    ],
+    "dpr": 1,
+    "popup": {
+      "bg": "rgb(38, 38, 38)",
+      "borderRadius": "16px",
+      "font": "14px / 21px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+      "gap": "0px",
+      "height": 310,
+      "width": 530,
+      "x": 578,
+      "y": 466.234375
+    },
+    "title": "即梦AI - 一站式AI创作平台",
+    "titleStyle": {
+      "bg": "rgba(0, 0, 0, 0)",
+      "borderRadius": "0px",
+      "font": "12px / 22px \"PingFang SC\", sans-serif",
+      "gap": "normal",
+      "height": 22,
+      "width": 114.5,
+      "x": 594,
+      "y": 622.640625
+    },
+    "url": "https://jimeng.jianying.com/ai-tool/novel",
+    "viewport": {
+      "height": 863,
+      "width": 1920
+    }
+  },
+  "topics": {
+    "category": {
+      "bg": "rgba(0, 0, 0, 0)",
+      "border": "0px none rgb(255, 255, 255)",
+      "borderRadius": "0px",
+      "columns": "none",
+      "display": "flex",
+      "font": "14px / 21px \"Pippit Numeric\", system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif",
+      "fontSize": "14px",
+      "gap": "20px",
+      "height": 28,
+      "lineHeight": "21px",
+      "padding": "0px",
+      "tag": "DIV",
+      "text": "受众偏好故事背景人设标签核心关系热门梗观感偏好",
+      "width": 399,
+      "x": 651,
+      "y": 511
+    },
+    "option": {
+      "bg": "rgba(255, 255, 255, 0.08)",
+      "border": "1px solid rgba(0, 0, 0, 0)",
+      "borderRadius": "8px",
+      "columns": "1fr auto 1fr",
+      "display": "flex",
+      "font": "13px / 22px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+      "fontSize": "13px",
+      "gap": "8px",
+      "height": 36,
+      "lineHeight": "22px",
+      "padding": "7px 8px",
+      "tag": "BUTTON",
+      "text": "重生复仇",
+      "width": 158.65625,
+      "x": 651,
+      "y": 555
+    },
+    "popup": {
+      "bg": "rgb(38, 38, 38)",
+      "border": "1px solid rgba(255, 255, 255, 0.08)",
+      "borderRadius": "16px",
+      "columns": "none",
+      "display": "flex",
+      "font": "14px / 21px \"Pippit Numeric\", system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif",
+      "fontSize": "14px",
+      "gap": "4px",
+      "height": 236,
+      "lineHeight": "21px",
+      "padding": "4px",
+      "tag": "DIV",
+      "text": "选择故事选题受众偏好故事背景人设标签核心关系热门梗观感偏好重生复仇穿越穿书快穿真假千金真千金逆袭马甲隐藏身份替嫁替身文学",
+      "width": 530,
+      "x": 634,
+      "y": 466
+    },
+    "selected": {
+      "bg": "rgba(255, 255, 255, 0.08)",
+      "border": "1px solid rgba(0, 0, 0, 0)",
+      "borderRadius": "8px",
+      "columns": "1fr auto 1fr",
+      "display": "flex",
+      "font": "13px / 22px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+      "fontSize": "13px",
+      "gap": "8px",
+      "height": 36,
+      "lineHeight": "22px",
+      "padding": "7px 8px",
+      "tag": "BUTTON",
+      "text": "重生复仇",
+      "width": 158.65625,
+      "x": 651,
+      "y": 555
+    }
+  },
+  "interaction": {
+    "audience": "single, click selected to clear",
+    "otherGroups": "multiple",
+    "categorySearch": "cleared on category change"
+  }
+}

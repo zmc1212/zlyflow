@@ -18,6 +18,18 @@ export default function WorkshopPlayer({ beats, selectedId, onSelect, onExpand, 
   const [failed, setFailed] = useState(false)
   const [aspect, setAspect] = useState(16 / 9)
   const pending = useRef<{ id: string; time: number; play: boolean } | null>(null)
+  const retryTimer = useRef<number | null>(null)
+  const retried = useRef(false)
+  const cancelRetry = () => { if (retryTimer.current !== null) { window.clearTimeout(retryTimer.current); retryTimer.current = null } }
+  // CDN 首次回源或弹窗打开时多段并发探测偶发单请求失败，先静默重拉一次，仍失败才提示手动重新加载。
+  const handleMediaError = (media: HTMLVideoElement) => {
+    setPlaying(false)
+    if (retried.current) { setFailed(true); return }
+    retried.current = true
+    cancelRetry()
+    retryTimer.current = window.setTimeout(() => { retryTimer.current = null; media.load() }, 800)
+  }
+  useEffect(() => () => cancelRetry(), [])
   const total = segments.at(-1)?.end || 0
   const currentTime = (segment?.start || 0) + localTime
   const recordDuration = (src: string, duration: number) => {
@@ -36,7 +48,7 @@ export default function WorkshopPlayer({ beats, selectedId, onSelect, onExpand, 
     }
   }
   useEffect(() => {
-    setLocalTime(0); setFailed(false)
+    setLocalTime(0); setFailed(false); retried.current = false; cancelRetry()
     const media = videoRef.current
     if (!media) return
     const requested = pending.current
@@ -49,6 +61,7 @@ export default function WorkshopPlayer({ beats, selectedId, onSelect, onExpand, 
     if (media.paused) void media.play().catch(() => setFailed(true)); else media.pause()
   }
   const loaded = (media: HTMLVideoElement) => {
+    retried.current = false
     recordDuration(segment.src, media.duration)
     if (media.videoWidth && media.videoHeight) setAspect(media.videoWidth / media.videoHeight)
     const requested = pending.current
@@ -62,7 +75,7 @@ export default function WorkshopPlayer({ beats, selectedId, onSelect, onExpand, 
   return <div className="ws-player" aria-label="分段视频播放器">
     <div className="ws-player-stage" style={{ "--ws-video-aspect": aspect } as CSSProperties}>
       {segment?.src && !failed ? <>
-        <video key={segment.src} ref={videoRef} src={segment.src} playsInline preload="metadata" muted={muted} onLoadedMetadata={event => loaded(event.currentTarget)} onTimeUpdate={event => setLocalTime(event.currentTarget.currentTime)} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onError={() => { setFailed(true); setPlaying(false) }} onEnded={() => {
+        <video key={segment.src} ref={videoRef} src={segment.src} playsInline preload="metadata" muted={muted} onLoadedMetadata={event => loaded(event.currentTarget)} onTimeUpdate={event => setLocalTime(event.currentTarget.currentTime)} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onError={event => handleMediaError(event.currentTarget)} onEnded={() => {
           if (loopCurrent) { seek(segment.start, true); return }
           const next = segments[segment.index + 1]
           if (next) seek(next.start, true); else setPlaying(false)
@@ -70,7 +83,7 @@ export default function WorkshopPlayer({ beats, selectedId, onSelect, onExpand, 
         {!playing && <Button type="text" className="ws-player-play-overlay" icon={<Play size={24} fill="currentColor"/>} aria-label="播放当前片段" onClick={togglePlayback}/>}
         <div className="ws-player-time">{workshopTime(currentTime)} / {workshopTime(total)}</div>
         {onExpand && <Tooltip title="放大预览"><Button type="text" className="ws-player-expand" size="small" icon={<Maximize2 size={14}/>} aria-label="放大视频预览" onClick={onExpand}/></Tooltip>}
-      </> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={failed ? "视频加载失败" : "当前片段尚未出片"}>{failed && <Button size="small" onClick={() => setFailed(false)}>重新加载</Button>}</Empty>}
+      </> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={failed ? "视频加载失败" : "当前片段尚未出片"}>{failed && <Button size="small" onClick={() => { retried.current = false; setFailed(false) }}>重新加载</Button>}</Empty>}
     </div>
     <div className="ws-player-controls">
       <Button type="text" size="small" icon={playing ? <Pause size={14} fill="currentColor"/> : <Play size={14} fill="currentColor"/>} disabled={!segment?.src || failed} onClick={togglePlayback} aria-label={playing ? "暂停视频" : "播放视频"}/>

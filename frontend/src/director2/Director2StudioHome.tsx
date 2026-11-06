@@ -1,16 +1,17 @@
 // The homepage uses real assistant and project APIs; the v003 reference supplies layout only.
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Alert, Button, Drawer, Dropdown, Empty, Input, Modal, Skeleton, Tooltip, message } from "antd"
-import { Clapperboard, MoreHorizontal, Plus, Search, Trash2 } from "lucide-react"
-import { createProject, deleteProject, director2ErrorDetail, listAssets, listDocuments, listEpisodes, listProjects, listSkillPacks, type Director2Project, type Director2SkillPack } from "./api"
+import { Alert, Button, Drawer, Dropdown, Empty, Input, InputNumber, Modal, Skeleton, Tooltip, message } from "antd"
+import { Clapperboard, EyeOff, MoreHorizontal, Plus, Search, Sparkles, Trash2 } from "lucide-react"
+import { createProject, deleteProject, director2ErrorDetail, listAssets, listDocuments, listEpisodes, listFeaturedWorks, listProjects, listSkillPacks, publishFeaturedWork, unpublishFeaturedWork, type Director2FeaturedWork, type Director2Project, type Director2SkillPack } from "./api"
 import { director2ProjectPath } from "./paths"
 import SkillPackPickerModal from "./SkillPackPickerModal"
 import { createProjectSkillPackExtra, defaultCreateSkillPackId } from "./skill-pack"
 import { useDirectorAssistantHome } from "./assistant/DirectorAssistant"
 import { formatHomeProjectDate, homeProjectImages, type HomeProjectImage } from "./home-project-cards"
 import HomeCreationPanel from "./HomeCreationPanel"
+import FeaturedWorkPreview from "./FeaturedWorkPreview"
 import { readProjectPosition, resumeProjectPath } from "./project-flow"
 import "./director-home.css"
 import "./home-creation.css"
@@ -25,7 +26,15 @@ function ProjectCover({ images }: { images: HomeProjectImage[] }) {
   </div>
 }
 
-function ProjectCard({ project, onOpen, onDelete }: { project: Director2Project; onOpen: () => void; onDelete: () => void }) {
+function ProjectCard({ project, featured, isAdmin, onOpen, onDelete, onPublish, onUnpublish }: {
+  project: Director2Project
+  featured?: Director2FeaturedWork
+  isAdmin: boolean
+  onOpen: () => void
+  onDelete: () => void
+  onPublish: () => void
+  onUnpublish: () => void
+}) {
   const card = useRef<HTMLElement>(null)
   const [inView, setInView] = useState(false)
   useEffect(() => {
@@ -37,17 +46,26 @@ function ProjectCard({ project, onOpen, onDelete }: { project: Director2Project;
     return () => observer.disconnect()
   }, [])
   const assets = useQuery({ queryKey: ["director-home-assets", project.id], queryFn: () => listAssets(project.id), enabled: inView && !project.cover_url?.trim(), staleTime: 60_000, retry: false })
+  const items = [
+    { key: "open", label: "打开短剧", icon: <Clapperboard size={14} /> },
+    { type: "divider" as const },
+    ...(isAdmin ? [{ key: "publish", label: featured ? "更新精选" : "发布为精选", icon: <Sparkles size={14} /> }] : []),
+    ...(isAdmin && featured ? [{ key: "unpublish", label: "取消精选", icon: <EyeOff size={14} />, danger: true }] : []),
+    ...(isAdmin ? [{ type: "divider" as const }] : []),
+    { key: "delete", label: "删除短剧", icon: <Trash2 size={14} />, danger: true },
+  ]
   return <article ref={card} className="dh-project-card">
     <Button type="text" className="dh-project-open" aria-label={`打开短剧：${project.name}`} onClick={onOpen} />
     <ProjectCover images={homeProjectImages(project, assets.data)} />
     <div className="dh-project-info">
       <div className="dh-project-title-row">
         <h3 title={project.name}>{project.name}</h3>
-        <Dropdown trigger={["click"]} menu={{ items: [
-          { key: "open", label: "打开短剧", icon: <Clapperboard size={14} /> },
-          { type: "divider" },
-          { key: "delete", label: "删除短剧", icon: <Trash2 size={14} />, danger: true },
-        ], onClick: ({ key }) => key === "delete" ? onDelete() : onOpen() }}>
+        <Dropdown trigger={["click"]} menu={{ items, onClick: ({ key }) => {
+          if (key === "publish") onPublish()
+          else if (key === "unpublish") onUnpublish()
+          else if (key === "delete") onDelete()
+          else onOpen()
+        } }}>
           <Button type="text" className="dh-project-more" aria-label={`${project.name}的更多操作`} icon={<MoreHorizontal size={16} />} />
         </Dropdown>
       </div>
@@ -56,7 +74,38 @@ function ProjectCard({ project, onOpen, onDelete }: { project: Director2Project;
   </article>
 }
 
-export default function Director2StudioHome({ csrfToken }: { csrfToken: string; onExitDirector?: () => void }) {
+function FeaturedCard({ work, isAdmin, onOpen, onUnpublish }: { work: Director2FeaturedWork; isAdmin: boolean; onOpen: () => void; onUnpublish: () => void }) {
+  return <article className="dh-featured-card">
+    <Button type="text" className="dh-featured-open" aria-label={`打开精选作品：${work.title}`} onClick={onOpen} />
+    <div className="dh-featured-cover">
+      {work.cover_url ? <img src={work.cover_url} alt="" loading="lazy" /> : <Clapperboard size={22} />}
+      <span className="dh-featured-badge"><Sparkles size={12} />精选</span>
+      {isAdmin && <Dropdown trigger={["click"]} menu={{ items: [{ key: "unpublish", label: "取消精选", icon: <EyeOff size={14} />, danger: true }], onClick: onUnpublish }}>
+        <Button type="text" className="dh-featured-more" aria-label={`${work.title}的精选操作`} icon={<MoreHorizontal size={16} />} />
+      </Dropdown>}
+    </div>
+    <div className="dh-featured-info">
+      <h3 title={work.title}>{work.title}</h3>
+      <p>{work.summary || "管理员精选的短剧作品"}</p>
+      <div className="dh-featured-meta">
+        <span>{work.episode_count} 集</span>
+        <span>{work.shot_count} 个镜头</span>
+        <time dateTime={work.published_at}>{formatHomeProjectDate(work.published_at)}</time>
+      </div>
+    </div>
+  </article>
+}
+
+type FeaturedDraft = {
+  project: Director2Project
+  work?: Director2FeaturedWork
+  title: string
+  summary: string
+  coverUrl: string
+  sortOrder: number
+}
+
+export default function Director2StudioHome({ csrfToken, isAdmin = false }: { csrfToken: string; isAdmin?: boolean; onExitDirector?: () => void }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const assistant = useDirectorAssistantHome()
@@ -76,9 +125,16 @@ export default function Director2StudioHome({ csrfToken }: { csrfToken: string; 
   const [creatingProject, setCreatingProject] = useState(false)
   const loadVersion = useRef(0)
   const [modal, modalContext] = Modal.useModal()
+  const featuredQuery = useQuery({ queryKey: ["director-featured-works"], queryFn: listFeaturedWorks, staleTime: 30_000, retry: false })
+  const featuredWorks = useMemo(() => featuredQuery.data ?? [], [featuredQuery.data])
+  const featuredByProject = useMemo(() => new Map(featuredWorks.map(work => [work.project_id, work])), [featuredWorks])
+  const [featuredDraft, setFeaturedDraft] = useState<FeaturedDraft | null>(null)
+  const [publishingFeatured, setPublishingFeatured] = useState(false)
+  const [previewWorkId, setPreviewWorkId] = useState<string | null>(null)
   const query = search.trim().toLocaleLowerCase()
   const filtered = projects.filter(project => !query || `${project.name}\n${project.description || ""}`.toLocaleLowerCase().includes(query))
   const visible = showAll || query ? filtered : filtered.slice(0, columns)
+  const showFeatured = isAdmin || featuredWorks.length > 0
   const collapsed = false
 
   const refreshProjects = useCallback(async () => {
@@ -141,6 +197,50 @@ export default function Director2StudioHome({ csrfToken }: { csrfToken: string; 
       },
     })
   }
+  function openFeaturedModal(project: Director2Project) {
+    const work = featuredByProject.get(project.id)
+    setFeaturedDraft({
+      project,
+      work,
+      title: work?.title || project.name,
+      summary: work?.summary || project.description || "",
+      coverUrl: work?.cover_url || project.cover_url || "",
+      sortOrder: work?.sort_order ?? 0,
+    })
+  }
+  async function submitFeatured() {
+    if (!featuredDraft) return
+    const title = featuredDraft.title.trim()
+    if (!title) { message.warning("请填写精选标题"); return }
+    setPublishingFeatured(true)
+    try {
+      await publishFeaturedWork(csrfToken, {
+        project_id: featuredDraft.project.id,
+        title,
+        summary: featuredDraft.summary.trim(),
+        cover_url: featuredDraft.coverUrl.trim(),
+        sort_order: featuredDraft.sortOrder,
+      })
+      await queryClient.invalidateQueries({ queryKey: ["director-featured-works"] })
+      setFeaturedDraft(null)
+      message.success(featuredDraft.work ? "精选作品已更新" : "已发布为精选作品")
+    } catch (error) { message.error(director2ErrorDetail(error, "发布精选失败")) }
+    finally { setPublishingFeatured(false) }
+  }
+  function confirmUnpublish(work: Director2FeaturedWork) {
+    modal.confirm({
+      title: `取消精选“${work.title}”？`,
+      content: "取消后所有成员将不再在首页精选作品里看到它，短剧本身不受影响。",
+      okText: "取消精选", cancelText: "保留", okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          await unpublishFeaturedWork(csrfToken, work.id)
+          await queryClient.invalidateQueries({ queryKey: ["director-featured-works"] })
+          message.success("已取消精选")
+        } catch (error) { message.error(director2ErrorDetail(error, "取消精选失败")); throw error }
+      },
+    })
+  }
 
   return <div className="director-agent-home">
     <div className="dh-home-content">
@@ -159,12 +259,64 @@ export default function Director2StudioHome({ csrfToken }: { csrfToken: string; 
         </div>
         {!collapsed && <>
           {loadError && <Alert className="dh-project-error" type="error" showIcon title={loadError} action={<Button size="small" onClick={() => void refreshProjects()}>重试</Button>} />}
-          {loading && !projects.length ? <div className="dh-project-grid" aria-label="正在加载短剧" aria-busy="true">{Array.from({ length: columns }, (_, index) => <div className="dh-project-skeleton" key={index}><Skeleton.Node active className="dh-project-cover" /><Skeleton active paragraph={{ rows: 1, width: "30%" }} title={{ width: "55%" }} /></div>)}</div> : visible.length ? <div className="dh-project-grid">{visible.map(project => <ProjectCard key={project.id} project={project} onOpen={() => void openProject(project)} onDelete={() => confirmDelete(project)} />)}</div> : !loadError && <Empty className="dh-project-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description={query ? "没有找到相关短剧" : "还没有短剧，先和助手聊聊你的想法"}>{!query && <Button onClick={() => void openCreatePicker()}>新建短剧</Button>}</Empty>}
+          {loading && !projects.length ? <div className="dh-project-grid" aria-label="正在加载短剧" aria-busy="true">{Array.from({ length: columns }, (_, index) => <div className="dh-project-skeleton" key={index}><Skeleton.Node active className="dh-project-cover" /><Skeleton active paragraph={{ rows: 1, width: "30%" }} title={{ width: "55%" }} /></div>)}</div> : visible.length ? <div className="dh-project-grid">{visible.map(project => {
+            const work = featuredByProject.get(project.id)
+            return <ProjectCard key={project.id} project={project} featured={work} isAdmin={isAdmin} onOpen={() => void openProject(project)} onDelete={() => confirmDelete(project)} onPublish={() => openFeaturedModal(project)} onUnpublish={() => { if (work) confirmUnpublish(work) }} />
+          })}</div> : !loadError && <Empty className="dh-project-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description={query ? "没有找到相关短剧" : "还没有短剧，先和助手聊聊你的想法"}>{!query && <Button onClick={() => void openCreatePicker()}>新建短剧</Button>}</Empty>}
         </>}
       </section>
+      {showFeatured && <section className="dh-projects dh-featured-section" aria-labelledby="featured-works-heading">
+        <div className="dh-projects-heading">
+          <h2 id="featured-works-heading">精选作品</h2>
+          <span className="dh-featured-note">{featuredWorks.length ? `${featuredWorks.length} 部 · 管理员发布` : "管理员发布后全员可见"}</span>
+        </div>
+        {featuredQuery.isLoading && !featuredWorks.length
+          ? <div className="dh-project-grid" aria-label="正在加载精选作品" aria-busy="true">{Array.from({ length: columns }, (_, index) => <div className="dh-project-skeleton" key={index}><Skeleton.Node active className="dh-project-cover" /><Skeleton active paragraph={{ rows: 1, width: "40%" }} title={{ width: "60%" }} /></div>)}</div>
+          : featuredWorks.length
+            ? <div className="dh-project-grid">{featuredWorks.map(work => <FeaturedCard key={work.id} work={work} isAdmin={isAdmin} onOpen={() => setPreviewWorkId(work.id)} onUnpublish={() => confirmUnpublish(work)} />)}</div>
+            : <Empty className="dh-project-empty dh-featured-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有精选作品" />}
+      </section>}
+      {previewWorkId && <FeaturedWorkPreview featuredId={previewWorkId} onClose={() => setPreviewWorkId(null)} />}
     </div>
     <SkillPackPickerModal open={packPickerOpen} packs={skillPacks} loading={packsLoading} value={selectedPackId} confirming={creatingProject} onChange={setSelectedPackId} onCancel={() => { if (!creatingProject) setPackPickerOpen(false) }} onOk={packId => void createStudioProject(packId)} />
     <Drawer title="创作工具与历史" rootClassName="director-tools-drawer" open={toolsOpen} onClose={() => setToolsOpen(false)} size={960} destroyOnHidden><div className="director-agent-home dh-tools-surface">{assistant.surface}</div></Drawer>
+    <Modal
+      open={!!featuredDraft}
+      title={featuredDraft?.work ? "更新精选作品" : "发布为精选作品"}
+      okText={featuredDraft?.work ? "保存更新" : "发布精选"}
+      cancelText="取消"
+      confirmLoading={publishingFeatured}
+      onCancel={() => { if (!publishingFeatured) setFeaturedDraft(null) }}
+      onOk={() => void submitFeatured()}
+      destroyOnHidden
+    >
+      {featuredDraft && <div className="dh-featured-form">
+        <div className="dh-featured-source">
+          <div className="dh-featured-source-cover">{featuredDraft.project.cover_url ? <img src={featuredDraft.project.cover_url} alt="" /> : <Clapperboard size={18} />}</div>
+          <div>
+            <strong>{featuredDraft.project.name}</strong>
+            <span>{featuredDraft.work ? "已发布，保存后将用当前内容重新生成快照" : "发布后所有成员可在首页查看"}</span>
+          </div>
+        </div>
+        <label>
+          <span>精选标题</span>
+          <Input maxLength={120} value={featuredDraft.title} placeholder="展示在精选作品里的标题" onChange={event => setFeaturedDraft(current => current && { ...current, title: event.target.value })} />
+        </label>
+        <label>
+          <span>一句话简介</span>
+          <Input.TextArea rows={3} maxLength={280} showCount value={featuredDraft.summary} placeholder="留空时使用短剧简介，也可以写更吸引人的推荐语" onChange={event => setFeaturedDraft(current => current && { ...current, summary: event.target.value })} />
+        </label>
+        <label>
+          <span>封面地址</span>
+          <Input value={featuredDraft.coverUrl} placeholder="留空时自动取项目封面或首个角色、场景图" onChange={event => setFeaturedDraft(current => current && { ...current, coverUrl: event.target.value })} />
+        </label>
+        <label>
+          <span>排序（数字越小越靠前）</span>
+          <InputNumber min={0} max={999} precision={0} value={featuredDraft.sortOrder} onChange={value => setFeaturedDraft(current => current && { ...current, sortOrder: typeof value === "number" ? value : current.sortOrder })} />
+        </label>
+        <Alert type="info" showIcon title="发布会把当前剧本、分集和角色场景冻结成只读快照；之后修改短剧不影响已发布内容，需要同步时再次点击发布即可。" />
+      </div>}
+    </Modal>
     {modalContext}
   </div>
 }

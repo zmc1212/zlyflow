@@ -3,6 +3,7 @@ import { Alert, Button, Input, Select, Switch, message } from "antd"
 import { CheckCircle2, CloudCog, KeyRound, ShieldCheck } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { jsonMutation, requestJson } from "../api"
+import { CopyFieldButton } from "./FieldCopy"
 
 type QiniuConfig = {
   enabled: boolean; bucket: string; region: string; domain: string; object_prefix: string
@@ -116,6 +117,7 @@ export default function QiniuStorageSettings({ csrfToken }: { csrfToken: string 
                 onChange={(event) => setAccessKey(event.target.value)}
                 prefix={<KeyRound size={15} className="text-[#9ca3af]" />}
                 placeholder={query.data?.has_access_key ? "已保存，留空不修改" : "输入 Access Key"}
+                suffix={<CopyFieldButton label="Access Key" value={accessKey} csrfToken={csrfToken} provider="qiniu" field="access_key" />}
               />
             </div>
             <div>
@@ -126,6 +128,7 @@ export default function QiniuStorageSettings({ csrfToken }: { csrfToken: string 
                 onChange={(event) => setSecretKey(event.target.value)}
                 prefix={<KeyRound size={15} className="text-[#9ca3af]" />}
                 placeholder={query.data?.has_secret_key ? "已保存，留空不修改" : "输入 Secret Key"}
+                suffix={<CopyFieldButton label="Secret Key" value={secretKey} csrfToken={csrfToken} provider="qiniu" field="secret_key" />}
               />
             </div>
           </div>
@@ -138,6 +141,7 @@ export default function QiniuStorageSettings({ csrfToken }: { csrfToken: string 
                 value={bucket}
                 onChange={(event) => setBucket(event.target.value)}
                 placeholder="your-bucket"
+                suffix={<CopyFieldButton label="Bucket" value={bucket} csrfToken={csrfToken} />}
               />
             </div>
             <div>
@@ -158,6 +162,7 @@ export default function QiniuStorageSettings({ csrfToken }: { csrfToken: string 
               value={domain}
               onChange={(event) => setDomain(event.target.value)}
               placeholder="https://media.example.com"
+              suffix={<CopyFieldButton label="访问域名" value={domain} csrfToken={csrfToken} />}
             />
           </div>
 
@@ -168,6 +173,7 @@ export default function QiniuStorageSettings({ csrfToken }: { csrfToken: string 
               value={objectPrefix}
               onChange={(event) => setObjectPrefix(event.target.value)}
               placeholder="zly-ai-video-studio/"
+              suffix={<CopyFieldButton label="对象前缀" value={objectPrefix} csrfToken={csrfToken} />}
             />
           </div>
 
@@ -216,7 +222,7 @@ export default function QiniuStorageSettings({ csrfToken }: { csrfToken: string 
 
           <div className="mt-6 flex gap-2 rounded-xl bg-[#f9fafb] border border-black/[0.06] p-3 text-xs leading-5 text-[#6b7280]">
             <ShieldCheck size={16} className="mt-0.5 shrink-0 text-[#7047f6]" />
-            <span>AK/SK 不会回显，保存时留空即可保留已配置的密钥。</span>
+            <span>AK/SK 不会回显在输入框里，保存时留空即可保留已配置的密钥；需要搬到别处时点输入框右侧的复制按钮取回明文。</span>
           </div>
         </aside>
       </section>

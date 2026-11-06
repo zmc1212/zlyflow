@@ -32,7 +32,8 @@
   padding: 18px 14px 14px;
 }
 .smart-edit,
-.se-loading {
+.se-loading,
+.se-loading-skeleton {
   height: 100%;
   min-height: 0;
   color: var(--studio-text);
@@ -42,6 +43,24 @@
   place-items: center;
   padding: 24px;
 }
+/* 加载骨架：按剪辑工作台形态占位（顶栏 + 素材栏/预览 + 时间线），替代整页只转圈 */
+.se-loading-skeleton { display: flex; flex-direction: column; gap: 8px; padding: 12px; }
+.se-skeleton-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 46px; flex: none; }
+.se-skeleton-workbench { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--se-library-width, 272px) minmax(240px, 1fr); gap: 8px; }
+.se-skeleton-library {
+  border: 1px solid var(--studio-border); border-radius: 10px; background: var(--studio-surface);
+  padding: 12px; display: flex; flex-direction: column; align-items: flex-start; gap: 20px; overflow: hidden;
+}
+.se-skeleton-preview {
+  border: 1px solid var(--studio-border); border-radius: 10px; background: var(--studio-surface);
+  display: grid; place-items: center; padding: 24px; min-width: 0;
+}
+.se-skeleton-preview .se-skeleton-stage { width: 100%; max-width: 640px; height: auto; aspect-ratio: 16 / 9; border-radius: 8px; }
+.se-skeleton-timeline {
+  flex: none; min-height: 64px; border: 1px solid var(--studio-border); border-radius: 10px; background: var(--studio-surface);
+  padding: 14px; display: flex; align-items: center; gap: 12px;
+}
+.se-skeleton-status { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 0; color: var(--studio-text-secondary); font-size: 13px; }
 .smart-edit {
   display: flex;
   flex-direction: column;

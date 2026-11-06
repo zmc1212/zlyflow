@@ -1,0 +1,62 @@
+/* 数字人工具页：在动作迁移工具页布局类（studio-motion-*）之上补充形象图 / 口播音频槽位样式。
+   仅使用 --studio-* 语义变量，禁止硬编码主题色。 */
+
+.studio-digital-human-tool .studio-motion-reference-stage {
+  cursor: pointer;
+}
+.studio-digital-human-tool .studio-motion-reference-stage:hover {
+  border-color: var(--studio-accent-text);
+}
+.studio-digital-human-tool .studio-motion-reference-stage:hover .studio-motion-reference-placeholder {
+  color: var(--studio-text);
+}
+
+.studio-dh-portrait-stage .studio-motion-reference-preview.ant-btn img {
+  object-fit: cover;
+  padding: 0;
+}
+
+.studio-dh-audio-stage .studio-motion-reference-preview.ant-btn {
+  padding: 0 16px;
+}
+.studio-dh-audio-brief {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  color: var(--studio-text);
+}
+.studio-dh-audio-brief > svg {
+  width: 30px;
+  height: 30px;
+  color: var(--studio-accent-text);
+  stroke-width: 1.3;
+}
+.studio-dh-audio-brief strong {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--studio-text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio-dh-audio-brief em {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--studio-text-muted);
+  font-size: 12px;
+  font-style: normal;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-digital-human-tool .studio-motion-hero-art {
+  width: 320px;
+  height: 150px;
+  right: 6%;
+}

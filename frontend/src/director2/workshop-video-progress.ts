@@ -26,6 +26,9 @@ export type WorkshopVideoJobLike = {
     beat_ids?: string[] | null
     render_scope?: string | null
     runtime_stage?: string | null
+    strategy?: string | null
+    segment_index?: number | string | null
+    segment_total?: number | string | null
     preparation?: { stage?: string; message?: string } | null
     prompt_generation_progress?: { completed?: number; total?: number } | null
     render_progress?: WorkshopRenderProgress | null
@@ -57,6 +60,13 @@ export type WorkshopEpisodeVideoProgress = {
   progress: number
   scope: WorkshopEpisodeVideoScope
   jobId?: string
+  stage?: string
+  message?: string
+  renderProgress?: WorkshopRenderProgress
+  promptProgress?: { completed: number; total: number }
+  shotCount?: number
+  /** gap_fill 补跑任务：本任务在区间序列中的位置，横幅显示「补跑区间 i / n」。 */
+  gapSegment?: { index: number; total: number }
 }
 
 export type WorkshopVideoProgress = {
@@ -126,6 +136,53 @@ export function workshopVideoPercentLabel(progress: number): string {
   return `${clampWorkshopProgress(progress)}%`
 }
 
+/** 整集横幅基础文案：从提示词整理、准备素材、分段渲染到保存，全程都有可读进度。 */
+function workshopEpisodeStageBaseLabel(progress: WorkshopEpisodeVideoProgress): string {
+  if (progress.scope === "compose") return "整集合片中"
+  const render = progress.renderProgress
+  const renderTotal = Number(render?.total) || 0
+  const renderCurrent = Number(render?.current) || 0
+  const completed = Number(render?.completed) || 0
+  const percent = workshopVideoPercentLabel(progress.progress)
+  switch (progress.status) {
+    case "prompt_generation":
+      return progress.promptProgress && progress.promptProgress.total > 0
+        ? `整理生成指令 ${progress.promptProgress.completed} / ${progress.promptProgress.total}`
+        : "整理生成指令"
+    case "queued":
+      return "排队中"
+    case "preparing":
+      return progress.message || "准备素材"
+    case "comfy_queued":
+      return renderTotal > 1 ? `第 ${renderCurrent} / ${renderTotal} 组远端排队` : "远端排队"
+    case "running":
+      return renderTotal > 1
+        ? `正在生成第 ${renderCurrent} / ${renderTotal} 组 · 已完成 ${completed} · ${percent}`
+        : `生成中 ${percent}`
+    case "storing":
+    case "assembling":
+    case "downloading":
+      return renderTotal > 1 ? `保存结果 · 已完成 ${completed} / ${renderTotal} 组` : "保存结果"
+    default:
+      return workshopVideoStageLabel(progress.status, { scope: progress.scope, stage: progress.stage, message: progress.message, renderProgress: progress.renderProgress }) || (progress.message ? String(progress.message) : "生成中")
+  }
+}
+
+/** 整集横幅阶段文案：gap_fill 补跑任务在前面叠加「补跑区间 i / n」。 */
+export function workshopEpisodeStageLabel(progress: WorkshopEpisodeVideoProgress): string {
+  const base = workshopEpisodeStageBaseLabel(progress)
+  return progress.gapSegment && progress.gapSegment.total > 0
+    ? `补跑区间 ${progress.gapSegment.index} / ${progress.gapSegment.total} · ${base}`
+    : base
+}
+
+/** 工坊顶部横幅整句：拼接片的阶段文案自带「整集」语义，不再叠加前缀，避免出现「整集生成中 · 整集合片中」。 */
+export function workshopEpisodeBannerLabel(progress: WorkshopEpisodeVideoProgress): string {
+  if (progress.scope === "compose") return workshopEpisodeStageLabel(progress)
+  if (progress.gapSegment) return `整集补跑中 · ${workshopEpisodeStageBaseLabel(progress)}`
+  return `整集生成中 · ${workshopEpisodeStageLabel(progress)}`
+}
+
 export function hasActiveWorkshopVideoProgress(progress: WorkshopVideoProgress): boolean {
   if (progress.episode && !isAwaitingRefineStatus(progress.episode.status)) return true
   return Object.values(progress.beats).some((item) => !isAwaitingRefineStatus(item.status))
@@ -160,52 +217,97 @@ export function mapWorkshopVideoProgress(
       job.payload?.beat_id,
     ].map((item) => String(item || "").trim()).filter(Boolean)
     if (scope === "shot" || scope === "selection" || scope === "upscale") {
-      const promptProgress = job.payload?.prompt_generation_progress
-      const preparationMessage = job.status === "prompt_generation" && Number(promptProgress?.total) > 1
-        ? `整理生成指令 ${promptProgress?.completed || 0} / ${promptProgress?.total}`
-        : job.payload?.preparation?.message
-      const shotStatus = job.payload?.shot_status || {}
-      const shotUrls = new Map<string, string>()
-      for (const item of job.payload?.shots || []) {
-        const id = String(item?.beat_id || "").trim()
-        const url = String(item?.video_url || "").trim()
-        if (id && url) shotUrls.set(id, url)
-      }
-      const tracksShotUrls = Boolean(job.payload?.shots?.length)
-      for (const beatId of beatIds) {
-        if (beatId in beats) continue
-        const rawStage = String(shotStatus[beatId] || "")
-        const shotUrl = shotUrls.get(beatId) || ""
-        // 分段渲染完 ≠ 成片已落地：任务里还没有本镜地址时只能说「正在保存」，否则界面报「已出片」却放不出画面。
-        const shotStage = rawStage === "succeeded" && !shotUrl && tracksShotUrls ? "saving" : rawStage
-        beats[beatId] = {
-          status: job.status,
-          progress,
-          scope,
-          stage: String(job.payload?.runtime_stage || ""),
-          jobId: String(job.id || ""),
-          previewUrl: String(job.result_url || ""),
-          shotCount: beatIds.length,
-          ...(preparationMessage ? { message: preparationMessage } : {}),
-          ...(job.payload?.render_progress ? { renderProgress: job.payload.render_progress } : {}),
-          ...(shotStage ? { shotStage } : {}),
-          ...(shotUrl ? { shotUrl } : {}),
+      stampShotBeats(beats, job, beatIds, progress)
+      // gap_fill 补跑任务同时驱动顶部横幅（补跑区间 i / n），镜头卡由 stampShotBeats 正常回显。
+      if (scope === "selection" && String(job.payload?.strategy || "") === "gap_fill" && !episode) {
+        const gapTotal = Number(job.payload?.segment_total) || 0
+        const gapIndex = Number(job.payload?.segment_index) || 0
+        if (gapTotal > 0) {
+          episode = {
+            status: job.status,
+            progress,
+            scope: "episode",
+            jobId: String(job.id || ""),
+            gapSegment: { index: gapIndex || 1, total: gapTotal },
+          }
         }
       }
       continue
     }
     const episodeOrCompose = episodeScope(scope)
     if (episodeOrCompose && !episode) {
+      const promptProgress = job.payload?.prompt_generation_progress
+      const message = job.status === "prompt_generation" && Number(promptProgress?.total) > 1
+        ? `整理生成指令 ${promptProgress?.completed || 0} / ${promptProgress?.total}`
+        : job.payload?.preparation?.message
       episode = {
         status: job.status,
         progress,
         scope: episodeOrCompose,
         jobId: String(job.id || ""),
+        ...(String(job.payload?.runtime_stage || "") ? { stage: String(job.payload?.runtime_stage || "") } : {}),
+        ...(message ? { message } : {}),
+        ...(job.payload?.render_progress ? { renderProgress: job.payload.render_progress } : {}),
+        ...(promptProgress && Number(promptProgress.total) > 0
+          ? { promptProgress: { completed: Number(promptProgress.completed) || 0, total: Number(promptProgress.total) || 0 } }
+          : {}),
       }
+    }
+    // 整集直出进入分段渲染后，任务里已带逐镜状态；回填镜头卡，让用户看到「哪几镜已出片」。
+    // 提示词整理阶段还没有 shot_status，此时镜头卡保持空白，由顶部整集横幅（A）承载进度。
+    if (episodeOrCompose === "episode") {
+      const shotBeatIds = [...new Set([
+        ...Object.keys(job.payload?.shot_status || {}),
+        ...(job.payload?.shots || []).map((item) => String(item?.beat_id || "")).filter(Boolean),
+      ])].filter(Boolean)
+      stampShotBeats(beats, job, shotBeatIds, progress)
+      if (episode) episode.shotCount = shotBeatIds.length || episode.shotCount
     }
   }
 
   return { beats, episode }
+}
+
+/** 把一条视频任务里已有的逐镜状态铺到镜头卡；shot/selection/upscale 与整集分段渲染共用。 */
+function stampShotBeats(
+  beats: Record<string, WorkshopShotVideoProgress>,
+  job: WorkshopVideoJobLike,
+  beatIds: string[],
+  progress: number,
+): void {
+  const scope = String(job.payload?.render_scope || "")
+  const promptProgress = job.payload?.prompt_generation_progress
+  const preparationMessage = job.status === "prompt_generation" && Number(promptProgress?.total) > 1
+    ? `整理生成指令 ${promptProgress?.completed || 0} / ${promptProgress?.total}`
+    : job.payload?.preparation?.message
+  const shotStatus = job.payload?.shot_status || {}
+  const shotUrls = new Map<string, string>()
+  for (const item of job.payload?.shots || []) {
+    const id = String(item?.beat_id || "").trim()
+    const url = String(item?.video_url || "").trim()
+    if (id && url) shotUrls.set(id, url)
+  }
+  const tracksShotUrls = Boolean(job.payload?.shots?.length)
+  for (const beatId of beatIds) {
+    if (beatId in beats) continue
+    const rawStage = String(shotStatus[beatId] || "")
+    const shotUrl = shotUrls.get(beatId) || ""
+    // 分段渲染完 ≠ 成片已落地：任务里还没有本镜地址时只能说「正在保存」，否则界面报「已出片」却放不出画面。
+    const shotStage = rawStage === "succeeded" && !shotUrl && tracksShotUrls ? "saving" : rawStage
+    beats[beatId] = {
+      status: job.status,
+      progress,
+      scope,
+      stage: String(job.payload?.runtime_stage || ""),
+      jobId: String(job.id || ""),
+      previewUrl: String(job.result_url || ""),
+      shotCount: beatIds.length,
+      ...(preparationMessage ? { message: preparationMessage } : {}),
+      ...(job.payload?.render_progress ? { renderProgress: job.payload.render_progress } : {}),
+      ...(shotStage ? { shotStage } : {}),
+      ...(shotUrl ? { shotUrl } : {}),
+    }
+  }
 }
 
 /** Only show the latest failed submission; a newer success clears an older error. */

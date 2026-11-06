@@ -12,6 +12,7 @@ import requests
 import websocket
 
 from ...comfy_service import ComfyService, IDLE_CLEANUP_WORKFLOW, interpret_comfy_progress
+from ...minimax_h3_action_workflow import build_minimax_h3_action_workflow
 from ...minimax_h3_director_accel_workflow import (
     build_minimax_h3_director_accel_workflow,
     director_accel_unet,
@@ -42,6 +43,7 @@ from ...seedvr2_upscale_workflow import (
     seedvr2_missing_message,
 )
 from ...workflow_registry import (
+    ACTION_WORKFLOWS,
     DIRECTOR_ACCEL_WORKFLOWS,
     DUAL_ACCEL_WORKFLOWS,
     LIGHTX2V_WORKFLOWS,
@@ -57,6 +59,9 @@ from .timeline_rendering import (
     duration_seconds,
     frame_count,
 )
+
+# 尾帧锚定段的任务类型（B2 gap_fill / B3 continue 注入区间首镜用）。
+FL2V_TASK_TYPE = "fl2v — 首尾帧生视频(First-Last Frame)"
 
 
 class ComfyVideoClient:
@@ -170,6 +175,29 @@ class ComfyVideoClient:
                 if not content:
                     raise RuntimeError("下载结果为空")
                 content_type = source.headers.get("Content-Type") or "application/octet-stream"
+                return self.upload_image_bytes(
+                    content,
+                    subfolder=subfolder,
+                    preferred_name=preferred_name,
+                    content_type=content_type,
+                )
+            except Exception as err:
+                last_error = err
+                time.sleep(1)
+        raise RuntimeError(f"参考图上传失败 {source_url}: {last_error}")
+
+    def upload_image_bytes(
+        self,
+        content: bytes,
+        *,
+        subfolder: str,
+        preferred_name: str,
+        content_type: str = "image/png",
+    ) -> dict[str, str]:
+        """把本地字节（如锚定尾帧 PNG）直接传入 ComfyUI input 目录。"""
+        last_error: Exception | None = None
+        for _ in range(3):
+            try:
                 uploaded = self.session.post(
                     f"{self.base_url}/upload/image",
                     files={"image": (preferred_name, content, content_type)},
@@ -189,7 +217,7 @@ class ComfyVideoClient:
             except Exception as err:
                 last_error = err
                 time.sleep(1)
-        raise RuntimeError(f"参考图上传失败 {source_url}: {last_error}")
+        raise RuntimeError(f"图片上传失败 {preferred_name}: {last_error}")
 
     @classmethod
     def canvas_from_options(cls, options: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -238,7 +266,7 @@ class ComfyVideoClient:
             refs = []
             for ref_index, uploaded in enumerate(shot["uploaded_refs"]):
                 refs.append({"index": ref_index, **uploaded})
-            segments.append({
+            segment = {
                 "id": str(shot["beat_id"]),
                 "start": start,
                 "length": frames,
@@ -258,7 +286,25 @@ class ComfyVideoClient:
                 },
                 "_videoFrameCount": frames,
                 "previewFps": 24,
-            })
+            }
+            # 尾帧锚定（gap_fill / continue）：锚定段改为 fl2v 任务类型，
+            # startImage 即上一镜真实尾帧，节点按严格首帧锁定（B0 spike 结论见
+            # docs/整集直出智能补跑开发计划.md 第 4.3 节）。fl2v 段不携带参考图：
+            # 节点把 fl2v 的图像槽按「首帧 + 尾帧」两槽消费，段内残留的 refs[0]
+            # 会被当成尾帧，成片最后一帧直接变成角色参考图（2026-11-05 实测）；
+            # 外观一致性由锚定帧自身承载，提示词的 <Picture n> 已在
+            # _prepare_anchor_frame 中剥离，这里必须同步清空 refs。
+            anchor_image_file = str(shot.get("anchor_image_file") or "").strip()
+            if anchor_image_file:
+                segment["taskType"] = FL2V_TASK_TYPE
+                segment["refs"] = []
+                segment["startImage"] = {
+                    "imageFile": anchor_image_file,
+                    "fileName": PurePosixPath(anchor_image_file).name,
+                    "type": "input",
+                    "subfolder": str(PurePosixPath(anchor_image_file).parent),
+                }
+            segments.append(segment)
         total_frames = sum(int(segment["frameCount"]) for segment in segments)
         return {
             "version": 5,
@@ -497,6 +543,8 @@ class ComfyVideoClient:
             workflow = build_minimax_h3_dual_accel_workflow(mode, prompt, references, values, seed)
         elif mode in DIRECTOR_ACCEL_WORKFLOWS:
             workflow = build_minimax_h3_director_accel_workflow(mode, prompt, references, values, seed)
+        elif mode in ACTION_WORKFLOWS:
+            workflow = build_minimax_h3_action_workflow(mode, prompt, references, values, seed)
         else:
             workflow = build_minimax_h3_workflow(mode, prompt, references, values, seed)
         return cls._set_output_prefix(workflow, filename_prefix)

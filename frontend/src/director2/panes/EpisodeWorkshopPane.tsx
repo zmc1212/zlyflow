@@ -3,7 +3,6 @@
 // onMounted/onUnmounted→useEffect（生图/视频/合成任务静默轮询：空闲 3 秒，本集视频任务活跃时 1 秒）；
 // currentEpisode / selectedBeat 等深响应对象的就地改写收敛为 applyCurrentEpisode / mutateCurrentEpisode /
 // updateBeatById（同步维护 ref 供轮询与异步续体读取，等价 Vue 的 .value 语义）；
-// reactive(Set) generatingBeatIds / generatingRenderBeatIds 以 ref 镜像 + state 双写保持同步读取语义；
 // 路由联动：openEpisodeDetail/handleBackToOverview → navigate(director2ProjectPath(...))；
 // 父组件可经 ref 调用 fetchEpisodes()。
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react"
@@ -20,9 +19,9 @@ import {
   InputNumber,
   Modal,
   Select,
-  Space,
   Spin,
   Steps,
+  Tag,
   Upload,
   message
 } from "antd"
@@ -58,7 +57,6 @@ import {
   getEpisodeDetail,
   updateEpisodeBeat,
   deleteEpisodeBeats,
-  generateBeatTriptych,
   generateBeatH3Prompt,
   generateBeatVideo,
   generateEpisodeVideo,
@@ -67,6 +65,9 @@ import {
   confirmProjectVideoRefine,
   skipProjectVideoRefine,
   listAssets,
+  createAsset,
+  updateAsset,
+  generateAssetImage,
   listJobs,
   listVideoWorkflowModes,
   director2ErrorDetail,
@@ -92,8 +93,11 @@ import {
   DIRECTOR2_VIDEO_FALLBACK_FIELDS,
   beatUpscaleDisabledReason,
   buildVideoJobOptions,
+  computeEpisodeContinuePrefix,
+  computeEpisodeGapSegments,
   defaultVideoOptionValues,
   episodeVideoRenderMode,
+  formatEpisodeGapRangeLabel,
   formatEpisodeVideoSubmitMessage,
   formatSelectedShotSubmitMessage,
   loadProgramPreview,
@@ -110,9 +114,11 @@ import {
   videoResolutionQuality,
   visibleVideoOptionFields,
   withVideoPromptMode,
-  type Director2WorkflowMode
+  type Director2WorkflowMode,
+  type EpisodeGapSegment
 } from "../director2-video-settings"
 import { projectVideoPreferences, projectVideoResolution } from "../project-video-resolution"
+import { ensureWorkshopShootReady, workshopShootPrepConfirmLines } from "../assistant/workshop-shoot-guard"
 import { useMediaPreview } from "../media-preview"
 import { type MediaAspectSize } from "../../lib/utils"
 import { firstCharacterLookImageUrl } from "./assets/shared"
@@ -123,12 +129,10 @@ import {
 } from "../workshop-beat-duration"
 import { workshopBeatHasSplitTakes, workshopBeatLabel } from "../workshop-beat-label"
 import {
-  WORKSHOP_H3_TRIPTYCH_GATE,
   beatsMissingH3Prompt,
   workshopH3GenerateLabel,
   workshopH3PromptGate,
 } from "../workshop-h3-gate"
-import { withTriptychPanels } from "../workshop-r2v-refs"
 import { shouldShowWorkshopPromptLive, workshopFailedLiveText, workshopH3StatusLabel } from "../workshop-h3-status"
 import {
   programPreviewPrompts,
@@ -208,8 +212,6 @@ type LookOption = {
 // 原版脚本还会读写 beat.time_of_day（api.ts 的 Director2Beat 快照暂未收录），按原版行为扩展该字段
 type WorkshopBeat = Director2Beat & { time_of_day?: string }
 
-type GenerationStage = "sketch" | "render" | "triptych"
-
 const TERMINAL_JOB_STATUSES = new Set(["completed", "succeeded", "failed", "cancelled", "interrupted"])
 const SUCCEEDED_JOB_STATUSES = new Set(["completed", "succeeded"])
 
@@ -253,9 +255,6 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     const projectProps = useMemo(() => projectAssets.filter((a) => a.kind === "prop"), [projectAssets])
 
     // 各种生成 Loading 状态
-    const [generatingBeatIds, setGeneratingBeatIds] = useState<Set<string>>(new Set())
-    const [generatingRenderBeatIds, setGeneratingRenderBeatIds] = useState<Set<string>>(new Set())
-    const [generatingTriptychBeatIds, setGeneratingTriptychBeatIds] = useState<Set<string>>(new Set())
     const [generatingVideo, setGeneratingVideo] = useState(false)
     const [retryingVideoJob, setRetryingVideoJob] = useState<string | null>(null)
     const [videoFailures, setVideoFailures] = useState<Record<string, WorkshopShotVideoProgress & { error: string }>>({})
@@ -283,13 +282,9 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     const currentEpisodeIdRef = useRef<string | null>(episodeId ?? null)
     const currentEpisodeRef = useRef<Director2EpisodeDetail | null>(null)
     const selectedBeatIdRef = useRef<string | null>(null)
-    const generatingBeatIdsRef = useRef<Set<string>>(new Set())
-    const generatingRenderBeatIdsRef = useRef<Set<string>>(new Set())
-    const generatingTriptychBeatIdsRef = useRef<Set<string>>(new Set())
     const beatVideoProgressRef = useRef<Record<string, WorkshopShotVideoProgress>>({})
     const episodeVideoProgressRef = useRef<WorkshopEpisodeVideoProgress | null>(null)
     const imageJobPollDelayRef = useRef(WORKSHOP_IDLE_POLL_MS)
-    const trackedBatchJobsRef = useRef<Map<GenerationStage, Set<string>>>(new Map())
     const trackedVideoJobsRef = useRef<Set<string>>(new Set())
     const trackedH3PromptJobIdsRef = useRef<string[]>([])
     const h3MaterialBeatIdRef = useRef<string | null>(null)
@@ -312,11 +307,13 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     const [episodeForm] = Form.useForm<EpisodeFormState>()
     const formStatus = Form.useWatch("status", episodeForm) || "draft"
     const submitEpisodeRef = useRef(false)
-    const [deletingEpisode, setDeletingEpisode] = useState<Director2Episode | null>(null)
+    const [deletingEpisodes, setDeletingEpisodes] = useState<Director2Episode[]>([])
     const [deleteModalOpen, setDeleteModalOpen] = useState(false)
     const [deleting, setDeleting] = useState(false)
     const [deleteError, setDeleteError] = useState("")
     const deleteEpisodeRef = useRef(false)
+    const deletedEpisodeIdsRef = useRef<string[]>([])
+    const deleteProgressRef = useRef<((deletedIds: string[]) => void) | null>(null)
     const deleteCancelRef = useRef<HTMLButtonElement>(null)
     const displayedEpisodes = useMemo(() => visibleEpisodes(episodes, episodeSearch, episodeFilter, episodeSort), [episodes, episodeSearch, episodeFilter, episodeSort])
 
@@ -361,49 +358,6 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     function handleProgramPreviewChange(enabled: boolean) {
       setProgramPreview(enabled)
       saveProgramPreview(projectId, enabled)
-    }
-
-    function setStageGeneratingSet(stage: GenerationStage, next: Set<string>) {
-      if (stage === "sketch") {
-        generatingBeatIdsRef.current = next
-        setGeneratingBeatIds(next)
-      } else if (stage === "render") {
-        generatingRenderBeatIdsRef.current = next
-        setGeneratingRenderBeatIds(next)
-      } else {
-        generatingTriptychBeatIdsRef.current = next
-        setGeneratingTriptychBeatIds(next)
-      }
-    }
-
-    function stageSetHas(stage: GenerationStage, beatId: string): boolean {
-      if (stage === "sketch") return generatingBeatIdsRef.current.has(beatId)
-      if (stage === "render") return generatingRenderBeatIdsRef.current.has(beatId)
-      return generatingTriptychBeatIdsRef.current.has(beatId)
-    }
-
-    function addToStageSet(stage: GenerationStage, beatId: string) {
-      const current = stage === "sketch"
-        ? generatingBeatIdsRef.current
-        : stage === "render"
-          ? generatingRenderBeatIdsRef.current
-          : generatingTriptychBeatIdsRef.current
-      if (current.has(beatId)) return
-      const next = new Set(current)
-      next.add(beatId)
-      setStageGeneratingSet(stage, next)
-    }
-
-    function deleteFromStageSet(stage: GenerationStage, beatId: string) {
-      const current = stage === "sketch"
-        ? generatingBeatIdsRef.current
-        : stage === "render"
-          ? generatingRenderBeatIdsRef.current
-          : generatingTriptychBeatIdsRef.current
-      if (!current.has(beatId)) return
-      const next = new Set(current)
-      next.delete(beatId)
-      setStageGeneratingSet(stage, next)
     }
 
     function rememberVideoJobIds(ids: Array<string | undefined | null>) {
@@ -504,8 +458,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     const h3PromptCopyText = showH3Live
       ? h3Live.text
       : showH3Editor ? (h3PromptDraft || programPrompt) : (savedH3Prompt || programPrompt)
-    const selectedTriptychGenerating = Boolean(selectedBeat?.id && generatingTriptychBeatIds.has(selectedBeat.id))
-    const h3GenerateBusy = generatingH3Prompt || selectedTriptychGenerating
+    const h3GenerateBusy = generatingH3Prompt
     const h3GenerateLabel = workshopH3GenerateLabel({
       generating: selectedH3Working,
       hasPrompt: Boolean(savedH3Prompt.trim()),
@@ -627,7 +580,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
           }))
           .filter((item) => item.url)
       }
-      return withTriptychPanels(beat, source)
+      return source.slice(0, 9)
     }
 
     function handleSelectExistingImages() {
@@ -703,25 +656,8 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
 
     function requestGenerateH3Prompt(extra: Record<string, unknown> = {}) {
       const beat = resolveSelectedBeat(currentEpisodeRef.current)
-      const gate = workshopH3PromptGate(beat, {
-        triptychGenerating: Boolean(beat?.id && generatingTriptychBeatIdsRef.current.has(beat.id)),
-      })
-      if (gate === "need_cast") {
-        message.warning(WORKSHOP_H3_TRIPTYCH_GATE.needCast)
-        return
-      }
-      if (gate === "triptych_running") {
-        message.warning(WORKSHOP_H3_TRIPTYCH_GATE.triptychRunning)
-        return
-      }
-      if (gate === "need_triptych") {
-        Modal.confirm({
-          title: WORKSHOP_H3_TRIPTYCH_GATE.confirmTitle,
-          content: WORKSHOP_H3_TRIPTYCH_GATE.confirmContent,
-          okText: WORKSHOP_H3_TRIPTYCH_GATE.confirmOk,
-          cancelText: "取消",
-          onOk: () => generateSingleBeatTriptych({ fromPromptGate: true }),
-        })
+      if (workshopH3PromptGate(beat) === "need_cast") {
+        message.warning("请先绑定出场角色和场景，再生成 H3 提示词")
         return
       }
       const saved = String(beat?.h3_prompt || "").trim()
@@ -741,7 +677,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       if (saved || (h3PromptEditing && dirty && h3PromptDraft.trim())) {
         Modal.confirm({
           title: "覆盖当前 H3 提示词？",
-          content: "系统生成会覆盖已保存或正在编辑的提示词。请确认本镜三联画面无误后再生成。",
+          content: "系统生成会覆盖已保存或正在编辑的提示词。",
           okText: "覆盖生成",
           cancelText: "取消",
           onOk: () => handleGenerateH3Prompt(extra),
@@ -898,86 +834,12 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       setCheckedBeatIds(checked ? new Set(beats.map((beat) => beat.id)) : new Set())
     }
 
-    // ---------------- GRS 分镜生图调用 ----------------
-    function applyBeatGenerationResult(episodeId: string, res: Record<string, any>, stage: GenerationStage) {
-      if (!res?.image_url || currentEpisodeRef.current?.id !== episodeId) return
-      mutateCurrentEpisode((ep) => ({
-        ...ep,
-        beats: (ep.beats || []).map((item) => {
-          if (item.id !== res.beat_id) return item
-          if (stage === "sketch") {
-            return {
-              ...item,
-              sketch_url: res.image_url,
-              sketch_prompt: res.beat?.sketch_prompt || item.sketch_prompt,
-              sketch_job_id: res.job_id,
-              status: res.beat?.status || "sketched",
-            }
-          }
-          if (stage === "triptych") {
-            return {
-              ...item,
-              triptych_url: res.image_url || res.beat?.triptych_url || item.triptych_url,
-              triptych_panels: res.beat?.triptych_panels || item.triptych_panels,
-              triptych_job_id: res.job_id,
-              triptych_status: res.beat?.triptych_status || "succeeded",
-            }
-          }
-          return {
-            ...item,
-            render_url: res.image_url,
-            render_prompt: res.beat?.render_prompt || item.render_prompt,
-            render_job_id: res.job_id,
-            render_status: res.beat?.render_status || "succeeded",
-          }
-        }),
-      }))
-    }
-
-    async function generateSingleBeatTriptych(options: { fromPromptGate?: boolean } = {}) {
-      const ep = currentEpisodeRef.current
-      const beat = resolveSelectedBeat(ep)
-      if (!ep || !beat) return
-      if (!(beat.character_ids || []).length || !(beat.scene_id || beat.scene)) {
-        message.warning(WORKSHOP_H3_TRIPTYCH_GATE.needCast)
-        return
-      }
-      const episodeId = ep.id
-      if (stageSetHas("triptych", beat.id)) return
-      addToStageSet("triptych", beat.id)
-      let enqueued = false
-      try {
-        const res = await generateBeatTriptych(csrfToken, projectId, episodeId, beat.id, { force: true })
-        if (res?.job_id) {
-          enqueued = true
-          updateBeatById(beat.id, {
-            triptych_job_id: String(res.job_id),
-            triptych_status: String(res.status || "queued"),
-          })
-          message.success(options.fromPromptGate
-            ? WORKSHOP_H3_TRIPTYCH_GATE.queued
-            : `Beat ${beat.sequence} 三联关键帧已入队`)
-        }
-        applyBeatGenerationResult(episodeId, res, "triptych")
-      } catch (err) {
-        message.error(director2ErrorDetail(err, WORKSHOP_H3_TRIPTYCH_GATE.failed))
-      } finally {
-        if (!enqueued) deleteFromStageSet("triptych", beat.id)
-      }
-    }
-
     async function pollImageJobs() {
       if (!currentEpisodeRef.current) {
         imageJobPollDelayRef.current = WORKSHOP_IDLE_POLL_MS
         return
       }
       try {
-        const previouslyActive = new Set([
-          ...generatingBeatIdsRef.current,
-          ...generatingRenderBeatIdsRef.current,
-          ...generatingTriptychBeatIdsRef.current,
-        ])
-        const previouslyTriptych = new Set(generatingTriptychBeatIdsRef.current)
         const previouslyActiveVideoBeats = new Set(Object.keys(beatVideoProgressRef.current))
         const previouslyEpisodeVideoActive = Boolean(episodeVideoProgressRef.current)
         const jobs = await listJobs(projectId)
@@ -985,23 +847,6 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
         if (!epId) return
         const episodeJobs = jobs.filter((job) => job.payload?.episode_id === epId)
         const activeStatuses = new Set(["queued", "preparing", "running", "storing"])
-        const nextSketchIds = new Set<string>()
-        const nextRenderIds = new Set<string>()
-        const nextTriptychIds = new Set<string>()
-        episodeJobs.forEach((job) => {
-          const stage = job.payload?.target_type === "beat_sketch"
-            ? "sketch"
-            : job.payload?.target_type === "beat_render"
-              ? "render"
-              : job.payload?.target_type === "beat_triptych"
-                ? "triptych"
-                : ""
-          if (stage && activeStatuses.has(job.status)) {
-            if (stage === "sketch") nextSketchIds.add(job.payload.beat_id)
-            if (stage === "render") nextRenderIds.add(job.payload.beat_id)
-            if (stage === "triptych") nextTriptychIds.add(job.payload.beat_id)
-          }
-        })
         const videoProgress = mapWorkshopVideoProgress(jobs, epId)
         setVideoFailures(mapWorkshopVideoFailures(jobs, epId, currentEpisodeRef.current?.beats.map(beat => beat.id)))
         const previousVideoBeats = beatVideoProgressRef.current
@@ -1015,9 +860,6 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
         setProgramPromptPreview((prev) => sameProgramPreviewPrompts(prev, nextProgramPreview) ? prev : nextProgramPreview)
         const nextVideoBeatIds = new Set(Object.keys(videoProgress.beats))
         const nextEpisodeVideoActive = Boolean(videoProgress.episode)
-        setStageGeneratingSet("sketch", nextSketchIds)
-        setStageGeneratingSet("render", nextRenderIds)
-        setStageGeneratingSet("triptych", nextTriptychIds)
         beatVideoProgressRef.current = videoProgress.beats
         episodeVideoProgressRef.current = videoProgress.episode
         imageJobPollDelayRef.current = hasActiveWorkshopVideoProgress(videoProgress)
@@ -1027,18 +869,6 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
         setEpisodeVideoProgress(videoProgress.episode)
         let refresh = false
         const currentBeatId = selectedBeatIdRef.current
-        for (const beatId of previouslyTriptych) {
-          if (nextTriptychIds.has(beatId)) continue
-          const triptychJob = episodeJobs.find((job) =>
-            job.payload?.target_type === "beat_triptych" && job.payload?.beat_id === beatId,
-          )
-          if (!triptychJob || beatId !== currentBeatId) continue
-          if (SUCCEEDED_JOB_STATUSES.has(triptychJob.status)) {
-            message.success(WORKSHOP_H3_TRIPTYCH_GATE.ready)
-          } else if (triptychJob.status === "failed") {
-            message.error(`${WORKSHOP_H3_TRIPTYCH_GATE.failed}${triptychJob.error_message ? `：${triptychJob.error_message}` : ""}`)
-          }
-        }
         const trackedIds = trackedH3PromptJobIdsRef.current
         const trackedJobs = episodeJobs.filter((job) => trackedIds.includes(job.id))
         const activePromptJob = episodeJobs.find((job) =>
@@ -1121,21 +951,6 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
           setGeneratingH3Prompt(false)
           setH3Live((prev) => prev.working ? { ...prev, working: false } : prev)
         }
-        for (const [stage, ids] of trackedBatchJobsRef.current.entries()) {
-          const relevant = episodeJobs.filter((job) => ids.has(job.id))
-          if (relevant.length !== ids.size || relevant.some((job) => activeStatuses.has(job.status))) continue
-          const completed = relevant.filter((job) => ["completed", "succeeded"].includes(job.status)).length
-          const failed = relevant.filter((job) => job.status === "failed").length
-          if (failed) {
-            message.warning(`${stage === "sketch" ? "批量草图" : "批量渲染图"}完成：成功 ${completed}，失败 ${failed}`)
-          } else {
-            message.success(`${stage === "sketch" ? "批量草图" : "批量渲染图"}完成：成功 ${completed}，失败 ${failed}`)
-          }
-          trackedBatchJobsRef.current.delete(stage)
-          refresh = true
-        }
-        const currentlyActive = new Set([...nextSketchIds, ...nextRenderIds, ...nextTriptychIds])
-        if ([...previouslyActive].some((beatId) => !currentlyActive.has(beatId))) refresh = true
         if ([...previouslyActiveVideoBeats].some((beatId) => !nextVideoBeatIds.has(beatId))) refresh = true
         if (previouslyEpisodeVideoActive && !nextEpisodeVideoActive) refresh = true
         const trackedVideoIds = trackedVideoJobsRef.current
@@ -1165,6 +980,54 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       if (currentEpisodeRef.current?.id !== episodeId) throw new Error("当前分集已切换，请重新点击生成")
     }
 
+    // 提交前的智能守卫：与「一键出片」同一套前置检查，能自动补齐的（场景绑定/新建、主视图、造型锁定/补图）
+    // 经一次确认后自动补齐再继续提交，只有修不了的才拦下提示手动处理。
+    async function guardShootBeforeSubmit(targetBeatIds?: string[]): Promise<boolean> {
+      const ep = currentEpisodeRef.current
+      if (!ep) return false
+      const assets = await listAssets(projectId).catch(() => projectAssets)
+      const guard = await ensureWorkshopShootReady({
+        projectId,
+        episodeId: ep.id,
+        beats: ep.beats || [],
+        assets,
+        scopeBeatIds: targetBeatIds?.length ? targetBeatIds : null,
+        api: {
+          createAsset: (pid, data) => createAsset(csrfToken, pid, data),
+          updateAsset: (pid, assetId, data) => updateAsset(csrfToken, pid, assetId, data),
+          updateEpisodeBeat: (pid, eid, beatId, patch) => updateEpisodeBeat(csrfToken, pid, eid, beatId, patch),
+          generateAssetImage: (pid, assetId, data) => generateAssetImage(csrfToken, pid, assetId, data),
+          getEpisodeDetail,
+          listAssets,
+        },
+        confirm: (plan, paid) => new Promise<boolean>((resolve) => {
+          Modal.confirm({
+            title: paid ? "补齐出片素材后自动生成？" : "自动补齐出片前置后继续？",
+            content: <div>{workshopShootPrepConfirmLines(plan, paid).map((line) => <p key={line} style={{ margin: "0 0 4px" }}>{line}</p>)}</div>,
+            okText: paid ? "补齐并生成" : "自动补齐并生成",
+            cancelText: "取消",
+            centered: true,
+            onOk: () => resolve(true),
+            onCancel: () => resolve(false),
+          })
+        }),
+        onProgress: (item) => message.loading({
+          content: `正在自动补齐素材（${item.phase === "scene" ? "场景" : "造型"} ${item.index}/${item.total}）：${item.label}`,
+          key: "vPrep",
+          duration: 0,
+        }),
+      })
+      message.destroy("vPrep")
+      if (guard.status === "cancelled") return false
+      if (guard.status === "blocked") {
+        message.error({ content: guard.message, duration: 10 })
+        return false
+      }
+      if (guard.beats !== ep.beats) applyCurrentEpisode({ ...ep, beats: guard.beats })
+      if (guard.generated > 0) void loadAssets()
+      return true
+    }
+
     function confirmForceRefine(durationSec: number): Promise<boolean> {
       const warning = refineForceWarning(videoOptions, durationSec)
       if (!warning) return Promise.resolve(true)
@@ -1181,20 +1044,21 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       })
     }
 
-    async function handleGenerateVideo(prepareKeyframes = false) {
+    async function handleGenerateVideo() {
       const ep = currentEpisodeRef.current
       const beat = resolveSelectedBeat(ep)
       if (!ep || !beat || generatingVideo || generatingEpisodeVideo) return
       setGeneratingVideo(true)
       try {
         await saveBeforeVideoSubmit([beat.id])
+        if (!(await guardShootBeforeSubmit([beat.id]))) return
         if (!(await confirmForceRefine(beatDurationSec(beat.video_duration)))) return
         message.loading({ content: "正在提交片段，生成指令将自动准备…", key: "vGen" })
         const res = await generateBeatVideo(csrfToken, projectId, ep.id, beat.id, withVideoPromptMode(buildVideoJobOptions(
           videoWorkflow,
           videoOptions,
-          { duration_per_beat: beatDurationSec(beat.video_duration), prepare_keyframes: prepareKeyframes },
-        ), programPreview && !prepareKeyframes))
+          { duration_per_beat: beatDurationSec(beat.video_duration) },
+        ), programPreview))
         rememberVideoJobIds([res.job_id])
         setBeatVideoProgress(previous => ({ ...previous, [beat.id]: { status: "queued", progress: 0, scope: "shot", jobId: res.job_id } }))
         message.success({ content: "已开始准备并生成视频，可在当前片段查看进度", key: "vGen", duration: 4 })
@@ -1297,9 +1161,122 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       }
     }
 
+    type EpisodeGapChoice = "regenerate" | "gap_fill" | "continue"
+
+    // B1 提交检测：整集直出且已有成片镜头时如实告知重跑代价。
+    // B2「只补跑未生成镜头」按区间 gap_fill 提交；B3 已出片构成连续前缀时推荐升级为「从第 k+1 镜续写整集」。
+    function requestEpisodeGapChoice(
+      total: number,
+      existingCount: number,
+      segments: EpisodeGapSegment[],
+      continuePrefix: number,
+    ): Promise<EpisodeGapChoice | null> {
+      return new Promise((resolve) => {
+        let instance: { destroy: () => void } | null = null
+        const close = (choice: EpisodeGapChoice | null) => {
+          try { instance?.destroy() } catch { /* already destroyed */ }
+          resolve(choice)
+        }
+        const missingCount = segments.reduce((sum, segment) => sum + segment.beatIds.length, 0)
+        const recommendContinue = continuePrefix > 0
+        const regenerateLabel = `整集重渲（含已有 ${existingCount} 镜）`
+        const recommendLabel = recommendContinue
+          ? `从第 ${continuePrefix + 1} 镜续写整集`
+          : "只补跑未生成镜头"
+        instance = Modal.confirm({
+          className: "d2-episode-workshop episode-gap-confirm",
+          title: "检测到本集已有成片镜头",
+          content: (
+            <div className="episode-gap-confirm-body">
+              <div className="episode-gap-stats">
+                <span className="episode-gap-stat">
+                  本集<em>{total}</em>镜
+                </span>
+                <span className="episode-gap-stat">
+                  已有成片<em>{existingCount}</em>镜
+                </span>
+                <span className="episode-gap-stat is-missing">
+                  待补跑<em>{missingCount}</em>镜
+                </span>
+              </div>
+              {segments.length > 0 && (
+                <div className="episode-gap-ranges">
+                  <span className="episode-gap-ranges-label">未生成区间</span>
+                  <span className="episode-gap-ranges-list">
+                    {segments.map((segment) => (
+                      <Tag key={`${segment.startSeq}-${segment.endSeq}`} className="episode-gap-range">
+                        {formatEpisodeGapRangeLabel(segment)}
+                      </Tag>
+                    ))}
+                  </span>
+                </div>
+              )}
+              <div className="episode-gap-options">
+                <div className="episode-gap-option">
+                  <span className="episode-gap-option-title">{regenerateLabel}</span>
+                  <span className="episode-gap-option-desc">
+                    连同已出片的 {existingCount} 镜全部重新生成，保证全片连续。
+                  </span>
+                </div>
+                {missingCount > 0 && (
+                  <div className="episode-gap-option is-recommended">
+                    <span className="episode-gap-option-title">
+                      {recommendLabel}
+                      <Tag className="episode-gap-recommend">推荐</Tag>
+                    </span>
+                    <span className="episode-gap-option-desc">
+                      {recommendContinue
+                        ? `已出片恰好构成第 1-${continuePrefix} 镜的连续前缀：前缀不再重跑，第 ${continuePrefix} 镜尾帧锚定衔接，成片自动拼接前缀已有片段。`
+                        : "已有成片不动：每个区间单独成组渲染，区间首镜用上一镜的真实尾帧做首帧锚定，接缝压到区间边界（区间边界的音频仍为独立生成）。"}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          ),
+          centered: true,
+          width: 600,
+          footer: (
+            <>
+              <Button onClick={() => close(null)}>取消</Button>
+              <Button type={!recommendContinue && missingCount <= 0 ? "primary" : "default"} onClick={() => close("regenerate")}>
+                {regenerateLabel}
+              </Button>
+              {missingCount > 0 && !recommendContinue && (
+                <Button type="primary" onClick={() => close("gap_fill")}>{recommendLabel}（推荐）</Button>
+              )}
+              {recommendContinue && (
+                <Button type="primary" onClick={() => close("continue")}>{recommendLabel}（推荐）</Button>
+              )}
+            </>
+          ),
+          onCancel: () => resolve(null),
+        })
+      })
+    }
+
     async function handleGenerateEpisodeVideo() {
       const ep = currentEpisodeRef.current
       if (!ep || generatingEpisodeVideo) return
+      const beats = ep.beats || []
+      if (videoRenderMode === "episode") {
+        const existingCount = beats.filter((beat) => String(beat.video_url || "").trim()).length
+        if (existingCount > 0) {
+          const segments = computeEpisodeGapSegments(beats)
+          const continuePrefix = computeEpisodeContinuePrefix(beats)
+          const choice = await requestEpisodeGapChoice(beats.length, existingCount, segments, continuePrefix)
+          if (!choice) return
+          if (choice === "gap_fill") {
+            await submitEpisodeGapFillVideo(ep)
+            return
+          }
+          if (choice === "continue") {
+            await submitEpisodeContinueVideo(ep, continuePrefix)
+            return
+          }
+          // choice === "regenerate"：维持整集全量重渲，继续走下方原有提交流程
+        }
+      }
       const refineDurationSec = videoRenderMode === "episode"
         ? episodeDurationSec
         : Math.max(0, ...(ep.beats || []).map((beat) => beatDurationSec(beat.video_duration)))
@@ -1313,6 +1290,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       setGeneratingEpisodeVideo(true)
       try {
         await saveBeforeVideoSubmit()
+        if (!(await guardShootBeforeSubmit())) return
         if (!(await confirmForceRefine(refineDurationSec))) return
         const res = await generateEpisodeVideo(
           csrfToken,
@@ -1333,21 +1311,95 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       }
     }
 
-    async function handleGenerateSelectedShots() {
-      const ep = currentEpisodeRef.current
-      if (!ep || generatingEpisodeVideo) return
-      const selectedBeats = (ep.beats || []).filter((beat) => checkedBeatIds.has(beat.id))
-      const beatIds = selectedBeats.map((beat) => beat.id)
-      if (!beatIds.length) {
-        message.warning("请先勾选要生成的镜头")
+    // B2「只补跑未生成镜头」：按最大连续缺失区间提交 gap_fill，
+    // 每个区间一个独立 Timeline 任务，区间首镜由后端用前置成片尾帧做严格首帧锚定。
+    async function submitEpisodeGapFillVideo(ep: Director2EpisodeDetail) {
+      const beats = ep.beats || []
+      const missingIds = computeEpisodeGapSegments(beats).flatMap((segment) => segment.beatIds)
+      if (!missingIds.length) {
+        message.warning("全部镜头已有成片，无需补跑")
         return
       }
+      const refineDurationSec = sumBeatDurationSec(beats.filter((beat) => missingIds.includes(beat.id)))
+      if (videoOptions.refine_enabled === "true") {
+        message.info({ content: "补跑任务无法中途确认，将连续跑完两段式", duration: 6 })
+      }
+      setGeneratingEpisodeVideo(true)
+      try {
+        await saveBeforeVideoSubmit(missingIds)
+        if (!(await guardShootBeforeSubmit(missingIds))) return
+        if (!(await confirmForceRefine(refineDurationSec))) return
+        const res = await generateEpisodeVideo(
+          csrfToken,
+          projectId,
+          ep.id,
+          withVideoPromptMode(
+            { ...buildVideoJobOptions(videoWorkflow, videoOptions), strategy: "gap_fill" },
+            programPreview,
+          ),
+        )
+        rememberVideoJobIds(res.job_ids?.length ? res.job_ids : [res.job_id])
+        message.success({
+          content: `${formatEpisodeVideoSubmitMessage(res)}，可在「全部任务 → 视频生成」中查看进度`,
+          duration: 6,
+        })
+      } catch (err) {
+        message.error({ content: director2ErrorDetail(err, "补跑任务创建失败"), duration: 10 })
+      } finally {
+        setGeneratingEpisodeVideo(false)
+      }
+    }
+
+    // B3「续写整集」：已出片构成连续前缀时整集计划剔除前缀，第一组首镜锚定前缀尾帧，
+    // 合并成片时前缀部分直接取已有成片文件参与拼接。
+    async function submitEpisodeContinueVideo(ep: Director2EpisodeDetail, prefixCount: number) {
+      const ordered = [...(ep.beats || [])].sort(
+        (left, right) => Number(left.sequence || 0) - Number(right.sequence || 0),
+      )
+      const remainingIds = ordered.slice(prefixCount).map((beat) => beat.id)
+      if (!remainingIds.length) return
+      const refineDurationSec = sumBeatDurationSec(ordered.slice(prefixCount))
+      if (videoOptions.refine_enabled === "true") {
+        message.info({ content: "整集续写无法中途确认，本次将连续跑完两段式", duration: 6 })
+      }
+      setGeneratingEpisodeVideo(true)
+      try {
+        await saveBeforeVideoSubmit(remainingIds)
+        if (!(await guardShootBeforeSubmit(remainingIds))) return
+        if (!(await confirmForceRefine(refineDurationSec))) return
+        const res = await generateEpisodeVideo(
+          csrfToken,
+          projectId,
+          ep.id,
+          withVideoPromptMode(
+            { ...buildVideoJobOptions(videoWorkflow, videoOptions), strategy: "continue" },
+            programPreview,
+          ),
+        )
+        rememberVideoJobIds(res.job_ids?.length ? res.job_ids : [res.job_id])
+        message.success({
+          content: `${formatEpisodeVideoSubmitMessage(res)}，可在「全部任务 → 视频生成」中查看进度`,
+          duration: 6,
+        })
+      } catch (err) {
+        message.error({ content: director2ErrorDetail(err, "整集续写任务创建失败"), duration: 10 })
+      } finally {
+        setGeneratingEpisodeVideo(false)
+      }
+    }
+
+    // 「勾选生成」与 B1「只补跑未生成镜头」共用的 selection 提交；勾选入口只负责算出镜头集合。
+    async function submitSelectedShotVideoTasks(selectedBeats: Director2Beat[]) {
+      const ep = currentEpisodeRef.current
+      if (!ep || generatingEpisodeVideo || !selectedBeats.length) return
+      const beatIds = selectedBeats.map((beat) => beat.id)
       const refineDurationSec = Math.max(
         0, ...selectedBeats.map((beat) => beatDurationSec(beat.video_duration)),
       )
       setGeneratingEpisodeVideo(true)
       try {
         await saveBeforeVideoSubmit(beatIds)
+        if (!(await guardShootBeforeSubmit(beatIds))) return
         if (!(await confirmForceRefine(refineDurationSec))) return
         const res = await generateEpisodeVideo(
           csrfToken,
@@ -1368,6 +1420,17 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
       } finally {
         setGeneratingEpisodeVideo(false)
       }
+    }
+
+    async function handleGenerateSelectedShots() {
+      const ep = currentEpisodeRef.current
+      if (!ep || generatingEpisodeVideo) return
+      const selectedBeats = (ep.beats || []).filter((beat) => checkedBeatIds.has(beat.id))
+      if (!selectedBeats.length) {
+        message.warning("请先勾选要生成的镜头")
+        return
+      }
+      await submitSelectedShotVideoTasks(selectedBeats)
     }
 
     async function handleDeleteSelectedBeats(ids: string[]) {
@@ -1440,23 +1503,53 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     }
 
     function confirmDeleteEpisode(ep: Director2Episode) {
-      setDeletingEpisode(ep)
+      deletedEpisodeIdsRef.current = []
+      deleteProgressRef.current = null
+      setDeletingEpisodes([ep])
       setDeleteError("")
       setDeleteModalOpen(true)
     }
 
+    /** 批量删除：逐集调用现有单集删除接口，每轮把真正删掉的 ID 回传给概览清理勾选（失败项保留，可继续重试）。 */
+    function confirmDeleteEpisodes(eps: Director2Episode[], onDeleted: (deletedIds: string[]) => void) {
+      deletedEpisodeIdsRef.current = []
+      deleteProgressRef.current = onDeleted
+      setDeletingEpisodes(eps)
+      setDeleteError("")
+      setDeleteModalOpen(true)
+    }
+
+    function cancelDeleteModal() {
+      if (deleteEpisodeRef.current) return
+      setDeleteModalOpen(false)
+    }
+
     async function handleDeleteEpisode() {
-      if (!deletingEpisode || deleteEpisodeRef.current) return
+      if (!deletingEpisodes.length || deleteEpisodeRef.current) return
       deleteEpisodeRef.current = true
       setDeleting(true)
       setDeleteError("")
+      const failed: { ep: Director2Episode; reason: string }[] = []
       try {
-        await deleteEpisode(csrfToken, projectId, deletingEpisode.id)
-        message.success("分集已删除")
-        setDeleteModalOpen(false)
+        for (const ep of deletingEpisodes) {
+          try {
+            await deleteEpisode(csrfToken, projectId, ep.id)
+            deletedEpisodeIdsRef.current.push(ep.id)
+          } catch (error) {
+            failed.push({ ep, reason: director2ErrorDetail(error, "删除失败") })
+          }
+        }
+        deleteProgressRef.current?.([...deletedEpisodeIdsRef.current])
         await fetchEpisodes()
-      } catch (error) {
-        setDeleteError(director2ErrorDetail(error, "删除失败，请重试。原分集仍保留。"))
+        if (!failed.length) {
+          message.success(deletingEpisodes.length > 1 ? `已删除 ${deletingEpisodes.length} 集` : "分集已删除")
+          setDeleteModalOpen(false)
+        } else {
+          setDeletingEpisodes(failed.map(item => item.ep))
+          setDeleteError(failed.length === 1
+            ? `${failed[0].reason}，原分集仍保留。`
+            : `${failed.length} 集删除失败（${failed[0].reason}）${deletedEpisodeIdsRef.current.length ? `；已删除 ${deletedEpisodeIdsRef.current.length} 集，可重试失败项。` : "，请重试。"}`)
+        }
       } finally {
         deleteEpisodeRef.current = false
         setDeleting(false)
@@ -1586,10 +1679,10 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
         setH3RefImages(collectH3RefImages(selectedBeat))
         return
       }
-      setH3RefImages((prev) => withTriptychPanels(selectedBeat, prev.length ? prev : collectH3RefImages(selectedBeat)))
+      setH3RefImages((prev) => (prev.length ? prev : collectH3RefImages(selectedBeat)))
       // collectH3RefImages 读当前资产与造型选择；切镜重建，资产晚到则补齐空组
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selectedBeat?.id, projectAssets, selectedBeat?.character_ids, selectedBeat?.scene_id, selectedBeat?.prop_ids, selectedBeat?.character_look_ids, selectedBeat?.triptych_panels, selectedBeat?.triptych_url])
+    }, [selectedBeat?.id, projectAssets, selectedBeat?.character_ids, selectedBeat?.scene_id, selectedBeat?.prop_ids, selectedBeat?.character_look_ids])
 
     useImperativeHandle(ref, () => ({ fetchEpisodes }))
 
@@ -1609,14 +1702,14 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
     return (
       <div className={`d2-episode-workshop ws-root workshop-container${currentEpisodeId ? " in-episode-detail" : ""}`}>
         <header className="ws-project-header">
-          {currentEpisodeId ? <div className="ws-breadcrumb"><Button type="text" onClick={handleBackToOverview}>分集视频</Button><ChevronRight size={12}/><Dropdown trigger={["click"]} menu={{ selectedKeys: [currentEpisodeId], selectable: true, items: episodes.map(episode => ({ key: episode.id, label: "第 " + episode.episode_num + " 集 · " + episode.title, onClick: () => openEpisodeDetail(episode.id) })) }}><Button type="text" className="ws-episode-switch">{currentEpisode ? "第 " + currentEpisode.number + " 集 · " + currentEpisode.title : "正在加载分集"}<ListFilter size={14}/></Button></Dropdown><Button type="text" className={"ws-save-state" + (headerSaveState === "保存失败" ? " is-error" : "")} onClick={() => headerSaveRef.current()} aria-label="保存片段正文"><Check size={12}/>{headerSaveState}</Button></div> : <span className="ws-project-name" title={projectName}>{projectName || "剧集工坊"}</span>}
+          {currentEpisodeId ? <div className="ws-breadcrumb"><Button type="text" onClick={handleBackToOverview}>分集视频</Button><ChevronRight size={12}/><Dropdown trigger={["click"]} menu={{ selectedKeys: [currentEpisodeId], selectable: true, items: episodes.map(episode => ({ key: episode.id, label: "第 " + episode.episode_num + " 集 · " + episode.title, onClick: () => openEpisodeDetail(episode.id) })) }}><Button type="text" className="ws-episode-switch">{currentEpisode ? "第 " + currentEpisode.number + " 集 · " + currentEpisode.title : "正在加载分集"}<ListFilter size={14}/></Button></Dropdown>{currentEpisode && <Button type="text" className={"ws-save-state" + (headerSaveState === "保存失败" ? " is-error" : "")} onClick={() => headerSaveRef.current()} aria-label="保存片段正文"><Check size={12}/>{headerSaveState}</Button>}</div> : <span className="ws-project-name" title={projectName}>{projectName || "剧集工坊"}</span>}
           <div className="ws-header-actions">{projectControls && <Popover trigger="click" placement="bottomRight" content={<div className="ws-project-controls">{projectControls}</div>}><Button type="text" icon={<Settings2 size={14}/>} aria-label="项目设置">{currentEpisodeId ? "" : "项目设置"}</Button></Popover>}
             {currentEpisode && <><Director2VideoSettingsPopover workflowId={videoWorkflow} workflows={videoWorkflows} fields={videoOptionFields} values={videoOptions} durationSec={selectedBeat ? beatDurationSec(selectedBeat.video_duration) : undefined} confirmedResolutionLabel={confirmedVideoResolution?.label} programPreview={programPreview} missingPromptCount={beatsMissingH3Prompt(currentEpisode.beats || []).length} onWorkflowChange={handleVideoWorkflowChange} onChange={handleVideoOptionChange} onProgramPreviewChange={handleProgramPreviewChange}/><Dropdown trigger={["click"]} menu={{ items: [{ key: "text", label: "导出本集文案", onClick: exportEpisodeText }, { key: "edit", label: "进入智能剪辑导出", onClick: () => navigate(director2ProjectPath(projectId, "edit", currentEpisode.id)) }] }}><Button className="ws-subtle">导出</Button></Dropdown><Button className="ws-subtle" disabled={!videoReadyCount} onClick={() => setPreviewRequest(v => v + 1)}>预览全片</Button><Dropdown trigger={["click"]} menu={{ items: [{ key: "script", label: "本集剧本", onClick: () => openToolPanel("script") }, { key: "refresh", label: "刷新数据", onClick: () => void refreshCurrentEpisode() }, { key: "all", label: "生成全片段视频", disabled: generatingEpisodeVideo || episodeVideoJobActive, onClick: () => void handleGenerateEpisodeVideo() }, { key: "script-generation", label: "重新生成脚本", disabled: regeneratingScript, onClick: () => void handleRegenerateScript() }] }}><Button type="text" icon={<MoreHorizontal size={16}/>} aria-label="本集更多操作"/></Dropdown></>}
           </div>
         </header>
-        {!currentEpisodeId ? <WorkshopOverview episodes={displayedEpisodes} total={episodes.length} loading={loading} error={episodeListError} query={episodeSearch} filter={episodeFilter} sort={episodeSort} onQuery={setEpisodeSearch} onFilter={setEpisodeFilter} onSort={setEpisodeSort} onCreate={openCreateModal} onEdit={openEpisodeDetail} onSettings={openEditModal} onDelete={confirmDeleteEpisode} onRefresh={() => { void fetchEpisodes(); void loadAssets() }} onPreview={episode => void previewOverviewEpisode(episode)}/>
-          : currentEpisode ? <WorkshopWorkspace key={currentEpisode.id} csrfToken={csrfToken} projectId={projectId} episode={currentEpisode} selected={selectedBeat} assets={projectAssets} assetsState={projectAssetsState} progress={beatVideoProgress} checked={checkedBeatIds} generatingPrompt={h3GenerateBusy} upscalingId={upscalingBeatId} onSelect={selectBeat} onPatch={updateBeatById} onCheck={toggleCheckedBeat} onCheckAll={toggleCheckAllBeats} onDetails={() => openToolPanel("details")} onDubbing={() => openToolPanel("dubbing")} onSmartEdit={() => navigate(director2ProjectPath(projectId, "edit", currentEpisode.id))} onGenerate={() => void handleGenerateVideo()} onGenerateKeyframes={() => void handleGenerateVideo(true)} submittingVideo={generatingVideo} failures={videoFailures} retryingJobId={retryingVideoJob} onRetryVideo={progress => void handleRetryVideo(progress)} onBeforeSubmitReady={flush => { beforeVideoSubmitRef.current = flush }} onPrompt={() => { void saveBeforeVideoSubmit([selectedBeat?.id || ""]).then(() => requestGenerateH3Prompt()).catch(error => message.error(director2ErrorDetail(error, "请先保存正文"))) }} onUpscale={confirmSmartClarify} onBatchGenerate={() => void handleGenerateSelectedShots()} onBatchDelete={handleDeleteSelectedBeats} batchGenerating={generatingEpisodeVideo} batchDeleting={deletingBeats} onRefine={(action, progress) => void handleRefineDecision(action, progress)} refineBusy={Boolean(refineAction)} onHistory={setHistoryBeat} onRefreshAssets={() => void loadAssets()} onSaveState={(state, save) => { headerSaveRef.current = save; setHeaderSaveState(previous => previous === state ? previous : state) }} previewRequest={previewRequest}/>
-          : <div className="ws-loading"><Spin/><span>正在加载分集…</span></div>}
+        {!currentEpisodeId ? <WorkshopOverview episodes={displayedEpisodes} total={episodes.length} loading={loading} error={episodeListError} query={episodeSearch} filter={episodeFilter} sort={episodeSort} onQuery={setEpisodeSearch} onFilter={setEpisodeFilter} onSort={setEpisodeSort} onCreate={openCreateModal} onEdit={openEpisodeDetail} onSettings={openEditModal} onDelete={confirmDeleteEpisode} onDeleteSelected={confirmDeleteEpisodes} onRefresh={() => { void fetchEpisodes(); void loadAssets() }} onPreview={episode => void previewOverviewEpisode(episode)}/>
+          : currentEpisode ? <WorkshopWorkspace key={currentEpisode.id} csrfToken={csrfToken} projectId={projectId} episode={currentEpisode} selected={selectedBeat} assets={projectAssets} assetsState={projectAssetsState} progress={beatVideoProgress} episodeProgress={episodeVideoProgress} checked={checkedBeatIds} generatingPrompt={h3GenerateBusy} upscalingId={upscalingBeatId} onSelect={selectBeat} onPatch={updateBeatById} onCheck={toggleCheckedBeat} onCheckAll={toggleCheckAllBeats} onDetails={() => openToolPanel("details")} onDubbing={() => openToolPanel("dubbing")} onSmartEdit={() => navigate(director2ProjectPath(projectId, "edit", currentEpisode.id))} onGenerate={() => void handleGenerateVideo()} submittingVideo={generatingVideo} failures={videoFailures} retryingJobId={retryingVideoJob} onRetryVideo={progress => void handleRetryVideo(progress)} onBeforeSubmitReady={flush => { beforeVideoSubmitRef.current = flush }} onPrompt={() => { void saveBeforeVideoSubmit([selectedBeat?.id || ""]).then(() => requestGenerateH3Prompt()).catch(error => message.error(director2ErrorDetail(error, "请先保存正文"))) }} onUpscale={confirmSmartClarify} onBatchGenerate={() => void handleGenerateSelectedShots()} onBatchDelete={handleDeleteSelectedBeats} batchGenerating={generatingEpisodeVideo} batchDeleting={deletingBeats} onRefine={(action, progress) => void handleRefineDecision(action, progress)} refineBusy={Boolean(refineAction)} onHistory={setHistoryBeat} onRefreshAssets={() => void loadAssets()} onSaveState={(state, save) => { headerSaveRef.current = save; setHeaderSaveState(previous => previous === state ? previous : state) }} previewRequest={previewRequest}/>
+          : <div className="ws-loading" role="status" aria-busy="true"><div className="ws-loading-body" aria-hidden="true"><aside className="ws-loading-side"><span className="studio-skeleton-bar" style={{ width: "42%" }}/><span className="studio-skeleton-bar" style={{ width: "88%" }}/><span className="studio-skeleton-bar" style={{ width: "74%" }}/><span className="studio-skeleton-bar" style={{ width: "82%" }}/><span className="studio-skeleton-bar" style={{ width: "66%" }}/></aside><div className="ws-loading-editor"><span className="studio-skeleton-bar ws-skeleton-heading" style={{ width: "26%" }}/><span className="studio-skeleton-bar" style={{ width: "62%" }}/><span className="studio-skeleton-bar" style={{ width: "48%" }}/><span className="studio-skeleton-bar" style={{ width: "71%" }}/></div><aside className="ws-loading-player"><span className="studio-skeleton-bar ws-skeleton-stage"/></aside></div><div className="ws-loading-strip" aria-hidden="true">{Array.from({ length: 9 }, (_, index) => <span className="studio-skeleton-bar ws-skeleton-tile" key={index}/>)}</div><p className="ws-loading-status"><Spin size="small"/><span>正在加载分集…</span></p></div>}
         <Drawer open={Boolean(toolPanel) && Boolean(currentEpisode)} onClose={() => setToolPanel(null)} title={toolPanel === "script" ? "本集剧本" : toolPanel === "dubbing" ? "配音" : "制作详情"} size={toolPanel === "dubbing" ? 1100 : 880} rootClassName="director2-app ws-details-drawer" destroyOnHidden>
           {/* 抽屉经 portal 挂在 body 上，需自带 .d2-episode-workshop 作用域，否则工坊样式全部失效 */}
           <div className="d2-episode-workshop ws-drawer-scope">
@@ -1627,18 +1720,9 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                         <div className="h3-ref-block">
                                           <div className="h3-ref-block-head">
                                             <span className="h3-ref-label">参考图片</span>
-                                            <Space size={6}>
                                             <Button size="small" onClick={() => handleSelectExistingImages()}>
                                               选已有 {h3RefImages.length}/9
                                             </Button>
-                                            <Button
-                                              size="small"
-                                              loading={generatingTriptychBeatIds.has(selectedBeat?.id || "")}
-                                              onClick={() => void generateSingleBeatTriptych()}
-                                            >
-                                              {selectedBeat?.triptych_panels?.start ? "重生成三联" : "生成三联关键帧"}
-                                            </Button>
-                                            </Space>
                                           </div>
                                           <div className="h3-ref-grid">
                                             {h3RefImagesVisible.map((img, idx) => (
@@ -1757,7 +1841,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                                             className="h3-prompt-editor"
                                             value={h3PromptDraft}
                                             disabled={savingH3Prompt}
-                                            placeholder={"请先生成三联关键帧并查看画面，再点「生成 H3 提示词」。也可粘贴外部 MiniMax H3 六段，保存后出片按原文使用。"}
+                                            placeholder={"先绑定本镜出场角色和场景，再点「生成 H3 提示词」。也可粘贴外部 MiniMax H3 六段，保存后出片按原文使用。"}
                                             onChange={(e) => {
                                               setH3PromptEditing(true)
                                               setH3PromptDraft(e.target.value)
@@ -1790,20 +1874,22 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
         {/* ==================== 新建/编辑分集弹窗 ==================== */}
         <Modal
           open={deleteModalOpen}
-          title={<div className="series-delete-heading"><CircleAlert size={24} className="series-delete-icon" /><h2>{deletingEpisode ? `删除第 ${deletingEpisode.episode_num} 集？` : "删除分集"}</h2></div>}
+          title={<div className="series-delete-heading"><CircleAlert size={24} className="series-delete-icon" /><h2>{deletingEpisodes.length > 1 ? `删除 ${deletingEpisodes.length} 集？` : deletingEpisodes.length === 1 ? `删除第 ${deletingEpisodes[0].episode_num} 集？` : "删除分集"}</h2></div>}
           width={440}
           centered
           className="series-delete-modal"
           mask={{ closable: false }}
           keyboard={!deleting}
           closable={!deleting}
-          onCancel={() => { if (!deleteEpisodeRef.current) setDeleteModalOpen(false) }}
-          afterClose={() => setDeletingEpisode(null)}
+          onCancel={cancelDeleteModal}
+          afterClose={() => { setDeletingEpisodes([]); deleteProgressRef.current = null }}
           afterOpenChange={(open) => { if (open) deleteCancelRef.current?.focus() }}
-          footer={<><Button ref={deleteCancelRef} aria-label="取消" disabled={deleting} onClick={() => { if (!deleteEpisodeRef.current) setDeleteModalOpen(false) }}>取消</Button><Button type="primary" danger aria-label="删除分集" aria-busy={deleting} loading={deleting} disabled={deleting} onClick={() => { void handleDeleteEpisode() }}>删除分集</Button></>}
+          footer={<><Button ref={deleteCancelRef} aria-label="取消" disabled={deleting} onClick={cancelDeleteModal}>取消</Button><Button type="primary" danger aria-label={deletingEpisodes.length > 1 ? "删除选中分集" : "删除分集"} aria-busy={deleting} loading={deleting} disabled={deleting} onClick={() => { void handleDeleteEpisode() }}>{deletingEpisodes.length > 1 ? `删除 ${deletingEpisodes.length} 集` : "删除分集"}</Button></>}
         >
           {deleteError && <Alert type="error" showIcon title="删除未完成" description={deleteError} className="series-form-error" />}
-          <div className="series-delete-content"><strong>{deletingEpisode?.title}</strong><p>该分集的剧本和镜头编排将被删除，且无法恢复。项目资产仍会保留。</p></div>
+          {deletingEpisodes.length > 1
+            ? <div className="series-delete-content"><ul className="series-delete-list">{deletingEpisodes.map(ep => <li key={ep.id}>第 {ep.episode_num} 集 · {ep.title}</li>)}</ul><p>这些分集的剧本和镜头编排将被删除，且无法恢复。项目资产仍会保留。</p></div>
+            : <div className="series-delete-content"><strong>{deletingEpisodes[0]?.title}</strong><p>该分集的剧本和镜头编排将被删除，且无法恢复。项目资产仍会保留。</p></div>}
         </Modal>
         <Modal
           open={modalVisible}
@@ -1865,7 +1951,7 @@ const EpisodeWorkshopPane = forwardRef<EpisodeWorkshopPaneHandle, EpisodeWorksho
                 showCount
               />
             </Form.Item>
-            <p className="series-form-note"><Info size={15} />也可以在内容库导入完整剧本，再同步为分集。</p>
+            <p className="series-form-note"><Info size={15} />也可以在「剧本」页导入完整剧本，再按集生成镜头。</p>
           </Form>
         </Modal>
       </div>

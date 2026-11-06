@@ -1,4 +1,4 @@
-import { Alert, Button, Dropdown, Empty, Input, Popover, Select, Skeleton, Tag, Tooltip } from "antd"
+import { Alert, Button, Dropdown, Empty, Input, Popover, Select, Tag, Tooltip } from "antd"
 import { List, MoreHorizontal, Play, Plus, RefreshCw, Search } from "lucide-react"
 import { useState } from "react"
 import type { Director2Beat, Director2Episode } from "../api"
@@ -15,10 +15,10 @@ export function workshopEpisodeSummary(episode: Director2Episode) {
   return { beats, cover: first?.render_url || first?.sketch_url || "", video: beatPlaybackUrl(first), duration: sumBeatDurationSec(beats), ready: beats.filter(beat => beatPlaybackUrl(beat)).length, characters: new Set(beats.flatMap(b => b.character_ids || b.characters || [])).size, scenes: new Set(beats.map(b => b.scene_id || b.scene).filter(Boolean)).size }
 }
 
-export default function WorkshopOverview({ episodes, total, loading, error, query, filter, sort, onQuery, onFilter, onSort, onCreate, onEdit, onSettings, onDelete, onRefresh, onPreview }: {
+export default function WorkshopOverview({ episodes, total, loading, error, query, filter, sort, onQuery, onFilter, onSort, onCreate, onEdit, onSettings, onDelete, onDeleteSelected, onRefresh, onPreview }: {
   episodes: Director2Episode[]; total: number; loading: boolean; error: string; query: string; filter: EpisodeFilter; sort: EpisodeSort
   onQuery: (value: string) => void; onFilter: (value: EpisodeFilter) => void; onSort: (value: EpisodeSort) => void
-  onCreate: () => void; onEdit: (id: string) => void; onSettings: (ep: Director2Episode) => void; onDelete: (ep: Director2Episode) => void; onRefresh: () => void; onPreview: (ep: Director2Episode) => void
+  onCreate: () => void; onEdit: (id: string) => void; onSettings: (ep: Director2Episode) => void; onDelete: (ep: Director2Episode) => void; onDeleteSelected: (eps: Director2Episode[], onDeleted: (deletedIds: string[]) => void) => void; onRefresh: () => void; onPreview: (ep: Director2Episode) => void
 }) {
   const [batch, setBatch] = useState(false)
   const [selected, setSelected] = useState<string[]>([])
@@ -27,10 +27,16 @@ export default function WorkshopOverview({ episodes, total, loading, error, quer
     const url = URL.createObjectURL(new Blob([text], { type: "text/markdown;charset=utf-8" }))
     const link = document.createElement("a"); link.href = url; link.download = "分集剧本.md"; link.click(); URL.revokeObjectURL(url)
   }
+  const deleteSelected = () => {
+    const targets = episodes.filter(episode => selected.includes(episode.id))
+    if (!targets.length) return
+    onDeleteSelected(targets, deletedIds => setSelected(previous => previous.filter(id => !deletedIds.includes(id))))
+  }
+  const allSelected = episodes.length > 0 && episodes.every(episode => selected.includes(episode.id))
   const filters = <div className="ws-overview-filter"><Input placeholder="搜索集数、标题或剧本" aria-label="搜索分集" allowClear prefix={<Search size={14}/>} value={query} onChange={event => onQuery(event.target.value)}/><Select aria-label="按制作状态筛选分集" value={filter} onChange={onFilter} options={EPISODE_FILTERS.map(item => ({ value: item.value, label: item.label }))}/><Select aria-label="分集排序" value={sort} onChange={onSort} options={[{ value: "number_asc", label: "集数从小到大" }, { value: "number_desc", label: "集数从大到小" }, { value: "updated_desc", label: "最近更新优先" }]}/><Button onClick={onRefresh} loading={loading} icon={<RefreshCw size={13}/>}>刷新列表</Button></div>
-  return <main className="ws-overview"><header className="ws-overview-heading"><div><h1>分集视频</h1><p>共 {total} 集{query || filter !== "all" ? ` · 显示 ${episodes.length} 集` : ""}</p></div><div className="ws-overview-actions">{batch && <><span>已选 {selected.length} 集</span><Button className="ws-subtle" disabled={!selected.length} onClick={exportSelected}>导出选中文案</Button></>}<Popover trigger="click" placement="bottomRight" content={filters}><Button className="ws-subtle" icon={<Search size={14}/>} aria-label="搜索筛选分集"/></Popover><Button className="ws-subtle" icon={<Plus size={14}/>} onClick={onCreate} disabled={loading && total === 0}>新增一集</Button><Button className="ws-subtle" icon={<List size={14}/>} onClick={() => { setBatch(!batch); setSelected([]) }}>{batch ? "完成" : "批量"}</Button></div></header>
+  return <main className="ws-overview"><header className="ws-overview-heading"><div><h1>分集视频</h1><p>{loading && !total ? "正在加载分集列表…" : `共 ${total} 集${query || filter !== "all" ? ` · 显示 ${episodes.length} 集` : ""}`}</p></div><div className="ws-overview-actions">{batch && <><span>已选 {selected.length} 集</span><Button className="ws-subtle" disabled={!episodes.length} onClick={() => setSelected(allSelected ? [] : episodes.map(episode => episode.id))}>{allSelected ? "取消全选" : "全选"}</Button><Button className="ws-subtle" disabled={!selected.length} onClick={exportSelected}>导出选中文案</Button><Button className="ws-subtle" danger disabled={!selected.length} onClick={deleteSelected}>删除选中</Button></>}<Popover trigger="click" placement="bottomRight" content={filters}><Button className="ws-subtle" icon={<Search size={14}/>} aria-label="搜索筛选分集"/></Popover><Button className="ws-subtle" icon={<Plus size={14}/>} onClick={onCreate} disabled={loading && total === 0}>新增一集</Button><Button className="ws-subtle" icon={<List size={14}/>} onClick={() => { setBatch(!batch); setSelected([]) }}>{batch ? "完成" : "批量"}</Button></div></header>
     {error && <Alert type="error" showIcon title="分集列表加载失败" description={error} action={<Button size="small" onClick={onRefresh}>重新加载</Button>}/>}
-    <div className="ws-episode-grid">{loading && !total ? Array.from({ length: 3 }, (_, index) => <div className="ws-episode-card" key={index}><Skeleton active paragraph={{ rows: 2 }}/></div>) : episodes.map(episode => {
+    <div className="ws-episode-grid" aria-busy={loading && !total}>{loading && !total ? Array.from({ length: 3 }, (_, index) => <article className="ws-episode-card is-skeleton" key={index} aria-hidden="true"><span className="studio-skeleton-bar ws-skeleton-cover"/><div className="ws-episode-card-body"><div><span className="studio-skeleton-bar ws-skeleton-chip"/><span className="studio-skeleton-bar ws-skeleton-heading"/><span className="studio-skeleton-bar ws-skeleton-caption"/></div><div className="ws-episode-card-actions"><span className="studio-skeleton-bar ws-skeleton-action"/><span className="studio-skeleton-bar ws-skeleton-action is-wide"/></div></div></article>) : episodes.map(episode => {
       const info = workshopEpisodeSummary(episode)
       const complete = info.beats.length > 0 && info.ready === info.beats.length
       return <article className={"ws-episode-card" + (selected.includes(episode.id) ? " is-checked" : "")} key={episode.id} aria-label={`第 ${episode.episode_num} 集：${episode.title}`}>

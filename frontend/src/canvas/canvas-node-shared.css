@@ -1,0 +1,71 @@
+/*
+ * 画布节点共享层（单一来源）。取值＝导演台资产画布 v006：
+ * 节点外壳、端口、连线统一在这里，改一次两个画布同时生效。
+ * 目前由无限画布消费（资产画布仍用自己的 v006 规则，取值相同）。
+ */
+:root {
+  /* 节点外壳：无描边、10px 圆角、outline 选中 */
+  --canvas-node-radius: 10px;
+  --canvas-node-outline: var(--studio-border-strong);
+  --canvas-node-selected-outline: var(--studio-text-secondary);
+  /* 端口：26px 圆形 */
+  --canvas-port-size: 26px;
+  --canvas-port-border: 1px solid var(--studio-text-secondary);
+  --canvas-port-bg: var(--studio-canvas);
+  /* 连线 */
+  --canvas-edge-stroke: #555c68;
+  --canvas-edge-opacity: .65;
+  --canvas-edge-active-stroke: #82b8f3;
+}
+:root[data-theme="light"] {
+  --canvas-edge-stroke: #a9afb9;
+  --canvas-edge-active-stroke: #3279ba;
+}
+
+/* —— 卡片外壳 —— */
+.canvas-node {
+  border: 0;
+  border-radius: var(--canvas-node-radius);
+  background: var(--studio-surface);
+  box-shadow: none;
+  outline: 1px solid transparent;
+  outline-offset: 4px;
+}
+.canvas-node:hover { outline-color: var(--canvas-node-outline); }
+.canvas-node.is-selected {
+  outline: 1px solid var(--canvas-node-selected-outline);
+  outline-offset: 5px;
+  box-shadow: 0 0 0 1px var(--studio-border);
+}
+
+/* —— 端口（26px 圆形） —— */
+.canvas-flow .react-flow__handle {
+  width: var(--canvas-port-size);
+  height: var(--canvas-port-size);
+  min-width: var(--canvas-port-size);
+  min-height: var(--canvas-port-size);
+  border: var(--canvas-port-border);
+  border-radius: 50%;
+  background: var(--canvas-port-bg);
+}
+.canvas-flow .react-flow__handle:hover {
+  background: var(--studio-text);
+  box-shadow: 0 0 0 4px var(--studio-hover);
+}
+
+/* —— 连线 —— */
+.canvas-flow .react-flow__edge .react-flow__edge-path {
+  stroke: var(--canvas-edge-stroke);
+  opacity: var(--canvas-edge-opacity);
+}
+.canvas-flow .react-flow__edge.selected .react-flow__edge-path,
+.canvas-flow .react-flow__edge:focus .react-flow__edge-path {
+  stroke: var(--canvas-edge-active-stroke);
+  opacity: 1;
+}
+.canvas-flow .react-flow__connection-path {
+  stroke: var(--canvas-edge-active-stroke);
+  stroke-width: 1.5;
+}
+/* 资产画布连线是纯线条，无限画布的流动光效一并隐藏以对齐 */
+.canvas-flow .canvas-flow-edge-light { display: none; }

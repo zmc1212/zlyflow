@@ -1,0 +1,374 @@
+{
+  "capturedAt": "2026-11-02T18:24:47.808Z",
+  "url": "http://127.0.0.1:5173/director",
+  "viewport": {
+    "dpr": 1.159999966621399,
+    "height": 960,
+    "width": 1536
+  },
+  "screenshots": {
+    "light": "light-home.jpg",
+    "dark": "dark-home.jpg",
+    "import": "light-import.jpg",
+    "clipDevicePixels": {
+      "x": 0,
+      "y": 0,
+      "width": 1781.7599487304688,
+      "height": 1113.599967956543
+    }
+  },
+  "light": {
+    "aspect": {
+      "background": "rgba(0, 0, 0, 0)",
+      "border": "0px none rgb(23, 26, 31)",
+      "font": "12px",
+      "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+      "fontWeight": "500",
+      "gap": "4px",
+      "height": 31.990842819213867,
+      "lineHeight": "20px",
+      "padding": "0px 8px",
+      "radius": "8px",
+      "shadow": "none",
+      "text": "9:16",
+      "width": 63.995155334472656
+    },
+    "count": {
+      "background": "rgba(0, 0, 0, 0)",
+      "border": "0px none rgb(23, 26, 31)",
+      "font": "12px",
+      "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+      "fontWeight": "500",
+      "gap": "4px",
+      "height": 31.990842819213867,
+      "lineHeight": "20px",
+      "padding": "0px 8px",
+      "radius": "8px",
+      "shadow": "none",
+      "text": "1 集",
+      "width": 56.54634094238281
+    },
+    "fontsLoaded": "loaded",
+    "images": [
+      {
+        "complete": true,
+        "width": 1672
+      },
+      {
+        "complete": true,
+        "width": 1672
+      },
+      {
+        "complete": true,
+        "width": 1672
+      },
+      {
+        "complete": true,
+        "width": 1672
+      },
+      {
+        "complete": true,
+        "width": 1672
+      }
+    ],
+    "panel": {
+      "background": "rgba(0, 0, 0, 0)",
+      "border": "0.862069px solid rgba(0, 0, 0, 0.07)",
+      "font": "14px",
+      "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+      "fontWeight": "400",
+      "gap": "normal",
+      "height": 302.9903259277344,
+      "lineHeight": "21px",
+      "padding": "0px",
+      "radius": "24px",
+      "shadow": "none",
+      "text": "导入剧本剧本创作都市写实9:161 集",
+      "width": 1057.2872314453125
+    },
+    "send": {
+      "background": "rgba(0, 0, 0, 0.1)",
+      "border": "0px none rgb(255, 255, 255)",
+      "font": "12px",
+      "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+      "fontWeight": "400",
+      "gap": "8px",
+      "height": 31.990842819213867,
+      "lineHeight": "21px",
+      "padding": "0px",
+      "radius": "50%",
+      "shadow": "none",
+      "text": "",
+      "width": 31.990842819213867
+    },
+    "style": {
+      "background": "rgba(0, 0, 0, 0)",
+      "border": "0px none rgb(23, 26, 31)",
+      "font": "12px",
+      "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+      "fontWeight": "500",
+      "gap": "4px",
+      "height": 31.990842819213867,
+      "lineHeight": "20px",
+      "padding": "0px 8px",
+      "radius": "8px",
+      "shadow": "none",
+      "text": "都市写实",
+      "width": 85.99138641357422
+    },
+    "styleContent": {
+      "background": "rgba(0, 0, 0, 0)",
+      "border": "0px solid rgba(15, 23, 42, 0.08)",
+      "font": "12px",
+      "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+      "fontWeight": "500",
+      "gap": "normal",
+      "height": 20.002695083618164,
+      "lineHeight": "20px",
+      "padding": "0px",
+      "radius": "0px",
+      "shadow": "none",
+      "text": "都市写实",
+      "width": 52.0339469909668
+    },
+    "tabLabels": [
+      {
+        "font": "12px",
+        "lineHeight": "20px",
+        "text": "导入剧本",
+        "weight": "400"
+      },
+      {
+        "font": "12px",
+        "lineHeight": "20px",
+        "text": "剧本创作",
+        "weight": "500"
+      }
+    ],
+    "tabOrder": [
+      {
+        "checked": false,
+        "name": "director-home-creation-mode",
+        "value": "on"
+      },
+      {
+        "checked": true,
+        "name": "director-home-creation-mode",
+        "value": "on"
+      }
+    ],
+    "tabs": {
+      "background": "rgb(239, 239, 239)",
+      "border": "0px solid rgba(15, 23, 42, 0.08)",
+      "font": "12px",
+      "fontFamily": "\"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+      "fontWeight": "400",
+      "gap": "normal",
+      "height": 35.99138259887695,
+      "lineHeight": "20px",
+      "padding": "0px",
+      "radius": "0px",
+      "shadow": "none",
+      "text": "导入剧本剧本创作",
+      "width": 1055.5631103515625
+    },
+    "theme": "light",
+    "viewport": {
+      "dpr": 1.159999966621399,
+      "height": 960,
+      "width": 1536
+    }
+  },
+  "dark": {
+    "panel": {
+      "background": "rgba(0, 0, 0, 0)",
+      "backgroundImage": "linear-gradient(rgba(26, 26, 26, 0.72), rgba(42, 42, 42, 0.72) 106.67%)",
+      "border": "0.862069px solid rgba(255, 255, 255, 0.08)",
+      "color": "rgb(243, 245, 247)",
+      "font": "14px",
+      "fontWeight": "400",
+      "height": 302.9903259277344,
+      "lineHeight": "21px",
+      "radius": "24px",
+      "shadow": "none",
+      "text": "导入剧本剧本创作都市写实9:161 集",
+      "width": 1057.2872314453125
+    },
+    "selected": "剧本创作",
+    "send": {
+      "background": "rgba(255, 255, 255, 0.16)",
+      "backgroundImage": "none",
+      "border": "0px none rgba(255, 255, 255, 0.3)",
+      "color": "rgba(255, 255, 255, 0.3)",
+      "font": "12px",
+      "fontWeight": "400",
+      "height": 31.990842819213867,
+      "lineHeight": "21px",
+      "radius": "50%",
+      "shadow": "none",
+      "text": "",
+      "width": 31.990842819213867
+    },
+    "style": {
+      "background": "rgba(0, 0, 0, 0)",
+      "backgroundImage": "none",
+      "border": "0px none rgb(243, 245, 247)",
+      "color": "rgb(243, 245, 247)",
+      "font": "12px",
+      "fontWeight": "500",
+      "height": 31.990842819213867,
+      "lineHeight": "20px",
+      "radius": "8px",
+      "shadow": "none",
+      "text": "都市写实",
+      "width": 85.99138641357422
+    },
+    "tabs": {
+      "background": "rgba(255, 255, 255, 0.016)",
+      "backgroundImage": "none",
+      "border": "0px solid rgba(255, 255, 255, 0.1)",
+      "color": "rgb(192, 199, 208)",
+      "font": "12px",
+      "fontWeight": "400",
+      "height": 35.99138259887695,
+      "lineHeight": "20px",
+      "radius": "0px",
+      "shadow": "none",
+      "text": "导入剧本剧本创作",
+      "width": 1055.5631103515625
+    },
+    "textarea": {
+      "background": "rgba(0, 0, 0, 0)",
+      "backgroundImage": "none",
+      "border": "0px none rgb(243, 245, 247)",
+      "color": "rgb(243, 245, 247)",
+      "font": "14px",
+      "fontWeight": "400",
+      "height": 185.31790161132812,
+      "lineHeight": "21px",
+      "radius": "0px",
+      "shadow": "none",
+      "text": "",
+      "width": 1023.5587768554688
+    },
+    "theme": "dark"
+  },
+  "focus": {
+    "light": {
+      "background": "rgba(0, 0, 0, 0)",
+      "outline": "none",
+      "panelHeight": 302.9903259277344,
+      "shadow": "none",
+      "value": "界面验证用草稿：雨夜里，一位快递员收到寄给未来的包裹。"
+    },
+    "dark": {
+      "background": "rgba(0, 0, 0, 0)",
+      "outline": "none",
+      "shadow": "none",
+      "theme": "dark"
+    }
+  },
+  "menus": {
+    "light": [
+      {
+        "background": "rgb(255, 255, 255)",
+        "color": "rgb(23, 26, 31)",
+        "font": "12px",
+        "lineHeight": "20px",
+        "text": "都市写实"
+      },
+      {
+        "background": "rgb(255, 255, 255)",
+        "color": "rgb(23, 26, 31)",
+        "font": "12px",
+        "lineHeight": "20px",
+        "text": "古装写实"
+      },
+      {
+        "background": "rgb(255, 255, 255)",
+        "color": "rgb(23, 26, 31)",
+        "font": "12px",
+        "lineHeight": "20px",
+        "text": "国风动漫"
+      },
+      {
+        "background": "rgb(255, 255, 255)",
+        "color": "rgb(23, 26, 31)",
+        "font": "12px",
+        "lineHeight": "20px",
+        "text": "现代动漫"
+      }
+    ],
+    "dark": [
+      {
+        "background": "rgb(30, 34, 41)",
+        "color": "rgb(243, 245, 247)",
+        "font": "12px",
+        "lineHeight": "20px",
+        "text": "都市写实"
+      },
+      {
+        "background": "rgb(30, 34, 41)",
+        "color": "rgb(243, 245, 247)",
+        "font": "12px",
+        "lineHeight": "20px",
+        "text": "古装写实"
+      },
+      {
+        "background": "rgb(30, 34, 41)",
+        "color": "rgb(243, 245, 247)",
+        "font": "12px",
+        "lineHeight": "20px",
+        "text": "国风动漫"
+      },
+      {
+        "background": "rgb(30, 34, 41)",
+        "color": "rgb(243, 245, 247)",
+        "font": "12px",
+        "lineHeight": "20px",
+        "text": "现代动漫"
+      }
+    ]
+  },
+  "enabledSend": {
+    "background": "rgb(243, 245, 247)",
+    "color": "rgb(15, 17, 21)",
+    "disabled": false,
+    "height": 31.990842819213867,
+    "radius": "50%",
+    "width": 31.990842819213867
+  },
+  "checks": {
+    "tabHeight36": true,
+    "controlHeight32": true,
+    "toolbarFont12": true,
+    "tabFont12": true,
+    "styleNameComplete": true,
+    "lightMenuFont12": true,
+    "darkMenuFont12": true,
+    "draftPreserved": true,
+    "modeHeightStable": true,
+    "lightFocusNoInnerOutline": true,
+    "darkFocusNoInnerOutline": true,
+    "sendEnabledAfterInput": true,
+    "fontsLoaded": true,
+    "imagesLoaded": true
+  },
+  "interactionObservations": [
+    "风格切换为古装写实并恢复都市写实",
+    "比例切换为16:9并恢复9:16",
+    "计划集数改为3并恢复1，按钮实时回显",
+    "原生左右方向键在导入/创作间切换，正文保留",
+    "更多工具打开创作工具与历史抽屉，关闭后回首页",
+    "清空正文恢复禁用提交状态",
+    "没有提交创作、导入或媒体任务；最终恢复暗色主题与默认创作参数"
+  ],
+  "build": {
+    "command": "pnpm --dir frontend build",
+    "testFiles": 97,
+    "tests": 648,
+    "result": "passed",
+    "typescript": "passed",
+    "vite": "passed"
+  }
+}

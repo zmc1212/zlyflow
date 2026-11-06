@@ -31,8 +31,8 @@ logger = logging.getLogger(__name__)
 _EXECUTOR = ThreadPoolExecutor(max_workers=3, thread_name_prefix="director-assistant")
 TERMINAL = {"succeeded", "failed", "cancelled", "interrupted"}
 _SCRIPT_EXCLUDE = re.compile(r"方向|建议|思路|分析|评价|点评|讨论|聊聊|怎么|如何|大纲|构思|灵感|标题|命名|简介|梗概|人物小传|修改意见")
-_SCRIPT_NEGATE = re.compile(r"(?:不要|别|不用|无需|不需要|暂不|暂时不|先不|不想|不准备).{0,12}(?:写|创作|生成|编写|续写|改写|修改|剧本|台本|正文|短剧)")
-_SCRIPT_WRITE = re.compile(r"(?:写|创作|生成|编写|续写|起草|扩写|改写|出一|来一|完成|发展成|写成|做成|输出|给我|我要|想要|想做|想写|要做|要写|打算|准备|需要).{0,20}(?:剧本|台本|本子|分集正文|第[一二三四五六七八九十百0-9]+集|短剧|短片|正文)")
+_SCRIPT_NEGATE = re.compile(r"(?:不要|别|不用|无需|不需要|暂不|暂时不|先不|不想|不准备).{0,12}(?:写|创作|生成|编写|续写|改写|修改|制作|剧本|台本|正文|短剧)")
+_SCRIPT_WRITE = re.compile(r"(?:写|创作|生成|编写|续写|起草|扩写|改写|出一|来一|完成|发展成|写成|做成|制作|输出|给我|我要|想要|想做|想写|要做|要写|打算|准备|需要).{0,20}(?:剧本|台本|本子|分集正文|第[一二三四五六七八九十百0-9]+集|短剧|短片|正文)")
 _SCRIPT_NOUN_FIRST = re.compile(r"(?:剧本|台本|分集正文|正文|短剧).{0,12}(?:写|创作|生成|续写|完整|正文|改|调整)")
 _SCRIPT_EDIT = re.compile(r"(?:修改|改写|重写|润色|调整|优化|补写|完善|续写|扩写|重做|改成|写成|发展成|补充|改|删掉|删除|移除|去掉).{0,32}(?:剧本|台本|正文|分集|第[一二三四五六七八九百十0-9]+集)")
 _SCRIPT_CONTEXT_EDIT = re.compile(r"(?:修改|改写|重写|润色|调整|优化|补写|完善|续写|扩写|重做|改成|写成|发展成|补充|改|删掉|删除|移除|去掉|替换|保留).{0,40}(?:最后一句|第一句|这一句|这段|细节|镜头|时长|结尾|开头|场景|对白|其余|这版|上一版|现有)")
@@ -460,6 +460,7 @@ class AssistantService:
             script_revision_requested = False if smart_edit else self._script_revision_requested(history, script_context=script_context)
             script_repair_attempted = False
             script_draft_created = False
+            script_draft_blocked = False
             messages = [{"role": "system", "content": (NATIVE_SYSTEM_PROMPT if native_active else SYSTEM_PROMPT) + "\n当前选择：" + dumps(context)}]
             if (run.get("context") or {}).get("kind") == "smart_edit":
                 messages.append({"role": "system", "content": """当前页面已打开智能剪辑，你是本集智能剪辑助手。工程和剪辑序列已经由会话固定；main表示自由剪辑，包含导入素材，同样支持铺轨。素材和时间线可用editor_read直接读取，不需要用户重新提供分镜内容、文件名、工程或集数，不要把铺轨当成剧本/分镜创作，也不要先读project_read。
@@ -502,6 +503,7 @@ class AssistantService:
                 messages.append({"role": "system", "content": "联网搜索已开启：需要时效信息时使用联网检索结果，并在回复中写明来源标题与链接；知识库仍优先用于用户自有资料，不得编造检索结果。"})
             native_messages = [dict(message) for message in messages] if native_active else None
             for step in range(8):
+                blocked_this_step = False
                 self._check(owner, run_id)
                 self.repo.emit(owner, run_id, "status", {"label": "正在组织创作内容" if step == 0 else "正在结合资料继续创作"})
                 raw_buffer, last_preview, last_flush = "", "", time.monotonic()
@@ -610,7 +612,7 @@ class AssistantService:
                             parts[text_index]["text"] = "本轮结果尚未整理成可操作的草稿，未创建或提交新的生成任务。"
                             raise repair_error
                 parts[text_index]["text"] = self._strip_history_echo(envelope.text)
-                if script_requested and not script_draft_created and not envelope.tool_calls and not envelope.question:
+                if (script_requested or script_draft_blocked) and not script_draft_created and not envelope.tool_calls and not envelope.question:
                     self._check(owner, run_id)
                     self.repo.emit(owner, run_id, "status", {"label": "正在整理可采纳的剧本草稿"})
                     native_active = False
@@ -637,6 +639,9 @@ class AssistantService:
                     self.repo.insert(owner, "tool_call", {"name": tool.name, "arguments": tool.arguments, "result": result}, parent=run_id)
                     tool_results.append({"tool": tool.name, "result": result})
                     if isinstance(result, dict) and result.get("error"):
+                        if tool.name == "create_draft" and (tool.arguments or {}).get("artifact_type") == "script":
+                            script_draft_blocked = True
+                            blocked_this_step = True
                         parts.append({"type": "tool", "name": tool.name, "label": "检查创作条件", "status": "failed", "detail": result["error"]})
                         continue
                     if tool.name == "create_draft":
@@ -663,6 +668,21 @@ class AssistantService:
                     native_messages.append({"role": "assistant", "content": turn.get("content") or "", "tool_calls": turn["native_calls"]})
                     for call, item in zip(turn["native_calls"], tool_results):
                         native_messages.append({"role": "tool", "tool_call_id": str(call.get("id") or ""), "content": dumps(item)[:60000]})
+                if blocked_this_step and not script_draft_created:
+                    # 剧本草稿因未读配方被拦截时，服务端补读规范并强制本轮重试，
+                    # 避免模型读完规范后只回复构思文字，丢失可采纳的剧本卡片。
+                    recipe_stages = (run.get("production_recipe") or {}).get("stages", {})
+                    if "script" in recipe_stages and "script" not in run.get("loaded_recipe_stages", set()):
+                        recipe_result = self._tool(owner, session, run, "project_read", {"stage": "script"}, sources)
+                        self.repo.insert(owner, "tool_call", {"name": "project_read", "arguments": {"stage": "script"}, "result": recipe_result}, parent=run_id)
+                        parts.append({"type": "tool", "name": "project_read", "label": "读取制作规范", "status": "succeeded"})
+                        spec = "工作台已补读本轮剧本制作规范：" + dumps(recipe_result["production_recipe"])
+                    else:
+                        spec = "本轮剧本制作规范此前已读取，无需重复读取。"
+                    reminder = f"上一条 create_draft（artifact_type=script）因未先读取制作规范被拦截；{spec}请立即重新调用 create_draft 保存完整剧本草稿，不要只输出构思或方向说明。"
+                    messages.append({"role": "user", "content": reminder})
+                    if native_active and native_messages is not None:
+                        native_messages.append({"role": "user", "content": reminder})
                 cited = [sources[cid] for cid in envelope.citation_ids if cid in sources]
                 if cited:
                     parts.append({"type": "citations", "items": cited})
@@ -678,7 +698,7 @@ class AssistantService:
                     # was created or the model explicitly asked a question.
                     # Read-only calls such as project_read must not turn a
                     # failed draft repair into a successful text-only run.
-                    if script_requested and not script_draft_created and not question:
+                    if (script_requested or script_draft_blocked) and not script_draft_created and not question:
                         reminder = "当前仍未创建可采纳的剧本草稿；请继续调用 create_draft（artifact_type=script），或在确实缺少关键信息时返回 question。不要只回复说明文字。"
                         messages.append({"role": "user", "content": reminder})
                         if native_active and native_messages is not None:

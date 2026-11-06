@@ -1,0 +1,123 @@
+{
+  "card": {
+    "background": "rgba(0, 0, 0, 0)",
+    "borderRadius": "0px",
+    "font": "12px / 20px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+    "gap": "normal",
+    "height": 92.4838409423828,
+    "width": 114.64170837402344,
+    "x": 510.9779357910156,
+    "y": 547.95263671875
+  },
+  "cover": {
+    "background": "rgba(255, 255, 255, 0.04)",
+    "borderRadius": "8px",
+    "font": "12px / 20px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+    "gap": "normal",
+    "height": 64.48006439208984,
+    "width": 114.64170837402344,
+    "x": 510.9779357910156,
+    "y": 547.95263671875
+  },
+  "dpr": 1.159999966621399,
+  "fontReady": "loaded",
+  "popup": {
+    "background": "rgba(0, 0, 0, 0)",
+    "borderRadius": "0px",
+    "font": "12px / 20px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+    "gap": "normal",
+    "height": 309.9542236328125,
+    "width": 529.997314453125,
+    "x": 494.9892578125,
+    "y": 461.9881591796875
+  },
+  "theme": "dark",
+  "title": "ZLY AI 视频创作平台",
+  "url": "http://127.0.0.1:5173/director",
+  "viewport": {
+    "height": 863,
+    "width": 1920
+  },
+  "visibleImages": [
+    {
+      "ready": true,
+      "src": "http://127.0.0.1:5173/director-presets/styles/1790247346140_style.webp"
+    },
+    {
+      "ready": true,
+      "src": "http://127.0.0.1:5173/director-presets/styles/1790247346144_style.webp"
+    },
+    {
+      "ready": true,
+      "src": "http://127.0.0.1:5173/director-presets/styles/1790247346143_style.webp"
+    },
+    {
+      "ready": true,
+      "src": "http://127.0.0.1:5173/director-presets/styles/1790247346145_style.webp"
+    },
+    {
+      "ready": true,
+      "src": "http://127.0.0.1:5173/director-presets/styles/1790247346146_style.webp"
+    },
+    {
+      "ready": true,
+      "src": "http://127.0.0.1:5173/director-presets/styles/1790247346151_style.webp"
+    },
+    {
+      "ready": true,
+      "src": "http://127.0.0.1:5173/director-presets/styles/1779094923828_style.webp"
+    },
+    {
+      "ready": true,
+      "src": "http://127.0.0.1:5173/director-presets/styles/1790247346139_style.webp"
+    },
+    {
+      "ready": true,
+      "src": "http://127.0.0.1:5173/director-presets/styles/1790247346171_style.webp"
+    },
+    {
+      "ready": true,
+      "src": "http://127.0.0.1:5173/director-presets/styles/1779094923765_style.webp"
+    },
+    {
+      "ready": true,
+      "src": "http://127.0.0.1:5173/director-presets/styles/1780575862640_style.webp"
+    },
+    {
+      "ready": true,
+      "src": "http://127.0.0.1:5173/director-presets/styles/1790247346147_style.webp"
+    },
+    {
+      "ready": true,
+      "src": "http://127.0.0.1:5173/director-presets/styles/1790247346166_style.webp"
+    },
+    {
+      "ready": true,
+      "src": "http://127.0.0.1:5173/director-presets/styles/1790247346170_style.webp"
+    },
+    {
+      "ready": true,
+      "src": "http://127.0.0.1:5173/director-presets/styles/1780575862639_style.webp"
+    }
+  ],
+  "screenshot": {
+    "fullPage": false,
+    "scale": "css",
+    "clip": {
+      "x": 360,
+      "y": 100,
+      "width": 1260,
+      "height": 700
+    },
+    "panelClip": {
+      "background": "rgba(0, 0, 0, 0)",
+      "borderRadius": "0px",
+      "font": "12px / 20px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+      "gap": "normal",
+      "height": 309.9542236328125,
+      "width": 529.997314453125,
+      "x": 494.9892578125,
+      "y": 461.9881591796875
+    }
+  }
+}

@@ -1,8 +1,10 @@
 -- 2026-10-21: infinite canvas projects, current JSON draft and version history.
+-- 2026-11-05: linked_director_project_id binds the director asset canvas to its project.
 CREATE TABLE IF NOT EXISTS canvas_projects (
     id VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
     owner_user_id VARCHAR(64) NOT NULL,
     title VARCHAR(160) NOT NULL,
+    linked_director_project_id VARCHAR(64) NULL,
     tags_json VARCHAR(512) NOT NULL DEFAULT '[]',
     is_favorite TINYINT(1) NOT NULL DEFAULT 0,
     deleted_at VARCHAR(64) NULL,
@@ -10,7 +12,8 @@ CREATE TABLE IF NOT EXISTS canvas_projects (
     created_at VARCHAR(64) NOT NULL,
     updated_at VARCHAR(64) NOT NULL,
     KEY idx_canvas_projects_owner_updated (owner_user_id, updated_at),
-    KEY idx_canvas_projects_owner_deleted (owner_user_id, deleted_at)
+    KEY idx_canvas_projects_owner_deleted (owner_user_id, deleted_at),
+    UNIQUE KEY uk_canvas_projects_linked (owner_user_id, linked_director_project_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS canvas_drafts (

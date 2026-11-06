@@ -636,6 +636,9 @@ class AssistantTests(unittest.TestCase):
 
     def test_script_intent_accepts_creation_revision_and_context_followups_without_consultation_overmatch(self):
         self.assertTrue(AssistantService._has_script_intent("给我一集完整的剧本"))
+        self.assertTrue(AssistantService._has_script_intent("制作第三集"))
+        self.assertTrue(AssistantService._has_script_intent("帮我制作第三集的剧本"))
+        self.assertFalse(AssistantService._has_script_intent("不要制作第三集"))
         self.assertTrue(AssistantService._has_script_intent("我想做一个短剧，先从剧本开始"))
         self.assertTrue(AssistantService._has_script_intent("把这个想法发展成一集剧本"))
         self.assertTrue(AssistantService._has_script_intent("修改现有剧本的结局"))
@@ -1261,6 +1264,35 @@ class AssistantTests(unittest.TestCase):
         self.assertEqual(self.repo.list("alice", "tool_call", parent=run["id"]), [])
         messages = self.llm.assistant_chat.call_args.args[0]
         self.assertFalse(any("工作台已读取本轮剧本制作规范" in message["content"] for message in messages))
+
+    def test_blocked_script_draft_recovers_with_recipe_read_and_retry(self):
+        from backend.app.skill_packs.recipe import HALF_NARRATED_PACK_ID
+        with self.store.connection() as conn:
+            conn.execute("UPDATE ai_projects SET settings_json=? WHERE id='p'", (dumps({"extra": {"skill_pack_id": HALF_NARRATED_PACK_ID}}),))
+        session = self.session(project_id="p")
+        draft_envelope = {"text": "先保存草稿。", "tool_calls": [{"name": "create_draft", "arguments": {
+            "artifact_type": "script", "title": "雨夜回声", "content": SCRIPT_TEXT,
+        }}]}
+        self.llm.assistant_chat.side_effect = [
+            dumps(draft_envelope),
+            dumps({"text": "构思方向已经很清楚了，后面再写。"}),
+            dumps({**draft_envelope, "text": "已按规范重新整理成可采纳的剧本草稿。"}),
+        ]
+        with patch("backend.app.director_assistant.service._EXECUTOR.submit"):
+            run = self.service.send("alice", session["id"], {
+                "text": "聊聊这个故事",
+                "client_message_id": "blocked-recovery-123",
+            })
+        self.service.run("alice", run["id"])
+
+        self.assertEqual(self.repo.get("alice", run["id"])["status"], "succeeded")
+        self.assertEqual(len(self.repo.list("alice", "artifact", parent=session["id"])), 1)
+        tool_calls = self.repo.list("alice", "tool_call", parent=run["id"])
+        self.assertEqual([t["name"] for t in tool_calls], ["create_draft", "project_read", "create_draft"])
+        self.assertTrue(tool_calls[0]["result"].get("error"))
+        self.assertEqual(tool_calls[1]["arguments"], {"stage": "script"})
+        second_messages = self.llm.assistant_chat.call_args_list[1].args[0]
+        self.assertTrue(any("重新调用 create_draft" in message["content"] for message in second_messages))
 
     def test_project_draft_requires_reading_frozen_recipe_stage(self):
         session = self.session(project_id="p")

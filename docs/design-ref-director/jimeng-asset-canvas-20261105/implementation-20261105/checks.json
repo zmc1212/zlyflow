@@ -1,0 +1,24 @@
+{
+  "date": "2026-11-05",
+  "frontend": {
+    "command": "pnpm --dir frontend build",
+    "test_files": 120,
+    "tests": 819,
+    "typescript": "passed",
+    "build": "passed"
+  },
+  "backend": {
+    "command": "python -X utf8 -B -m unittest discover -s backend/tests -t . -p \"test_*.py\"",
+    "tests": 1702,
+    "skipped": 1,
+    "result": "passed"
+  },
+  "focused_backend": {
+    "tests": 23,
+    "result": "passed"
+  },
+  "visual_qa": "passed",
+  "mobile_tested": false,
+  "paid_generation_triggered": false,
+  "tests_artifacts": "Two temporary logs remain in ignored .tmp/asset-canvas-v006 because automatic approval review rejected deletion with blocked by policy; durable screenshots are kept in this baseline."
+}

@@ -1,0 +1,26 @@
+/* 口型同步工具页：复用动作迁移/数字人工具页布局类，仅补充视频槽位样式。
+   仅使用 --studio-* 语义变量，禁止硬编码主题色。 */
+
+.studio-lip-sync-tool .studio-motion-reference-stage {
+  cursor: pointer;
+}
+.studio-lip-sync-tool .studio-motion-reference-stage:hover {
+  border-color: var(--studio-accent-text);
+}
+.studio-lip-sync-tool .studio-motion-reference-stage:hover .studio-motion-reference-placeholder {
+  color: var(--studio-text);
+}
+
+.studio-ls-video-stage .studio-motion-reference-preview.ant-btn {
+  padding: 0;
+}
+.studio-ls-video-thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  padding: 6px;
+}
+.studio-ls-audio-stage .studio-motion-reference-preview.ant-btn {
+  padding: 0 16px;
+}

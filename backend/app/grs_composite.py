@@ -40,6 +40,10 @@ ASPECT_RATIO_VALUES = {
     "3:4": 3 / 4,
 }
 
+# 扩图目标画布单边上限（工具页画布交互提交的 target_width/height）；
+# 原图本身超过该值时放宽到原图边长，保证 1x 也始终合法。
+OUTPAINT_MAX_SIDE = 4096
+
 
 class CompositeImageError(ValueError):
     """复合图片管线的输入错误（422 语义）。"""
@@ -102,35 +106,73 @@ def composite_masked(
 
 def outpaint_canvas(
     original: Image.Image, target_aspect: str,
+    target_size: tuple[int, int] | None = None, offset: tuple[int, int] | None = None,
 ) -> tuple[Image.Image, tuple[int, int]]:
-    """把原图等比垫入目标画幅的画布：返回画布（拉伸模糊底）与原图左上角位置。
+    """把原图等比垫入目标画布：返回画布（拉伸模糊底）与原图左上角位置。
 
-    原图保持原始尺寸居中放置，扩展发生在不足的一侧：
-    原图更"竖"时向左右扩展，更"横"时向上下扩展。
+    两种目标画布指定方式：显式 target_size（工具页画布交互，任意尺寸），
+    或 target_aspect 预设画幅（原图更"竖"时向左右扩展，更"横"时向上下扩展）。
+    offset 指定原图左上角位置（拖拽可能非对称扩展），缺省居中。
     """
-    ratio = ASPECT_RATIO_VALUES.get(target_aspect)
-    if ratio is None:
-        raise CompositeImageError(f"不支持的目标画幅: {target_aspect}")
-    width, height = original.size
-    source_ratio = width / height
-    if source_ratio <= ratio:
-        # 原图更竖（或同比例）：高度不变，向左右扩展到目标比例。
-        canvas_h = height
-        canvas_w = max(width, round(height * ratio))
+    if target_size is not None:
+        canvas_w, canvas_h = target_size
+        if canvas_w < original.width or canvas_h < original.height:
+            raise CompositeImageError("目标画布不能小于原图，扩图只会向外扩展")
     else:
-        # 原图更横：宽度不变，向上下扩展到目标比例。
-        canvas_w = width
-        canvas_h = max(height, round(width / ratio))
+        ratio = ASPECT_RATIO_VALUES.get(target_aspect)
+        if ratio is None:
+            raise CompositeImageError(f"不支持的目标画幅: {target_aspect}")
+        width, height = original.size
+        source_ratio = width / height
+        if source_ratio <= ratio:
+            # 原图更竖（或同比例）：高度不变，向左右扩展到目标比例。
+            canvas_h = height
+            canvas_w = max(width, round(height * ratio))
+        else:
+            # 原图更横：宽度不变，向上下扩展到目标比例。
+            canvas_w = width
+            canvas_h = max(height, round(width / ratio))
     canvas_w += canvas_w % 2
     canvas_h += canvas_h % 2
-    left = (canvas_w - width) // 2
-    top = (canvas_h - height) // 2
+    left = (canvas_w - original.width) // 2
+    top = (canvas_h - original.height) // 2
+    if offset is not None:
+        left = max(0, min(int(offset[0]), canvas_w - original.width))
+        top = max(0, min(int(offset[1]), canvas_h - original.height))
     # 拉伸模糊底作为颜色上下文，模型在它之上补全扩展区。
     backdrop = original.resize((canvas_w, canvas_h), Image.LANCZOS).filter(
         ImageFilter.GaussianBlur(max(12, min(canvas_w, canvas_h) // 16)),
     )
     backdrop.paste(original, (left, top))
     return backdrop, (left, top)
+
+
+def outpaint_target_size(options: dict, original_size: tuple[int, int]) -> tuple[int, int] | None:
+    """读取工具页画布交互提交的显式目标画布；两项都缺省（0）时返回 None 走预设画幅。"""
+    width = int(options.get("target_width") or 0)
+    height = int(options.get("target_height") or 0)
+    if width <= 0 and height <= 0:
+        return None
+    if width <= 0 or height <= 0:
+        raise CompositeImageError("目标画布宽高必须同时提供")
+    original_w, original_h = original_size
+    if width < original_w or height < original_h:
+        raise CompositeImageError("目标画布不能小于原图，扩图只会向外扩展")
+    if width > max(OUTPAINT_MAX_SIDE, original_w) or height > max(OUTPAINT_MAX_SIDE, original_h):
+        raise CompositeImageError(f"目标画布单边不能超过 {OUTPAINT_MAX_SIDE} 像素")
+    return (width + width % 2, height + height % 2)
+
+
+def outpaint_offset(
+    options: dict, original_size: tuple[int, int], target_size: tuple[int, int],
+) -> tuple[int, int]:
+    """读取原图在目标画布内的左上角位置，夹取到合法范围（缺省 0 时由居中兜底）。"""
+    offset_x = int(options.get("target_offset_x") or 0)
+    offset_y = int(options.get("target_offset_y") or 0)
+    return (
+        max(0, min(offset_x, target_size[0] - original_size[0])),
+        max(0, min(offset_y, target_size[1] - original_size[1])),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -157,8 +199,10 @@ def composite_prompt(mode: JobMode | str, user_prompt: str, target_aspect: str |
         )
     if key == JobMode.IMAGE_OUTPAINT.value:
         aspect_note = f"目标画幅为 {target_aspect}。" if target_aspect else ""
+        user_note = f"扩展区域按用户的描述生成：{prompt}。" if prompt else ""
         return (
             f"把这张图片的边缘部分向外自然延伸，补全成更完整的画面。{aspect_note}"
+            f"{user_note}"
             "延伸区域要与原画面在内容、风格、光影和透视上保持连贯；"
             "图片中央的原始内容保持不变。"
         )
@@ -247,10 +291,18 @@ def build_composite_inputs(uploads_root: Path, mode: JobMode | str, context: dic
         if not paths:
             raise CompositeImageError("需要上传原图")
         original = load_rgb(paths[0], "原图")
-        target_aspect = str(options.get("target_aspect") or "16:9")
-        canvas, _position = outpaint_canvas(original, target_aspect)
+        target_size = outpaint_target_size(options, original.size)
+        if target_size is not None:
+            canvas, _position = outpaint_canvas(
+                original, "", target_size=target_size,
+                offset=outpaint_offset(options, original.size, target_size),
+            )
+            prompt = composite_prompt(key, user_prompt)
+        else:
+            target_aspect = str(options.get("target_aspect") or "16:9")
+            canvas, _position = outpaint_canvas(original, target_aspect)
+            prompt = composite_prompt(key, user_prompt, target_aspect)
         images = [data_uri_bytes("canvas.png", encode_png(canvas))]
-        prompt = composite_prompt(key, user_prompt, target_aspect)
     else:
         raise CompositeImageError(f"不支持的图片复合工作流: {key}")
     return original, options, prompt, images
@@ -279,8 +331,15 @@ def compose_final(
             raise CompositeImageError("需要上传原图和遮罩图（白色=编辑区）两张素材")
         mask = load_mask(paths[1], original.size)
     elif key == JobMode.IMAGE_OUTPAINT.value:
-        target_aspect = str(options.get("target_aspect") or "16:9")
-        canvas, position = outpaint_canvas(original, target_aspect)
+        target_size = outpaint_target_size(options, original.size)
+        if target_size is not None:
+            canvas, position = outpaint_canvas(
+                original, "", target_size=target_size,
+                offset=outpaint_offset(options, original.size, target_size),
+            )
+        else:
+            target_aspect = str(options.get("target_aspect") or "16:9")
+            canvas, position = outpaint_canvas(original, target_aspect)
     final = composite_images(key, original, generated, mask, position, feather, canvas.size if key == JobMode.IMAGE_OUTPAINT.value else None)
     return encode_png(final)
 

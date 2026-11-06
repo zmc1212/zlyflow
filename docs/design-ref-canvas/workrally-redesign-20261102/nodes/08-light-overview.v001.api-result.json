@@ -1,0 +1,28 @@
+{
+  "endpoint": "https://api.openai.com/v1/images/edits",
+  "model": "gpt-image-2.5-flare",
+  "size": "1536x1024",
+  "quality": "high",
+  "reference_count": 2,
+  "n": 1,
+  "images": [
+    {
+      "path": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\08-light-overview.v001.png",
+      "sha256": "4469558d7d207d40b6adaa05b24658a50bcc13df31134f0a22a35c524701d387"
+    }
+  ],
+  "request_id": "req_96cffc71a3ad466cacd3516769c92c36",
+  "usage": {
+    "input_tokens": 4138,
+    "input_tokens_details": {
+      "image_tokens": 2804,
+      "text_tokens": 1334
+    },
+    "output_tokens": 1372,
+    "output_tokens_details": {
+      "image_tokens": 1372,
+      "text_tokens": 0
+    },
+    "total_tokens": 5510
+  }
+}

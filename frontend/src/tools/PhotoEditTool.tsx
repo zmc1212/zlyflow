@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query"
 import { Button, Empty, Input, InputNumber, Select, Spin, Tooltip, message } from "antd"
 import { ArrowLeft, ArrowUp, ImageUp, MapPin, Minus, Plus, Redo2, RefreshCw, Undo2, X } from "lucide-react"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { useNavigate } from "react-router-dom"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useNavigate, useSearchParams } from "react-router-dom"
 import { apiErrorMessage, notifyUnauthorized, requestJson as api } from "../api"
 import {
   PHOTO_EDIT_MAX_REFERENCES,
@@ -15,10 +15,11 @@ import {
   photoEditWorkflowChoices,
   regionAnnotationPromptSuffix,
   type PhotoEditModeDetail,
-  type PhotoEditWorkflowChoice,
   type PhotoEditRegion,
+  type PhotoEditWorkflowChoice,
 } from "../generation/image-edit"
 import { generateJobPath } from "../paths"
+import { useMediaHandoffPrefill } from "../media-handoff-prefill"
 import { createLocalId } from "../lib/utils"
 import "./motion-transfer-tool.css"
 import "./photo-edit-editor.css"
@@ -104,9 +105,9 @@ async function buildAnnotatedOverlay(source: SourceImage, regions: PhotoEditRegi
 /** 图片编辑：即梦式智能改图——原图舞台 + 编号区域标记 + 指令条，走 GRS 指令改图模型。 */
 export default function PhotoEditTool({ csrfToken }: { csrfToken: string }) {
   const navigate = useNavigate()
+  const [params] = useSearchParams()
   const originalInputRef = useRef<HTMLInputElement>(null)
   const refsInputRef = useRef<HTMLInputElement>(null)
-  const stageRef = useRef<HTMLDivElement>(null)
   const regionLayerRef = useRef<HTMLDivElement>(null)
   const dragStartRef = useRef<{ x: number; y: number } | null>(null)
   const submissionPending = useRef(false)
@@ -135,6 +136,7 @@ export default function PhotoEditTool({ csrfToken }: { csrfToken: string }) {
   const modes = useMemo(() => modesQuery.data?.modes ?? [], [modesQuery.data])
   const choices: PhotoEditWorkflowChoice[] = photoEditWorkflowChoices(modes)
   // 初值直接派生自可选列表，避免首帧空选择；effect 只跟踪用户显式切换。
+  // 目录默认模型优先，未标记默认时取管理员排序的首位。
   const activeWorkflowId = workflowId ?? choices.find((item) => item.isDefault)?.id ?? choices[0]?.id ?? null
   const activeMode = modes.find((mode) => mode.id === activeWorkflowId)
   const selectedUnavailable = activeMode?.available === false
@@ -149,17 +151,20 @@ export default function PhotoEditTool({ csrfToken }: { csrfToken: string }) {
   }, [source?.preview, extraRefs])
 
   // 舞台尺寸探测：缩放百分比相对“适配舞台”档位。
+  // 舞台在 /api/modes 加载完成后才挂载，所以用回调 ref 拿到真实元素，否则观察者永远挂不上、缩放退化为原图 1:1。
+  const [stageEl, setStageEl] = useState<HTMLDivElement | null>(null)
   const [stageBox, setStageBox] = useState({ width: 0, height: 0 })
-  useEffect(() => {
-    const element = stageRef.current
-    if (!element) return
-    const observer = new ResizeObserver(() => {
-      const rect = element.getBoundingClientRect()
+  useLayoutEffect(() => {
+    if (!stageEl) return
+    const measure = () => {
+      const rect = stageEl.getBoundingClientRect()
       setStageBox({ width: rect.width, height: rect.height })
-    })
-    observer.observe(element)
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(stageEl)
     return () => observer.disconnect()
-  }, [])
+  }, [stageEl])
   const fitScale = useMemo(() => {
     if (!source || !stageBox.width || !stageBox.height) return 1
     return Math.min((stageBox.width - 48) / source.width, (stageBox.height - 48) / source.height, 1)
@@ -228,6 +233,9 @@ export default function PhotoEditTool({ csrfToken }: { csrfToken: string }) {
       message.warning("图片无法读取，请换一张")
     }
   }
+
+  // 预览/悬浮工具条「智能改图」跳转进来时，直接把该结果图当作原图。
+  const restoring = useMediaHandoffPrefill(params, acceptOriginal)
 
   const acceptExtraRefs = (candidates: FileList | null) => {
     if (!candidates?.length) return
@@ -298,7 +306,7 @@ export default function PhotoEditTool({ csrfToken }: { csrfToken: string }) {
     applyRegions([...regions, { id: createLocalId(), x: pending.x, y: pending.y, w: pending.w, h: pending.h }])
   }
 
-  const ready = Boolean(activeWorkflowId && source && prompt.trim() && !selectedUnavailable) && !submitting
+  const ready = Boolean(activeWorkflowId && source && prompt.trim() && !selectedUnavailable) && !submitting && !restoring
 
   const submit = async () => {
     if (submissionPending.current || !source) return
@@ -356,7 +364,7 @@ export default function PhotoEditTool({ csrfToken }: { csrfToken: string }) {
         <section className="studio-photo-editor" aria-label="图片编辑创作">
           <div
             className={`studio-photo-stage${dragOver ? " is-dragover" : ""}`}
-            ref={stageRef}
+            ref={setStageEl}
             onDragOver={(event) => {
               if (hasSource) return
               event.preventDefault()
@@ -426,6 +434,8 @@ export default function PhotoEditTool({ csrfToken }: { csrfToken: string }) {
                     : null}
                 </div>
               </div>
+            ) : restoring ? (
+              <div className="grid min-h-[220px] place-items-center"><Spin tip="正在读取图片…" /></div>
             ) : (
               <button type="button" className="studio-photo-stage-empty" onClick={() => originalInputRef.current?.click()}>
                 <ImageUp size={26} aria-hidden="true" />

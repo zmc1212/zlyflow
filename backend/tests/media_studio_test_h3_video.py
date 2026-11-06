@@ -15,13 +15,20 @@ import websocket
 
 from backend.app.llm_client import OpenAICompatibleClient
 from backend.app.media_studio.services.comfy_video_client import ComfyVideoClient
-from backend.app.media_studio.services.episode_image_prompts import beat_reference_urls, beat_render_prompt
+from backend.app.media_studio.services.episode_image_prompts import beat_reference_urls
 from backend.app.media_studio.services.episode_video_service import EpisodeVideoService
 from backend.app.media_studio.services.h3_prompt_builder import H3PromptBuilder, _THICKNESS_PAD
 from backend.app.media_studio.services.job_payload import slim_job_payload
 from backend.app.media_studio.services.llm_service import LlmService
 from backend.app.media_studio.services.project_detail_service import ProjectDetailService
 from backend.app.skill_packs import HALF_NARRATED_PACK_ID
+
+# 智能超清入队用例只断言 payload 组装，clarify 内部（需完整 workflow_request）另由 test_rtx_vsr 覆盖。
+_CLARIFY_SUMMARY = {
+    "refine_quality": "1.0",
+    "refine_quality_mode": "auto",
+    "upscale_method": "nearest-exact",
+}
 
 
 def rich_prompt(dialogue: str = "你好。") -> str:
@@ -39,6 +46,25 @@ def rich_prompt(dialogue: str = "你好。") -> str:
         f"detailed_description:\n[Shot 1] {detail} (S1) says <d>[Chinese] {dialogue}</d>. "
         "The shot holds long enough for complete unhurried dialogue and a natural pause.\n"
         "overall_soundscape:\nQuiet room sound and synchronized movement.\n"
+        "non_diegetic_music:\nRestrained piano at a slow tempo with a soft ending."
+    )
+
+
+def rich_prompt_no_lighting(dialogue: str = "你好。") -> str:
+    detail = " ".join(
+        [
+            "The camera holds a stable medium composition while the room stays neutral, "
+            "the subject performs a precise visible action, and synchronized sound follows every contact."
+        ] * 24
+    )
+    return (
+        "subject_definitions:\n<Subject 1> is the protagonist anchored by <Picture 1>. "
+        "<Subject 2> is the environment anchored by <Picture 2>.\n"
+        "summary:\n[reference generation + audio reference] An eight-second scene.\n"
+        "retention_analysis:\n<Subject 1>: fully_preserved. <Subject 2>: fully_preserved.\n"
+        f"detailed_description:\n[Shot 1] {detail} (S1) says <d>[Chinese] {dialogue}</d>. "
+        "The shot holds long enough for complete unhurried dialogue and a natural pause.\n"
+        "overall_soundscape:\nQuiet room tone and synchronized movement.\n"
         "non_diegetic_music:\nRestrained piano at a slow tempo with a soft ending."
     )
 
@@ -1240,6 +1266,30 @@ class H3PromptTests(unittest.TestCase):
         self.assertEqual(rich_prompt("你好。").count(_THICKNESS_PAD), generated.count(_THICKNESS_PAD))
         self.assertEqual([], LlmService._validate_h3_prompt(generated, "Ref2VA", beat_info))
 
+    def test_ensure_thickness_terms_fills_scene_lighting(self):
+        shot = {"scene": "建筑工地门口", "scene_description": "烈日下工地大门排起长队"}
+        broken = H3PromptBuilder.thickness_errors(rich_prompt_no_lighting("你好。"))
+        self.assertIn("缺少 lighting 描述", broken)
+        fixed = H3PromptBuilder.ensure_thickness_terms(rich_prompt_no_lighting("你好。"), shot)
+        self.assertIn("midday sunlight", fixed)
+        self.assertNotIn("缺少 lighting 描述", H3PromptBuilder.thickness_errors(fixed))
+
+    def test_generate_h3_prompt_rescues_missing_lighting_without_pack(self):
+        from backend.app.media_studio.services.llm_service import LlmService
+
+        beat_info = {
+            "dialogue": "你好。",
+            "ref_images": [{"index": 1}, {"index": 2}],
+            "scene_description": "烈日下工地大门排起长队",
+        }
+        with patch.object(
+            LlmService, "_request_h3_prompt", return_value=rich_prompt_no_lighting("你好。")
+        ):
+            generated = LlmService.generate_h3_prompt(beat_info)
+        self.assertIn("midday sunlight", generated)
+        self.assertNotIn(_THICKNESS_PAD, generated)
+        self.assertEqual([], LlmService._validate_h3_prompt(generated, "Ref2VA", beat_info))
+
     def test_generate_h3_prompt_skill_pack_raises_when_author_fails(self):
         from backend.app.media_studio.services.llm_service import LlmService
         from backend.app.skill_packs.recipe import HALF_NARRATED_PACK_ID
@@ -1504,7 +1554,7 @@ class H3PromptTests(unittest.TestCase):
             "镜头1，总时长11秒，内部时间从00:00开始。\n"
             "镜头目的：上摇挂两句，下摇内心，再推近吴耐。\n\n"
             "参考素材：\n- <Picture 1> 吴耐角色卡\n- <Picture 2> 沙丽丽角色卡\n"
-            "- <Picture 3> 电梯场景卡\n- <Picture 4> 起幅单帧锚点\n\n"
+            "- <Picture 3> 电梯场景卡\n\n"
             "必须出现的视觉内容：\n- 轿厢内站定\n- 上摇两句\n- 下摇内心再推近\n\n"
             "按旁白和画面内容切镜：\n"
             f"- 00:00–00:05：上摇过程中吴耐说「{spoken_a}」「{spoken_b}」。\n"
@@ -1516,7 +1566,7 @@ class H3PromptTests(unittest.TestCase):
             "旁白：\n"
             f"- 00:05–00:08 内心：“{inner}”\n\n"
             "画面要求：\n- 上摇挂两句，再下摇，再推近\n\n"
-            "负向约束：\n- 不要分栏，末槽只用起幅"
+            "负向约束：\n- 不要分栏，禁止引用未上传的参考图"
         )
         padding = " ".join(
             ["Stable photoreal lighting, camera, blocking and ambient sound continue."] * 24
@@ -1525,9 +1575,7 @@ class H3PromptTests(unittest.TestCase):
             "subject_definitions:\n"
             "<Subject 1> is 吴耐 in <Picture 1>. "
             "<Subject 2> is 沙丽丽 in <Picture 2>. "
-            "<Subject 3> is the elevator in <Picture 3>. "
-            "<Subject 4> is the start-frame still in <Picture 4>. "
-            "<Picture 4> anchors opening blocking only; do not interpolate a full 16:9 triptych.\n"
+            "<Subject 3> is the elevator in <Picture 3>.\n"
             "summary:\n[reference generation] An eleven-second elevator beat.\n"
             "retention_analysis:\nfully_preserved.\n"
             "detailed_description:\n"
@@ -1557,14 +1605,6 @@ class H3PromptTests(unittest.TestCase):
                 {"index": 1, "name": "吴耐", "category": "character"},
                 {"index": 2, "name": "沙丽丽", "category": "character"},
                 {"index": 3, "name": "电梯", "category": "scene"},
-                {
-                    "index": 4,
-                    "name": "起幅构图",
-                    "category": "composition",
-                    "source": "triptych.start",
-                    "role": "start",
-                    "url": "https://x/start.png",
-                },
             ],
         }
         user = H3PromptBuilder.build_packing_user_prompt(beat_info, "Ref2VA", 11)
@@ -1594,19 +1634,16 @@ class H3PromptTests(unittest.TestCase):
                 "characters": [{"id": "c-wu", "name": "吴耐", "url": "https://x/wu.png"}],
                 "scene": "电梯",
                 "scene_id": "s-el",
-                "triptych_url": "https://x/triptych.png",
-                "triptych_panels": {"start": "https://x/start.png", "mid": "https://x/mid.png"},
             },
             [
                 {"id": "c-wu", "name": "吴耐", "extra": {"avatar_url": "https://x/wu.png"}},
                 {"id": "s-el", "name": "电梯", "extra": {"master_url": "https://x/scene.png"}},
             ],
         )
-        urls = [str(item.get("url") or "") for item in slots]
-        self.assertIn("https://x/start.png", urls)
-        self.assertIn("https://x/mid.png", urls)
-        self.assertNotIn("https://x/triptych.png", urls)
-        self.assertEqual("https://x/mid.png", urls[-1])
+        self.assertEqual(
+            [("character", "https://x/wu.png"), ("scene", "https://x/scene.png")],
+            [(item["category"], item["url"]) for item in slots],
+        )
 
     def test_faithful_zh_skips_one_line_one_landing_windows(self):
         from backend.app.director_craft.coverage import CLAUSE_PUSH_IN, CLAUSE_TILT_UP
@@ -2540,7 +2577,7 @@ class LookSelectionTests(unittest.TestCase):
         self.assertEqual("new", EpisodeVideoService._select_character_look(self.character, beat)["id"])
         self.assertEqual("mother-look", EpisodeVideoService._select_character_look(mother, beat)["id"])
 
-    def test_render_references_use_only_selected_look(self):
+    def test_references_use_only_selected_look_and_ignore_legacy_sketch(self):
         assets = [{
             "id": "char-1",
             "kind": "character",
@@ -2557,14 +2594,10 @@ class LookSelectionTests(unittest.TestCase):
                 "sketch_url": "https://x/sketch.png",
             },
             assets,
-            stage="render",
         )
-        self.assertEqual(
-            ["https://x/sketch.png", "https://x/new.png"],
-            urls,
-        )
+        self.assertEqual(["https://x/new.png"], urls)
 
-    def test_render_references_do_not_fall_back_to_unselected_look(self):
+    def test_references_do_not_guess_an_unselected_look(self):
         assets = [{
             "id": "char-1",
             "kind": "character",
@@ -2577,11 +2610,10 @@ class LookSelectionTests(unittest.TestCase):
         urls = beat_reference_urls(
             {"character_ids": ["char-1"], "sketch_url": "https://x/sketch.png"},
             assets,
-            stage="render",
         )
-        self.assertEqual(["https://x/sketch.png"], urls)
+        self.assertEqual(["https://x/avatar.png"], urls)
 
-    def test_render_references_find_selected_look_when_protagonist_is_not_first(self):
+    def test_references_find_selected_look_when_protagonist_is_not_first(self):
         assets = [
             {
                 "id": "mother-1",
@@ -2601,11 +2633,10 @@ class LookSelectionTests(unittest.TestCase):
                 "sketch_url": "https://x/sketch.png",
             },
             assets,
-            stage="render",
         )
-        self.assertEqual(["https://x/sketch.png", "https://x/new.png"], urls)
+        self.assertEqual(["https://x/new.png"], urls)
 
-    def test_render_references_include_one_selected_look_per_character(self):
+    def test_references_include_one_selected_look_per_character(self):
         assets = [
             {
                 "id": "mother-1",
@@ -2625,14 +2656,10 @@ class LookSelectionTests(unittest.TestCase):
                 "sketch_url": "https://x/sketch.png",
             },
             assets,
-            stage="render",
         )
-        self.assertEqual(
-            ["https://x/sketch.png", "https://x/mother.png", "https://x/new.png"],
-            urls,
-        )
+        self.assertEqual(["https://x/mother.png", "https://x/new.png"], urls)
 
-    def test_triptych_references_omit_avatar_when_look_sheet_exists(self):
+    def test_references_omit_avatar_when_look_sheet_exists(self):
         assets = [{
             "id": "char-1",
             "kind": "character",
@@ -2648,12 +2675,11 @@ class LookSelectionTests(unittest.TestCase):
                 "character_look_id": "new",
             },
             assets,
-            stage="triptych",
         )
         self.assertEqual(["https://x/new.png"], urls)
         self.assertNotIn("https://x/avatar.png", urls)
 
-    def test_triptych_references_fall_back_to_avatar_without_look_sheet(self):
+    def test_references_fall_back_to_avatar_without_look_sheet(self):
         assets = [{
             "id": "char-1",
             "kind": "character",
@@ -2663,43 +2689,8 @@ class LookSelectionTests(unittest.TestCase):
         urls = beat_reference_urls(
             {"character_ids": ["char-1"]},
             assets,
-            stage="triptych",
         )
         self.assertEqual(["https://x/avatar.png"], urls)
-
-    def test_selected_modern_look_removes_conflicting_default_description(self):
-        assets = [{
-            "id": "char-1",
-            "kind": "character",
-            "name": "Protagonist",
-            "definition": {
-                "face_prompt": "ancient teenage scholar with a historical hair bun",
-                "description": "17-year-old wearing an ancient robe",
-                "looks": [{
-                    "id": "modern",
-                    "appearance_details": "26-year-old graduate student, short hair, white modern shirt",
-                    "image_url": "https://x/modern.png",
-                }],
-            },
-        }]
-        prompt = beat_render_prompt(
-            {
-                "character_ids": ["char-1"],
-                "character_look_id": "modern",
-                "heading": "现代大学图书馆",
-                "scene": "现代图书馆",
-                "action": "在电脑旁阅读",
-            },
-            assets=assets,
-            visual_style="chinese_period_drama",
-            ethnicity="Chinese",
-        )
-        self.assertIn("Image 2 is the sole appearance authority for this character", prompt)
-        self.assertIn("26-year-old graduate student, short hair, white modern shirt", prompt)
-        self.assertIn("NATURAL PHOTOREALISTIC, CLEAN GRADE", prompt)
-        self.assertIn("this Beat is contemporary modern-day", prompt)
-        self.assertNotIn("ancient teenage scholar", prompt)
-        self.assertNotIn("17-year-old wearing an ancient robe", prompt)
 
 
 class EpisodeVideoPrepareShotsTests(unittest.TestCase):
@@ -2746,35 +2737,15 @@ class EpisodeVideoPrepareShotsTests(unittest.TestCase):
         self.assertEqual("scene-ready", shots[0]["scene_id"])
         self.assertEqual("https://x/scene.png", shots[0]["reference_urls"][-1])
 
-    def test_skill_pack_appends_panel_crops_not_full_triptych(self):
-        beat = self._beat(
-            scene_id="scene-ready",
-            triptych_url="https://x/triptych.png",
-            triptych_panels={
-                "start": "https://x/start.png",
-                "mid": "https://x/mid.png",
-                "end": "https://x/end.png",
-            },
-        )
+    def test_skill_pack_uploads_character_and_scene_cards_only(self):
+        beat = self._beat(scene_id="scene-ready")
         with patch("backend.app.skill_packs.resolve_skill_pack_id", return_value=HALF_NARRATED_PACK_ID):
             shots = EpisodeVideoService._prepare_shots(
                 {"beats": [beat], "project_id": "p1"},
                 self._assets(),
             )
-        urls = shots[0]["reference_urls"]
-        self.assertIn("https://x/char.png", urls)
-        self.assertIn("https://x/scene.png", urls)
-        self.assertIn("https://x/start.png", urls)
-        self.assertIn("https://x/mid.png", urls)
-        self.assertIn("https://x/end.png", urls)
-        self.assertNotIn("https://x/triptych.png", urls)
-        self.assertEqual("https://x/end.png", urls[-1])
-        sources = [item.get("source") for item in shots[0]["ref_images"]]
-        self.assertIn("characters", sources)
-        self.assertIn("scene", sources)
-        self.assertIn("triptych.start", sources)
-        self.assertIn("triptych.mid", sources)
-        self.assertIn("triptych.end", sources)
+        self.assertEqual(["https://x/char.png", "https://x/scene.png"], shots[0]["reference_urls"])
+        self.assertEqual(["characters", "scene"], [item.get("source") for item in shots[0]["ref_images"]])
 
     def test_binds_scene_by_name_when_scene_id_is_missing(self):
         shots = EpisodeVideoService._prepare_shots(
@@ -2830,8 +2801,8 @@ class EpisodeVideoPrepareShotsTests(unittest.TestCase):
             )
         self.assertIn("指定的镜头不存在或无法生成视频：beat-missing", str(ctx.exception))
 
-    def test_sketch_references_use_same_name_scene_master(self):
-        urls = beat_reference_urls(self._beat(), self._assets(), stage="sketch")
+    def test_references_use_same_name_scene_master(self):
+        urls = beat_reference_urls(self._beat(), self._assets())
         self.assertEqual(["https://x/scene.png"], urls)
 
 
@@ -3201,25 +3172,7 @@ class EpisodeVideoUpscaleTests(unittest.TestCase):
         write_videos.assert_called_once()
         self.assertEqual("beat-1", write_videos.call_args.args[1][0]["beat_id"])
 
-    def test_vsr_rejection_uses_connected_comfy_vram(self):
-        shot = {"sequence": 1, "duration_sec": 15}
-        options = {"workflow": "minimax-h3-t2v", "duration_per_beat": 15}
-        with patch(
-            "backend.app.media_studio.services.episode_video_service.source_video_shape",
-            return_value=(864, 480, 362),
-        ):
-            small = Mock()
-            small.vram_total_bytes.return_value = 8 * 1024 * 1024 * 1024
-            small.vram_device_name.return_value = "8GB card"
-            reason = EpisodeVideoService._vsr_rejection_for_shot(options, shot, "minimax-h3-t2v", comfy=small)
-            self.assertIsNotNone(reason)
-            self.assertIn("8 GB", reason)
-            big = Mock()
-            big.vram_total_bytes.return_value = 17170956288
-            big.vram_device_name.return_value = "NVIDIA GeForce RTX 4080"
-            self.assertIsNone(EpisodeVideoService._vsr_rejection_for_shot(options, shot, "minimax-h3-t2v", comfy=big))
-
-    def test_create_upscale_job_rejects_missing_film_and_vram(self):
+    def test_create_upscale_job_rejects_missing_film(self):
         missing = self._detail()
         with patch.object(ProjectDetailService, "get_episode_detail", return_value=missing), \
              patch.object(EpisodeVideoService, "_completed_video_url_for_beat", return_value=""):
@@ -3232,7 +3185,8 @@ class EpisodeVideoUpscaleTests(unittest.TestCase):
         with patch.object(ProjectDetailService, "get_episode_detail", return_value=fallback), \
              patch.object(EpisodeVideoService, "_completed_video_url_for_beat", return_value="https://cdn/from-job.mp4"), \
              patch.object(EpisodeVideoService, "_active_video_jobs", return_value=[]), \
-             patch.object(EpisodeVideoService, "_vsr_rejection_for_shot", return_value=None), \
+             patch.object(EpisodeVideoService, "_source_generation_job_for_beat", return_value=("job-src", {"render_scope": "shot"})), \
+             patch.object(EpisodeVideoService, "build_smart_clarify_workflow", return_value=({}, _CLARIFY_SUMMARY)), \
              patch("backend.app.media_studio.services.episode_video_service.ComfyService.get_config") as get_config, \
              patch("backend.app.media_studio.services.episode_video_service.ComfyVideoClient"), \
              patch("backend.app.media_studio.services.episode_video_service.execute_sql") as execute_sql, \
@@ -3241,11 +3195,6 @@ class EpisodeVideoUpscaleTests(unittest.TestCase):
             EpisodeVideoService.create_upscale_job("p1", "e1", "beat-1")
         payload = json.loads(execute_sql.call_args.args[1][3])
         self.assertEqual("https://cdn/from-job.mp4", payload["source_video_url"])
-        ready = self._detail(video_urls={"beat-1": "https://cdn/1.mp4"})
-        with patch.object(ProjectDetailService, "get_episode_detail", return_value=ready), \
-             patch.object(EpisodeVideoService, "_vsr_rejection_for_shot", return_value="2x 超分预估需要约 12.0 GB 显存"):
-            with self.assertRaisesRegex(ValueError, "显存"):
-                EpisodeVideoService.create_upscale_job("p1", "e1", "beat-1")
 
     def test_create_upscale_job_blocks_in_progress_same_beat(self):
         active = [{"id": "job-1", "payload_json": json.dumps({
@@ -3260,7 +3209,8 @@ class EpisodeVideoUpscaleTests(unittest.TestCase):
         ready = self._detail(video_urls={"beat-1": "https://cdn/1.mp4"})
         with patch.object(ProjectDetailService, "get_episode_detail", return_value=ready), \
              patch.object(EpisodeVideoService, "_active_video_jobs", return_value=[]), \
-             patch.object(EpisodeVideoService, "_vsr_rejection_for_shot", return_value=None), \
+             patch.object(EpisodeVideoService, "_source_generation_job_for_beat", return_value=("job-src", {"render_scope": "shot"})), \
+             patch.object(EpisodeVideoService, "build_smart_clarify_workflow", return_value=({}, _CLARIFY_SUMMARY)), \
              patch("backend.app.media_studio.services.episode_video_service.ComfyService.get_config") as get_config, \
              patch("backend.app.media_studio.services.episode_video_service.ComfyVideoClient") as client_cls, \
              patch("backend.app.media_studio.services.episode_video_service.execute_sql") as execute_sql, \
@@ -3274,7 +3224,6 @@ class EpisodeVideoUpscaleTests(unittest.TestCase):
         self.assertEqual("https://cdn/1.mp4", payload["source_video_url"])
         self.assertEqual(["beat-1"], payload["beat_ids"])
         client_cls.return_value.ping.assert_called_once()
-        client_cls.return_value.require_rtx_vsr_node.assert_called_once()
         executor.submit.assert_called_once()
 
     def test_create_upscale_job_matches_legacy_beat_sequence(self):
@@ -3285,7 +3234,8 @@ class EpisodeVideoUpscaleTests(unittest.TestCase):
         }
         with patch.object(ProjectDetailService, "get_episode_detail", return_value=ready), \
              patch.object(EpisodeVideoService, "_active_video_jobs", return_value=[]), \
-             patch.object(EpisodeVideoService, "_vsr_rejection_for_shot", return_value=None), \
+             patch.object(EpisodeVideoService, "_source_generation_job_for_beat", return_value=("job-src", {"render_scope": "shot"})), \
+             patch.object(EpisodeVideoService, "build_smart_clarify_workflow", return_value=({}, _CLARIFY_SUMMARY)), \
              patch("backend.app.media_studio.services.episode_video_service.ComfyService.get_config") as get_config, \
              patch("backend.app.media_studio.services.episode_video_service.ComfyVideoClient"), \
              patch("backend.app.media_studio.services.episode_video_service.execute_sql") as execute_sql, \
@@ -3312,7 +3262,7 @@ class EpisodeVideoUpscaleTests(unittest.TestCase):
              patch.object(EpisodeVideoService, "create_upscale_job", side_effect=ValueError("指定的镜头不存在")), \
              patch.object(ProjectDetailService, "get_episode_detail", return_value=self._detail()), \
              patch.object(EpisodeVideoService, "_active_video_jobs", return_value=[]), \
-             patch.object(EpisodeVideoService, "_vsr_rejection_for_shot", return_value=None), \
+             patch.object(EpisodeVideoService, "build_smart_clarify_workflow", return_value=({}, _CLARIFY_SUMMARY)), \
              patch("backend.app.media_studio.services.episode_video_service.ComfyService.get_config") as get_config, \
              patch("backend.app.media_studio.services.episode_video_service.ComfyVideoClient"), \
              patch("backend.app.media_studio.services.episode_video_service.execute_sql") as execute_sql, \
@@ -3354,7 +3304,7 @@ class EpisodeVideoUpscaleTests(unittest.TestCase):
             "payload_json": json.dumps({"render_scope": "upscale", "episode_id": "e1"}),
         }
         with patch("backend.app.media_studio.services.episode_video_service.query_one", return_value=vsr_row):
-            with self.assertRaisesRegex(ValueError, "超分任务本身不能再超分"):
+            with self.assertRaisesRegex(ValueError, "不能再次超清"):
                 EpisodeVideoService.create_upscale_job_from_video_job("p1", "job-vsr")
 
         selection_row = {
@@ -3390,7 +3340,7 @@ class EpisodeVideoUpscaleTests(unittest.TestCase):
         with patch("backend.app.media_studio.services.episode_video_service.query_one", return_value=episode_row), \
              patch.object(ProjectDetailService, "get_episode_detail", return_value=self._detail()), \
              patch.object(EpisodeVideoService, "_active_video_jobs", return_value=[]), \
-             patch.object(EpisodeVideoService, "_vsr_rejection_for_shot", return_value=None), \
+             patch.object(EpisodeVideoService, "build_smart_clarify_workflow", return_value=({}, _CLARIFY_SUMMARY)), \
              patch("backend.app.media_studio.services.episode_video_service.ComfyService.get_config") as get_config, \
              patch("backend.app.media_studio.services.episode_video_service.ComfyVideoClient"), \
              patch("backend.app.media_studio.services.episode_video_service.execute_sql") as execute_sql, \
@@ -3412,48 +3362,6 @@ class EpisodeVideoUpscaleTests(unittest.TestCase):
         updated = json.loads(execute_sql.call_args.args[1][0])
         self.assertEqual("https://cdn/2x.mp4", updated["upscaled_video_url"])
         self.assertEqual("https://cdn/orig.mp4", updated["source_video_url"])
-
-    def test_auto_upscale_only_for_shot_and_selection(self):
-        comfy = Mock()
-        shots = [{"beat_id": "beat-1", "sequence": 1, "video_url": "https://cdn/orig.mp4"}]
-        episode_payload = {"render_scope": "episode", "upscale_after": True, "project_id": "p1", "episode_id": "e1"}
-        compose_payload = {"render_scope": "compose", "upscale_after": True, "project_id": "p1", "episode_id": "e1"}
-        with patch.object(EpisodeVideoService, "_upscale_source_url") as upscale, \
-             patch.object(ProjectDetailService, "update_episode_beat") as update:
-            EpisodeVideoService._auto_upscale_if_requested("job-ep", episode_payload, comfy, shots)
-            EpisodeVideoService._auto_upscale_if_requested("job-co", compose_payload, comfy, shots)
-        upscale.assert_not_called()
-        update.assert_not_called()
-        self.assertNotIn("upscaled_video_url", episode_payload)
-        self.assertNotIn("upscale_warning", episode_payload)
-
-    def test_auto_upscale_writes_url_and_keeps_original_on_failure(self):
-        comfy = Mock()
-        shots = [{"beat_id": "beat-1", "sequence": 1, "video_url": "https://cdn/orig.mp4"}]
-        payload = {"render_scope": "shot", "upscale_after": True, "project_id": "p1", "episode_id": "e1"}
-        with patch.object(EpisodeVideoService, "_upscale_source_url", return_value="https://cdn/2x.mp4"), \
-             patch.object(ProjectDetailService, "update_episode_beat") as update:
-            EpisodeVideoService._auto_upscale_if_requested("job-1", payload, comfy, shots)
-        self.assertEqual("https://cdn/2x.mp4", payload["upscaled_video_url"])
-        self.assertEqual("https://cdn/orig.mp4", shots[0]["video_url"])
-        self.assertEqual("https://cdn/2x.mp4", shots[0]["upscaled_video_url"])
-        self.assertEqual("p1", update.call_args.args[0])
-        self.assertEqual("e1", update.call_args.args[1])
-        self.assertEqual("beat-1", update.call_args.args[2])
-        self.assertEqual("https://cdn/2x.mp4", update.call_args.args[3]["upscaled_video_url"])
-        takes = update.call_args.args[3]["video_takes"]
-        self.assertEqual(1, len(takes))
-        self.assertEqual("https://cdn/orig.mp4", takes[0]["url"])
-        self.assertEqual("https://cdn/2x.mp4", takes[0]["upscaled_url"])
-        failed = {"render_scope": "selection", "upscale_after": True, "project_id": "p1", "episode_id": "e1"}
-        failed_shots = [{"beat_id": "beat-2", "sequence": 2, "video_url": "https://cdn/orig2.mp4"}]
-        with patch.object(EpisodeVideoService, "_upscale_source_url", side_effect=RuntimeError("显存不足")), \
-             patch.object(ProjectDetailService, "update_episode_beat") as update_failed:
-            EpisodeVideoService._auto_upscale_if_requested("job-2", failed, comfy, failed_shots)
-        self.assertEqual("https://cdn/orig2.mp4", failed_shots[0]["video_url"])
-        self.assertNotIn("upscaled_video_url", failed_shots[0])
-        self.assertIn("显存不足", failed["upscale_warning"])
-        update_failed.assert_not_called()
 
     def test_run_job_routes_upscale_scope_without_h3(self):
         gpu = Mock()

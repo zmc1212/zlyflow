@@ -1,0 +1,179 @@
+{
+  "date": "2026-11-03",
+  "localUrl": "http://127.0.0.1:5173/director",
+  "referenceUrl": "https://jimeng.jianying.com/ai-tool/novel",
+  "capture": {
+    "logicalViewport": [
+      1536,
+      960
+    ],
+    "devicePixelRatio": 1.159999966621399,
+    "method": "explicit clip in device pixels; no image resizing"
+  },
+  "checks": {
+    "lightPointerFocus": true,
+    "lightKeyboardFocus": true,
+    "importFocus": true,
+    "assistantDrawerFocus": true,
+    "darkFocus": true,
+    "transparentInput": true,
+    "stableFocusGeometry": true,
+    "stableThemeGeometry": true,
+    "lightCanvas": true,
+    "whiteComposer": true,
+    "neutralEmptyCover": true,
+    "noHorizontalOverflow": true
+  },
+  "lightIdle": {
+    "canvas": "rgb(248, 249, 250)",
+    "date": "rgb(112, 112, 112)",
+    "emptyCover": "rgba(0, 0, 0, 0.03)",
+    "focusVisible": false,
+    "focused": false,
+    "horizontalOverflow": false,
+    "input": {
+      "bg": "rgba(0, 0, 0, 0)",
+      "borderWidth": "0px",
+      "height": 151.99354553222656,
+      "outline": "rgb(23, 26, 31) none 2.58621px",
+      "outlineStyle": "none",
+      "shadow": "none"
+    },
+    "label": "短剧创作想法",
+    "shell": {
+      "background": "linear-gradient(rgb(255, 255, 255), rgb(255, 255, 255) 106.67%)",
+      "border": "0.862069px solid rgba(0, 0, 0, 0.07)",
+      "height": 267.67242431640625,
+      "radius": "24px",
+      "width": 1019.9892578125
+    },
+    "theme": "light",
+    "viewport": [
+      1536,
+      960
+    ]
+  },
+  "lightFocused": {
+    "canvas": "rgb(248, 249, 250)",
+    "date": "rgb(112, 112, 112)",
+    "emptyCover": "rgba(0, 0, 0, 0.03)",
+    "focusVisible": true,
+    "focused": true,
+    "horizontalOverflow": false,
+    "input": {
+      "bg": "rgba(0, 0, 0, 0)",
+      "borderWidth": "0px",
+      "height": 151.99354553222656,
+      "outline": "rgb(23, 26, 31) none 2.58621px",
+      "outlineStyle": "none",
+      "shadow": "none"
+    },
+    "label": "短剧创作想法",
+    "shell": {
+      "background": "linear-gradient(rgb(255, 255, 255), rgb(255, 255, 255) 106.67%)",
+      "border": "0.862069px solid rgba(15, 23, 42, 0.16)",
+      "height": 267.67242431640625,
+      "radius": "24px",
+      "width": 1019.9892578125
+    },
+    "theme": "light",
+    "viewport": [
+      1536,
+      960
+    ]
+  },
+  "lightKeyboardFocused": {
+    "canvas": "rgb(248, 249, 250)",
+    "date": "rgb(112, 112, 112)",
+    "emptyCover": "rgba(0, 0, 0, 0.03)",
+    "focusVisible": true,
+    "focused": true,
+    "horizontalOverflow": false,
+    "input": {
+      "bg": "rgba(0, 0, 0, 0)",
+      "borderWidth": "0px",
+      "height": 151.99354553222656,
+      "outline": "rgb(23, 26, 31) none 2.58621px",
+      "outlineStyle": "none",
+      "shadow": "none"
+    },
+    "label": "短剧创作想法",
+    "shell": {
+      "background": "linear-gradient(rgb(255, 255, 255), rgb(255, 255, 255) 106.67%)",
+      "border": "0.862069px solid rgba(15, 23, 42, 0.16)",
+      "height": 267.67242431640625,
+      "radius": "24px",
+      "width": 1019.9892578125
+    },
+    "theme": "light",
+    "viewport": [
+      1536,
+      960
+    ]
+  },
+  "importFocused": {
+    "canvas": "rgb(248, 249, 250)",
+    "date": "rgb(112, 112, 112)",
+    "emptyCover": "rgba(0, 0, 0, 0.03)",
+    "focusVisible": true,
+    "focused": true,
+    "horizontalOverflow": false,
+    "input": {
+      "bg": "rgba(0, 0, 0, 0)",
+      "borderWidth": "0px",
+      "height": 151.99354553222656,
+      "outline": "rgb(23, 26, 31) none 2.58621px",
+      "outlineStyle": "none",
+      "shadow": "none"
+    },
+    "label": "导入剧本正文",
+    "shell": {
+      "background": "linear-gradient(rgb(255, 255, 255), rgb(255, 255, 255) 106.67%)",
+      "border": "0.862069px solid rgba(15, 23, 42, 0.16)",
+      "height": 307.65087890625,
+      "radius": "24px",
+      "width": 1019.9892578125
+    },
+    "theme": "light",
+    "viewport": [
+      1536,
+      960
+    ]
+  },
+  "darkFocused": {
+    "canvas": "rgb(15, 17, 21)",
+    "date": "rgb(192, 199, 208)",
+    "emptyCover": "rgb(28, 28, 28)",
+    "focusVisible": true,
+    "focused": true,
+    "horizontalOverflow": false,
+    "input": {
+      "bg": "rgba(0, 0, 0, 0)",
+      "borderWidth": "0px",
+      "height": 151.99354553222656,
+      "outline": "rgb(243, 245, 247) none 2.58621px",
+      "outlineStyle": "none",
+      "shadow": "none"
+    },
+    "label": "短剧创作想法",
+    "shell": {
+      "background": "linear-gradient(rgba(26, 26, 26, 0.72), rgba(42, 42, 42, 0.72) 106.67%)",
+      "border": "0.862069px solid rgba(255, 255, 255, 0.18)",
+      "height": 267.67242431640625,
+      "radius": "24px",
+      "width": 1019.9892578125
+    },
+    "theme": "dark",
+    "viewport": [
+      1536,
+      960
+    ]
+  },
+  "assistantFocused": {
+    "background": "rgba(0, 0, 0, 0)",
+    "composerBackground": "linear-gradient(rgb(255, 255, 255), rgb(255, 255, 255) 106.67%)",
+    "focused": true,
+    "outline": "none",
+    "shadow": "none"
+  }
+}

@@ -7,10 +7,13 @@ import {
   beatPlaybackUrl,
   beatUpscaleDisabledReason,
   buildVideoJobOptions,
+  computeEpisodeContinuePrefix,
+  computeEpisodeGapSegments,
   defaultVideoOptionValues,
   episodeFilmSource,
   episodeFilmUrl,
   episodeVideoRenderMode,
+  formatEpisodeGapRangeLabel,
   formatEpisodeVideoSubmitMessage,
   formatSelectedShotSubmitMessage,
   generatedResolutionLabel,
@@ -284,6 +287,48 @@ describe("director2 video settings", () => {
     expect(groupedVideoWorkflowOptions(modes)[2].options[0].label).toContain("逐镜")
   })
 
+  it("offers the action workflow as a per-shot entry with two primary controls", () => {
+    const action: Director2WorkflowMode = {
+      id: "minimax-h3-action-r2v",
+      name: "打斗与动作 多参考视频",
+      reference_mode: "collection",
+      max_references: 9,
+      catalog_group: "h3_action",
+      catalog_group_label: "动作与打斗",
+      catalog_group_order: 18,
+      parameters: [{
+        name: "options",
+        schema: {
+          properties: {
+            aspect_ratio: { label: "画面比例", type: "string", default: "16:9", ui_group: "primary" },
+            duration: { label: "时长", type: "number", default: 10, ui_group: "primary" },
+            quality: { label: "分辨率", type: "string", default: "0.8", ui_group: "advanced" },
+            action_intensity: { label: "动作强度", type: "string", default: "intense", ui_group: "advanced" },
+            steps: { label: "采样步数", type: "integer", default: 8, ui_group: "internal" },
+            temporal_weight: { label: "动作跨度", type: "number", default: 3.0, ui_group: "internal" },
+          },
+        },
+      }],
+    }
+    const modes = timelineVideoWorkflows([directorAccelMode(), action])
+    expect(modes.map((item) => item.id)).toEqual([DIRECTOR2_DEFAULT_VIDEO_WORKFLOW, "minimax-h3-action-r2v"])
+    // 打斗图没有可复用的视频底片，工坊按逐镜出片，时长由分镜本身决定。
+    expect(episodeVideoRenderMode(action)).toBe("shot")
+    expect(videoWorkflowRenderLabel(action)).toBe("逐镜")
+    expect(groupedVideoWorkflowOptions(modes).map((group) => group.label)).toEqual([
+      "H3 Director 加速版",
+      "动作与打斗",
+    ])
+    expect(groupedVideoWorkflowOptions(modes)[1].options[0].label).toBe("打斗与动作 多参考视频（逐镜）")
+    const fields = visibleVideoOptionFields(action)
+    expect(fields.map((field) => field.name)).toEqual(["aspect_ratio", "quality", "action_intensity"])
+    expect(defaultVideoOptionValues(fields)).toEqual({
+      aspect_ratio: "16:9",
+      quality: "0.8",
+      action_intensity: "intense",
+    })
+  })
+
   it("formats one-click and shot action copy from render mode", () => {
     expect(formatEpisodeVideoSubmitMessage({ render_mode: "episode", job_id: "job-1" })).toBe("已创建 1 个整集任务")
     expect(formatEpisodeVideoSubmitMessage({ render_mode: "shot", submitted: 4, skipped: 2 })).toBe(
@@ -325,6 +370,8 @@ describe("director2 video settings", () => {
     expect(beatUpscaleDisabledReason({ video_url: "" })).toBe("成片成功后才能智能超清")
     expect(beatUpscaleDisabledReason({ video_url: "https://cdn/orig.mp4" }, { scope: "upscale" })).toBe("正在智能超清")
     expect(beatUpscaleDisabledReason({ video_url: "https://cdn/orig.mp4" }, { status: "running" })).toBe("出片进行中")
+    expect(beatUpscaleDisabledReason({ video_url: "https://cdn/orig.mp4" }, { status: "running", shotStage: "saving" })).toBe("出片进行中")
+    expect(beatUpscaleDisabledReason({ video_url: "https://cdn/orig.mp4" }, { status: "running", shotStage: "succeeded", scope: "episode" })).toBeUndefined()
     expect(beatUpscaleDisabledReason({ video_url: "https://cdn/orig.mp4" })).toBeUndefined()
     expect(jobPreviewVideoUrl({
       result_url: "https://cdn/orig.mp4",
@@ -444,3 +491,173 @@ describe("video prompt mode", () => {
   })
 })
 
+
+describe("episode gap segments", () => {
+  const beat = (id: string, sequence: number, videoUrl?: string) => ({
+    id,
+    sequence,
+    video_url: videoUrl,
+  })
+
+  it("returns one full-film segment when nothing is rendered yet", () => {
+    const segments = computeEpisodeGapSegments([
+      beat("b1", 1), beat("b2", 2), beat("b3", 3),
+    ])
+    expect(segments).toEqual([
+      { startSeq: 1, endSeq: 3, beatIds: ["b1", "b2", "b3"] },
+    ])
+  })
+
+  it("returns no segments when every shot already has a video", () => {
+    expect(computeEpisodeGapSegments([
+      beat("b1", 1, "http://v/1.mp4"),
+      beat("b2", 2, "http://v/2.mp4"),
+    ])).toEqual([])
+    expect(computeEpisodeGapSegments([])).toEqual([])
+    expect(computeEpisodeGapSegments(null)).toEqual([])
+  })
+
+  it("starts from the first missing shot when the prefix is rendered", () => {
+    const segments = computeEpisodeGapSegments([
+      beat("b1", 1, "http://v/1.mp4"),
+      beat("b2", 2),
+      beat("b3", 3),
+    ])
+    expect(segments).toEqual([
+      { startSeq: 2, endSeq: 3, beatIds: ["b2", "b3"] },
+    ])
+  })
+
+  it("splits interleaved holes into per-shot segments", () => {
+    const segments = computeEpisodeGapSegments([
+      beat("b1", 1, "http://v/1.mp4"),
+      beat("b2", 2),
+      beat("b3", 3, "http://v/3.mp4"),
+      beat("b4", 4),
+      beat("b5", 5, "http://v/5.mp4"),
+    ])
+    expect(segments).toEqual([
+      { startSeq: 2, endSeq: 2, beatIds: ["b2"] },
+      { startSeq: 4, endSeq: 4, beatIds: ["b4"] },
+    ])
+  })
+
+  it("keeps a trailing hole as its own segment", () => {
+    const segments = computeEpisodeGapSegments([
+      beat("b1", 1, "http://v/1.mp4"),
+      beat("b2", 2, "http://v/2.mp4"),
+      beat("b3", 3),
+    ])
+    expect(segments).toEqual([
+      { startSeq: 3, endSeq: 3, beatIds: ["b3"] },
+    ])
+  })
+
+  it("sorts unsorted input by sequence before splitting", () => {
+    const segments = computeEpisodeGapSegments([
+      beat("b3", 3),
+      beat("b1", 1),
+      beat("b2", 2),
+    ])
+    expect(segments).toEqual([
+      { startSeq: 1, endSeq: 3, beatIds: ["b1", "b2", "b3"] },
+    ])
+  })
+
+  it("labels a single missing shot and a range differently", () => {
+    expect(formatEpisodeGapRangeLabel({ startSeq: 2, endSeq: 2, beatIds: ["b2"] })).toBe("第 2 镜")
+    expect(formatEpisodeGapRangeLabel({ startSeq: 4, endSeq: 5, beatIds: ["b4", "b5"] })).toBe("第 4-5 镜")
+  })
+})
+
+describe("episode continue prefix", () => {
+  const beat = (id: string, sequence: number, videoUrl?: string) => ({
+    id,
+    sequence,
+    video_url: videoUrl,
+  })
+
+  it("returns the prefix length for a contiguous rendered prefix", () => {
+    expect(computeEpisodeContinuePrefix([
+      beat("b1", 1, "http://v/1.mp4"),
+      beat("b2", 2, "http://v/2.mp4"),
+      beat("b3", 3),
+      beat("b4", 4),
+    ])).toBe(2)
+  })
+
+  it("returns 0 when nothing is rendered", () => {
+    expect(computeEpisodeContinuePrefix([
+      beat("b1", 1), beat("b2", 2),
+    ])).toBe(0)
+    expect(computeEpisodeContinuePrefix([])).toBe(0)
+    expect(computeEpisodeContinuePrefix(null)).toBe(0)
+  })
+
+  it("returns 0 when rendered shots are interleaved, not a prefix", () => {
+    expect(computeEpisodeContinuePrefix([
+      beat("b1", 1, "http://v/1.mp4"),
+      beat("b2", 2),
+      beat("b3", 3, "http://v/3.mp4"),
+    ])).toBe(0)
+  })
+
+  it("returns 0 when the whole episode is already rendered", () => {
+    expect(computeEpisodeContinuePrefix([
+      beat("b1", 1, "http://v/1.mp4"),
+      beat("b2", 2, "http://v/2.mp4"),
+    ])).toBe(0)
+  })
+
+  it("returns 0 for non-contiguous sequence numbering", () => {
+    expect(computeEpisodeContinuePrefix([
+      beat("b1", 1, "http://v/1.mp4"),
+      beat("b2", 4, "http://v/2.mp4"),
+      beat("b3", 5),
+    ])).toBe(0)
+  })
+})
+
+describe("fill strategy submit messages", () => {
+  it("formats multi-segment gap_fill submissions", () => {
+    expect(formatEpisodeVideoSubmitMessage({
+      render_mode: "episode",
+      strategy: "gap_fill",
+      job_ids: ["j1", "j2"],
+      submitted: 3,
+      skipped: 2,
+      segment_count: 2,
+    })).toBe("已按 2 个连续区间补跑 3 镜（跳过 2 镜已有成片）")
+  })
+
+  it("formats single-segment gap_fill submissions", () => {
+    expect(formatEpisodeVideoSubmitMessage({
+      render_mode: "episode",
+      strategy: "gap_fill",
+      job_ids: ["j1"],
+      submitted: 2,
+      skipped: 1,
+      segment_count: 1,
+    })).toBe("已补跑 2 镜（跳过 1 镜已有成片）")
+  })
+
+  it("formats continue submissions with the resume point", () => {
+    expect(formatEpisodeVideoSubmitMessage({
+      render_mode: "episode",
+      strategy: "continue",
+      job_ids: ["j1"],
+      submitted: 3,
+      skipped: 2,
+      anchor_sequence: 2,
+    })).toBe("已从第 3 镜续写整集（3 镜待生成）")
+  })
+
+  it("keeps the plain episode message when backend falls back to a full render", () => {
+    expect(formatEpisodeVideoSubmitMessage({
+      render_mode: "episode",
+      job_ids: ["j1"],
+      submitted: 1,
+      skipped: 0,
+    })).toBe("已创建 1 个整集任务")
+  })
+})

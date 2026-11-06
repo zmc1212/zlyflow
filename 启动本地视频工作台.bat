@@ -57,6 +57,10 @@ if defined ZLY_AI_VIDEO_STUDIO_SSL_CERTFILE (
 where pnpm >nul 2>nul || goto :pnpm_not_found
 
 call :ensure_lan_firewall
+if errorlevel 1 (
+    echo WARNING: Windows Firewall could not be opened for LAN access.
+    echo Allow inbound TCP ports 5173 and 7865 on the Private or Domain profile to use the LAN URLs.
+)
 call :detect_lan_ipv4
 
 set "WEBUI_PID="
@@ -66,8 +70,16 @@ if defined WEBUI_PID (
     if not errorlevel 1 (
         powershell -NoProfile -Command "try { $response = Invoke-WebRequest -UseBasicParsing -TimeoutSec 3 '%WEBUI_SCHEME%://127.0.0.1:7865/api/health'; if ($response.StatusCode -eq 200) { exit 0 } } catch {}; exit 1"
         if not errorlevel 1 (
-            set "BACKEND_ALREADY_RUNNING=1"
-            goto :ensure_vite
+            powershell -NoProfile -Command "$addresses = Get-NetTCPConnection -LocalPort 7865 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty LocalAddress; if ($addresses | Where-Object { $_ -eq '0.0.0.0' -or ($_ -match '^\d{1,3}(\.\d{1,3}){3}$' -and $_ -notmatch '^127\.') }) { exit 0 }; exit 1"
+            if not errorlevel 1 (
+                set "BACKEND_ALREADY_RUNNING=1"
+                goto :ensure_vite
+            )
+            echo Existing workbench API is bound to loopback. Restarting it for LAN access.
+            powershell -NoProfile -Command "$targetPid = %WEBUI_PID%; $target = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $targetPid); while ($target -and $target.CommandLine -notmatch '(?i)backend[\\/]dev_reloader\.py' -and [int]$target.ParentProcessId -gt 4) { $target = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $target.ParentProcessId) }; if ($target -and $target.CommandLine -match '(?i)backend[\\/]dev_reloader\.py') { & taskkill.exe /F /T /PID $target.ProcessId | Out-Null } else { & taskkill.exe /F /T /PID $targetPid | Out-Null }"
+            timeout /t 1 /nobreak >nul
+            set "WEBUI_PID="
+            goto :port_cleared
         )
         echo Existing workbench on port 7865 is not responding. Restarting it.
         taskkill /F /T /PID %WEBUI_PID% >nul 2>nul
@@ -89,7 +101,7 @@ if defined WEBUI_PID (
 :port_cleared
 
 :ensure_vite
-powershell -NoProfile -Command "$conn = Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1; if (-not $conn) { exit 2 }; $process = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $conn.OwningProcess); if ($process.CommandLine -match '(?i)(vite|pnpm|node)') { exit 0 }; exit 1"
+powershell -NoProfile -Command "$connections = @(Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue); if (-not $connections) { exit 2 }; $conn = $connections | Select-Object -First 1; $process = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $conn.OwningProcess); $frontend = [System.IO.Path]::GetFullPath('%CD%\frontend'); $command = [string]$process.CommandLine; if (-not $process -or $command.IndexOf($frontend, [StringComparison]::OrdinalIgnoreCase) -lt 0 -or $command -notmatch '(?i)vite(?:\.js|[\\/])') { exit 1 }; if (-not ($connections | Where-Object { $_.LocalAddress -eq '0.0.0.0' -or ($_.LocalAddress -match '^\d{1,3}(\.\d{1,3}){3}$' -and $_.LocalAddress -notmatch '^127\.') })) { try { Stop-Process -Id $conn.OwningProcess -Force -ErrorAction Stop; exit 2 } catch { exit 1 } }; exit 0"
 if errorlevel 2 goto :start_vite
 if errorlevel 1 goto :vite_port_in_use
 goto :open_browser
@@ -120,8 +132,8 @@ if not "%WEBUI_EXIT_CODE%"=="0" pause
 exit /b %WEBUI_EXIT_CODE%
 
 :ensure_lan_firewall
-powershell -NoProfile -Command "foreach ($port in 5173,7865) { $name = 'ZLY AI Video Studio LAN ' + $port; if (-not (Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue)) { New-NetFirewallRule -DisplayName $name -Direction Inbound -Protocol TCP -LocalPort $port -Action Allow -Profile Private,Domain -ErrorAction SilentlyContinue | Out-Null } }" >nul 2>nul
-exit /b 0
+powershell -NoProfile -Command "$needsElevation = $false; foreach ($port in 5173,7865) { $name = 'ZLY AI Video Studio LAN ' + $port; $rule = Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue; if (-not ($rule | Where-Object { $_.Enabled -eq 'True' -and $_.Direction -eq 'Inbound' -and $_.Action -eq 'Allow' -and ([string]$_.Profile -match 'Private') -and ([string]$_.Profile -match 'Domain') })) { $needsElevation = $true } }; if ($needsElevation) { $payload = 'foreach ($port in 5173,7865) { $name = ''ZLY AI Video Studio LAN '' + $port; $rule = Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue; if ($rule) { $rule | Set-NetFirewallRule -Enabled True -Profile Private,Domain -Direction Inbound -Action Allow -ErrorAction Stop } else { New-NetFirewallRule -DisplayName $name -Direction Inbound -Protocol TCP -LocalPort $port -Action Allow -Profile Private,Domain -ErrorAction Stop | Out-Null } }'; $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($payload)); try { $child = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -EncodedCommand ' + $encoded) -Verb RunAs -WindowStyle Hidden -Wait -PassThru; if ($child.ExitCode -ne 0) { exit 1 } } catch { exit 1 } }; foreach ($port in 5173,7865) { $name = 'ZLY AI Video Studio LAN ' + $port; $rule = Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue; if (-not ($rule | Where-Object { $_.Enabled -eq 'True' -and $_.Direction -eq 'Inbound' -and $_.Action -eq 'Allow' -and ([string]$_.Profile -match 'Private') -and ([string]$_.Profile -match 'Domain') })) { exit 1 } }; exit 0"
+exit /b %errorlevel%
 
 :detect_lan_ipv4
 set "LAN_IPV4="

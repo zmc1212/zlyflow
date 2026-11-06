@@ -20,6 +20,11 @@ INDEXTTS_MODEL = "indextts-2.5"
 INDEXTTS_VOICE = "clone"
 INDEXTTS_DEFAULT_ORIGIN = "http://127.0.0.1:7866"
 INDEXTTS_DEFAULT_BASE_URL = f"{INDEXTTS_DEFAULT_ORIGIN}/v1"
+MIMO_BASE_URL = "https://api.xiaomimimo.com/v1"
+MIMO_TTS_MODEL = "mimo-v2.5-tts"
+MIMO_DEFAULT_VOICE = "mimo_default"
+MIMO_DEFAULT_FEMALE_VOICE = "冰糖"
+MIMO_DEFAULT_MALE_VOICE = "苏打"
 INDEXTTS_EMOTION_KEYS = (
     "happy",
     "angry",
@@ -57,8 +62,27 @@ INDEXTTS_VOICES: tuple[dict[str, str], ...] = (
     {"id": INDEXTTS_VOICE, "label": "角色参考音克隆", "gender": "unspecified"},
 )
 
+MIMO_TTS_VOICES: tuple[dict[str, str], ...] = (
+    {"id": MIMO_DEFAULT_VOICE, "label": "MiMo 默认（冰糖 / Mia）", "gender": "unspecified"},
+    {"id": "冰糖", "label": "冰糖（中文女声）", "gender": "female"},
+    {"id": "茉莉", "label": "茉莉（中文女声）", "gender": "female"},
+    {"id": "苏打", "label": "苏打（中文男声）", "gender": "male"},
+    {"id": "白桦", "label": "白桦（中文男声）", "gender": "male"},
+    {"id": "Mia", "label": "Mia（英文女声）", "gender": "female"},
+    {"id": "Chloe", "label": "Chloe（英文女声）", "gender": "female"},
+    {"id": "Milo", "label": "Milo（英文男声）", "gender": "male"},
+    {"id": "Dean", "label": "Dean（英文男声）", "gender": "male"},
+)
+
+MIMO_TTS_VOICE_IDS = frozenset(item["id"] for item in MIMO_TTS_VOICES)
+
 # 兼容旧常量名
 TTS_VOICES = OPENAI_TTS_VOICES
+
+
+def is_mimo_tts_model(model: str) -> bool:
+    lowered = (model or "").strip().lower()
+    return lowered.startswith("mimo-v2.5-tts") or lowered.startswith("mimo-v2-tts")
 
 
 def sidecar_origin(base_url: str = "") -> str:
@@ -75,6 +99,8 @@ def detect_tts_provider(*, base_url: str = "", model: str = "") -> str:
     parsed = urlparse(base_url or "")
     if parsed.port == 7866 or "7866" in lowered_url or "indextts" in lowered_url or "indextts" in lowered_model:
         return "indextts"
+    if "xiaomimimo" in lowered_url or is_mimo_tts_model(lowered_model):
+        return "mimo"
     if "siliconflow" in lowered_url:
         return "siliconflow"
     if "cosyvoice" in lowered_model or "moss-ttsd" in lowered_model or lowered_model.startswith("funaudiollm/"):
@@ -87,6 +113,8 @@ def detect_tts_provider(*, base_url: str = "", model: str = "") -> str:
 def voices_for_provider(provider: str) -> list[dict[str, str]]:
     if provider == "indextts":
         return [dict(item) for item in INDEXTTS_VOICES]
+    if provider == "mimo":
+        return [dict(item) for item in MIMO_TTS_VOICES]
     if provider == "siliconflow":
         return [dict(item) for item in SILICONFLOW_COSYVOICE_VOICES]
     if provider == "openai":
@@ -164,6 +192,12 @@ def voice_for_gender(gender: str | None, *, base_url: str = "", model: str = "")
     value = (gender or "").strip().lower()
     if provider == "indextts":
         return INDEXTTS_VOICE
+    if provider == "mimo":
+        if value in {"male", "男"}:
+            return MIMO_DEFAULT_MALE_VOICE
+        if value in {"female", "女"}:
+            return MIMO_DEFAULT_FEMALE_VOICE
+        return MIMO_DEFAULT_VOICE
     if provider == "siliconflow":
         if value in {"male", "男"}:
             return f"{COSYVOICE2_MODEL}:benjamin"
@@ -188,6 +222,10 @@ def resolve_tts_voice(
     provider = detect_tts_provider(base_url=base_url, model=model)
     if provider == "indextts":
         return selected or INDEXTTS_VOICE
+    if provider == "mimo" and selected not in MIMO_TTS_VOICE_IDS:
+        # 资产上的 voice_id 通常是 IndexTTS 的 clone 占位或 OpenAI 音色名，
+        # 对 MiMo 无效；按角色性别回落到中文预置音色。
+        return voice_for_gender(gender, base_url=base_url, model=model)
     if provider == "siliconflow" and selected in OPENAI_VOICE_IDS:
         return voice_for_gender(gender, base_url=base_url, model=model)
     if selected:
@@ -210,6 +248,11 @@ class TtsProviderService:
             settings["use_llm_credentials"] = False
             if not str(settings.get("base_url") or "").strip():
                 settings["base_url"] = INDEXTTS_DEFAULT_BASE_URL
+            return settings
+        if stored_provider == "mimo":
+            settings["use_llm_credentials"] = False
+            if not str(settings.get("base_url") or "").strip():
+                settings["base_url"] = MIMO_BASE_URL
             return settings
         if settings.get("use_llm_credentials"):
             llm = self.store.get_llm_settings()
@@ -239,6 +282,15 @@ class TtsProviderService:
         if is_local_base_url(self.base_url(settings)):
             return "ollama"
         return None
+
+    def reveal_secret(self, field: str) -> str | None:
+        """管理页「复制 Key」取回的明文；复用大模型凭据时取 LLM 的 Key。"""
+        if field != "api_key":
+            raise ValueError("TTS 只支持复制 API Key")
+        settings = self._effective_config()
+        if settings.get("use_llm_credentials"):
+            return self.credentials.decrypt(self.store.get_llm_settings().get("api_key_encrypted"))
+        return self.credentials.decrypt(settings.get("api_key_encrypted"))
 
     def base_url(self, config: dict[str, Any] | None = None) -> str:
         settings = self._effective_config(config)
@@ -346,6 +398,12 @@ class TtsProviderService:
             values["voice"] = str(values.get("voice") or INDEXTTS_VOICE).strip() or INDEXTTS_VOICE
             if not str(values.get("base_url") or "").strip():
                 values["base_url"] = INDEXTTS_DEFAULT_BASE_URL
+        elif provider == "mimo":
+            values["use_llm_credentials"] = False
+            values["model"] = model_name or MIMO_TTS_MODEL
+            values["voice"] = str(values.get("voice") or MIMO_DEFAULT_VOICE).strip() or MIMO_DEFAULT_VOICE
+            if not str(values.get("base_url") or "").strip():
+                values["base_url"] = MIMO_BASE_URL
         else:
             values["model"] = model_name or DEFAULT_TTS_MODEL
             voice = str(values.get("voice") or "").strip()
@@ -397,6 +455,21 @@ class TtsProviderService:
                     f"权重{'就绪' if health.get('ready') else '未找到'}，"
                     f"模型{'已加载' if health.get('loaded') else '未占用显存'}"
                 )
+            elif provider == "mimo":
+                client = OpenAICompatibleClient(base_url=base_url, api_key=api_key or "")
+                mimo_model = model if is_mimo_tts_model(model) else MIMO_TTS_MODEL
+                mimo_voice = voice if voice in MIMO_TTS_VOICE_IDS else MIMO_DEFAULT_VOICE
+                audio = client.speech_via_chat(
+                    text="试听。",
+                    model=mimo_model,
+                    voice=mimo_voice,
+                    response_format="mp3",
+                    timeout=30.0,
+                )
+                if not audio:
+                    raise LlmError("上游返回了空音频")
+                test_status = "成功"
+                test_message = f"连接成功，收到 {len(audio)} 字节音频（MiMo TTS 当前为限时免费）"
             else:
                 client = OpenAICompatibleClient(base_url=base_url, api_key=api_key or "ollama")
                 audio = client.speech(text="试听。", model=model, voice=voice, timeout=30.0)
@@ -494,6 +567,7 @@ class TtsProviderService:
         text: str,
         *,
         voice: str | None = None,
+        gender: str = "",
         spk_audio: bytes | None = None,
         spk_filename: str = "prompt.wav",
         lang: str | None = None,
@@ -513,12 +587,21 @@ class TtsProviderService:
                 emo_alpha=emo_alpha,
                 duration_factor=duration_factor,
             )
+        provider = self.provider_name()
         client, model, default_voice = self.client()
         resolved = resolve_tts_voice(
             voice or default_voice,
+            gender=gender,
             base_url=self.base_url(),
             model=model,
         )
+        if provider == "mimo":
+            return client.speech_via_chat(
+                text=text,
+                model=model if is_mimo_tts_model(model) else MIMO_TTS_MODEL,
+                voice=resolved.strip() or MIMO_DEFAULT_VOICE,
+                response_format="mp3",
+            )
         return client.speech(
             text=text,
             model=model,

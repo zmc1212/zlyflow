@@ -50,14 +50,26 @@ class ProjectService:
             status=row.get("status") or "active",
             settings=settings,
             extra=extra,
+            owner_user_id=row.get("owner_user_id"),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
 
     @classmethod
-    def list_projects(cls) -> list[ProjectItem]:
-        rows = query_all("SELECT * FROM ai_projects ORDER BY updated_at DESC")
+    def list_projects(cls, owner_user_id: str) -> list[ProjectItem]:
+        rows = query_all(
+            "SELECT * FROM ai_projects WHERE owner_user_id = %s ORDER BY updated_at DESC",
+            (owner_user_id,),
+        )
         return [cls._to_project_item(r) for r in rows]
+
+    @classmethod
+    def allows_user(cls, project_id: str, owner_user_id: str) -> bool:
+        row = query_one("SELECT owner_user_id FROM ai_projects WHERE id = %s", (project_id,))
+        if not row:
+            return False
+        owner = str(row.get("owner_user_id") or "")
+        return not owner or owner == owner_user_id
 
     @classmethod
     def get_project(cls, project_id: str) -> ProjectItem | None:
@@ -67,7 +79,7 @@ class ProjectService:
         return cls._to_project_item(row)
 
     @classmethod
-    def create_project(cls, payload: ProjectCreateRequest) -> ProjectItem:
+    def create_project(cls, payload: ProjectCreateRequest, *, owner_user_id: str) -> ProjectItem:
         name = payload.name.strip()
         if not name:
             raise ValueError("项目名称不能为空")
@@ -83,8 +95,8 @@ class ProjectService:
 
         execute_sql(
             """
-            INSERT INTO ai_projects (id, name, description, cover_url, status, settings_json, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, 'active', %s, %s, %s)
+            INSERT INTO ai_projects (id, name, description, cover_url, status, settings_json, owner_user_id, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, 'active', %s, %s, %s, %s)
             """,
             (
                 project_id,
@@ -92,6 +104,7 @@ class ProjectService:
                 payload.description.strip() if payload.description else "",
                 payload.cover_url.strip() if payload.cover_url else None,
                 settings_str,
+                owner_user_id,
                 timestamp,
                 timestamp,
             ),

@@ -6,6 +6,8 @@ export const DIRECTOR2_PREFIX = "/director"
 export type Director2Route =
   | { kind: "home" }
   | { kind: "diagnosis" }
+  | { kind: "featured"; featuredId: string }
+  | { kind: "featured-process"; featuredId: string }
   | { kind: "project"; projectId: string; menu: "content" | "assets" | "workshop" | "edit" | "jobs"; episodeId: string | null }
 
 const MENU_SEGMENTS = new Set(["content", "assets", "workshop", "edit", "jobs"])
@@ -17,6 +19,11 @@ export function parseDirector2Path(pathname: string): Director2Route {
   const segments = rest.split("/").filter(Boolean)
 
   if (segments[0] === "script-diagnosis") return { kind: "diagnosis" }
+  if (segments[0] === "featured" && segments[1]) {
+    // /director/featured/:id → 图文详情；/director/featured/:id/process → 只读创作过程画布。
+    if (segments[2] === "process") return { kind: "featured-process", featuredId: decodeURIComponent(segments[1]) }
+    return { kind: "featured", featuredId: decodeURIComponent(segments[1]) }
+  }
 
   if (segments[0] === "projects" && segments[1]) {
     const projectId = segments[1]
@@ -32,6 +39,14 @@ export function parseDirector2Path(pathname: string): Director2Route {
 
 export function director2HomePath(): string {
   return DIRECTOR2_PREFIX
+}
+
+export function director2FeaturedPath(featuredId: string): string {
+  return `${DIRECTOR2_PREFIX}/featured/${encodeURIComponent(featuredId)}`
+}
+
+export function director2FeaturedProcessPath(featuredId: string): string {
+  return `${DIRECTOR2_PREFIX}/featured/${encodeURIComponent(featuredId)}/process`
 }
 
 export function director2DiagnosisPath(input: { id?: string; projectId?: string; documentId?: string } = {}): string {
@@ -66,7 +81,7 @@ export function director2MenuEpisodeId(input: {
   const { targetMenu, currentMenu, currentEpisodeId, lastEpisodeId } = input
   if (targetMenu === "edit")
     return currentMenu === "edit" ? currentEpisodeId : currentEpisodeId || lastEpisodeId || null
-  if (targetMenu === "workshop" && currentMenu === "edit") return currentEpisodeId
+  if (targetMenu === "workshop" && currentMenu === "edit") return currentEpisodeId?.startsWith("canvas-") ? null : currentEpisodeId
   return null
 }
 

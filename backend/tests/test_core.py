@@ -19,6 +19,7 @@ from backend.app.models import JobMode, JobStatus
 from backend.app.main import BROWSER_LOCAL_COMFY_VIEW_URL, DesktopDeliveryTickets, app, browser_direct_view_url, clear_login_failures_for_username, current_user, login_failures, output_response, public_job, _image_media_type
 from backend.app.comfy_service import ComfyQueuePrompt, ComfyService, ComfyUnavailable, interpret_comfy_progress, resolve_minimax_picture_prompt, resolve_reference_prompt
 from backend.app import comfy_service as comfy_service_module
+from backend.app.minimax_h3_action_workflow import build_minimax_h3_action_workflow
 from backend.app.minimax_h3_dual_accel_workflow import build_minimax_h3_dual_accel_workflow
 from backend.app.minimax_h3_lightx2v_workflow import build_minimax_h3_lightx2v_workflow
 from backend.app.minimax_h3_workflow import build_minimax_h3_workflow
@@ -155,6 +156,20 @@ class WorkflowTests(unittest.TestCase):
         for quality, expected in expected_sizes.items():
             options = normalize_options(JobMode.MINIMAX_H3_T2V, {"aspect_ratio": "16:9", "quality": quality})
             self.assertEqual(h3_dimensions(options), expected)
+
+    def test_h3_long_clip_caps_canvas_to_the_frame_megapixel_budget(self) -> None:
+        # 15 秒（362 帧）在 16 GB 卡上一采/二采同预算：1.0 MP 会掉进权重换页，
+        # 必须收窄到 0.5 MP；10 秒以内保持既有画布契约。
+        fifteen = normalize_options(
+            JobMode.MINIMAX_H3_R2V, {"aspect_ratio": "16:9", "quality": "1.0", "duration": 15},
+        )
+        self.assertEqual(h3_length(fifteen), 362)
+        self.assertEqual(h3_dimensions(fifteen), (960, 544))
+        ten = normalize_options(
+            JobMode.MINIMAX_H3_R2V, {"aspect_ratio": "16:9", "quality": "0.8", "duration": 10},
+        )
+        self.assertEqual(h3_length(ten), 243)
+        self.assertEqual(h3_dimensions(ten), (1216, 672))
 
     def test_h3_dimensions_prioritize_quality_over_stale_internal_megapixels(self) -> None:
         options = normalize_options(
@@ -515,6 +530,69 @@ class HardwareAutoHostingTests(unittest.TestCase):
         self.assertEqual(options["speed"], "balanced")
         self.assertEqual(options["steps"], 20)
 
+    def test_action_workflow_exposes_two_primary_controls_only(self) -> None:
+        properties = workflow_for(JobMode.MINIMAX_H3_ACTION_R2V).option_schema["properties"]
+        self.assertEqual({name for name, item in properties.items() if item["ui_group"] == "primary"},
+                         {"aspect_ratio", "duration"})
+        self.assertEqual({name for name, item in properties.items() if item["ui_group"] == "advanced"},
+                         {"quality", "action_intensity"})
+        self.assertTrue(all(item["ui_group"] in {"primary", "advanced", "internal"} for item in properties.values()))
+
+    def test_action_workflow_hosts_tuners_by_intensity_preset(self) -> None:
+        intense = normalize_options(JobMode.MINIMAX_H3_ACTION_R2V, {})
+        self.assertEqual((intense["receptive_field_scale"], intense["temporal_weight"]), (2.0, 3.0))
+        self.assertEqual((intense["cfg_low"], intense["cfg_high"]), (0.9, 1.1))
+        steady = normalize_options(JobMode.MINIMAX_H3_ACTION_R2V, {"action_intensity": "steady"})
+        self.assertEqual((steady["receptive_field_scale"], steady["temporal_weight"]), (1.5, 2.0))
+        self.assertEqual((steady["cfg_low"], steady["cfg_high"]), (0.95, 1.05))
+        explicit = normalize_options(
+            JobMode.MINIMAX_H3_ACTION_R2V, {"action_intensity": "steady", "temporal_weight": 4.0},
+        )
+        self.assertEqual(explicit["temporal_weight"], 4.0)
+
+    def test_action_workflow_rejects_refine_and_overlong_clips(self) -> None:
+        with self.assertRaises(ValueError):
+            normalize_options(JobMode.MINIMAX_H3_ACTION_R2V, {"refine_enabled": True})
+        self.assertEqual(normalize_options(JobMode.MINIMAX_H3_ACTION_R2V, {"duration": 10})["duration"], 10.0)
+        with self.assertRaises(ValueError):
+            normalize_options(JobMode.MINIMAX_H3_ACTION_R2V, {"duration": 11})
+
+    def test_action_graph_keeps_node_14_and_caps_frames_for_long_shots(self) -> None:
+        options = normalize_options(JobMode.MINIMAX_H3_ACTION_R2V, {"duration": 10, "quality": "0.8"})
+        graph = build_minimax_h3_action_workflow(
+            JobMode.MINIMAX_H3_ACTION_R2V, "两人对打 <Picture 1>", ["a.png", "b.png"], options, 42,
+        )
+        self.assertEqual(graph["14"]["class_type"], "SaveVideo")
+        self.assertEqual(graph["14"]["inputs"]["video"], ["13", 0])
+        self.assertEqual(graph["13"]["class_type"], "CreateVideo")
+        self.assertEqual(
+            [graph[node]["inputs"]["lora_name"] for node in ("5", "6", "7")],
+            [registry.ACTION_TURBO_LORA, registry.ACTION_FRAMERUSH_LORA, registry.ACTION_COMBAT_LORA],
+        )
+        self.assertEqual(graph["1"]["inputs"]["unet_name"], registry.H3_HYBRID_UNET)
+        self.assertEqual(graph["40"]["inputs"]["ref_images.ref_image_1"], ["51", 0])
+        self.assertEqual(graph["50"]["inputs"]["width"], registry.ACTION_REF_RESIZE)
+        self.assertEqual(graph["10"]["inputs"]["num_frames"], 243)
+        # 导演台分镜可以超过 10 秒，图里必须封顶到节点允许的 256 帧以内。
+        capped = build_minimax_h3_action_workflow(
+            JobMode.MINIMAX_H3_ACTION_R2V, "对打", ["a.png"], {**options, "duration": 15}, 42,
+        )
+        self.assertEqual(capped["10"]["inputs"]["num_frames"], 243)
+        self.assertEqual(capped["40"]["inputs"]["length"], 243)
+
+    def test_action_workflow_registers_three_routes_in_its_own_family(self) -> None:
+        family = {item["id"]: item for item in registry.director_workflow_families()}.get("h3_action")
+        self.assertIsNotNone(family)
+        self.assertEqual(family["label"], "动作与打斗")
+        self.assertEqual(family["routes"], {
+            "t2v": "minimax-h3-action-t2v",
+            "i2v": "minimax-h3-action-i2v",
+            "r2v": "minimax-h3-action-r2v",
+        })
+        # 收敛在单次采样内完成，二采契约不覆盖打斗图。
+        self.assertNotIn(JobMode.MINIMAX_H3_ACTION_R2V, registry.H3_REFINE_WORKFLOWS)
+        self.assertEqual(generation_stage(JobMode.MINIMAX_H3_ACTION_R2V), "打斗与动作 正在生成视频")
+
     def test_lightx2v_refine_first_pass_follows_machine_memory(self) -> None:
         registry.set_hardware_profile_resolver(lambda: self.LOW_RAM_STATS)
         small = normalize_options(JobMode.MINIMAX_H3_LIGHTX2V_T2V, {"refine_enabled": True, "refine_quality": "1.0"})
@@ -694,6 +772,7 @@ class ApiDocumentationTests(unittest.TestCase):
                     JobMode.WAN_VACE_DEPTH_V2V.value,
                     JobMode.NVIDIA_RTX_VSR.value,
                     JobMode.SEEDVR2_UPSCALE.value,
+                    JobMode.KEEP_FACE_RESTORE.value,
                     JobMode.SCAIL2_REPLACEMENT.value,
                     JobMode.STEM_SPLIT.value,
                     JobMode.IMAGE_BACKGROUND_REMOVE.value,

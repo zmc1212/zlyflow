@@ -60,6 +60,12 @@ class VlmProviderService:
         settings = self._effective_config(config)
         return str(settings.get("base_url") or "").rstrip("/")
 
+    def reveal_secret(self, field: str) -> str | None:
+        """管理页「复制 Key」取回的明文；复用大模型凭据时取 LLM 的 Key。"""
+        if field != "api_key":
+            raise ValueError("VLM 视觉模型只支持复制 API Key")
+        return self.credentials.decrypt(self._effective_config().get("api_key_encrypted"))
+
     def availability(self) -> tuple[bool, str | None]:
         config = self.store.get_vlm_settings()
         if not config["enabled"]:

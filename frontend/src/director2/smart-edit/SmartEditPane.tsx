@@ -709,8 +709,29 @@ function EditWorkspace({
   ] as const
   if (loading)
     return (
-      <div className="se-loading">
-        <Spin description="正在打开剪辑工程…" />
+      <div className="se-loading-skeleton" role="status" aria-busy="true" aria-label="正在打开剪辑工程">
+        <div className="se-skeleton-header" aria-hidden="true">
+          <span className="studio-skeleton-bar" style={{ width: 180, height: 22, borderRadius: 6 }} />
+          <span className="studio-skeleton-bar" style={{ width: 120 }} />
+        </div>
+        <div className="se-skeleton-workbench" aria-hidden="true">
+          <aside className="se-skeleton-library">
+            <span className="studio-skeleton-bar" style={{ width: "72%" }} />
+            <span className="studio-skeleton-bar" style={{ width: "86%" }} />
+            <span className="studio-skeleton-bar" style={{ width: "78%" }} />
+            <span className="studio-skeleton-bar" style={{ width: "82%" }} />
+            <span className="studio-skeleton-bar" style={{ width: "64%" }} />
+          </aside>
+          <div className="se-skeleton-preview">
+            <span className="studio-skeleton-bar se-skeleton-stage" />
+          </div>
+        </div>
+        <div className="se-skeleton-timeline" aria-hidden="true">
+          <span className="studio-skeleton-bar" style={{ width: "12%" }} />
+          <span className="studio-skeleton-bar" style={{ width: "46%" }} />
+          <span className="studio-skeleton-bar" style={{ width: "28%" }} />
+        </div>
+        <p className="se-skeleton-status"><Spin size="small" /><span>正在打开剪辑工程…</span></p>
       </div>
     )
   if (loadError)
@@ -797,11 +818,13 @@ function EditWorkspace({
             <Button type="text" className="se-project-menu" aria-label="切换工程模块" icon={<Scissors size={22} />}><ChevronDown size={10} /></Button>
           </Dropdown>
           <h2>智能剪辑</h2>
+          {sequence.startsWith("canvas-") && <Button type="text" onClick={() => { setPlaying(false); void saveLatest().then(() => navigate(director2ProjectPath(projectId, "assets") + "?view=canvas")).catch(() => message.error("请先保存剪辑修改")) }}>返回创作画布</Button>}
           <Select
             aria-label="选择剪辑分集"
             value={sequence}
             options={[
               { value: "main", label: "自由剪辑" },
+              ...(sequence.startsWith("canvas-") ? [{ value: sequence, label: "画布剪辑工程" }] : []),
               ...episodes.map((ep) => ({
                 value: ep.id,
                 label: `第 ${ep.episode_num} 集 · ${ep.title}`

@@ -3,6 +3,7 @@ import { Alert, Button, Input, Modal, Select, Switch, Table, Tag, message } from
 import { CheckCircle2, Cloud, CloudDownload, GripVertical, KeyRound, Plus, RefreshCw, WalletCards } from "lucide-react"
 import { useEffect, useMemo, useState, useRef } from "react"
 import { jsonMutation, requestJson } from "../api"
+import { CopyFieldButton } from "./FieldCopy"
 import { reorderCatalogRows } from "./grs-catalog-order"
 
 type ProviderConfig = {
@@ -307,6 +308,7 @@ export default function GrsProviderSettings({ csrfToken }: { csrfToken: string }
               value={baseUrl}
               onChange={(event) => setBaseUrl(event.target.value)}
               placeholder="https://grsai.dakka.com.cn"
+              suffix={<CopyFieldButton label="Base URL" value={baseUrl} csrfToken={csrfToken} />}
             />
             <p className="mt-1.5 text-xs leading-5 text-[#6b7280]">
               国内节点 <code>https://grsai.dakka.com.cn</code>，国际节点 <code>https://grsaiapi.com</code>。
@@ -322,6 +324,7 @@ export default function GrsProviderSettings({ csrfToken }: { csrfToken: string }
               onChange={(event) => setApiKey(event.target.value)}
               prefix={<KeyRound size={15} className="text-[#9ca3af]" />}
               placeholder={query.data?.api_key_masked || "输入新的 API Key"}
+              suffix={<CopyFieldButton label="API Key" value={apiKey} csrfToken={csrfToken} provider="grs" />}
             />
           </div>
 

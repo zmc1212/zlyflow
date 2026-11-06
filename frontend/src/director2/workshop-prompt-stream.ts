@@ -16,6 +16,7 @@ export type WorkshopPromptStreamEvent =
       reset?: boolean
       reasoning?: string
       text?: string
+      chars?: number
     } & PromptStreamEpisodeFields
   }
   | { seq: number; event: "reasoning"; data: { text?: string } & PromptStreamEpisodeFields }
@@ -43,6 +44,9 @@ export type WorkshopPromptStreamEvent =
       planned_episodes?: number
       failed_episodes?: number
       episodes_done?: Array<Record<string, unknown>>
+      total?: number
+      skipped?: Array<Record<string, unknown>>
+      skipped_count?: number
     }
   }
   | { seq: number; event: "error"; data: { status?: string; message?: string } }

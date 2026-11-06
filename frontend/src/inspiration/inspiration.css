@@ -1,0 +1,360 @@
+/* 「灵感」示例库 —— 一比一复刻 WorkRally open-api 模板区块与预览弹层
+   （官方样式来源：p__mcp-token__index.7a3fec00.async.css，类名前缀 template 与 preview）。
+   列表部分（分类胶囊 / 卡片）按双主题取 WorkRally 对应 token：暗色 #141414 底 + rgba(255,255,255,.06) 边，
+   浅色 #f0f0f0 底 + rgba(0,0,0,.05) 边，激活胶囊暗色白底黑字 / 浅色黑底白字。
+   预览弹层与官方行为一致：双主题固定「暗色对话框 #1c1c1c + 浅色点阵舞台 #ececee + 暗色配方栏 #2a2a2a」。 */
+
+.inspiration-workspace {
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+  gap: 20px;
+  padding-top: 4px;
+
+  /* 浅色主题：WorkRally light token */
+  --insp-border: rgba(0, 0, 0, .05);
+  --insp-border-strong: rgba(0, 0, 0, .16);
+  --insp-text-secondary: rgba(0, 0, 0, .55);
+  --insp-tag-bg: rgba(15, 23, 42, .04);
+  --insp-chip-active-bg: #141414;
+  --insp-chip-active-color: #fff;
+}
+
+:root[data-theme="dark"] .inspiration-workspace {
+  /* 暗色主题：WorkRally dark token */
+  --insp-border: rgba(255, 255, 255, .06);
+  --insp-border-strong: rgba(255, 255, 255, .16);
+  --insp-text-secondary: rgba(255, 255, 255, .55);
+  --insp-tag-bg: #292929;
+  --insp-chip-active-bg: #fff;
+  --insp-chip-active-color: #141414;
+}
+
+.inspiration-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.inspiration-header h1 { margin: 0; font-size: 22px; font-weight: 600; color: var(--studio-text); }
+.inspiration-header p { margin: 6px 0 0; max-width: 640px; font-size: 13px; line-height: 22px; color: var(--studio-text-secondary); }
+
+.inspiration-gallery { display: flex; min-width: 0; flex-direction: column; }
+
+.inspiration-state { margin-top: 16px; display: grid; min-height: 320px; place-items: center; }
+
+/* 分类胶囊（官方 categoryBar/categoryChip）：高 28、圆角 999、字 13，激活为品牌反色底 */
+.inspiration-categories { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.inspiration-chip {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--insp-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--insp-text-secondary);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 150ms ease;
+}
+
+.inspiration-chip:hover { color: var(--studio-text); }
+.inspiration-chip:focus-visible { outline: 2px solid var(--studio-primary); outline-offset: 2px; }
+.inspiration-chip.is-active {
+  border-color: transparent;
+  background: var(--insp-chip-active-bg);
+  color: var(--insp-chip-active-color);
+}
+.inspiration-chip.is-active:hover { color: var(--insp-chip-active-color); }
+
+/* 卡片瀑布流：外层 flex 分列，列数由 JS 按断点计算（>1100 三列、>768 两列、其余单列），
+   每张卡媒体高度由成品比例（options.aspect_ratio）决定，竖屏与横屏各自按比例占位。 */
+.inspiration-grid {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.inspiration-column {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.inspiration-card {
+  display: flex;
+  overflow: hidden;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--insp-border);
+  border-radius: 12px;
+  background: var(--studio-canvas);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 150ms ease;
+}
+
+.inspiration-card:hover { border-color: var(--insp-border-strong); }
+.inspiration-card:focus-visible { outline: 2px solid var(--studio-primary); outline-offset: 2px; }
+
+/* 卡片是纵向 flex，子项 min-height:auto 会取竖屏视频的固有高度并顶穿 aspect-ratio，
+   必须显式归零，容器高度才由比例决定；比例由卡片内联 style 按成品 aspect_ratio 覆盖，
+   与容器比例一致时 cover 正好铺满不裁切，仅元数据缺失兜底 16:9 时才裁中间。 */
+.inspiration-card-media { position: relative; aspect-ratio: 16 / 9; min-height: 0; overflow: hidden; background: #111; }
+.inspiration-thumb { display: block; width: 100%; height: 100%; object-fit: cover; background: #111; }
+.inspiration-thumb-empty { display: grid; place-items: center; color: rgba(255, 255, 255, .45); }
+
+.inspiration-card-body { display: flex; flex: 1; flex-direction: column; align-items: flex-start; gap: 8px; padding: 12px 12px 14px; }
+.inspiration-card-body h2 { margin: 0; font-size: 15px; font-weight: 600; line-height: 22px; color: var(--studio-text); }
+.inspiration-card-body p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--insp-text-secondary);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.inspiration-card-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; margin-top: auto; }
+
+/* 卡片分类标签（官方 templateTag）：高 22、圆角 999、字 12/600、surface-2 底 + 细边 */
+.inspiration-card-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--insp-border);
+  border-radius: 999px;
+  background: var(--insp-tag-bg);
+  color: var(--insp-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* ============ 预览弹层（官方 previewMask/previewDialog/previewStage/previewChat） ============ */
+
+.inspiration-modal { margin: 0 auto; max-width: calc(100vw - 24px); }
+.inspiration-modal .ant-modal-container { height: calc(100vh - 24px); padding: 0; overflow: hidden; border-radius: 16px; background: #1c1c1c; box-shadow: 0 24px 80px rgba(0, 0, 0, .45); }
+.inspiration-modal .ant-modal-body { height: 100%; padding: 0; }
+.ant-modal-root .inspiration-modal-mask { background: rgba(0, 0, 0, .72); }
+
+.inspiration-preview { display: flex; width: 100%; height: 100%; overflow: hidden; }
+
+/* 左侧舞台：浅灰 #ececee + 14px 点阵（官方 previewStage） */
+.inspiration-stage {
+  position: relative;
+  display: flex;
+  flex: 1.6;
+  flex-direction: column;
+  min-width: 0;
+  background-color: #ececee;
+  background-image: radial-gradient(rgba(0, 0, 0, .16) 1px, transparent 1px);
+  background-size: 14px 14px;
+}
+
+.inspiration-canvas { display: flex; flex: 1; min-height: 0; align-items: center; justify-content: center; padding: 28px 128px 12px; }
+
+.inspiration-stage-media { display: block; width: 100%; height: 100%; object-fit: contain; border-radius: 16px; }
+
+.inspiration-stage-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: min(420px, 80%);
+  aspect-ratio: 16 / 9;
+  border-radius: 16px;
+  background: #d9d9d9;
+  color: rgba(0, 0, 0, .45);
+  font-size: 14px;
+}
+
+/* 翻页圆钮（官方 previewArrow）：36×36 白底、top 46%、左右 16 */
+.inspiration-arrow {
+  position: absolute;
+  top: 46%;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+  color: #141414;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .12);
+}
+
+.inspiration-arrow:hover { background: #f5f5f5; }
+.inspiration-arrow:focus-visible { outline: 2px solid #141414; outline-offset: 2px; }
+.inspiration-arrow-prev { left: 16px; }
+.inspiration-arrow-next { right: 16px; }
+
+/* 缩略图轨道（官方 previewStrip/previewThumb）：92×52、圆角 10、激活描边 #141414 */
+.inspiration-strip { display: flex; overflow-x: auto; gap: 8px; padding: 12px 16px 16px; scrollbar-width: thin; }
+
+.inspiration-strip-item {
+  flex: 0 0 auto;
+  width: 92px;
+  height: 52px;
+  padding: 0;
+  overflow: hidden;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  background: #d5d5d5;
+  cursor: pointer;
+}
+
+.inspiration-strip-item:focus-visible { outline: 2px solid #141414; outline-offset: 2px; }
+.inspiration-strip-item.is-active { border-color: #141414; }
+
+/* 右侧配方栏（官方 previewChat）：420px 固定宽、#2a2a2a */
+.inspiration-chat { display: flex; flex-direction: column; flex-shrink: 0; width: 420px; min-width: 0; background: #2a2a2a; color: #fff; }
+
+.inspiration-chat-head { display: flex; align-items: flex-start; gap: 10px; padding: 16px 16px 12px; }
+.inspiration-chat-meta { flex: 1; min-width: 0; }
+.inspiration-chat-title { margin: 0; font-size: 15px; font-weight: 600; line-height: 22px; color: #fff; }
+.inspiration-chat-desc {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: rgba(255, 255, 255, .55);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.inspiration-chat-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, .72);
+  cursor: pointer;
+}
+
+.inspiration-chat-close:hover { background: rgba(255, 255, 255, .08); color: #fff; }
+
+.inspiration-thread { display: flex; flex: 1; flex-direction: column; gap: 12px; min-height: 0; padding: 4px 16px 12px; overflow-y: auto; }
+
+.inspiration-msg-images { display: flex; gap: 8px; align-self: flex-end; flex-wrap: wrap; justify-content: flex-end; }
+.inspiration-msg-images img { width: 88px; height: 88px; object-fit: cover; border-radius: 12px; background: #111; }
+
+.inspiration-msg-user {
+  align-self: flex-end;
+  max-width: 88%;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #3a3a3a;
+  color: #fff;
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.inspiration-msg-reply { margin: 0; font-size: 14px; line-height: 22px; color: rgba(255, 255, 255, .82); }
+
+.inspiration-msg-tool { display: inline-flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; line-height: 22px; color: #fff; }
+.inspiration-msg-tool-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #435ce8, #8b96ff);
+  color: #fff;
+}
+
+.inspiration-msg-result { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 12px; border-radius: 14px; background: #3a3a3a; }
+
+.inspiration-msg-prompt { margin: 0; width: 100%; font-size: 14px; line-height: 22px; color: rgba(255, 255, 255, .92); white-space: pre-wrap; word-break: break-word; }
+.inspiration-msg-prompt.is-clamped {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+}
+
+.inspiration-msg-expand { padding: 0; border: 0; background: none; font-family: inherit; font-size: 13px; line-height: 20px; color: rgba(255, 255, 255, .55); cursor: pointer; }
+.inspiration-msg-expand:hover { color: #fff; }
+
+.inspiration-msg-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.inspiration-msg-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .08);
+  color: rgba(255, 255, 255, .72);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.inspiration-chat-foot { display: flex; flex-direction: column; gap: 4px; padding: 8px 16px 16px; }
+
+.inspiration-use-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 44px;
+  border: 0;
+  border-radius: 12px;
+  background: #fff;
+  color: #141414;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.inspiration-use-btn:hover { background: #f2f2f2; }
+.inspiration-use-btn:focus-visible { outline: 2px solid #141414; outline-offset: 2px; }
+
+.inspiration-copy-btn {
+  height: 40px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 12px;
+  background: transparent;
+  color: rgba(255, 255, 255, .88);
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.inspiration-copy-btn:hover { background: rgba(255, 255, 255, .06); }
+.inspiration-copy-btn:focus-visible { outline: 2px solid rgba(255, 255, 255, .5); outline-offset: 2px; }
+
+/* ≤768 跟随官方断点：弹层上下堆叠、舞台占 42% */
+@media (max-width: 768px) {
+  .inspiration-grid { gap: 12px; }
+  .inspiration-column { gap: 12px; }
+
+  .inspiration-modal { max-width: 100vw; }
+  .inspiration-modal .ant-modal-container { height: 100vh; border-radius: 0; }
+  .inspiration-preview { flex-direction: column; }
+  .inspiration-stage { flex: none; height: 42%; }
+  .inspiration-canvas { padding: 36px 48px 4px; }
+  .inspiration-chat { flex: 1; width: 100%; }
+}

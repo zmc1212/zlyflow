@@ -13,6 +13,8 @@ describe("production asset canvas", () => {
     expect(graph.nodes.filter(node => node.data.asset.id === "p" && node.data.role === "image").map(node => node.id)).toEqual(["p::prop_reference"])
     expect(graph.edges.some(edge => edge.source === "s::references" && edge.target === "s::scene_master")).toBe(true)
     expect(graph.nodes.find(node => node.id === "c::definition")?.parentId).toBe("c::group")
+    // 真引擎化：不再锁拖拽热区/父级范围，卡片任意处可拖。
+    expect(graph.nodes.every(node => !node.dragHandle && !("extent" in node && node.extent))).toBe(true)
   })
   it("keeps stored media, text, and layout when the selected prompt changes", () => {
     const original = asset("c", "character", { identities: [{ id: "one", image_url: "one.png" }, { id: "two", description: "第二套", image_url: "two.png" }], voice: { preset_id: "v" }, creation_canvas: { version: 1, positions: { group: { x: 50, y: 80 } } } })

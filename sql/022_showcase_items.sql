@@ -1,0 +1,31 @@
+-- 2026-11-05: 「灵感」示例库。每条示例冻结一份可直接复用的创作参数快照，
+-- 用户点「在工作台使用」时按 mode/prompt/options/references 完整回填创作台。
+CREATE TABLE IF NOT EXISTS ai_showcase_items (
+    id VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
+    slug VARCHAR(120) NOT NULL,
+    category VARCHAR(32) NOT NULL DEFAULT 'general',
+    title VARCHAR(255) NOT NULL,
+    blurb TEXT NULL,
+    origin VARCHAR(32) NOT NULL DEFAULT 'local',
+    mode VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    prompt LONGTEXT NOT NULL,
+    display_prompt TEXT NULL,
+    negative_prompt TEXT NULL,
+    image_size VARCHAR(32) NULL,
+    options_json LONGTEXT NULL,
+    references_json LONGTEXT NULL,
+    tags_json TEXT NULL,
+    cover_url VARCHAR(1024) NULL,
+    media_url VARCHAR(1024) NULL,
+    media_type VARCHAR(16) NOT NULL DEFAULT 'video',
+    duration_seconds INT NOT NULL DEFAULT 0,
+    source_job_id VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    sort_order INT NOT NULL DEFAULT 0,
+    status VARCHAR(16) NOT NULL DEFAULT 'published',
+    published_by VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    published_at VARCHAR(64) NOT NULL,
+    updated_at VARCHAR(64) NOT NULL,
+    UNIQUE KEY uniq_showcase_slug (slug),
+    KEY idx_showcase_status_category (status, category, sort_order),
+    KEY idx_showcase_source_job (source_job_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

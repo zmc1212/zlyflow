@@ -1,6 +1,7 @@
 import { Button, Modal, Slider, Tag, Tooltip } from "antd"
-import { ChevronDown, ChevronUp, Download, FileImage, Film, Info, Maximize, Minimize, Pause, Play, Volume2, VolumeX, X } from "lucide-react"
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, FileImage, Film, Info, Maximize, Minimize, Pause, Play, Volume2, VolumeX, X } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react"
+import { isCompareAligned, type CompareSource, type MediaSize } from "../media/image-compare"
 import { mediaAspectVars, parseMediaAspect, type MediaAspectSize } from "../lib/utils"
 
 export type PreviewMediaKind = "image" | "video"
@@ -33,6 +34,8 @@ interface MediaPreviewModalProps {
   downloadName?: string
   aspectRatio?: string
   navigation?: MediaPreviewNavigation
+  /** 逐像素对齐的原图；存在时舞台变成叠层滑杆对比。 */
+  compare?: CompareSource
 }
 
 function measureAspect(width: number, height: number): MediaAspectSize | undefined {
@@ -59,6 +62,7 @@ export default function MediaPreviewModal({
   downloadName,
   aspectRatio,
   navigation,
+  compare,
 }: MediaPreviewModalProps) {
   const typeLabel = kind === "video" ? "视频" : "图片"
   const hint = useMemo(() => parseMediaAspect(aspectRatio), [aspectRatio])
@@ -68,6 +72,8 @@ export default function MediaPreviewModal({
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
+  const [beforeSize, setBeforeSize] = useState<MediaSize>()
+  const [position, setPosition] = useState(50)
   const [playing, setPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
@@ -79,6 +85,8 @@ export default function MediaPreviewModal({
 
   useEffect(() => {
     setMeasured(undefined)
+    setBeforeSize(undefined)
+    setPosition(50)
     setPlaying(false)
     setCurrentTime(0)
     setDuration(0)
@@ -129,6 +137,9 @@ export default function MediaPreviewModal({
   }, [])
 
   const barVisible = !playing || hovered || scrubbing
+
+  // 叠层滑杆只在两张图构图一致时成立；比例不同则退回单图，避免滑杆两侧错位。
+  const aligned = Boolean(compare && measured && beforeSize && isCompareAligned(beforeSize, measured))
 
   return (
     <Modal
@@ -209,6 +220,49 @@ export default function MediaPreviewModal({
                     </div>
                   </div>
                 </>
+              ) : compare ? (
+                <div className={`media-preview-compare${aligned ? " is-aligned" : ""}`}>
+                  <img
+                    className="media-preview-compare-layer is-before"
+                    src={compare.src}
+                    alt={compare.label}
+                    style={aligned ? { clipPath: `inset(0 ${100 - position}% 0 0)` } : undefined}
+                    onLoad={(event) => setBeforeSize(measureAspect(event.currentTarget.naturalWidth, event.currentTarget.naturalHeight))}
+                  />
+                  <img
+                    className="media-preview-compare-layer is-after"
+                    src={src}
+                    alt={title}
+                    style={aligned ? { clipPath: `inset(0 0 0 ${position}%)` } : undefined}
+                    onLoad={(event) => setMeasured(measureAspect(event.currentTarget.naturalWidth, event.currentTarget.naturalHeight))}
+                  />
+                  {aligned ? (
+                    <>
+                      <span className="media-preview-compare-handle" style={{ left: `${position}%` }} aria-hidden="true">
+                        <span className="media-preview-compare-line" />
+                        <span className="media-preview-compare-grip">
+                          <span className="media-preview-compare-arrows">
+                            <ChevronLeft size={15} strokeWidth={2.2} />
+                            <ChevronRight size={15} strokeWidth={2.2} />
+                          </span>
+                          <span className="media-preview-compare-value">{Math.round(position)}%</span>
+                        </span>
+                      </span>
+                      <span className="media-preview-compare-flag is-before">{compare.label}</span>
+                      <span className="media-preview-compare-flag is-after">结果</span>
+                      <input
+                        className="media-preview-compare-range"
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={0.5}
+                        value={position}
+                        aria-label="拖动对比原图与结果"
+                        onChange={(event) => setPosition(Number(event.target.value))}
+                      />
+                    </>
+                  ) : null}
+                </div>
               ) : (
                 <img
                   src={src}

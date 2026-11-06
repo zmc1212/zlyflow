@@ -13,7 +13,7 @@ from backend.app.media_studio.services.h3_prompt_builder import H3PromptBuilder
 from backend.app.media_studio.services.job_payload import slim_job_payload
 from backend.app.media_studio.services.project_detail_service import BeatInputChangedError, ProjectDetailService
 from backend.app.media_studio.services.video_preparation import (
-    author_video_prompt, cache_video_prompt, prepare_video_keyframes, snapshot_prompt_inputs, video_prompt_signature,
+    author_video_prompt, cache_video_prompt, snapshot_prompt_inputs, video_prompt_signature,
 )
 from backend.tests.media_studio_test_h3_video import rich_prompt
 
@@ -339,7 +339,7 @@ class VideoPreparationTests(unittest.TestCase):
             result = EpisodeVideoService.create_job("p", "e", beat_id="b1")
         self.assertEqual("queued", result["status"])
         self.assertEqual("h3", captured["prompt_mode"])
-        self.assertFalse(captured["prepare_keyframes"])
+        self.assertNotIn("prepare_keyframes", captured)
         self.assertEqual("", captured["source_shots"][0]["h3_prompt"])
         llm.assert_not_called()
 
@@ -364,11 +364,9 @@ class VideoPreparationTests(unittest.TestCase):
 
     @patch.object(EpisodeVideoService, "_set_state")
     @patch(PREP + ".author_video_prompt")
-    @patch(PREP + ".prepare_video_keyframes")
-    def test_saved_manual_prompt_and_default_asset_flow_do_not_generate_keyframes(self, plan, author, state):
+    def test_saved_manual_prompt_goes_straight_to_render_without_authoring(self, author, state):
         saved = {**shot(prompt="user-authored prompt"), "h3_prompt_source": "manual"}
         self.assertTrue(EpisodeVideoService._prepare_job_prompts("job", payload([saved])))
-        plan.assert_not_called()
         author.assert_not_called()
 
     def test_asset_image_and_aspect_changes_invalidate_generated_cache(self):
@@ -381,7 +379,7 @@ class VideoPreparationTests(unittest.TestCase):
         self.assertIsNotNone(EpisodeVideoService._workshop_prompt_for_shot({**changed, "h3_prompt_source": "manual"}))
 
     @patch("backend.app.skill_packs.resolve_skill_pack_id", return_value="")
-    def test_optional_plan_uses_panel_crops_in_the_actual_video_reference_order(self, pack):
+    def test_default_plan_ignores_legacy_keyframe_fields_in_upload_order(self, pack):
         beat = {"id": "b", "sequence": 1, "action": "沈砚停下", "camera": "中景", "character_ids": ["c"], "scene_id": "s", "video_duration": "6",
                 "triptych_url": "https://example.test/full-sheet.png", "triptych_panels": {"start": "https://example.test/start.png", "mid": "https://example.test/mid.png", "end": "https://example.test/end.png"}}
         assets = [
@@ -389,8 +387,9 @@ class VideoPreparationTests(unittest.TestCase):
             {"id": "s", "name": "走廊", "kind": "scene", "extra": {"master_url": "https://example.test/scene.png"}},
         ]
         prepared = EpisodeVideoService._prepare_shots({"project_id": "p", "beats": [beat]}, assets)[0]
-        self.assertEqual(5, len(prepared["reference_urls"]))
+        self.assertEqual(["https://example.test/look.png", "https://example.test/scene.png"], prepared["reference_urls"])
         self.assertNotIn(beat["triptych_url"], prepared["reference_urls"])
+        self.assertNotIn("https://example.test/start.png", prepared["reference_urls"])
         self.assertEqual(prepared["reference_urls"], [item["url"] for item in prepared["ref_images"]])
 
     @patch(PREP + ".LlmService.generate_h3_prompt", return_value=rich_prompt())
@@ -450,21 +449,6 @@ class VideoPreparationTests(unittest.TestCase):
             ProjectDetailService._update_episode_beat_atomic("p", "e", "b1", {"h3_prompt": "旧生成稿"}, expected_fields={"action": "原文"})
         self.assertEqual(1, cursor.execute.call_count)
         self.assertFalse(cache_video_prompt(shot(), payload([]), {"h3_prompt": "旧生成稿"}))
-
-    @patch(PREP + ".time.sleep")
-    @patch("backend.app.media_studio.services.storyboard_image_service.StoryboardImageService.enqueue", return_value={"job_id": "frames"})
-    @patch.object(ProjectDetailService, "get_job", side_effect=[{"status": "running"}, {"status": "completed"}])
-    @patch.object(ProjectDetailService, "get_episode_detail")
-    def test_optional_keyframes_wait_for_one_job_then_continue(self, detail, get, enqueue, sleep):
-        beat = {"id": "b1", "action": "原文"}
-        detail.side_effect = [{"beats": [beat]}, {"beats": [{**beat, "triptych_url": "https://example.test/frames.png"}]}]
-        source = {**shot(), "prompt_cache_base": snapshot_prompt_inputs(beat)}
-        task = payload([source])
-        result = prepare_video_keyframes(source, task, Mock())
-        self.assertTrue(result["triptych_url"])
-        enqueue.assert_called_once()
-        self.assertEqual("frames", task["keyframe_jobs"]["b1"])
-        self.assertEqual(2, get.call_count)
 
     @patch(PREP + ".author_video_prompt", side_effect=RuntimeError("prompt provider unavailable"))
     @patch(VIDEO + ".occupy_gpu")

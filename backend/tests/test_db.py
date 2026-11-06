@@ -61,3 +61,30 @@ class StorageConfigTests(unittest.TestCase):
         self.assertTrue(_SQLITE_BEGIN.match("BEGIN IMMEDIATE"))
         self.assertTrue(_SQLITE_BEGIN.match("begin exclusive"))
         self.assertFalse(_SQLITE_BEGIN.match("BEGIN TRANSACTION FROM jobs"))
+
+
+class ExecutorMediaMappingTests(unittest.TestCase):
+    """复合图片工作流必须按注册表路由：executor=grs、media=image（回归：曾被前缀推断错路由进 ComfyUI）。"""
+
+    def test_composite_image_modes_resolve_to_grs(self) -> None:
+        from backend.app.storage import JobStore
+
+        for mode in ("image-inpaint", "image-eraser", "image-outpaint"):
+            self.assertEqual(JobStore._executor_for_mode(mode), "grs", mode)
+            self.assertEqual(JobStore._media_for_mode(mode), "image", mode)
+
+    def test_registry_remains_source_of_truth(self) -> None:
+        from backend.app.storage import JobStore
+        from backend.app.workflow_registry import WORKFLOWS
+
+        for definition in WORKFLOWS:
+            self.assertEqual(JobStore._executor_for_mode(definition.id), definition.executor, definition.id)
+            self.assertEqual(JobStore._media_for_mode(definition.id), definition.media_type, definition.id)
+
+    def test_unknown_mode_falls_back_to_prefix_inference(self) -> None:
+        from backend.app.storage import JobStore
+
+        self.assertEqual(JobStore._executor_for_mode("grs-legacy-mode"), "grs")
+        self.assertEqual(JobStore._executor_for_mode("totally-unknown"), "comfyui")
+        self.assertEqual(JobStore._media_for_mode("image"), "image")
+        self.assertEqual(JobStore._media_for_mode("totally-unknown"), "video")

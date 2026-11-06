@@ -1,0 +1,167 @@
+/* 图片图层拆分（对照即梦）：三方式指令条 / 框选角点手柄，复用 photo-edit-editor 的舞台体系。 */
+
+/* ── 舞台框选 ─────────────────────────────────────────── */
+
+/* 非框选模式下标记层不拦截指针，保证图片预览点击不受影响。 */
+.studio-photo-regions.is-idle {
+  pointer-events: none;
+  cursor: default;
+}
+
+/* 即梦式框选：青色虚线框 + 四角白色手柄点。 */
+.studio-ls-region {
+  position: absolute;
+  border: 1.5px dashed #22d3ee;
+  background: rgba(34, 211, 238, .1);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .45);
+  cursor: move;
+}
+
+.studio-ls-handle {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: #22d3ee;
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, .92);
+}
+
+.studio-ls-handle[data-corner="tl"] { left: -4px; top: -4px; }
+.studio-ls-handle[data-corner="tr"] { right: -4px; top: -4px; }
+.studio-ls-handle[data-corner="bl"] { left: -4px; bottom: -4px; }
+.studio-ls-handle[data-corner="br"] { right: -4px; bottom: -4px; }
+
+/* 框选删除按钮默认可见（photo 区域样式默认悬停才出现）。 */
+.studio-photo-region-remove.is-visible {
+  display: grid;
+}
+
+/* ── 工具栏说明 ───────────────────────────────────────── */
+
+.studio-ls-toolbar-note {
+  color: var(--studio-text-muted);
+  font-size: 12.5px;
+  line-height: 18px;
+}
+
+/* ── 指令条：拆分方式标签页 ───────────────────────────── */
+
+.studio-ls-bar {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.studio-ls-tabs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.studio-ls-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--studio-text-secondary);
+  font-size: 13px;
+  line-height: 18px;
+  cursor: pointer;
+  transition: background-color .16s ease, color .16s ease, border-color .16s ease;
+}
+
+.studio-ls-tab:hover {
+  color: var(--studio-text);
+  background: var(--studio-field);
+}
+
+.studio-ls-tab[data-active] {
+  border-color: var(--studio-border-strong);
+  background: var(--studio-field);
+  color: var(--studio-text);
+  font-weight: 600;
+}
+
+.studio-ls-tab:focus-visible {
+  outline: 2px solid var(--studio-primary);
+  outline-offset: 1px;
+}
+
+/* ── 指令条：方式内容与确认按钮 ───────────────────────── */
+
+.studio-ls-body {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.studio-ls-note {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  color: var(--studio-text-muted);
+  font-size: 13px;
+  line-height: 22px;
+}
+
+/* 按描述模式：输入区占满剩余宽度（textarea 样式沿用 photo 指令条的透明融合）。 */
+.studio-ls-body .studio-photo-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.studio-ls-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 5px 8px 5px 10px;
+  border: 1px solid var(--studio-border-strong);
+  border-radius: 9px;
+  background: var(--studio-field);
+  color: var(--studio-text);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.studio-ls-chip > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.studio-ls-chip svg {
+  flex: none;
+  color: var(--studio-accent-text);
+}
+
+.studio-ls-chip-remove {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: rgba(15, 17, 21, .28);
+  color: var(--studio-text-secondary);
+  cursor: pointer;
+}
+
+.studio-ls-chip-remove:hover {
+  background: var(--studio-danger);
+  color: #fff;
+}
+
+.studio-ls-confirm.ant-btn {
+  flex: none;
+  height: 38px;
+  padding-inline: 16px;
+  border-radius: 10px;
+  font-weight: 600;
+}

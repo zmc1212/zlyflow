@@ -9,8 +9,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import unittest
 from unittest.mock import patch
 
-from backend.app.media_studio.services.episode_image_prompts import beat_sketch_prompt
-from backend.app.media_studio.services.storyboard_image_service import StoryboardImageService, _ACTIVE
 from backend.app.media_studio.services.project_detail_service import (
     ProjectDetailService,
     asset_name_id_map,
@@ -20,18 +18,6 @@ from backend.app.media_studio.services.llm_service import LlmService
 
 
 class StoryboardPromptTests(unittest.TestCase):
-    def test_sketch_prompt_keeps_camera_but_excludes_render_style(self):
-        prompt = beat_sketch_prompt(
-            {"action": "Water enters the field", "camera": "Medium shot"},
-            assets=[], visual_style="chinese_period_drama", ethnicity="Chinese",
-        )
-        self.assertIn("CAMERA SETUP (source of truth): Medium shot", prompt)
-        self.assertIn("ACTION (source of truth): Water enters the field", prompt)
-        self.assertNotIn("realistic skin", prompt.lower())
-        self.assertNotIn("cinematic lighting", prompt.lower())
-        self.assertNotIn("not illustration", prompt.lower())
-        self.assertIn("rough symbolic storyboard medium", prompt)
-
     def test_empty_scene_inherits_instead_of_matching_first_asset(self):
         scene_map = {"Indoor room": "scene-room", "Village field": "scene-field"}
         self.assertEqual(
@@ -89,73 +75,6 @@ class StoryboardPromptTests(unittest.TestCase):
             "scene",
         )
         self.assertEqual({"开元楼走廊": "scene-ready"}, mapping)
-
-
-class StoryboardDispatcherTests(unittest.TestCase):
-    def tearDown(self):
-        _ACTIVE.clear()
-
-    @patch("backend.app.media_studio.services.storyboard_image_service._EXECUTOR")
-    @patch("backend.app.media_studio.services.storyboard_image_service.execute_sql", return_value=1)
-    @patch("backend.app.media_studio.services.storyboard_image_service.query_all")
-    @patch.object(StoryboardImageService, "_limit", return_value=5)
-    def test_dispatches_only_five_of_six_queued_jobs(self, _limit, query_all, _sql, executor):
-        query_all.side_effect = [
-            [],
-            [{"id": f"job-{index}", "payload_json": '{"target_type":"beat_sketch"}'} for index in range(6)],
-        ]
-        StoryboardImageService.kick()
-        self.assertEqual(5, executor.submit.call_count)
-
-    @patch("backend.app.media_studio.services.storyboard_image_service._EXECUTOR")
-    @patch("backend.app.media_studio.services.storyboard_image_service.execute_sql", return_value=1)
-    @patch("backend.app.media_studio.services.storyboard_image_service.query_all")
-    @patch.object(StoryboardImageService, "_limit", return_value=5)
-    def test_existing_active_job_reduces_capacity(self, _limit, query_all, _sql, executor):
-        query_all.side_effect = [
-            [{"id": "running", "payload_json": '{"target_type":"beat_render"}'}],
-            [{"id": f"job-{index}", "payload_json": '{"target_type":"beat_sketch"}'} for index in range(6)],
-        ]
-        StoryboardImageService.kick()
-        self.assertEqual(4, executor.submit.call_count)
-
-    @patch("backend.app.media_studio.services.storyboard_image_service._EXECUTOR")
-    @patch("backend.app.media_studio.services.storyboard_image_service.execute_sql", return_value=1)
-    @patch("backend.app.media_studio.services.storyboard_image_service.query_all")
-    @patch.object(StoryboardImageService, "_limit", return_value=5)
-    def test_dispatches_triptych_jobs(self, _limit, query_all, _sql, executor):
-        query_all.side_effect = [
-            [],
-            [{"id": "job-t", "payload_json": '{"target_type":"beat_triptych"}'}],
-        ]
-        StoryboardImageService.kick()
-        self.assertEqual(1, executor.submit.call_count)
-
-    @patch("backend.app.skill_packs.binding.resolve_skill_pack_id", return_value="")
-    def test_unbound_triptych_prompt_does_not_force_half_narrated(self, _resolve):
-        prompt = StoryboardImageService._triptych_prompt("p1", {"action": "她转身关门", "camera": "固定机位"})
-        self.assertIn("OUTPUT CANVAS", prompt)
-        self.assertNotIn("Generate ONE 16:9 keyframe master image", prompt)
-
-    @patch("backend.app.skill_packs.binding.resolve_skill_pack_id", return_value="half-narrated-live-action-short-drama")
-    def test_bound_triptych_prompt_uses_pack_template(self, _resolve):
-        prompt = StoryboardImageService._triptych_prompt("p1", {"action": "她转身关门", "camera": "固定机位"})
-        self.assertIn("Generate ONE 16:9 keyframe master image", prompt)
-        self.assertIn("vertical 9:16", prompt)
-        self.assertIn("finished-shot 9:16", prompt)
-
-    @patch("backend.app.skill_packs.binding.resolve_skill_pack_id", return_value="half-narrated-live-action-short-drama")
-    def test_bound_triptych_prompt_uses_film_aspect_not_crop_label(self, _resolve):
-        prompt = StoryboardImageService._triptych_prompt(
-            "p1",
-            {"action": "她转身关门", "camera": "固定机位"},
-            {"aspect_ratio": "16:9"},
-        )
-        self.assertIn("Generate ONE 16:9 keyframe master image", prompt)
-        self.assertIn("finished-shot 16:9", prompt)
-        self.assertIn("horizontal 16:9 composition", prompt)
-        self.assertNotIn("vertical 9:16", prompt)
-        self.assertNotIn("9:16 裁切", prompt)
 
 
 class TransferEpisodesTests(unittest.TestCase):

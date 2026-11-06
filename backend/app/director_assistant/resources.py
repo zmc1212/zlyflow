@@ -16,7 +16,7 @@ BUILTINS = [
     ("episodes", "分集规划", "剧本", "安排分集结构、节奏与悬念", "结合已确认剧本规划分集。仅在集数或时长确实未知时提问。生成 episodes 草稿，data.episodes 为 {episode_num,title,summary,script_text} 数组。不改写用户已确认的关键事实和台词。"),
     ("storyboard", "分镜设计", "分镜", "把剧情拆解成可制作的镜头", "先读取已采纳剧本、资产和分集，按集生成 storyboard 草稿。data.episodes 每项 {episode_num,title,episode_id,beats:[{id,sequence,scene,action,dialogue,camera,duration,prompt,character_ids,scene_id,prop_ids}]}。id 留空时交给平台生成，引用资产 ID 必须来自工程，不可编造。每镜动作、站位、光线、道具和连续性要可拍摄。时长匹配对白和调度，单镜2–15秒，长镜拆分。"),
     ("prompt", "提示词优化", "提示词", "把创作意图整理为清晰的生成提示词", "确认用户需要图片还是视频提示词，保留主体、构图、光线、动作、风格和约束。引用参考图时保留有序 <Picture n>。交付 prompt 草稿和可复制的正文，不凭空补充产品参数。"),
-    ("production", "完整短剧制作", "全流程", "从创意、剧本到分镜与媒体制作", "按创意澄清、剧本、角色场景道具、分集、分镜、媒体制作推进。每个文字阶段生成对应结构化草稿，等待用户采纳；可按用户要求只做其中一步。下一阶段沿用已确认设定，结合 project_read。媒体制作提出 asset_image、storyboard_image、video、voice、compose 提案，不直接执行付费生成；缺少项目实体 ID、参考素材或配置时先引导补齐。"),
+    ("production", "完整短剧制作", "全流程", "从创意、剧本到分镜与媒体制作", "按创意澄清、剧本、角色场景道具、分集、分镜、媒体制作推进。每个文字阶段生成对应结构化草稿，等待用户采纳；可按用户要求只做其中一步。下一阶段沿用已确认设定，结合 project_read。媒体制作提出 asset_image、video、voice、compose 提案，不直接执行付费生成；缺少项目实体 ID、参考素材或配置时先引导补齐。"),
 ]
 EXPERTS = [
     ("script", "剧本策划专家", "剧本", "关注人物动机、冲突递进和叙事节奏", "作为剧本策划专家，以人物动机、戏剧冲突、因果链和叙事节奏帮助用户做选择。用具体例子解释取舍，尊重用户最终创作方向，与所选 Skill 的方法配合。"),

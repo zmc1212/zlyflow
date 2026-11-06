@@ -4,12 +4,20 @@ import { Alert, Button, Collapse, Drawer, Dropdown, Empty, Form, Input, Modal, S
 import { ArrowRight, BookOpen, Copy, Download, Ellipsis, Eye, FilePlus2, FileText, GripVertical, Info, Pencil, Plus, Save, Trash2, Upload as UploadIcon } from "lucide-react"
 import Markdown from "react-markdown"
 import remarkGfm from "remark-gfm"
-import { consolidateScript, createDocument, createScriptEpisode, deleteScriptEpisode, director2ErrorDetail, listDocuments, transferAssetsFromDoc, updateDocument, type Director2Document } from "../api"
+import { consolidateScript, createDocument, createScriptEpisode, deleteScriptEpisode, director2ErrorDetail, enqueueAssetExtraction, listDocuments, listJobs, updateDocument, type Director2Document } from "../api"
 import { episodeDraftText, episodeReadingText, primaryScript, scriptBodyEpisodes, scriptBodyText, scriptDownloadText, scriptEpisodes, scriptOutlines, storySettingFields, type ScriptEpisode } from "../script-document"
 import { useDirectorAssistant } from "../assistant/DirectorAssistant"
+import {
+  applyAssetExtractionJobSnapshot,
+  applyAssetExtractionStreamEvent,
+  assetExtractionDescription,
+  emptyAssetExtractionLiveState,
+  type AssetExtractionLiveState,
+} from "../asset-extraction-live"
 import { director2ProjectPath } from "../paths"
 import { extractFiles, getCapabilities } from "../script-diagnosis/api"
 import type { Capabilities } from "../script-diagnosis/model"
+import { streamH3PromptJobEvents } from "../workshop-prompt-stream"
 import ContentLibraryPane from "./ContentLibraryPane"
 import "./script-workspace.css"
 
@@ -38,6 +46,8 @@ export default function ScriptWorkspace({ csrfToken, projectId, onChanged }: { c
   const [draft, setDraft] = useState("")
   const [saving, setSaving] = useState(false)
   const [transferring, setTransferring] = useState(false)
+  const [extraction, setExtraction] = useState<ReturnType<typeof emptyAssetExtractionLiveState> | null>(null)
+  const [clock, setClock] = useState(() => Date.now())
   const [merging, setMerging] = useState(false)
   const [episodeBusy, setEpisodeBusy] = useState(false)
   const [expandedEpisodes, setExpandedEpisodes] = useState<string[]>([])
@@ -45,7 +55,15 @@ export default function ScriptWorkspace({ csrfToken, projectId, onChanged }: { c
   const [modal, modalContext] = Modal.useModal()
   const version = useRef(0)
   const editorBase = useRef<{ id: string; text: string; draft: string; episodeNum?: number } | null>(null)
+  const extractionRef = useRef<AssetExtractionLiveState | null>(null)
+  const finishedJobRef = useRef("")
+  const notifiedErrorRef = useRef("")
+  const liveDocRef = useRef<string | null>(null)
+  const docIdRef = useRef("")
+  const onChangedRef = useRef(onChanged)
+  onChangedRef.current = onChanged
   const doc = primaryScript(documents)
+  docIdRef.current = doc?.id || ""
   const section = ["setting", "outline", "body"].includes(params.get("section") || "") ? params.get("section")! : "body"
   const analysis = doc?.analysis || {}
   const episodes = scriptEpisodes(doc?.analysis || null)
@@ -61,7 +79,9 @@ export default function ScriptWorkspace({ csrfToken, projectId, onChanged }: { c
   const outline = outlines.map(ep => `### 第 ${ep.episode_num} 集${ep.title ? ` · ${ep.title}` : ""}\n\n${ep.summary || "还没有本集大纲，可与助手一起完善。"}`).join("\n\n")
   const body = doc ? scriptBodyText(doc) : ""
   const assetExtractionRequired = !!doc?.asset_extraction_required
-  const stageLabel = pendingNumbers.length ? `${pendingNumbers.length} 集剧本拆解资产` : assetExtractionRequired ? "补充拆解资产" : "查看制作资产"
+  const extractionJobId = extraction?.jobId || doc?.asset_extraction_job_id || ""
+  const extractionWorking = !!extraction?.working
+  const stageLabel = extractionWorking ? "正在拆解资产…" : pendingNumbers.length ? `${pendingNumbers.length} 集剧本拆解资产` : assetExtractionRequired ? "补充拆解资产" : "查看制作资产"
 
   function clearDraft() { if (doc) try { localStorage.removeItem(draftKey(doc.id)) } catch { /* Optional recovery. */ } }
   function discardEditing() { clearDraft(); setEditing(false); editorBase.current = null }
@@ -84,6 +104,103 @@ export default function ScriptWorkspace({ csrfToken, projectId, onChanged }: { c
     finally { if (current === version.current) setLoading(false) }
   }, [projectId])
   useEffect(() => { void refresh(); return () => { version.current++ } }, [refresh])
+
+  const updateExtraction = useCallback((next: AssetExtractionLiveState | null) => {
+    extractionRef.current = next
+    setExtraction(next)
+  }, [])
+  const finishExtraction = useCallback(async (jobId: string, notice: string) => {
+    if (finishedJobRef.current === jobId) return
+    finishedJobRef.current = jobId
+    updateExtraction(null)
+    await refresh(true)
+    onChangedRef.current()
+    message.success(notice)
+    setBenefitsOpen(false)
+    const documentId = docIdRef.current
+    if (documentId) navigate(`${director2ProjectPath(projectId, "assets")}?doc=${encodeURIComponent(documentId)}`)
+  }, [navigate, projectId, refresh, updateExtraction])
+
+  useEffect(() => {
+    if (liveDocRef.current === (doc?.id ?? null)) return
+    liveDocRef.current = doc?.id ?? null
+    finishedJobRef.current = ""
+    notifiedErrorRef.current = ""
+    updateExtraction(null)
+  }, [doc?.id, updateExtraction])
+
+  useEffect(() => {
+    if (!extractionWorking) return undefined
+    const timer = window.setInterval(() => setClock(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [extractionWorking])
+
+  useEffect(() => {
+    if (!extractionJobId) return undefined
+    const current = extractionRef.current
+    if (!current || current.jobId !== extractionJobId) updateExtraction(emptyAssetExtractionLiveState(extractionJobId))
+    const controller = new AbortController()
+    let active = true
+    void streamH3PromptJobEvents(projectId, extractionJobId, event => {
+      if (!active) return
+      const state = extractionRef.current
+      if (!state || state.jobId !== extractionJobId) return
+      const next = applyAssetExtractionStreamEvent(state, event)
+      extractionRef.current = next
+      setExtraction(next)
+      if (event.event === "done") void finishExtraction(extractionJobId, next.message)
+      if (event.event === "error") {
+        if (notifiedErrorRef.current !== extractionJobId) {
+          notifiedErrorRef.current = extractionJobId
+          message.error(next.error || "资产拆解未完成")
+        }
+        void refresh(true)
+      }
+    }, { signal: controller.signal, shouldContinue: () => active })
+    return () => { active = false; controller.abort() }
+  }, [extractionJobId, projectId, finishExtraction, refresh, updateExtraction])
+
+  useEffect(() => {
+    if (!extractionJobId) return undefined
+    let active = true
+    void listJobs(projectId).then(jobs => {
+      if (!active) return
+      const job = jobs.find(item => item.id === extractionJobId)
+      const state = extractionRef.current
+      if (!job || !state || state.jobId !== extractionJobId) return
+      const startedAt = Date.parse(job.created_at || "")
+      if (!Number.isFinite(startedAt)) return
+      const next = { ...state, startedAt }
+      extractionRef.current = next
+      setExtraction(next)
+    }).catch(() => { /* 恢复任务时计时从本页打开开始即可 */ })
+    return () => { active = false }
+  }, [extractionJobId, projectId])
+
+  useEffect(() => {
+    if (!extractionWorking || !extractionJobId) return undefined
+    const timer = window.setInterval(() => {
+      void (async () => {
+        try {
+          const jobs = await listJobs(projectId)
+          const job = jobs.find(item => item.id === extractionJobId)
+          const state = extractionRef.current
+          if (!job || !state || state.jobId !== extractionJobId) return
+          const next = applyAssetExtractionJobSnapshot(state, job)
+          extractionRef.current = next
+          setExtraction(next)
+          if (job.status === "completed" || job.status === "succeeded") {
+            void finishExtraction(job.id, next.message)
+          } else if (job.status === "failed" && notifiedErrorRef.current !== job.id) {
+            notifiedErrorRef.current = job.id
+            message.error(next.error || "资产拆解未完成")
+          }
+        } catch { /* SSE 仍在推送时，轮询只作兜底 */ }
+      })()
+    }, 4000)
+    return () => window.clearInterval(timer)
+  }, [extractionWorking, extractionJobId, projectId, finishExtraction])
+
   useEffect(() => {
     const changed = (event: Event) => { if ((event as CustomEvent).detail?.projectId === projectId) void refresh(true) }
     window.addEventListener("director-assistant-project-updated", changed)
@@ -207,13 +324,19 @@ export default function ScriptWorkspace({ csrfToken, projectId, onChanged }: { c
     link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
   async function nextStage() {
-    if (!doc || dirty || transferring) return
+    if (!doc || dirty || transferring || extractionWorking) return
     if (!pendingNumbers.length && !assetExtractionRequired) { navigate(`${director2ProjectPath(projectId, "assets")}?doc=${encodeURIComponent(doc.id)}`); return }
     setTransferring(true); setError("")
     try {
-      await transferAssetsFromDoc(csrfToken, projectId, doc.id, "append")
-      setBenefitsOpen(false); onChanged(); navigate(`${director2ProjectPath(projectId, "assets")}?doc=${encodeURIComponent(doc.id)}`)
-    } catch (e) { setError(director2ErrorDetail(e, "资产拆解失败，可重试")) }
+      const result = await enqueueAssetExtraction(csrfToken, projectId, doc.id)
+      const seeded = emptyAssetExtractionLiveState(result.job_id)
+      if (result.duplicate) seeded.message = "已有拆解任务正在进行，正在同步进度"
+      finishedJobRef.current = ""
+      notifiedErrorRef.current = ""
+      updateExtraction(seeded)
+      setBenefitsOpen(false)
+      void refresh(true)
+    } catch (e) { setError(director2ErrorDetail(e, "资产拆解任务启动失败，可重试")) }
     finally { setTransferring(false) }
   }
 
@@ -246,8 +369,20 @@ export default function ScriptWorkspace({ csrfToken, projectId, onChanged }: { c
       {planning && <Alert type="info" showIcon title="镜头规划正在进行，完成后可继续编辑"/>}
       {documents.length > 1 && <Alert type="info" showIcon title={`检测到 ${documents.length - 1} 份历史独立分集稿，可并入当前剧本`} action={<Button size="small" loading={merging} disabled={dirty || planning} onClick={() => void mergeLegacyScripts()}>合并分集</Button>}/>}
       {!!changedEpisodes.length && <Alert type="info" showIcon title={notice}/>}
-      <div className="script-document-scroll"><Spin spinning={loading}>
-        {!doc ? <div className="script-empty"><BookOpen size={36}/><h2>你的故事，从这里开始</h2><p>与右侧助手完善想法，采纳后剧本会出现在这里。<br/>也可以直接导入已有正文。</p><Button onClick={() => setImportOpen(true)}>导入剧本</Button><Button type="text" onClick={() => assistant.prompt("帮我创作一部短剧，先和我确认故事方向。")}>打开短剧助手</Button></div>
+      {extraction && <Alert
+        className="script-extraction-progress"
+        type={extraction.error ? "error" : "info"}
+        showIcon
+        icon={extractionWorking ? <Spin size="small"/> : undefined}
+        title={extraction.error || extraction.message || "正在拆解资产"}
+        description={assetExtractionDescription(extraction, clock)}
+        closable={!extractionWorking}
+        onClose={() => updateExtraction(null)}
+        action={extraction.error ? <Button size="small" disabled={dirty || planning} onClick={() => void nextStage()}>重试</Button> : undefined}
+      />}
+      <div className="script-document-scroll"><Spin spinning={loading && Boolean(doc)}>
+        {loading && !doc ? <div className="script-loading" role="status" aria-busy="true" aria-label="正在加载剧本"><span className="studio-skeleton-bar script-loading-title" style={{ width: "32%" }}/><span className="studio-skeleton-bar" style={{ width: "96%" }}/><span className="studio-skeleton-bar" style={{ width: "88%" }}/><span className="studio-skeleton-bar" style={{ width: "92%" }}/><span className="studio-skeleton-bar" style={{ width: "64%" }}/><span className="studio-skeleton-bar" style={{ width: "90%" }}/><span className="studio-skeleton-bar" style={{ width: "78%" }}/></div>
+          : !doc ? <div className="script-empty"><BookOpen size={36}/><h2>你的故事，从这里开始</h2><p>与右侧助手完善想法，采纳后剧本会出现在这里。<br/>也可以直接导入已有正文。</p><Button onClick={() => setImportOpen(true)}>导入剧本</Button><Button type="text" onClick={() => assistant.prompt("帮我创作一部短剧，先和我确认故事方向。")}>打开短剧助手</Button></div>
           : editing ? <div className="script-editing"><p>{editorBase.current?.episodeNum ? `正在编辑第 ${editorBase.current.episodeNum} 集，其他集保持原文。请保留本集标题和编号。` : "正在编辑剧本全文。"}</p><Input.TextArea aria-label="编辑剧本正文" value={draft} onChange={event => setDraft(event.target.value)} disabled={saving} autoSize={{ minRows: 18 }} maxLength={500000}/></div>
             : section === "setting" ? <Form layout="vertical" component="div" className="script-setting-form" aria-label="只读故事设定">{storySettingFields(doc).map(field => <Form.Item key={field.key} label={field.label} className={field.wide ? "script-setting-wide" : undefined}>{field.multiline ? <Input.TextArea aria-label={field.label} value={field.value} readOnly variant="filled" autoSize={{ minRows: field.key === "synopsis" ? 6 : 3, maxRows: field.key === "synopsis" ? 16 : 8 }}/>: <Input aria-label={field.label} value={field.value} readOnly variant="filled"/>}</Form.Item>)}</Form>
               : section === "body" && outlines.length && (episodes.some(ep => ep.body?.trim()) || !body.trim()) ? <div className="script-episode-list">
@@ -268,7 +403,7 @@ export default function ScriptWorkspace({ csrfToken, projectId, onChanged }: { c
                 : ((section === "outline" && outline) || (section === "body" && body)) ? <article className="script-reading"><Markdown remarkPlugins={[remarkGfm]} skipHtml disallowedElements={["img"]}>{section === "outline" ? outline : body}</Markdown></article>
                   : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={section === "outline" ? "还没有分集大纲" : "还没有分集正文"}><Button onClick={() => section === "body" ? void newEpisode() : assistant.prompt("请根据当前剧本整理分集大纲，保留已有正文。")}>{section === "body" ? "新建一集" : "和助手一起完善"}</Button></Empty>}
       </Spin></div>
-      <footer className="script-next-step">{editing ? <><span>保存后可继续完善当前分集</span><Button disabled={saving} onClick={() => { if (dirty) modal.confirm({ title: "放弃未保存的修改？", okText: "放弃修改", cancelText: "继续编辑", onOk: discardEditing }); else discardEditing() }}>取消</Button><Button type="primary" icon={<Save size={14}/>} loading={saving} disabled={!draft.trim() || !dirty} onClick={() => void save()}>保存剧本</Button></> : <><Button type="text" className="script-extraction-help" icon={<Eye size={14}/>} onClick={() => setBenefitsOpen(true)}>提取能得到啥？</Button><span>{pendingNumbers.length ? `第 ${pendingNumbers.join("、")} 集待补充制作资产` : "角色与场景可在制作资产中统一管理"}</span><Button type="primary" icon={<ArrowRight size={14}/>} iconPlacement="end" loading={transferring} disabled={!doc?.raw_text?.trim() || planning} onClick={() => void nextStage()}>{stageLabel}</Button><Button type="text" onClick={() => setDetails(true)}>解析详情</Button></>}</footer>
+      <footer className="script-next-step">{editing ? <><span>保存后可继续完善当前分集</span><Button disabled={saving} onClick={() => { if (dirty) modal.confirm({ title: "放弃未保存的修改？", okText: "放弃修改", cancelText: "继续编辑", onOk: discardEditing }); else discardEditing() }}>取消</Button><Button type="primary" icon={<Save size={14}/>} loading={saving} disabled={!draft.trim() || !dirty} onClick={() => void save()}>保存剧本</Button></> : <><Button type="text" className="script-extraction-help" icon={<Eye size={14}/>} onClick={() => setBenefitsOpen(true)}>提取能得到啥？</Button><span>{pendingNumbers.length ? `第 ${pendingNumbers.join("、")} 集待补充制作资产` : "角色与场景可在制作资产中统一管理"}</span><Button type="primary" icon={<ArrowRight size={14}/>} iconPlacement="end" loading={transferring || extractionWorking} disabled={!doc?.raw_text?.trim() || planning || extractionWorking} onClick={() => void nextStage()}>{stageLabel}</Button><Button type="text" onClick={() => setDetails(true)}>解析详情</Button></>}</footer>
     </main>
     <Modal title={doc ? "上传文件·解析新集" : "导入剧本"} open={importOpen} onCancel={() => { if (!importing && !readingFile) setImportOpen(false) }} onOk={() => form.submit()} okText="导入并保存" cancelText="取消" confirmLoading={importing} okButtonProps={{ disabled: readingFile }} width={760} mask={{ closable: !importing }}>
       <Form form={form} layout="vertical" onFinish={importScript} disabled={importing || readingFile}>
@@ -277,7 +412,7 @@ export default function ScriptWorkspace({ csrfToken, projectId, onChanged }: { c
         <Form.Item name="raw_text" label="剧本正文" rules={[{ required: true, whitespace: true, message: "请粘贴或读取剧本正文" }]}><Input.TextArea rows={14} maxLength={500000} placeholder={doc ? "粘贴待追加分集，使用 # 第N集：标题；已有分集保持原文" : "粘贴剧本正文…"}/></Form.Item>
       </Form>
     </Modal>
-    <Modal title="将剧本中的角色、形象和场景整理成可复用资产" open={benefitsOpen} onCancel={() => setBenefitsOpen(false)} width={960} centered className="script-extraction-modal" styles={{ body: { maxHeight: "min(76vh, 700px)", overflowY: "auto" } }} footer={<div className="script-extraction-footer"><span>按当前剧本整理角色、场景与道具，参考图可在资产库继续生成。</span><Button type="primary" loading={transferring} disabled={!doc?.raw_text?.trim() || planning || dirty} onClick={() => void nextStage()}>{stageLabel}</Button></div>}>
+    <Modal title="将剧本中的角色、形象和场景整理成可复用资产" open={benefitsOpen} onCancel={() => setBenefitsOpen(false)} width={960} centered className="script-extraction-modal" styles={{ body: { maxHeight: "min(76vh, 700px)", overflowY: "auto" } }} footer={<div className="script-extraction-footer"><span>按当前剧本整理角色、场景与道具，参考图可在资产库继续生成。</span><Button type="primary" loading={transferring || extractionWorking} disabled={!doc?.raw_text?.trim() || planning || dirty || extractionWorking} onClick={() => void nextStage()}>{stageLabel}</Button></div>}>
       <p className="script-extraction-intro">以下为拆解结果的展示示例，实际资产以你的剧本内容为准。</p>
       <div className="script-extraction-features">
         <div><h3>统一梳理剧本资产</h3><p>整理角色、场景与道具，减少跨集重复创建。</p></div>
@@ -287,7 +422,7 @@ export default function ScriptWorkspace({ csrfToken, projectId, onChanged }: { c
       <section className="script-extraction-section"><h2>角色形象 <Tag>示例</Tag></h2><p>同一角色可以管理多套造型，参考图作为后续镜头的身份与服装依据。</p><div className="script-character-examples">{[["daily", "日常造型"], ["work", "职场造型"], ["evening", "晚宴造型"]].map(([key, label]) => <figure key={key}><img src={`/director-extraction/character-${key}.webp`} alt={`${label}示例`} loading="lazy"/><figcaption>{label}</figcaption></figure>)}</div></section>
       <section className="script-extraction-section"><h2>场景资产 <Tag>示例</Tag></h2><p>同一场景的不同机位与景别，可作为后续画面设计的参考。</p><Tabs activeKey={sceneExample} onChange={setSceneExample} items={SCENE_EXAMPLES.map(item => ({ key: item.key, label: item.label, children: <div className="script-scene-examples">{SHOT_EXAMPLES.map(([shot, label]) => <figure key={shot}><img src={`/director-extraction/${item.key}-${shot}.webp`} alt={`${item.label}${label}示例`} loading="lazy"/><figcaption>{label}</figcaption></figure>)}</div> }))}/></section>
     </Modal>
-    <Drawer title="剧本解析详情" open={details} onClose={() => { setDetails(false); void refresh(true); onChanged() }} size={1060} destroyOnHidden><ContentLibraryPane csrfToken={csrfToken} projectId={projectId} onAssetsTransferred={onChanged} onEpisodesTransferred={onChanged}/></Drawer>
+    <Drawer title="剧本解析详情" open={details} onClose={() => { setDetails(false); void refresh(true); onChanged() }} size={1060} destroyOnHidden><ContentLibraryPane csrfToken={csrfToken} projectId={projectId}/></Drawer>
     {modalContext}
   </div>
 }

@@ -279,7 +279,7 @@ describe("canvas draft model", () => {
     expect(createGeneratorNode({ x: 0, y: 0 })).toMatchObject({
       type: "generator",
       data: { label: "生成", prompt: "", optionValues: {} },
-      style: { width: 356 },
+      style: { width: 400 },
     })
   })
 })
@@ -448,7 +448,7 @@ describe("canvas node geometry and clipboard", () => {
   it("uses measured size and falls back by node type", () => {
     const measured = layoutNode("a", 0, 0, 200, 100)
     expect(canvasNodeSize(measured)).toEqual({ width: 200, height: 100 })
-    expect(canvasNodeSize(createGeneratorNode({ x: 0, y: 0 }))).toEqual({ width: 356, height: 446 })
+    expect(canvasNodeSize(createGeneratorNode({ x: 0, y: 0 }))).toEqual({ width: 400, height: 290 })
     expect(canvasNodeSize({ id: "u", type: "unknown", position: { x: 0, y: 0 }, data: {} }))
       .toEqual({ width: 260, height: 150 })
   })

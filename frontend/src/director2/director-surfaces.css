@@ -27,8 +27,6 @@
 .director2-app .d2-content-library .empty-icon-wrap > svg { width: 30px; height: 30px; }
 .director2-app .d2-content-library .empty-doc-box h3 { font-size: 20px; line-height: 30px; margin-bottom: 10px; }
 .director2-app .d2-content-library .empty-doc-box p { font-size: 14px; line-height: 24px; max-width: 640px; margin-bottom: 24px; }
-.director2-app .d2-content-library .empty-doc-box .ant-btn { height: 40px; font-size: 14px; padding-inline: 18px; }
-.director2-app .d2-content-library .empty-doc-formats { margin-top: 32px; font-size: 12px; }
 .director2-app .d2-content-library .empty-doc-assistant-hint { margin-top: 22px; gap: 8px; font-size: 13px; }
 .director2-app .d2-content-library .empty-doc-assistant-hint > svg { width: 16px; height: 16px; }
 .director2-app .d2-content-library .content-layout { gap: 16px; }

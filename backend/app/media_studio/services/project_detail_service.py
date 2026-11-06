@@ -4,7 +4,7 @@ import json
 import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from ..db import db_cursor, execute_sql, now_str, query_all, query_one, transaction_cursor
 from .job_payload import (
@@ -38,16 +38,11 @@ from .asset_source_references import (
     sniff_image_suffix,
     source_reference_urls,
 )
-from .episode_image_prompts import (
-    asset_to_prompt_dict,
-    beat_reference_urls,
-    beat_render_prompt,
-    beat_sketch_prompt,
-)
 from .grs_client import GrsClient, GrsError
 from .workshop_prompt import normalize_workshop_prompt, invalidate_changed_prompt
 from .episode_shot_planner import document_needs_shot_plan
 from ...skill_packs.aspect import document_aspect_hint, persist_workshop_aspect_ratio
+from ...workflow_registry import GRS_VIP_SIZES
 from .llm_service import LlmService
 from ..provider_bridge import credential_manager, grs_row
 from .qiniu_service import QiniuService
@@ -61,6 +56,22 @@ from .voice_profile import (
     sniff_audio_suffix,
     voice_of,
 )
+
+# GPT Image 2.5 系列的能力档：线上协议不接受 "1:1" 等比例字符串，必须传像素值或 auto，
+# 映射表与主注册表 grs_request_size 共用（workflow_registry 是能力映射的唯一来源）。
+GPT_IMAGE_25_PROFILES = ("gpt_image_2_5", "gpt_image_2_5_vip")
+# 导演台资产生图默认走 GPT Image 2.5 基础版（1K，GRS 国内节点最便宜档 600 积分/张）。
+ASSET_IMAGE_DEFAULT_MODEL = "gpt-image-2.5"
+ASSET_IMAGE_DEFAULT_PROFILE = "gpt_image_2_5"
+
+
+def grs_wire_aspect_ratio(profile: str | None, aspect_ratio: str, image_size: str | None) -> str:
+    """把注册表口径的比例/分辨率映射成 GRS 线上协议的 aspectRatio 值。"""
+    if profile not in GPT_IMAGE_25_PROFILES or aspect_ratio == "auto":
+        return aspect_ratio
+    sizes = GRS_VIP_SIZES.get(aspect_ratio) or {}
+    pixel = sizes.get(image_size or "1K") or next(iter(sizes.values()), None)
+    return pixel or aspect_ratio
 
 
 def resolve_shot_scene(
@@ -144,6 +155,11 @@ def _has_analysis_content(value: Any) -> bool:
 
 _ASSET_IMAGE_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="asset-image")
 _ASSET_IMAGE_ACTIVE_STATUSES = ("queued", "running", "preparing", "storing")
+
+# 镜头生图目标已全部下线（草图/渲染/三联关键帧）。保留标记只为让历史任务在任务中心
+# 仍可分类与回显，重试时给出明确提示而不是误入资产图或视频重试分支。
+RETIRED_BEAT_IMAGE_TARGETS = {"beat_sketch", "beat_render", "beat_triptych"}
+RETIRED_BEAT_IMAGE_MESSAGE = "镜头生图（草图 / 渲染图 / 三联关键帧）已下线，请直接为本镜生成 H3 提示词后用角色卡与场景卡出片。"
 
 
 class BeatInputChangedError(ValueError):
@@ -331,11 +347,13 @@ class ProjectDetailService:
             "SELECT * FROM ai_project_documents WHERE project_id = %s AND COALESCE(status,'') <> 'merged' ORDER BY updated_at DESC",
             (project_id,),
         )
+        from .asset_extraction_job_service import AssetExtractionJobService
         from .shot_plan_job_service import ShotPlanJobService
         from ...skill_packs.binding import load_project, skill_pack_id_of
         from ...skill_packs.recipe import get_pack
 
         job_ids = ShotPlanJobService.active_job_ids_by_document(project_id)
+        extraction_job_ids = AssetExtractionJobService.active_job_ids_by_document(project_id)
         from ...director_assistant.script_documents import episode_locks
         production_rows = query_all("SELECT episode_num,status,data_json FROM ai_project_episodes WHERE project_id = %s", (project_id,)) if rows else []
         project = None
@@ -364,6 +382,7 @@ class ProjectDetailService:
                 "locked_episode_nums": sorted(locks),
                 "episode_lock_reasons": {str(number): reason for number, reason in locks.items()},
                 "shot_plan_job_id": job_ids.get(r["id"]),
+                "asset_extraction_job_id": extraction_job_ids.get(r["id"]),
                 "aspect_hint": document_aspect_hint(
                     str(r.get("raw_text") or ""),
                     project=project,
@@ -578,7 +597,14 @@ class ProjectDetailService:
         return aff > 0
 
     @classmethod
-    def transfer_assets_from_document(cls, project_id: str, doc_id: str, *, mode: str = "merge") -> dict[str, Any]:
+    def transfer_assets_from_document(
+        cls,
+        project_id: str,
+        doc_id: str,
+        *,
+        mode: str = "merge",
+        on_phase: Callable[[str, bool], None] | None = None,
+    ) -> dict[str, Any]:
         if mode not in {"merge", "append"}:
             raise ValueError("资产同步方式无效")
         row = query_one("SELECT id, analysis_json, raw_text FROM ai_project_documents WHERE id = %s AND project_id = %s", (doc_id, project_id))
@@ -586,7 +612,7 @@ class ProjectDetailService:
             raise ValueError("文档不存在或尚未完成分析")
         analysis = cls._analysis_for_document_row(row, persist=True) or {}
         if script_asset_extraction_required(str(row.get("raw_text") or ""), analysis):
-            analysis = cls._extract_prose_document_assets(project_id, row)
+            analysis = cls._extract_prose_document_assets(project_id, row, on_phase=on_phase)
         ts = now_str()
         chars = analysis.get("characters") or []
         scenes = analysis.get("scenes") or []
@@ -696,6 +722,9 @@ class ProjectDetailService:
             current = query_one("SELECT raw_text FROM ai_project_documents WHERE id=%s AND project_id=%s", (doc_id, project_id))
             if not current or str(current.get("raw_text") or "") != str(row.get("raw_text") or ""):
                 raise ValueError("剧本已更新，已提取的资产保留，请重新核对分集后操作")
+        receipt = analysis.get("script_asset_extraction")
+        receipt = receipt if isinstance(receipt, dict) else {}
+        skipped = receipt.get("skipped") if isinstance(receipt.get("skipped"), list) else []
         return {
             "transferred": {
                 "characters": c_count,
@@ -703,10 +732,18 @@ class ProjectDetailService:
                 "props": p_count,
             },
             "total": c_count + s_count + p_count,
+            "skipped": skipped,
+            "skipped_count": len(skipped),
         }
 
     @classmethod
-    def _extract_prose_document_assets(cls, project_id: str, row: dict[str, Any]) -> dict[str, Any]:
+    def _extract_prose_document_assets(
+        cls,
+        project_id: str,
+        row: dict[str, Any],
+        *,
+        on_phase: Callable[[str, bool], None] | None = None,
+    ) -> dict[str, Any]:
         # LLM requests run only after an explicit extraction action, never while
         # listing documents. Refresh after any deterministic read recovery.
         current = query_one("SELECT id,raw_text,analysis_json FROM ai_project_documents WHERE id=%s AND project_id=%s", (row["id"], project_id))
@@ -716,11 +753,15 @@ class ProjectDetailService:
         text = str(current.get("raw_text") or "")
         if not script_asset_extraction_required(text, analysis):
             return analysis
-        extracted = LlmService.extract_script_assets(text, analysis)
+        extracted = LlmService.extract_script_assets(text, analysis, on_phase=on_phase)
+        skipped = list(getattr(extracted, "skipped", []))
         merged = merge_extracted_assets(analysis, extracted)
         merged["script_asset_extraction"] = {"revision": ASSET_EXTRACTION_REVISION,
-                                               "source_hash": asset_source_hash(text, analysis), "created_at": now_str()}
+                                               "source_hash": asset_source_hash(text, analysis), "created_at": now_str(),
+                                               "skipped": skipped[:50], "skipped_count": len(skipped)}
         cls._refresh_analysis_shot_summary(merged)
+        if on_phase:
+            on_phase("正在写入制作资产", False)
         changed = execute_sql(
             "UPDATE ai_project_documents SET analysis_json=%s WHERE id=%s AND project_id=%s AND COALESCE(raw_text,'')=%s AND COALESCE(analysis_json,'')=%s",
             (json.dumps(merged, ensure_ascii=False), row["id"], project_id, text, current.get("analysis_json") or ""),
@@ -1168,12 +1209,12 @@ class ProjectDetailService:
             raise ValueError("生图目标与资产类型不匹配，请重新打开对应资产后生成")
         identity_id = payload.get("identity_id")
         prompt = (payload.get("prompt") or "").strip()
-        # 解析请求的模型参数，默认为 gpt-image-2
-        requested_model = (payload.get("model") or "").strip() or "gpt-image-2"
+        # 解析请求的模型参数，默认为 GPT Image 2.5（1K 基础档）
+        requested_model = (payload.get("model") or "").strip() or ASSET_IMAGE_DEFAULT_MODEL
         # 查找匹配的模型（按 provider_model, display_name 或 workflow_id）
         model_row = query_one(
             """
-            SELECT provider_model, display_name FROM grs_image_models
+            SELECT provider_model, display_name, profile FROM grs_image_models
             WHERE (provider_model = %s OR display_name = %s OR workflow_id = %s) AND enabled = 1
             ORDER BY is_default DESC LIMIT 1
             """,
@@ -1181,9 +1222,10 @@ class ProjectDetailService:
         )
         if not model_row:
             model_row = query_one(
-                "SELECT provider_model, display_name FROM grs_image_models WHERE is_default = 1 AND enabled = 1 LIMIT 1"
+                "SELECT provider_model, display_name, profile FROM grs_image_models WHERE is_default = 1 AND enabled = 1 LIMIT 1"
             )
-        grs_model = (model_row["provider_model"] if model_row else None) or "gpt-image-2"
+        grs_model = (model_row["provider_model"] if model_row else None) or ASSET_IMAGE_DEFAULT_MODEL
+        grs_profile = (model_row["profile"] if model_row else None) or ASSET_IMAGE_DEFAULT_PROFILE
         model_display = (model_row["display_name"] if model_row else None) or grs_model
         extra = row.get("extra") or {}
         extra["source_references"] = normalize_source_references(extra)
@@ -1347,6 +1389,9 @@ class ProjectDetailService:
             image_size = "1K"
             w, h = dim_map.get(aspect_ratio, (1024, 1024))
 
+        # GPT Image 2.5 系列线上协议要求像素值或 auto（与主注册表 grs_request_size 同一映射）。
+        wire_aspect_ratio = grs_wire_aspect_ratio(grs_profile, aspect_ratio, image_size)
+
         # -------- 严格调用 GRS 极速生图供应商 (对齐 source1) --------
         grs_row_data = grs_row()
         grs_base_url = grs_row_data.get("base_url") or "https://grsai.dakka.com.cn"
@@ -1385,7 +1430,7 @@ class ProjectDetailService:
                 "model": grs_model,
                 "prompt": clean_prompt,
                 "images": reference_urls,
-                "aspectRatio": aspect_ratio,
+                "aspectRatio": wire_aspect_ratio,
                 "imageSize": image_size,
                 "replyType": "async",
             },
@@ -1409,7 +1454,7 @@ class ProjectDetailService:
             grs_url = client.generate_sync(
                 model=grs_model,
                 prompt=clean_prompt,
-                aspect_ratio=aspect_ratio,
+                aspect_ratio=wire_aspect_ratio,
                 images=reference_images,
                 image_size=image_size,
             )
@@ -2293,7 +2338,7 @@ class ProjectDetailService:
 
     @classmethod
     def _resolve_grs_model(cls, requested_model: str) -> tuple[str, str]:
-        requested = (requested_model or "").strip() or "gpt-image-2"
+        requested = (requested_model or "").strip() or ASSET_IMAGE_DEFAULT_MODEL
         model_row = query_one(
             """
             SELECT provider_model, display_name FROM grs_image_models
@@ -2306,29 +2351,9 @@ class ProjectDetailService:
             model_row = query_one(
                 "SELECT provider_model, display_name FROM grs_image_models WHERE is_default = 1 AND enabled = 1 LIMIT 1"
             )
-        grs_model = (model_row["provider_model"] if model_row else None) or "gpt-image-2"
+        grs_model = (model_row["provider_model"] if model_row else None) or ASSET_IMAGE_DEFAULT_MODEL
         model_display = (model_row["display_name"] if model_row else None) or grs_model
         return grs_model, model_display
-
-    @classmethod
-    def generate_beat_sketch(cls, project_id: str, episode_id: str, beat_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        from .storyboard_image_service import StoryboardImageService
-        return StoryboardImageService.enqueue(project_id, episode_id, beat_id, payload or {}, stage="sketch")
-
-    @classmethod
-    def generate_beat_render(cls, project_id: str, episode_id: str, beat_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        from .storyboard_image_service import StoryboardImageService
-        return StoryboardImageService.enqueue(project_id, episode_id, beat_id, payload or {}, stage="render")
-
-    @classmethod
-    def generate_beat_triptych(cls, project_id: str, episode_id: str, beat_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-        from .storyboard_image_service import StoryboardImageService
-        return StoryboardImageService.enqueue(project_id, episode_id, beat_id, payload or {}, stage="triptych")
-
-    @classmethod
-    def generate_beat_images_batch(cls, project_id: str, episode_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        from .storyboard_image_service import StoryboardImageService
-        return StoryboardImageService.enqueue_batch(project_id, episode_id, payload or {})
 
     @classmethod
     def generate_beat_h3_prompt(cls, project_id: str, episode_id: str, beat_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -2359,229 +2384,6 @@ class ProjectDetailService:
         result["split"] = False
         result["merged"] = bool(req.get("merge_as_one"))
         return result
-
-    @classmethod
-    def _generate_beat_still(
-        cls,
-        project_id: str,
-        episode_id: str,
-        beat_id: str,
-        payload: dict[str, Any],
-        *,
-        stage: str,
-    ) -> dict[str, Any]:
-        """对齐 source1 草图 / 渲染图：2:3 + 1K，beat_*_prompt，参考图顺序与任务 payload 全量落库。"""
-        detail = cls.get_episode_detail(project_id, episode_id)
-        beats = detail.get("beats") or []
-        target = next((b for b in beats if b.get("id") == beat_id), None)
-        if not target:
-            raise ValueError("分镜不存在")
-        if target.get("kind") == "scene_heading" and not (target.get("action") or target.get("heading")):
-            raise ValueError("这一条没有可生成的画面")
-        if stage == "render" and not str(target.get("sketch_url") or "").strip():
-            raise ValueError("请先生成草图")
-
-        scene_view = str(payload.get("scene_view") or "front").strip() or "front"
-        if scene_view not in {"front", "reverse"}:
-            scene_view = "front"
-        style = cls._project_visual_settings(project_id, payload)
-        raw_assets = cls.list_assets(project_id)
-        prompt_assets = [asset_to_prompt_dict(row) for row in raw_assets]
-        if stage == "render" and target.get("character_ids"):
-            assets_by_id = {str(asset.get("id") or ""): asset for asset in raw_assets}
-            selected_ids = target.get("character_look_ids") if isinstance(target.get("character_look_ids"), dict) else {}
-            legacy_look_id = str(target.get("character_look_id") or "").strip()
-            invalid_characters: list[str] = []
-            for character_id in [str(item) for item in (target.get("character_ids") or [])]:
-                character = assets_by_id.get(character_id) or {}
-                extra = character.get("extra") if isinstance(character.get("extra"), dict) else {}
-                identities = extra.get("identities") or []
-                selected_look_id = str(selected_ids.get(character_id) or "").strip()
-                if not selected_look_id and legacy_look_id:
-                    if any(str((look or {}).get("id") or "") == legacy_look_id for look in identities):
-                        selected_look_id = legacy_look_id
-                selected_look = next(
-                    (
-                        look for look in identities
-                        if isinstance(look, dict) and str(look.get("id") or "") == selected_look_id
-                    ),
-                    None,
-                )
-                selected_look_url = str((selected_look or {}).get("image_url") or "").strip()
-                if not selected_look_url.startswith(("http://", "https://")):
-                    invalid_characters.append(str(character.get("name") or character_id))
-            if invalid_characters:
-                raise ValueError("请为当前分镜的出场角色选择有效服饰造型：" + "、".join(invalid_characters))
-        if stage == "sketch":
-            clean_prompt = beat_sketch_prompt(
-                target,
-                assets=prompt_assets,
-                visual_style=style["visual_style"],
-                ethnicity=style["ethnicity"],
-                art_style_id=style["art_style_id"],
-            )
-            job_label = "镜头草图"
-            target_type = "beat_sketch"
-        else:
-            clean_prompt = beat_render_prompt(
-                target,
-                assets=prompt_assets,
-                visual_style=style["visual_style"],
-                ethnicity=style["ethnicity"],
-                art_style_id=style["art_style_id"],
-            )
-            job_label = "镜头渲染"
-            target_type = "beat_render"
-
-        reference_urls = beat_reference_urls(
-            target, raw_assets, stage=stage, scene_view=scene_view
-        )
-        if stage == "render" and not reference_urls:
-            raise ValueError("无法读取草图文件，请重新生成草图")
-
-        aspect_ratio = "2:3"
-        image_size = "1K"
-        grs_model, _model_display = cls._resolve_grs_model(str(payload.get("model") or ""))
-        dim_map = {
-            "1:1": (1024, 1024),
-            "2:3": (768, 1152),
-            "3:4": (896, 1152),
-            "9:16": (768, 1344),
-            "16:9": (1344, 768),
-            "2:1": (2048, 1024),
-            "4:3": (1152, 896),
-        }
-        w, h = dim_map.get(aspect_ratio, (768, 1152))
-
-        grs_row_data = grs_row()
-        grs_base_url = grs_row_data.get("base_url") or "https://grsai.dakka.com.cn"
-        encrypted_key = grs_row_data.get("api_key_encrypted")
-        cred = credential_manager()
-        api_key = cred.decrypt(encrypted_key) if encrypted_key else None
-        if not api_key:
-            raise ValueError("GRS 供应商 API Key 未配置，请前往「系统设置 - GRS 供应商」配置有效 API Key。")
-
-        ts = now_str()
-        jid = f"job-{uuid.uuid4().hex[:12]}"
-        job_title = f"生成{job_label}: 第 {detail['number']} 集 - Beat {target.get('sequence')} ({grs_model})"
-        job_payload = {
-            "model": grs_model,
-            "api_endpoint": f"{grs_base_url}/v1/api/generate",
-            "image_size": image_size,
-            "target_type": target_type,
-            "episode_id": episode_id,
-            "beat_id": beat_id,
-            "beat_sequence": target.get("sequence"),
-            "scene_view": scene_view,
-            "prompt": clean_prompt,
-            "clean_prompt": clean_prompt,
-            "aspect_ratio": aspect_ratio,
-            "width": w,
-            "height": h,
-            "visual_style": style["visual_style"],
-            "art_style_id": style["art_style_id"],
-            "ethnicity": style["ethnicity"],
-            "reply_type": "async",
-            "character_ids": target.get("character_ids") or [],
-            "character_look_id": target.get("character_look_id"),
-            "character_look_ids": target.get("character_look_ids") or {},
-            "scene_id": target.get("scene_id"),
-            "prop_ids": target.get("prop_ids") or [],
-            "reference_urls": reference_urls,
-            "request_body": {
-                "model": grs_model,
-                "prompt": clean_prompt,
-                "images": reference_urls,
-                "aspectRatio": aspect_ratio,
-                "imageSize": image_size,
-                "replyType": "async",
-            },
-        }
-        execute_sql(
-            """
-            INSERT INTO ai_project_jobs
-            (id, project_id, job_type, title, status, progress, result_url, payload_json, created_at, updated_at)
-            VALUES (%s, %s, 'image_generation', %s, 'running', 10, NULL, %s, %s, %s)
-            """,
-            (jid, project_id, job_title, json.dumps(job_payload, ensure_ascii=False), ts, ts),
-        )
-
-        client = GrsClient(base_url=grs_base_url, api_key=api_key)
-        try:
-            reference_images: list[str] = []
-            for ref_url in reference_urls:
-                ref_name, ref_bytes = client.download_image(ref_url)
-                reference_images.append(GrsClient.data_uri_from_bytes(ref_bytes, ref_name))
-            grs_url = client.generate_sync(
-                model=grs_model,
-                prompt=clean_prompt,
-                aspect_ratio=aspect_ratio,
-                images=reference_images,
-                image_size=image_size,
-            )
-            filename, content = client.download_image(grs_url)
-            object_key, image_url = QiniuService.store_bytes("image", filename, content)
-        except Exception as e:
-            fail_ts = now_str()
-            err_text = str(e)
-            if isinstance(e, GrsError):
-                err_text = f"GRS 生图失败: {e}"
-            execute_sql(
-                """
-                UPDATE ai_project_jobs
-                SET status = 'failed', progress = 0, error_message = %s, updated_at = %s
-                WHERE id = %s
-                """,
-                (err_text[:4000], fail_ts, jid),
-            )
-            raise ValueError(err_text) from e
-
-        job_payload["api_url"] = image_url
-        job_payload["grs_url"] = grs_url
-        job_payload["object_key"] = object_key
-        if stage == "sketch":
-            beat_updates = {
-                "sketch_url": image_url,
-                "sketch_prompt": clean_prompt,
-                "sketch_job_id": jid,
-                "status": "sketched",
-            }
-        else:
-            beat_updates = {
-                "render_url": image_url,
-                "render_prompt": clean_prompt,
-                "render_job_id": jid,
-                "render_status": "succeeded",
-            }
-        try:
-            target = cls._update_episode_beat_atomic(
-                project_id,
-                episode_id,
-                beat_id,
-                beat_updates,
-                initial_beats=beats,
-                completed_job={"id": jid, "result_url": image_url, "payload": job_payload},
-            )
-        except Exception as err:
-            fail_ts = now_str()
-            err_text = f"图片已生成，但分镜回填失败: {err}"
-            execute_sql(
-                """
-                UPDATE ai_project_jobs
-                SET status = 'failed', progress = 0, error_message = %s, updated_at = %s
-                WHERE id = %s AND project_id = %s
-                """,
-                (err_text[:4000], fail_ts, jid, project_id),
-            )
-            raise ValueError(err_text) from err
-        return {
-            "status": "success",
-            "image_url": image_url,
-            "job_id": jid,
-            "beat_id": beat_id,
-            "beat": target,
-        }
-
 
     # --- 4. 全部任务 Jobs ---
     @classmethod
@@ -2651,9 +2453,8 @@ class ProjectDetailService:
     @classmethod
     def recover_interrupted_image_jobs(cls) -> None:
         """资产形象图在请求线程内同步调 GRS：进程重启后任务行不会再有结果，
-        留在 running 会一直触发助手媒体提案的 409 保护。"""
-        from .storyboard_image_service import BEAT_IMAGE_TARGETS
-
+        留在 running 会一直触发助手媒体提案的 409 保护。
+        已下线的镜头生图行（含三联关键帧）没有执行器，按同一条原因收口。"""
         placeholders = ", ".join("%s" for _ in _ASSET_IMAGE_ACTIVE_STATUSES)
         rows = query_all(
             f"SELECT id, payload_json FROM ai_project_jobs WHERE job_type = 'image_generation' AND status IN ({placeholders})",
@@ -2664,11 +2465,14 @@ class ProjectDetailService:
                 payload = json.loads(row.get("payload_json") or "{}")
             except (TypeError, json.JSONDecodeError):
                 payload = {}
-            if payload.get("target_type") in BEAT_IMAGE_TARGETS:
-                continue
+            message = (
+                RETIRED_BEAT_IMAGE_MESSAGE
+                if payload.get("target_type") in RETIRED_BEAT_IMAGE_TARGETS
+                else "服务重启时生图任务已中断，请在任务中心重试。"
+            )
             execute_sql(
                 "UPDATE ai_project_jobs SET status = 'failed', progress = 0, error_message = %s, updated_at = %s WHERE id = %s",
-                ("服务重启时生图任务已中断，请在任务中心重试。", now_str(), row["id"]),
+                (message, now_str(), row["id"]),
             )
 
     @classmethod
@@ -2704,9 +2508,8 @@ class ProjectDetailService:
             from .tts_generation_job_service import TtsGenerationJobService
             return TtsGenerationJobService.retry(project_id, job_id)
         payload = json.loads((row or {}).get("payload_json") or "{}")
-        from .storyboard_image_service import BEAT_IMAGE_TARGETS, StoryboardImageService
-        if payload.get("target_type") in BEAT_IMAGE_TARGETS:
-            return StoryboardImageService.retry(project_id, job_id)
+        if payload.get("target_type") in RETIRED_BEAT_IMAGE_TARGETS:
+            raise ValueError(RETIRED_BEAT_IMAGE_MESSAGE)
         if payload.get("asset_id"):
             return cls._retry_asset_image(project_id, row or {}, payload)
         ts = now_str()

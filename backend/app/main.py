@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
 from typing import Annotated, Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import requests
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Path as ApiPath, Query, Request, Response, Security, UploadFile
@@ -108,6 +108,7 @@ from .models import (
     ModelProviderPresetsResponse,
     VlmProviderUpdateRequest, VlmProviderTestRequest, VlmModelCatalogRequest, VlmStatusResponse,
     PromptOptimizeRequest, PromptOptimizeResponse, PromptReverseResponse, AnalyzeSubjectResponse, SkillsListResponse, SkillPackListResponse,
+    ProviderSecretRevealRequest, ProviderSecretRevealResponse,
     ScriptSplitRequest, ScriptSplitResponse,
     DirectorContinuityRepairRequest,
     DirectorProjectCreateRequest, DirectorProjectUpdateRequest, DirectorProjectListItem,
@@ -122,10 +123,13 @@ from .models import (
     DirectorTtsRequest, DirectorMuxRequest, DirectorExportCapabilitiesResponse,
     DirectorTranslatePromptRequest,
     CanvasProjectCreateRequest, CanvasProjectUpdateRequest, CanvasDraftSaveRequest,
+    CanvasLinkedProjectRequest,
     CanvasProjectListItem, CanvasProjectResponse, CanvasDraftSaveResponse, CanvasDraftVersionItem,
 )
 from .motion_transfer_media import validate_motion_video
+from .keep_face_restore_workflow import KEEP_MAX_UPLOAD_BYTES, validate_face_restore_sources
 from .scail2_workflow import probe_scail_canvas, resolve_scail_video_options
+from .provider_secret import reveal_secret
 
 from .library_query import (
     LIBRARY_DEFAULT_LIMIT,
@@ -143,17 +147,20 @@ from .canvas_store import (
 )
 from .media_studio.db import ensure_schema
 from .media_studio.routers.project_router import register_project_routes
+from .media_studio.routers.featured_router import register_featured_work_routes
+from .media_studio.routers.showcase_router import register_showcase_routes
 from .director_assistant.routes import register_assistant_routes
 from .script_diagnosis.routes import register_diagnosis_routes
 from .script_diagnosis.service import DiagnosisService
 from .director_assistant.service import AssistantService
 from .media_studio.services.ai_generation_service import AiGenerationService
+from .media_studio.services.asset_extraction_job_service import AssetExtractionJobService
 from .media_studio.services.episode_video_service import EpisodeVideoService
 from .media_studio.services.h3_prompt_job_service import H3PromptJobService
 from .media_studio.services.job_lease import ensure_lease_schema
 from .media_studio.services.project_detail_service import ProjectDetailService
+from .media_studio.services.project_service import ProjectService
 from .media_studio.services.shot_plan_job_service import ShotPlanJobService
-from .media_studio.services.storyboard_image_service import StoryboardImageService
 from .media_studio.services.tts_generation_job_service import TtsGenerationJobService
 from .qiniu_provider import QiniuProviderService
 from .request_log import RequestLogMiddleware, write_request_log
@@ -173,8 +180,9 @@ from .seedvr2_upscale_workflow import (
 )
 from .workflow_registry import (
     AVATAR_MAX_SCENE_SECONDS, LIPSYNC_SOURCE_MAX_SECONDS, LIPSYNC_SOURCE_MIN_SECONDS, WORKFLOWS,
-    comfy_ram_total_bytes, is_depth_workflow, is_grs_image_workflow, is_h3_workflow, is_image_workflow,
-    is_lip_sync_workflow, is_local_comfy_job, is_rtx_vsr_workflow, is_seedvr2_upscale_workflow,
+    comfy_ram_total_bytes, is_composite_image_workflow, is_depth_workflow, is_grs_image_workflow,
+    is_h3_workflow, is_image_workflow, is_lip_sync_workflow, is_local_comfy_job,
+    is_motion_ref_video_workflow, is_rtx_vsr_workflow, is_seedvr2_upscale_workflow,
     is_upscale_workflow, normalize_options, option_visible, quality_for_megapixels, set_catalog_lookup,
     set_hardware_profile_resolver, validate_option_relationships, validate_references, workflow_for,
 )
@@ -577,7 +585,7 @@ def attach_elapsed(record: dict) -> dict:
     return record
 
 
-def public_reference(mode: str, index: int, url: str) -> dict:
+def public_reference(mode: str, index: int, url: str, count: int | None = None) -> dict:
     data = {"index": index, "url": url}
     try:
         definition = workflow_for(mode)
@@ -587,7 +595,7 @@ def public_reference(mode: str, index: int, url: str) -> dict:
         return data
     labels = definition.reference_labels
     return {
-        "index": index, "url": url, "kind": definition.reference_kind(index),
+        "index": index, "url": url, "kind": definition.reference_kind(index, count),
         "label": labels[index - 1] if index <= len(labels) else f"参考图 {index}",
     }
 
@@ -599,7 +607,8 @@ def public_job(job: dict) -> dict:
     data.pop("options_submitted", None)
     attach_elapsed(data)
     data["references"] = [
-        public_reference(job["mode"], index, public_api_path(f"jobs/{job['id']}/references/{index}"))
+        public_reference(job["mode"], index, public_api_path(f"jobs/{job['id']}/references/{index}"),
+                             int(job.get("reference_count", 0)))
         for index in range(1, int(job.get("reference_count", 0)) + 1)
     ]
     data["outputs"] = []
@@ -623,7 +632,8 @@ def public_job(job: dict) -> dict:
         public_round.pop("options_submitted", None)
         public_round["references"] = [
             public_reference(round_data["mode"], index,
-                             public_api_path(f"jobs/{job['id']}/rounds/{round_data['id']}/references/{index}"))
+                             public_api_path(f"jobs/{job['id']}/rounds/{round_data['id']}/references/{index}"),
+                             int(round_data.get("reference_count", 0)))
             for index in range(1, int(round_data.get("reference_count", 0)) + 1)
         ]
         public_items: list[dict] = []
@@ -760,15 +770,15 @@ def safe_name(filename: str) -> str:
     return cleaned or "upload.png"
 
 
-async def save_upload(upload: UploadFile, destination: Path) -> None:
+async def save_upload(upload: UploadFile, destination: Path, *, max_bytes: int = MAX_UPLOAD_BYTES) -> None:
     total = 0
     with destination.open("wb") as target:
         while chunk := await upload.read(1024 * 1024):
             total += len(chunk)
-            if total > MAX_UPLOAD_BYTES:
+            if total > max_bytes:
                 target.close()
                 destination.unlink(missing_ok=True)
-                raise HTTPException(status_code=413, detail="单份参考素材不能超过 50 MB")
+                raise HTTPException(status_code=413, detail=f"单份参考素材不能超过 {max_bytes // (1024 * 1024)} MB")
             target.write(chunk)
 
 
@@ -841,10 +851,10 @@ async def lifespan(app: FastAPI):
         ensure_schema()
         ensure_lease_schema()
         EpisodeVideoService.recover_orphaned_jobs()
-        StoryboardImageService.recover_interrupted_jobs()
         ProjectDetailService.recover_interrupted_image_jobs()
         H3PromptJobService.recover_interrupted_jobs()
         ShotPlanJobService.recover_interrupted_jobs()
+        AssetExtractionJobService.recover_interrupted_jobs()
         TtsGenerationJobService.recover_interrupted_jobs()
         AiGenerationService.recover_orphaned_jobs()
     app.state.director_assistant = AssistantService(store, llm_provider, settings.uploads_dir, vlm_provider)
@@ -888,11 +898,23 @@ app = FastAPI(
         {"name": "智能剪辑", "description": "分集剪辑工程、素材导入、三轨时间线与 MP4 / JSON / XML / OTIO / 剪映基础草稿导出。"},
         {"name": "复刻台", "description": "参考片拉片复刻：上传成片，自动分镜反推提示词与深度视频，用 Wan VACE 深度控制批量转绘。"},
         {"name": "导演台2", "description": "AI Media Studio：按项目组织的内容库、资产库、剧集工坊与全部任务（复刻自 dev0914）。"},
+        {"name": "灵感示例", "description": "示例库：管理员把真实出片冻结成可复现配方，所有用户浏览并一键回填创作台。"},
     ],
     lifespan=lifespan,
 )
 
-register_project_routes(app, current_user=current_user, mutating_user=mutating_user)
+register_project_routes(app, current_user=current_user, mutating_user=mutating_user, session_cookie=SESSION_COOKIE)
+register_featured_work_routes(
+    app,
+    current_user=current_user,
+    mutating_admin_user=mutating_admin_user,
+    canvas_store=lambda: app.state.canvas_store,
+)
+register_showcase_routes(
+    app,
+    current_user=current_user,
+    mutating_admin_user=mutating_admin_user,
+)
 register_assistant_routes(app, current_user=current_user, mutating_user=mutating_user)
 register_diagnosis_routes(app, current_user=current_user, mutating_user=mutating_user)
 app.add_middleware(RequestLogMiddleware)
@@ -1622,6 +1644,31 @@ async def test_tts_provider(
     return result
 
 
+@app.post(
+    "/api/admin/providers/secret",
+    response_model=ProviderSecretRevealResponse,
+    tags=["管理后台"],
+    summary="取回已保存的明文凭据（界面「复制 Key」）",
+)
+def admin_reveal_provider_secret(
+    payload: ProviderSecretRevealRequest,
+    request: Request,
+    response: Response,
+    user: Annotated[dict, Depends(mutating_super_admin_user)],
+) -> dict:
+    try:
+        value = reveal_secret(app.state, payload.provider, payload.field)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    response.headers["Cache-Control"] = "no-store"
+    app.state.auth_store.audit(
+        "reveal_provider_secret", "provider", actor_user_id=user["id"],
+        target_id=f"{payload.provider}.{payload.field}",
+        detail="revealed" if value else "empty", ip_address=client_ip(request),
+    )
+    return {"provider": payload.provider, "field": payload.field, "value": value}
+
+
 @app.get("/api/llm/skills", response_model=SkillsListResponse, tags=["大模型"], summary="获取 MiniMax H3 官方提示词技能列表")
 def get_llm_skills(_: Annotated[dict, Depends(current_user)]) -> dict:
     from .llm_minimax_skills import list_h3_skills_payload
@@ -1971,6 +2018,33 @@ def create_canvas_project(
         ip_address=client_ip(request),
     )
     return created
+
+
+@app.post(
+    "/api/canvas/linked",
+    response_model=CanvasProjectResponse,
+    tags=["画布"],
+    summary="获取或创建导演项目绑定的资产画布",
+)
+def ensure_linked_canvas_project(
+    payload: CanvasLinkedProjectRequest,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    if not ProjectService.allows_user(payload.director_project_id, user["id"]):
+        raise HTTPException(status_code=404, detail="项目不存在")
+    try:
+        project = app.state.canvas_store.get_or_create_linked(
+            user["id"], payload.director_project_id, payload.title or "资产画布",
+        )
+    except CanvasValidationError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "ensure_linked_canvas_project", "canvas", actor_user_id=user["id"], target_id=project["id"],
+        detail=f"director_project_id={payload.director_project_id}",
+        ip_address=client_ip(request),
+    )
+    return project
 
 
 @app.get(
@@ -4128,9 +4202,9 @@ async def render_director_batch_items(
     return public_director_project(saved)
 
 
-def _validate_reference_upload(definition, index: int, upload: UploadFile) -> None:
+def _validate_reference_upload(definition, index: int, upload: UploadFile, count: int | None = None) -> None:
     content_type = (upload.content_type or "").split(";")[0].strip().lower()
-    kind = definition.reference_kind(index) if definition is not None else "image"
+    kind = definition.reference_kind(index, count) if definition is not None else "image"
     if kind == "audio":
         if content_type and not (content_type.startswith("audio/") or content_type == "application/octet-stream"):
             raise HTTPException(status_code=422, detail="数字人口播的第 2 项素材必须是音频文件")
@@ -4161,11 +4235,17 @@ def _validate_reference_upload(definition, index: int, upload: UploadFile) -> No
                 raise HTTPException(status_code=422, detail=f"{definition.name}的第 {index} 项素材必须是视频文件（MP4 / MOV / WebM）")
             raise HTTPException(status_code=422, detail="动作迁移的第 2 项素材必须是动作参考视频（MP4 / MOV / WebM）")
     elif content_type and not content_type.startswith("image/"):
-        detail = "动作迁移的第 1 项素材必须是角色形象图" if definition is not None and definition.accepts_video_reference else "参考素材必须为图片"
+        detail = f"{definition.name}的第 {index} 项素材必须是角色形象图" if definition is not None and definition.accepts_video_reference else "参考素材必须为图片"
         raise HTTPException(status_code=422, detail=detail)
 
 
 async def _validate_saved_references(definition, paths: list[str], options: dict, upload_dir: Path) -> None:
+    if definition.id == JobMode.KEEP_FACE_RESTORE.value:
+        try:
+            options.update(await asyncio.to_thread(validate_face_restore_sources, paths, options["duration"]))
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return
     if definition.id == JobMode.MINIMAX_H3_VIDEO_EDIT.value:
         from .h3_video_edit_workflow import validate_video_edit_source, video_edit_dimensions
 
@@ -4202,6 +4282,9 @@ async def _validate_saved_references(definition, paths: list[str], options: dict
             if definition.id == JobMode.SCAIL2_REPLACEMENT.value:
                 options.update(await asyncio.to_thread(resolve_scail_video_options, Path(paths[1]), options["duration"]))
                 options["width"], options["height"] = await asyncio.to_thread(probe_scail_canvas, Path(paths[1]))
+            elif is_motion_ref_video_workflow(definition.id):
+                # 多人版约定动作参考视频在 references 末位。
+                await asyncio.to_thread(validate_motion_video, Path(paths[-1]), options["duration"])
             else:
                 await asyncio.to_thread(validate_motion_video, Path(paths[1]), options["duration"])
         except ValueError as error:
@@ -4291,13 +4374,13 @@ async def create_job(
     prompt: Annotated[str, Form(description="创作提示词；支持默认提示词的工作流可留空。")]= "",
     negative_prompt: Annotated[str, Form(description="仅 image 模式生效。")]= "",
     image_size: Annotated[str | None, Form(description="仅 image 模式必填，值来自 image_sizes。")]= None,
-    options: Annotated[str | None, Form(description="MiniMax H3 参数 JSON；其他模式传 {}。")]= None,
+    options: Annotated[str | None, Form(description="工作流参数 JSON；字段、默认值与约束见 GET /api/modes/{mode}。")]= None,
     title: Annotated[str | None, Form(description="任务标题。")]= None,
     display_prompt: Annotated[str | None, Form(description="中文展示提示词；省略时界面显示 prompt。")]= None,
-    source_job_id: Annotated[str | None, Form(description="图片转视频来源任务 ID。")]= None,
-    source_generation_item_id: Annotated[str | None, Form(description="图片转视频来源生成项 ID。")]= None,
-    source_output_index: Annotated[int | None, Form(description="图片转视频来源输出序号。")]= None,
-    references: list[UploadFile] = File(default=[], description="参考图文件；多图时顺序具有业务含义。"),
+    source_job_id: Annotated[str | None, Form(description="来源任务 ID；人脸修复支持视频来源，其他视频生成支持图片来源。")]= None,
+    source_generation_item_id: Annotated[str | None, Form(description="来源生成项 ID。")]= None,
+    source_output_index: Annotated[int | None, Form(description="来源输出序号。")]= None,
+    references: list[UploadFile] = File(default=[], description="参考素材文件；类型、数量与顺序见工作流定义。"),
 ) -> dict:
     return await submit_generation(
         user=user, mode=mode, prompt=prompt, negative_prompt=negative_prompt, image_size=image_size,
@@ -4325,6 +4408,13 @@ async def submit_generation(
         raise HTTPException(status_code=422, detail="请填写创作提示词")
     if is_upscale_workflow(mode):
         raise HTTPException(status_code=422, detail="请对已成功的视频调用超分接口，不要直接创建超分任务")
+    if mode == JobMode.KEEP_FACE_RESTORE.value:
+        check = getattr(getattr(app.state.worker, "comfy", None), "require_keep_face_restore", None)
+        if callable(check):
+            try:
+                await asyncio.to_thread(check)
+            except Exception as error:
+                raise HTTPException(status_code=422, detail=str(error)) from error
     try:
         raw_options = json.loads(options) if options is not None else {}
         if not isinstance(raw_options, dict):
@@ -4334,6 +4424,13 @@ async def submit_generation(
         validate_option_relationships(mode, generation_options, len(references))
     except (ValueError, json.JSONDecodeError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+
+    if is_composite_image_workflow(mode):
+        # 复合图片工作流的生图模型不在任务表单里：跟随管理员启用的目录默认模型，
+        # 避免注册表内置默认值被停用后任务必然失败。
+        generation_options["provider_model"] = app.state.grs_provider.resolve_composite_model(
+            generation_options.get("provider_model"),
+        )
 
     if is_grs_image_workflow(mode):
         available, reason = app.state.grs_provider.availability(mode)
@@ -4350,9 +4447,10 @@ async def submit_generation(
             if item["id"] == source_generation_item_id
         ), None)
         if source_item is None or source_output_index is None or not 0 <= source_output_index < len(source_item["outputs"]):
-            raise HTTPException(status_code=422, detail="图片转视频来源不存在")
-        if source_item["outputs"][source_output_index].get("kind") != "image":
-            raise HTTPException(status_code=422, detail="图片转视频来源必须是图片")
+            raise HTTPException(status_code=422, detail="人脸修复来源视频不存在" if mode == JobMode.KEEP_FACE_RESTORE.value else "图片转视频来源不存在")
+        expected_kind = "video" if mode == JobMode.KEEP_FACE_RESTORE.value else "image"
+        if source_item["outputs"][source_output_index].get("kind") != expected_kind:
+            raise HTTPException(status_code=422, detail="人脸修复来源必须是视频" if expected_kind == "video" else "图片转视频来源必须是图片")
         source = {"job_id": source_job_id, "generation_item_id": source_generation_item_id, "output_index": source_output_index}
 
     job_id = job_id or secrets.token_urlsafe(9).replace("-", "").replace("_", "")
@@ -4361,9 +4459,9 @@ async def submit_generation(
     references_paths: list[str] = []
     try:
         for index, upload in enumerate(references, start=1):
-            _validate_reference_upload(definition, index, upload)
+            _validate_reference_upload(definition, index, upload, len(references))
             destination = upload_dir / f"{index}_{safe_name(upload.filename or 'upload.png')}"
-            await save_upload(upload, destination)
+            await save_upload(upload, destination, max_bytes=KEEP_MAX_UPLOAD_BYTES if definition is not None and definition.id == JobMode.KEEP_FACE_RESTORE.value else MAX_UPLOAD_BYTES)
             references_paths.append(str(destination))
         await _validate_saved_references(definition, references_paths, generation_options, upload_dir)
     except HTTPException:
@@ -4423,7 +4521,8 @@ async def create_job_round(
         if options is None and definition is not None and definition.accepts_video_reference:
             latest = existing["rounds"][-1]
             raw_options = dict(latest.get("options") or {})
-            raw_options["seed"] = (latest.get("submitted_options") or {}).get("seed", 0)
+            if "seed" in (definition.option_schema or {}).get("properties", {}):
+                raw_options["seed"] = (latest.get("submitted_options") or {}).get("seed", 0)
         if not isinstance(raw_options, dict):
             raise ValueError("生成参数必须为对象。")
         reused_references = existing["rounds"][-1].get("references", []) if not references else []
@@ -4444,9 +4543,9 @@ async def create_job_round(
     reference_paths: list[str] = list(reused_references)
     try:
         for index, upload in enumerate(references, start=1):
-            _validate_reference_upload(definition, index, upload)
+            _validate_reference_upload(definition, index, upload, len(references))
             destination = upload_dir / f"{index}_{safe_name(upload.filename or 'upload.png')}"
-            await save_upload(upload, destination)
+            await save_upload(upload, destination, max_bytes=KEEP_MAX_UPLOAD_BYTES if definition is not None and definition.id == JobMode.KEEP_FACE_RESTORE.value else MAX_UPLOAD_BYTES)
             reference_paths.append(str(destination))
         if definition is not None:
             await _validate_saved_references(definition, reference_paths, generation_options, upload_dir)
@@ -4525,12 +4624,45 @@ def update_job_metadata(
     return public_job(job)
 
 
-@app.delete("/api/jobs/{job_id}", tags=["任务"], summary="删除任务记录")
+@app.delete("/api/jobs/{job_id}", tags=["任务"], summary="删除任务记录与未被引用的云端产物")
 def delete_job(job_id: str, user: Annotated[dict, Depends(mutating_user)]) -> dict:
-    job = job_or_404(app.state.store, job_id, user)
-    if job["status"] in {JobStatus.QUEUED.value, JobStatus.RUNNING.value}:
-        raise HTTPException(status_code=409, detail="任务生成中，完成后才能删除")
-    if not app.state.store.delete(job_id):
+    job_or_404(app.state.store, job_id, user)
+
+    def cleanup(job, connection) -> None:
+        items = [item for round_data in job["rounds"] for item in round_data["generation_items"]]
+        if any(entry["status"] in {JobStatus.QUEUED.value, JobStatus.RUNNING.value} for entry in [job, *items]):
+            raise HTTPException(status_code=409, detail="任务生成中，完成后才能删除")
+        outputs = list(job["outputs"])
+        for item in items:
+            outputs.extend(item["outputs"])
+            outputs.extend((item.get("refine_state") or {}).get("preview_outputs") or [])
+        cloud_outputs = [output for output in outputs if output.get("cloud_url") or output.get("delivery_status") == "cloud"]
+        if not cloud_outputs:
+            return
+        storage = app.state.resource_storage
+        if storage.provider_id != "qiniu":
+            raise HTTPException(status_code=409, detail="请先恢复任务产物对应的七牛云配置，再删除任务")
+        keys: set[str] = set()
+        for output in cloud_outputs:
+            key = str(output.get("path") or "")
+            saved_url = str(output.get("cloud_url") or "")
+            expected_url = resource_object_url(storage, key)
+            if not key or not saved_url or not expected_url or (
+                urlsplit(saved_url)._replace(query="", fragment="")
+                != urlsplit(expected_url)._replace(query="", fragment="")
+            ):
+                raise HTTPException(status_code=409, detail="无法确认云端产物所属存储，请检查原七牛云配置后重试")
+            keys.add(key)
+        if app.state.store.job_media_in_use(job_id, sorted(keys), connection):
+            raise HTTPException(status_code=409, detail="任务产物仍被其他任务、资产或画布引用，请先解除引用后再删除")
+        try:
+            for key in sorted(keys):
+                if not storage.delete(key):
+                    raise RuntimeError("云端对象未删除")
+        except Exception as error:
+            raise HTTPException(status_code=502, detail="云端产物清理未完成，任务记录已保留；部分文件可能已清理，请重试删除") from error
+
+    if not app.state.store.delete(job_id, before_commit=cleanup):
         raise HTTPException(status_code=404, detail="任务不存在")
     return {"id": job_id}
 
@@ -4718,6 +4850,18 @@ async def upscale_job(
         raise
     await app.state.worker.enqueue(new_job_id)
     return public_job(job)
+
+
+@app.get("/api/face-restore/capabilities", tags=["任务"], summary="查询当前渲染机的人脸高清修复能力")
+def face_restore_capabilities(user: Annotated[dict, Depends(current_user)]) -> dict:
+    comfy = getattr(app.state.worker, "comfy", None)
+    try:
+        if comfy is None:
+            raise ValueError("当前渲染服务尚未就绪")
+        comfy.require_keep_face_restore()
+        return {"available": True, "name": "人脸高清修复", "engine": "KEEP", "reason": ""}
+    except Exception as error:
+        return {"available": False, "name": "人脸高清修复", "engine": "KEEP", "reason": str(error)}
 
 
 @app.get(

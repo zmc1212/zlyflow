@@ -389,7 +389,7 @@ function CanvasLayers({ nodes, selectedNode, onSelectNode, onFocusNode, onDelete
                 <span className="canvas-layer-text">
                   <strong>{nodeTitle(node)}</strong>
                   <small>
-                    {canvasNodeTypeLabel(node.type)} · {Math.round(node.position.x)}, {Math.round(node.position.y)}
+                    {canvasNodeTypeLabel(node.type)}
                   </small>
                 </span>
               </button>

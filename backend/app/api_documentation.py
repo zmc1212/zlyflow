@@ -11,16 +11,11 @@ from typing import Any
 
 
 FIELD_DOCUMENTATION: dict[str, tuple[str, str]] = {
-    "credit_cost": (
-        "消耗积分",
-        "GRS 生图模型在平台价目表上的单次生成消耗积分，来自上游 /client/openapi/getModelList；"
-        "价格接口失败或该模型未标价时为 null，仅用于展示，不参与提交参数。",
-    ),
-    "access_key": ("七牛 Access Key", "七牛云对象存储的 Access Key；仅提交时使用，读取配置时不会返回原文。"),
+    "access_key": ("七牛 Access Key", "七牛云对象存储的 Access Key；配置接口不回显原文，需要复制时通过 POST /api/admin/providers/secret 单独取回。"),
     "accepts_image_size": ("支持画布尺寸", "该工作流是否接受 image_size 字段。"),
     "accepts_negative_prompt": ("支持负面提示词", "该工作流是否接受 negative_prompt 字段。"),
-    "api_key": ("API 密钥", "供应商 API 密钥；仅在保存或测试连接时提交，接口不会回显原始值。"),
-    "api_key_masked": ("已脱敏 API 密钥", "已保存 API 密钥的脱敏展示值；不含可用的完整密钥。"),
+    "api_key": ("API 密钥", "供应商 API 密钥；仅在保存或测试连接时提交，配置接口不回显原文，需要复制时通过 POST /api/admin/providers/secret 单独取回。"),
+    "api_key_masked": ("已脱敏 API 密钥", "已保存 API 密钥的脱敏展示值；不含可用的完整密钥，完整值需超级管理员调用 POST /api/admin/providers/secret 取回。"),
     "attach_images": ("是否附图", "当前写稿或分析路径是否会把参考图作为 image_url 发给模型；7B 等纯文本模型为 false。"),
     "authoring_vision": ("写稿看图路由", "工坊写稿、生成页优化、导演台最终润色使用的看图路径：LLM 名称可看图时走 LLM，否则走 VLM。"),
     "analysis_vision": ("分析看图路由", "资产反推、主体分析和复刻台拉片使用的看图路径：默认 VLM，VLM 未开且 LLM 可看图时回退 LLM。"),
@@ -40,6 +35,11 @@ FIELD_DOCUMENTATION: dict[str, tuple[str, str]] = {
     "created_at": ("创建时间", "记录创建时的 ISO 8601 时间字符串（UTC）。"),
     "created_by": ("创建者", "写入该历史草稿版本的账号 ID。"),
     "credential_ready": ("凭据加密可用", "服务端用于加密保存供应商凭据的主密钥是否可用。"),
+    "credit_cost": (
+        "消耗积分",
+        "GRS 生图模型在平台价目表上的单次生成消耗积分，来自上游 /client/openapi/getModelList；"
+        "价格接口失败或该模型未标价时为 null，仅用于展示，不参与提交参数。",
+    ),
     "credits": ("剩余额度", "上游 GRS 账户当前可查询到的余额或点数。"),
     "cloud_url": ("云端资源地址", "对象存储上的稳定 HTTPS 地址，不含过期签名；任务 JSON 的 download_url 仍为同源下载路径。"),
     "csrf_token": ("CSRF 令牌", "登录后返回的防跨站请求伪造令牌；所有会改变服务端状态的 Cookie 会话请求须在 X-CSRF-Token 请求头中携带此值。"),
@@ -138,7 +138,8 @@ FIELD_DOCUMENTATION: dict[str, tuple[str, str]] = {
     "reference_count": ("参考素材数量", "本次任务或轮次实际保存的参考素材数量。"),
     "reference_labels": ("参考素材角色", "按上传顺序说明素材角色，例如首帧、角色形象图或动作参考视频。"),
     "reference_mode": ("参考图规则", "工作流对参考图的使用方式和顺序要求。"),
-    "references": ("参考素材文件", "multipart/form-data 中可重复提交的文件字段。类型、数量和顺序以所选工作流定义为准；动作迁移为角色图在前、动作视频在后。"),
+    "reference_slots": ("参考素材槽位类型", "工作流按最大参考素材数声明的槽位类型序列（image/video）；实际提交数少于声明槽位时，末位按尾槽类型、其余按图片。"),
+    "references": ("参考素材文件", "multipart/form-data 中可重复提交的文件字段。类型、数量和顺序以所选工作流定义为准；动作迁移（骨架/SCAIL 版）为角色图在前、动作视频在后，多人参考视频版为 1-6 张角色图在前（<Picture n> 与上传顺序对应）、动作视频在末位。"),
     "refresh_error": ("刷新失败原因", "最近一次后台刷新 GRS 余额失败的错误摘要；成功时为 null。"),
     "region": ("存储区域", "七牛云 Bucket 所在区域代码，例如 z0。"),
     "remote_task_id": ("上游任务 ID", "ComfyUI 或 GRS 等执行器返回的远端任务标识；尚未提交时为 null。"),
@@ -148,16 +149,16 @@ FIELD_DOCUMENTATION: dict[str, tuple[str, str]] = {
     "role": ("账号角色", "super_admin 可管理全局配置和管理员；admin 可管理员工；employee 仅访问自己的任务和资源。"),
     "rounds": ("生成轮次", "同一任务下的历史生成轮次，按 sequence 递增。"),
     "schema": ("JSON 参数约束", "当字段以 JSON 字符串提交时，反序列化对象必须满足的 JSON Schema。"),
-    "secret_key": ("七牛 Secret Key", "七牛云对象存储的 Secret Key；仅提交时使用，读取配置时不会返回原文。"),
+    "secret_key": ("七牛 Secret Key", "七牛云对象存储的 Secret Key；配置接口不回显原文，需要复制时通过 POST /api/admin/providers/secret 单独取回。"),
     "sequence": ("轮次序号", "同一任务下从 1 开始递增的生成轮次序号。"),
     "setup_required": ("需要初始化", "是否尚未创建首位超级管理员；仅为 true 时可从工作站本机调用初始化接口。"),
     "skill_id": ("提示词技能 ID", "要应用的 MiniMax H3 提示词技能标识；null 表示使用通用优化。"),
     "skill_pack_id": ("技能包 ID", "导演台项目 extra.skill_pack_id 绑定的制作配方；空字符串表示默认 H3 官方六段式大模型装箱。不是生成页 H3 风格芯片。"),
     "skills": ("提示词技能列表", "当前可选的 MiniMax H3 提示词优化技能。"),
-    "source": ("来源图片信息", "由图片转视频创建时，记录所引用的来源任务、生成项和输出序号。"),
-    "source_generation_item_id": ("来源生成项 ID", "图片转视频时被引用图片所在的生成项 ID，须与 source_job_id 对应。"),
-    "source_job_id": ("来源任务 ID", "图片转视频时被引用图片所在的图片任务 ID。"),
-    "source_output_index": ("来源输出序号", "图片转视频时被引用图片在来源生成项输出数组中的从 0 开始索引。"),
+    "source": ("来源素材信息", "记录所引用的来源任务、生成项和输出序号；人脸修复引用视频，图片转视频引用图片。"),
+    "source_generation_item_id": ("来源生成项 ID", "被引用素材所在的生成项 ID，须与 source_job_id 对应。"),
+    "source_job_id": ("来源任务 ID", "被引用素材所在的任务 ID；人脸修复来源须为视频，其他视频生成来源须为图片。"),
+    "source_output_index": ("来源输出序号", "被引用素材在来源生成项输出数组中的从 0 开始索引。"),
     "style_id": ("画风 ID", "导演台画风目录中的唯一标识，例如 as_1001。"),
     "stage": ("处理阶段", "任务当前所在的执行阶段，例如 queued、uploading、generating 或 completed。"),
     "status": ("状态", "任务、轮次或生成项的状态：queued 排队中，running 处理中，succeeded 成功，failed 失败，interrupted 已中断，cancelled 用户已停止，partial 部分成功。"),
@@ -257,7 +258,7 @@ OPERATION_DETAILS: dict[tuple[str, str], str] = {
     ("get", "/api/jobs"): "需要登录。默认只返回当前用户的最近任务，使用 limit 控制数量。管理员和超级管理员可传 user_id 查看指定账号，或传 user_id=all 查看全部；员工传入该参数会被忽略。",
     ("get", "/api/jobs/{job_id}"): "需要登录。获取当前用户任务、轮次、生成项和输出的最新状态；推荐用于创建任务后的轮询。",
     ("patch", "/api/jobs/{job_id}"): "需要登录和 X-CSRF-Token。仅更新任务标题和置顶状态；未提供的字段保持不变。",
-    ("delete", "/api/jobs/{job_id}"): "需要登录和 X-CSRF-Token。仅可删除已结束任务；排队中或运行中的任务返回 409。",
+    ("delete", "/api/jobs/{job_id}"): "需要登录和 X-CSRF-Token。删除任务及全部轮次前，按 key 去重清理七牛云产物（含二采预览）。排队中、运行中、产物仍被其他任务/资产/画布引用或无法确认原存储归属时返回 409，不执行删除。云端清理失败返回 502 并保留任务记录供重试；部分文件可能已清理，对象不存在视为成功。本地文件与上传参考素材不删除。成功响应仍为 {id}。",
     ("post", "/api/jobs/{job_id}/retry"): "需要登录和 X-CSRF-Token。重新提交符合条件的 MiniMax H3、RTX 超分或 SeedVR2 高清增强失败、中断或已停止任务；ComfyUI 恢复后中断视频也会自动重提，用户停止的任务不会自动重提。接口成功时返回 202。",
     ("post", "/api/jobs/{job_id}/upscale"): "需要登录和 X-CSRF-Token。旧生成页的独立 VSR 超分入口，导演台2「智能超清」改用复放生成图只跑二采后前端不再调用；接口保留供历史任务使用。JSON body 可选 {\"engine\":\"rtx\"|\"seedvr2\"}，缺省 rtx。rtx 创建 nvidia-rtx-vsr 任务（固定 2x / ULTRA，秒级）；seedvr2 创建 seedvr2-upscale 任务（生成式 2x 高清增强，分钟级），需要当前 ComfyUI 已安装 SeedVR2 节点与模型。同一原片已有进行中的超分时返回 409；RTX 显存预估过大、SeedVR2 节点/模型缺失或目标已是超分结果时返回 422。超分失败不影响原片。接口成功时返回 202。",
     ("get", "/api/upscale/capabilities"): "需要登录。探测当前连接的 ComfyUI 可用的旧 VSR 超分引擎，返回 engines（id、label、available、reason）与 default。rtx 检查 RTXVideoSuperResolution 节点，seedvr2 检查 SeedVR2 原生节点、扩散模型与 VAE；结果缓存 30 秒。智能超清不再做引擎能力探测，前端已不调用本接口。",
@@ -266,6 +267,7 @@ OPERATION_DETAILS: dict[tuple[str, str], str] = {
     ("get", "/api/jobs/{job_id}/rounds/{round_id}/references/{reference_index}"): "需要登录。以图片二进制流预览指定历史轮次的参考图；reference_index 从 1 开始。",
     ("get", "/api/canvas/projects"): "需要登录。默认只返回当前用户未删除的无限画布摘要，收藏优先、同组按草稿更新时间倒序；传 trashed=1 只返回回收站画布。响应含 tags、is_favorite 与 deleted_at，不返回完整 nodes/edges，管理员也不能读取他人画布。",
     ("post", "/api/canvas/projects"): "需要登录和 X-CSRF-Token。创建画布并写入空草稿（版本 1）。标题去除首尾空白后为空时使用「未命名画布」，最长 120 个字符；超长返回 422。",
+    ("post", "/api/canvas/linked"): "需要登录和 X-CSRF-Token。按当前用户与 director_project_id 幂等获取或创建绑定的资产画布（返回与读取画布相同的响应，含 linked_director_project_id）；同一用户同一项目只会存在一个未删除的绑定画布，重复调用返回已有画布；项目不存在或不属于当前用户返回 404；标题超长返回 422。",
     ("get", "/api/canvas/projects/{canvas_id}"): "需要登录。读取画布元数据与当前完整草稿 JSON（nodes、edges 等）；响应中的 version 保存时须作为 base_version 提交。画布不存在、不属于当前用户或已在回收站时按 404 处理。",
     ("patch", "/api/canvas/projects/{canvas_id}"): "需要登录和 X-CSRF-Token。按请求中提供的字段部分更新标题、标签或收藏状态，不产生新的草稿版本；标题为空或超过 120 个字符、标签超过 8 个或单个超过 24 字符、请求没有任何字段时返回 422；画布不存在或已在回收站返回 404。",
     ("delete", "/api/canvas/projects/{canvas_id}"): "需要登录和 X-CSRF-Token。永久删除画布、当前草稿和全部历史版本，删除后不可恢复（回收站中的画布同样适用）；画布不存在返回 404。",
@@ -317,7 +319,7 @@ OPERATION_DETAILS: dict[tuple[str, str], str] = {
     ("post", "/api/projects/{project_id}/documents/{doc_id}/shot-plan"): "需要登录和 X-CSRF-Token。确认成片画幅后入队 shot_plan。JSON 可选 aspect_ratio，写入 settings.extra.workshop_aspect_ratio 并作为规划权威画幅。AI 流水线文档或已全部 shots_source=llm 时返回 400。已有进行中任务则返回原 job_id 并标 duplicate。202 返回 job_id。",
     ("post", "/api/projects/{project_id}/documents/{doc_id}/transfer-episodes"): "需要登录和 X-CSRF-Token。把内容库该文档的分集/出片镜头写入剧集工坊。JSON {mode}：overwrite（缺省）重写已有集的 beats 并删除剧本里没有的旧集；append 只补尚未存在的集号。只拷贝文档里已有的出片镜，不再在同步时调大模型规划。",
     ("put", "/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}"): "需要登录和 X-CSRF-Token。更新当前分镜字段。可写 h3_prompt 与 h3_prompt_source（manual/generated）。手动保存的提示词出片按原文使用。服务端可写 video_takes；前端选用成片请走 adopt 接口，不要直接 PATCH video_url。",
-    ("post", "/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/h3-prompt"): "需要登录和 X-CSRF-Token。为当前分镜入队一个 h3_prompt 任务，不再按口型/内心/近景规则拆镜。JSON 可选 aspect_ratio，解析后写入 beat_info 并作为写稿权威画幅（否则读 extra.workshop_aspect_ratio / 配方缺省）。未绑技能包时按 Beat 的动作/运镜/台词编译六段 Ref2VA（会剥掉动作里整段粘贴的台词，内心/旁白不作为开口对白）。绑定半解说包时由 LLM 一次写官方八块中文分秒稿（VLM/可看图 LLM 可用时看角色卡/场景卡/整张三联）和英文六段；配方临时 skip_program_pack=true 时出片英文用 GPT 六段原文（规范化 Picture/Subject 标签、六段 name: 标题，并在 detailed_description 补 [Shot 1]；内心改成官方 says in an off-screen voiceover 且 </d> 后闭嘴），不再程序灌水、中文时间码或轿厢句，也不走第二次装箱；写稿合同写清开口/角色内心/第三人称旁白三通道与编号表演顺序，无旁白时禁止用内心或开口句充数；同一人连续多句按问号/句号切开后逐字校验；内心若写成口型同步 says: 会先修补，修补后仍不合格则任务失败；半解说包另校验台词去重与 <d> 表演顺序；中文分秒仍回写 timestamped_zh_prompt。中文或英文未通过校验则任务 failed，payload 含 author_errors / vision_* 与残稿，不覆盖 Beat，不回退无时间码骨架。R2V 为角色设定板+场景卡+三联起幅/中格/结果三张成片画幅构图，不送整张 16:9 母图。设定板只锁身份/发型/服装，禁止抄分格、白底、重复小人。工坊若已有拆开的出片镜，payload.merge_as_one=true 则合并回一条再生成。h3_prompt_source=manual 的镜按原文出片。202 返回 job_id。生成过程可通过 GET /api/projects/{project_id}/jobs/{job_id}/events 直播思考与正文。",
+    ("post", "/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/h3-prompt"): "需要登录和 X-CSRF-Token。为当前分镜入队一个 h3_prompt 任务，不再按口型/内心/近景规则拆镜。JSON 可选 aspect_ratio，解析后写入 beat_info 并作为写稿权威画幅（否则读 extra.workshop_aspect_ratio / 配方缺省）。未绑技能包时按 Beat 的动作/运镜/台词编译六段 Ref2VA（会剥掉动作里整段粘贴的台词，内心/旁白不作为开口对白）。绑定半解说包时由 LLM 一次写官方八块中文分秒稿（VLM/可看图 LLM 可用时看角色卡/场景卡）和英文六段；配方临时 skip_program_pack=true 时出片英文用 GPT 六段原文（规范化 Picture/Subject 标签、六段 name: 标题，并在 detailed_description 补 [Shot 1]；内心改成官方 says in an off-screen voiceover 且 </d> 后闭嘴），不再程序灌水、中文时间码或轿厢句，也不走第二次装箱；写稿合同写清开口/角色内心/第三人称旁白三通道与编号表演顺序，无旁白时禁止用内心或开口句充数；同一人连续多句按问号/句号切开后逐字校验；内心若写成口型同步 says: 会先修补，修补后仍不合格则任务失败；半解说包另校验台词去重与 <d> 表演顺序；中文分秒仍回写 timestamped_zh_prompt。中文或英文未通过校验则任务 failed，payload 含 author_errors / vision_* 与残稿，不覆盖 Beat，不回退无时间码骨架。R2V 为角色设定板+场景卡，不送任何关键帧构图。设定板只锁身份/发型/服装，禁止抄分格、白底、重复小人。工坊若已有拆开的出片镜，payload.merge_as_one=true 则合并回一条再生成。h3_prompt_source=manual 的镜按原文出片。202 返回 job_id。生成过程可通过 GET /api/projects/{project_id}/jobs/{job_id}/events 直播思考与正文。",
     ("get", "/api/projects/{project_id}/jobs"): "需要登录。列出项目任务，含 image_generation / video_generation / h3_prompt / shot_plan / ai_pipeline / tts_generation。shot_plan 的 payload.document_id 用于跳回内容库该文档。",
     ("get", "/api/voice-bank"): "需要登录。返回内置短剧配音声线目录（IndexTTS 官方示例参考音 + 产品侧角色名）。",
     ("get", "/api/voice-bank/{preset_id}/audio"): "需要登录。读取内置声线 wav。未知 id 404。",
@@ -332,14 +334,13 @@ OPERATION_DETAILS: dict[tuple[str, str], str] = {
     ("post", "/api/projects/{project_id}/episodes/{episode_id}/dubbing/sync"): "需要登录和 X-CSRF-Token。从分镜同步台词轨并写回 beats[].dubbing_lines。",
     ("patch", "/api/projects/{project_id}/episodes/{episode_id}/dubbing/lines/{line_id}"): "需要登录和 X-CSRF-Token。更新单句配音导演参数。改文本会清空已生成音频。",
     ("post", "/api/projects/{project_id}/episodes/{episode_id}/dubbing/generate"): "需要登录和 X-CSRF-Token。单句或批量入队 tts_generation。可选 line_id / line_ids；缺省本集全部。202 返回 job_id。",
-    ("post", "/api/projects/{project_id}/episodes/{episode_id}/generate-video"): "需要登录和 X-CSRF-Token。按当前工作流一键生成整集或逐镜视频。默认自动准备缺少或失效的正式 H3 指令；prepare_keyframes=true 可选自动串联关键帧规划，默认无需三联。JSON 可带注册表 options；除数字人口播（minimax-h3-avatar）外的 H3 工作流支持 refine_enabled（开启后一采 0.4 MP）、refine_quality（1.0/2.0 MP，默认 1.0）与 refine_quality_mode（auto/force，默认 auto：按片长自动降档；force：严格按目标清晰度输出）；数字人口播提交任一 refine_* 参数返回 422，二采会脱离口播音频驱动。upscale_after 已停用并被忽略，生成任务不再自动超分。202 返回 job_id。",
-    ("post", "/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/generate-video"): "需要登录和 X-CSRF-Token。为单个 Beat 入队逐镜视频。默认自动准备正式 H3 指令后继续出片，prepare_keyframes=true 可选自动规划关键帧；缺稿不再返回 400。可带 options.refine_enabled / refine_quality / refine_quality_mode，两段式在同一任务内完成。成功后原片写入 beat.video_url 并归档到 video_takes（默认采用最新）。202 返回 job_id。",
+    ("post", "/api/projects/{project_id}/episodes/{episode_id}/generate-video"): "需要登录和 X-CSRF-Token。按当前工作流一键生成整集或逐镜视频。默认自动准备缺少或失效的正式 H3 指令。JSON 可带注册表 options；除数字人口播（minimax-h3-avatar）外的 H3 工作流支持 refine_enabled（开启后一采 0.4 MP）、refine_quality（1.0/2.0 MP，默认 1.0）与 refine_quality_mode（auto/force，默认 auto：按片长自动降档；force：严格按目标清晰度输出）；数字人口播提交任一 refine_* 参数返回 422，二采会脱离口播音频驱动。upscale_after 已停用并被忽略，生成任务不再自动超分。202 返回 job_id。",
+    ("post", "/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/generate-video"): "需要登录和 X-CSRF-Token。为单个 Beat 入队逐镜视频。默认自动准备正式 H3 指令后继续出片；缺稿不再返回 400。可带 options.refine_enabled / refine_quality / refine_quality_mode，两段式在同一任务内完成。成功后原片写入 beat.video_url 并归档到 video_takes（默认采用最新）。202 返回 job_id。",
     ("post", "/api/projects/{project_id}/episodes/{episode_id}/compose"): "需要登录和 X-CSRF-Token。拼接各镜视频为分集成片。JSON 可选 mix_dubbing（缺省 true）：内心/旁白叠到成片，mix=replace 的开口句静音原声。半解说包旁白未配音时 400。202 返回 job_id。拼接片不套用生成期二采，也不自动超分。",
     ("post", "/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/video-takes/adopt"): "需要登录和 X-CSRF-Token。采用本镜一条成功成片为正式原片。JSON { url } 或 { job_id }。校验该地址/任务确属本镜 shot|selection 成功抽卡后写入 video_url；若该 Take 已有 2x 则同步 upscaled_video_url，否则清空。采用的那条必须留在 video_takes。400 表示不属于本镜成功成片。",
     ("post", "/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/upscale"): "需要登录和 X-CSRF-Token。**智能超清**：复放本镜留存的一采生成图（同一 seed、提示词快照与时间线），只在 MiniMaxH3Director 图上追加二采节点重跑，不再新建独立 VSR 任务。JSON body 里的 engine 与 refine_* 一律忽略，二采画质与 upscale_method 取本镜生成任务的快照，同一镜头反复超清得到同一画幅。先 POST /free 卸载 H3。原片 video_url 不变，结果写入 beat.upscaled_video_url 并挂到当前采用 Take，超清结果不单独成 Take。同一成片已有在跑的超清返回 409；整集直出或拼接片、原任务未留存生成图（多段切分或旧任务）、数字人口播镜头、本镜生成时已开启二采精修、找不到原始生成任务等情况返回 422 并给出中文原因。超清失败不影响原片。202 返回 job_id。",
     ("post", "/api/projects/{project_id}/jobs/{job_id}/upscale"): "需要登录和 X-CSRF-Token。对导演台2 已成功的 video_generation 成片提交**智能超清**，语义与镜头级接口一致：复放本镜留存的一采生成图、只追加二采节点重跑；JSON body 里的 engine 与 refine_* 一律忽略，二采画质取本镜生成任务的快照。原片 result_url 不变，结果写入 payload.upscaled_video_url；有关联镜头时同时写 beat.upscaled_video_url。超清任务本身、未完成、多镜 selection、整集直出与拼接片、没有可复放生成图时返回 422 并给出中文原因；同一成片已有在跑的超清返回 409。202 返回 job_id。",
     ("get", "/api/projects/{project_id}/jobs/{job_id}/events"): "需要登录。以 text/event-stream 按 job_type 推送任务事件。h3_prompt：status / reasoning / delta / done / error。shot_plan：status（第几集/共几集）/ reasoning / delta（本集 JSON 正文）/ episode_done（该集 shots 已写入 analysis_json）/ done / error。可带 since 或 Last-Event-ID 断点续传。",
-    ("post", "/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/generate-triptych"): "需要登录和 X-CSRF-Token。为当前分镜入队 16:9 三联关键帧母图（内部三等分裁切）。JSON 可选 aspect_ratio，写入提示词里的成片画幅构图标签（缺省读 extra.workshop_aspect_ratio / 配方）。参考图为选中造型设定板 + 场景卡；已有造型图时不再追加 avatar_url。完成后写入 beat.triptych_url，并裁切起幅/中格/结果到 triptych_panels.start|mid|end 供本地 H3 素材组使用；整张三联不作为 Picture n。202 返回 job_id。",
     ("post", "/api/projects/{project_id}/ai/operations"): "需要登录和 X-CSRF-Token。创建导台2 AI 生成操作；首期支持 clarify 创意澄清和 pipeline 剧本、资产文本、分集与 Beat 分镜流水线。",
     ("get", "/api/projects/{project_id}/ai/operations/{operation_id}"): "需要登录。读取当前用户导台2 AI 操作的阶段、进度、结果和错误。",
     ("get", "/api/projects/{project_id}/ai/operations/{operation_id}/events"): "需要登录。以 SSE 推送导台2 AI 操作的阶段进度、流式消息和终态事件。",
@@ -390,6 +391,8 @@ def _provider_operation_detail(method: str, path: str) -> str | None:
     if path.startswith("/api/admin/providers/"):
         if method == "get":
             return "需要超级管理员权限。读取供应商配置的公开状态；任何密钥字段均经过脱敏或仅返回是否已配置。"
+        if path.endswith("/secret"):
+            return "需要超级管理员权限和 X-CSRF-Token。管理设置「复制 Key」按钮取回已保存凭据的明文：JSON {provider: llm|vlm|tts|grs|qiniu, field}，七牛接受 access_key/secret_key，其余只接受 api_key，不匹配返回 422。VLM/TTS 勾选复用大模型凭据时返回 LLM 的 Key；本地服务的虚拟 Key 和未保存/无法解密的凭据返回 null。响应带 Cache-Control: no-store，每次调用写入 reveal_provider_secret 审计（只记服务商与字段名，不含密钥）。除本接口外，供应商配置接口仍只返回脱敏值。"
         if path.endswith("/test"):
             return "需要超级管理员权限和 X-CSRF-Token。使用提交值（如有）测试供应商连接，不必先保存配置；测试结果会写入最近测试状态。"
         if path.endswith("/llm/models"):

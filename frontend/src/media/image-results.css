@@ -41,7 +41,8 @@
 .studio-image-round .studio-image-results { max-width: 100%; margin: 0; }
 .studio-image-results .studio-image-result-grid { display: grid; grid-template-columns: repeat(auto-fill, 252px); align-items: start; justify-content: start; gap: 8px; }
 .studio-image-results .studio-image-result-card { width: 252px; min-width: 0; overflow: hidden; border: 0; border-radius: 6px; background: transparent; }
-.studio-image-results .studio-image-result-media { position: relative; height: auto; overflow: hidden; border-radius: 6px; background: var(--studio-media); }
+/* 结果卡底色用棋盘格：去背景等透明产物压在近黑底上会被误读成「没出图」。 */
+.studio-image-results .studio-image-result-media { position: relative; height: auto; overflow: hidden; border-radius: 6px; background-color: var(--studio-checker-b); background-image: linear-gradient(45deg, var(--studio-checker-a) 25%, transparent 25%, transparent 75%, var(--studio-checker-a) 75%), linear-gradient(45deg, var(--studio-checker-a) 25%, transparent 25%, transparent 75%, var(--studio-checker-a) 75%); background-size: 16px 16px, 16px 16px; background-position: 0 0, 8px 8px; }
 .studio-image-preview { display: block; width: 100%; overflow: hidden; border: 0; padding: 0; background: transparent; cursor: zoom-in; }
 .studio-image-preview:disabled { cursor: default; }
 .studio-image-preview img { display: block; width: 100%; height: auto; object-fit: contain; }
@@ -51,15 +52,17 @@
 .studio-image-hover-tools { top: 6px; right: 6px; display: flex; gap: 4px; }
 .studio-image-result-media.is-panorama .studio-image-hover-tools { left: 6px; justify-content: flex-end; }
 .studio-image-hover-bottom { inset: auto 0 0; display: flex; align-items: flex-end; justify-content: space-between; gap: 4px; padding: 20px 6px 6px; background: linear-gradient(transparent, var(--studio-scrim)); }
+.studio-image-hover-actions { display: flex; flex: none; gap: 4px; margin-left: auto; }
 .studio-image-result-media:is(:hover, :focus-within) .studio-image-hover-tools,
 .studio-image-result-media:is(:hover, :focus-within) .studio-image-hover-bottom { opacity: 1; pointer-events: auto; }
-.studio-image-results .studio-image-tool.ant-btn,
-.studio-image-results .studio-image-video-action.ant-btn { height: 28px; border: 1px solid var(--studio-border-strong); border-radius: 5px; background: var(--studio-scrim); color: #fff; box-shadow: none; font-size: 11px; }
+.studio-image-results .studio-image-tool.ant-btn { height: 28px; border: 1px solid var(--studio-border-strong); border-radius: 5px; background: var(--studio-scrim); color: #fff; box-shadow: none; font-size: 11px; }
 .studio-image-results .studio-image-tool.ant-btn { width: 28px; padding: 0; }
-.studio-image-results .studio-image-video-action.ant-btn { flex: none; gap: 4px; padding: 0 6px; }
-.studio-image-results :is(.studio-image-tool, .studio-image-video-action).ant-btn:not(:disabled):is(:hover, :focus-visible) { border-color: var(--studio-text-subtle); background: var(--studio-media); color: #fff; }
-.studio-image-results :is(.studio-image-tool, .studio-image-video-action).ant-btn:disabled { color: #fff; opacity: .45; }
-.studio-image-delivery { display: inline-flex; align-items: center; gap: 3px; min-width: 0; color: #fff; font-size: 10px; line-height: 16px; }
+.studio-image-results .studio-image-tool.ant-btn:not(:disabled):is(:hover, :focus-visible) { border-color: var(--studio-text-subtle); background: var(--studio-media); color: #fff; }
+.studio-image-results .studio-image-tool.ant-btn:disabled { color: #fff; opacity: .45; }
+.studio-image-results .studio-image-tool.is-active.ant-btn { border-color: var(--studio-accent-text); background: var(--studio-media); color: var(--studio-accent-text); }
+.studio-image-compare-flag { position: absolute; top: 6px; left: 6px; z-index: 2; border-radius: 4px; background: var(--studio-scrim); padding: 1px 5px; color: #fff; font-size: 10px; line-height: 16px; pointer-events: none; }
+.studio-image-result-media.is-panorama .studio-image-compare-flag { right: 6px; left: auto; }
+.studio-image-delivery { display: inline-flex; align-items: center; gap: 3px; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #fff; font-size: 10px; line-height: 16px; }
 .studio-task-stream .studio-image-round .studio-round-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: fit-content; max-width: 100%; margin: 12px 0 0; }
 .studio-task-stream .studio-image-round .studio-round-action { display: inline-flex; flex: none; align-items: center; justify-content: center; gap: 6px; min-width: 94px; height: 36px; border: 1px solid var(--studio-border); border-radius: 8px; padding: 0 12px; background: var(--studio-surface-raised); color: var(--studio-text) !important; font-size: 12px; line-height: 20px; white-space: nowrap; transition: background-color 140ms ease; }
 .studio-task-stream .studio-image-round .studio-round-action > svg { flex: none; width: 15px; height: 15px; }

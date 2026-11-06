@@ -3,7 +3,7 @@ import { Button, ConfigProvider, Dropdown, Empty, Input, Modal, Select, Spin, Ta
 import zhCN from "antd/locale/zh_CN"
 import { ArrowRight, CopyPlus, Frame, History, MoreHorizontal, Network, Plus, RefreshCw, RotateCcw, Search, Star, Tags, Trash2 } from "lucide-react"
 import { useMemo, useState } from "react"
-import { useLocation, useNavigate } from "react-router-dom"
+import { Navigate, useLocation, useNavigate } from "react-router-dom"
 import { canvasProjectPath, PATHS } from "../paths"
 import { useStudioTheme } from "../ThemeProvider"
 import {
@@ -32,6 +32,9 @@ import { canvasSavedTime, recentCanvasProject } from "./canvas-home"
 import "./canvas.css"
 import "./canvas-fidelity.css"
 import "./canvas-home.css"
+// 共享节点样式层：放在各画布 CSS 之后，改一次两个画布同时生效
+import "./canvas-node-shared.css"
+import "./canvas-chrome-shared.css"
 
 type CanvasListView = "active" | "favorites" | "trash"
 
@@ -90,7 +93,23 @@ function CanvasWorkspaceContent({ csrfToken }: { csrfToken: string }) {
 
   if (projectId) {
     if (projectQuery.isLoading) {
-      return <div className="canvas-loading"><Spin size="large" /><span>正在加载画布…</span></div>
+      return (
+        <div className="canvas-loading-skeleton" role="status" aria-busy="true" aria-label="正在加载画布">
+          <div className="canvas-skeleton-topbar" aria-hidden="true">
+            <span className="studio-skeleton-bar" style={{ width: 140 }} />
+            <span className="studio-skeleton-bar" style={{ width: 220 }} />
+            <span className="studio-skeleton-bar" style={{ width: 96 }} />
+          </div>
+          <div className="canvas-skeleton-board" aria-hidden="true">
+            <span className="studio-skeleton-bar canvas-skeleton-node" style={{ left: "10%", top: "16%", width: 180, height: 120 }} />
+            <span className="studio-skeleton-bar canvas-skeleton-node" style={{ left: "36%", top: "34%", width: 230, height: 150 }} />
+            <span className="studio-skeleton-bar canvas-skeleton-node" style={{ left: "66%", top: "14%", width: 170, height: 110 }} />
+            <span className="studio-skeleton-bar canvas-skeleton-node" style={{ left: "22%", top: "60%", width: 210, height: 130 }} />
+            <span className="studio-skeleton-bar canvas-skeleton-node" style={{ left: "58%", top: "62%", width: 150, height: 100 }} />
+          </div>
+          <p className="canvas-skeleton-status"><Spin size="small" /><span>正在加载画布…</span></p>
+        </div>
+      )
     }
     if (projectQuery.isError || !projectQuery.data) {
       return (
@@ -101,6 +120,7 @@ function CanvasWorkspaceContent({ csrfToken }: { csrfToken: string }) {
         </div>
       )
     }
+    if (projectQuery.data.linked_director_project_id) return <Navigate to={`/director/projects/${encodeURIComponent(projectQuery.data.linked_director_project_id)}/assets?view=canvas`} replace/>
     return (
       <CanvasEditor
         key={projectQuery.data.id}

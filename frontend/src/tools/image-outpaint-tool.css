@@ -1,0 +1,107 @@
+/* 扩图编辑器（即梦式弹窗）：仅布局与主题适配，业务控件全部使用 Ant Design。 */
+
+.studio-outpaint-modal .ant-modal-content {
+  padding: 20px 24px 24px;
+  border-radius: 16px;
+}
+.studio-outpaint-modal .ant-modal-header { margin-bottom: 16px; }
+.studio-outpaint-modal .ant-modal-title { font-size: 16px; }
+
+.studio-outpaint-editor {
+  display: grid;
+  gap: 14px;
+}
+
+/* 预览舞台：媒体区保持近黑，扩展区用深灰棋盘示意透明。 */
+.studio-outpaint-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 420px;
+  border-radius: 12px;
+  background: var(--studio-media, #141416);
+  overflow: hidden;
+}
+.studio-outpaint-zoom {
+  position: absolute;
+  top: 12px;
+  left: 14px;
+  z-index: 3;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 12px;
+  line-height: 18px;
+  user-select: none;
+}
+.studio-outpaint-frame {
+  position: relative;
+  background-image:
+    linear-gradient(45deg, #232326 25%, transparent 25%, transparent 75%, #232326 75%),
+    linear-gradient(45deg, #232326 25%, transparent 25%, transparent 75%, #232326 75%);
+  background-color: #1a1a1d;
+  background-size: 16px 16px;
+  background-position: 0 0, 8px 8px;
+  box-shadow: 0 0 0 1.5px #ffffff;
+  border-radius: 2px;
+}
+.studio-outpaint-original {
+  position: absolute;
+  display: block;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.studio-outpaint-handle {
+  position: absolute;
+  z-index: 2;
+  background: #ffffff;
+  border-radius: 2px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  touch-action: none;
+}
+
+.studio-outpaint-scale-row {
+  display: flex;
+  justify-content: center;
+}
+
+/* 比例预设行：形状图标 + 文案，选中态用卡片边框高亮。 */
+.studio-outpaint-ratio-row {
+  display: flex;
+  gap: 6px;
+}
+.studio-outpaint-ratio {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  min-width: 56px;
+  padding: 9px 10px 7px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--studio-text-secondary, #59636f);
+  font-size: 12px;
+  line-height: 16px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.studio-outpaint-ratio:hover {
+  background: var(--studio-surface-raised, #f4f6f8);
+  color: var(--studio-text, #171a1f);
+}
+.studio-outpaint-ratio.is-active {
+  border-color: var(--studio-border, #e1e5ea);
+  background: var(--studio-surface-raised, #f4f6f8);
+  color: var(--studio-text, #171a1f);
+  font-weight: 600;
+}
+
+.studio-outpaint-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+}
+.studio-outpaint-output-size {
+  color: var(--studio-text-secondary, #59636f);
+  font-size: 13px;
+}

@@ -12,14 +12,11 @@ from .aspect import (
 )
 from .recipe import PackRecipe
 from .registry import register_step
-from .triptych import (
-    normalize_panels,
-    persist_panel_bytes,
-    public_panel_url,
-    split_triptych_bytes,
-    split_triptych_path,
-    split_triptych_url,
-)
+
+
+def _public_image_url(value: Any) -> str:
+    url = str(value or "").strip()
+    return url if url.startswith(("http://", "https://")) else ""
 
 STAGE_SECTION_HEADINGS = {
     "script": (
@@ -55,7 +52,6 @@ STAGE_SECTION_HEADINGS = {
         "5. keyframe generation",
         "8. video generation",
         "8.1 video prompt assembly order",
-        "三联",
         "提示词",
     ),
 }
@@ -74,16 +70,16 @@ STAGE_CRAFT_FOCUS = {
     ),
     "storyboard": (
         "本阶段写成可执行镜头合同：MiniMax-H3 单镜 5–15 整数秒，短于 5 秒的相邻节拍合并；"
-        "时间码从本镜 00:00 起。列出角色卡、场景卡与三联关键帧映射。"
+        "时间码从本镜 00:00 起。列出角色卡与场景卡映射。"
     ),
     "optimize": (
         "按官方第 8 / 8.1 步一次看图写出中文八块分秒稿和英文六段 Ref2VA，不要按一句对白重排运镜。"
-        "写稿可看整张 16:9 三联写运镜；R2V 只送角色卡、场景卡和三联三张 {aspect} 构图（起幅/中格/结果），不要把整张三联送进本地 H3。"
+        "R2V 只送角色卡与场景卡 {aspect} 参考图；本工作台不为该镜生成三联关键帧，禁止引用没有上传的构图裁切或起幅/落幅路标。"
         "角色卡是多视图设定板，只锁身份，禁止把分格抄进镜头。"
     ),
     "workshop": (
-        "按官方第 8 / 8.1 步看着本镜剧本与整张三联一次写出中文八块和英文六段。"
-        "R2V 上传起幅/中格/结果三张 {aspect} 构图作同一镜时间路标，不是新人物；禁止把 16:9 母图当参考图。"
+        "按官方第 8 / 8.1 步看着本镜剧本一次写出中文八块和英文六段。"
+        "R2V 只上传角色卡与场景卡；<Picture n> 只能引用实际上传的这几张，禁止引用不存在的关键帧或三联构图裁切。"
         "角色卡是多视图设定板，只锁身份，禁止把分格抄进镜头。"
     ),
 }
@@ -101,21 +97,6 @@ def _character_picture_label(name: str = "") -> str:
 
 
 _R2V_SLOT_LIMIT = 9
-_COMPOSITION_DROP_ORDER = ("mid", "end")
-_TRIPTYCH_PANEL_NAMES = {
-    "start": "起幅构图",
-    "mid": "中格构图",
-    "end": "结果构图",
-}
-
-
-def _triptych_role_from_source(source: str) -> str:
-    key = str(source or "").strip().lower()
-    if key in {"triptych.mid", "mid"} or key.endswith(".mid"):
-        return "mid"
-    if key in {"triptych.end", "end"} or key.endswith(".end"):
-        return "end"
-    return "start"
 
 
 def _pack_aspect(
@@ -140,25 +121,6 @@ def _pack_aspect(
     )
 
 
-def _triptych_panel_label(shot_no: str, role: str, aspect: str | None = None) -> str:
-    output = resolve_workshop_aspect_ratio(request=aspect)
-    crop = f"{output} 构图"
-    if role == "mid":
-        return (
-            f"镜头{shot_no}中格（三联中格 {crop}），同一镜主动作时段构图路标；"
-            f"不是新人物；成片始终单一 {output}"
-        )
-    if role == "end":
-        return (
-            f"镜头{shot_no}结果（三联右格 {crop}），同一镜落幅构图路标；"
-            f"不是新人物；成片始终单一 {output}"
-        )
-    return (
-        f"镜头{shot_no}起幅（三联左格 {crop}），同一镜 00:00 构图锚；"
-        "这是时间路标不是新人物；禁止分栏、禁止把三格同时摆进画面、禁止把 16:9 母图当参考图"
-    )
-
-
 def _author_copy_fields(beat: dict[str, Any], aspect: str) -> tuple[str, str, str]:
     heading = rewrite_aspect_copy(
         beat.get("heading") or beat.get("scene") or "完成本镜剧情",
@@ -167,22 +129,6 @@ def _author_copy_fields(beat: dict[str, Any], aspect: str) -> tuple[str, str, st
     action = rewrite_aspect_copy(beat.get("action") or "", aspect).strip() or "按已锁定的角色与场景完成这一镜。"
     camera = rewrite_aspect_copy(beat.get("camera") or "", aspect).strip() or "固定机位，必要时小幅度慢速运镜。"
     return heading, action, camera
-
-
-def _fit_r2v_slots(
-    identity: list[dict[str, Any]],
-    composition: list[dict[str, Any]],
-    limit: int = _R2V_SLOT_LIMIT,
-) -> list[dict[str, Any]]:
-    remaining = limit - len(identity)
-    if remaining <= 0:
-        return identity[:limit]
-    kept = list(composition)
-    for role in _COMPOSITION_DROP_ORDER:
-        if len(kept) <= remaining:
-            break
-        kept = [item for item in kept if item.get("role") != role]
-    return identity + kept[:remaining]
 
 
 _HEADING_RE = re.compile(r"^#{2,3}\s+(.+)$", re.M)
@@ -313,74 +259,6 @@ def confirm_format(ctx: StepContext) -> StepContext:
     return ctx
 
 
-@register_step("generate_shot_triptych")
-def generate_shot_triptych(ctx: StepContext) -> StepContext:
-    beat = ctx.merged_beat()
-    if str(beat.get("triptych_url") or "").strip():
-        ctx.data["triptych_skipped"] = "already_present"
-        return ctx
-    if not _has_character_and_scene(beat):
-        ctx.data["triptych_skipped"] = "missing_refs"
-        return ctx
-    if ctx.options.get("enqueue_images") is False or not ctx.project_id or not ctx.episode_id:
-        ctx.data["triptych_would_enqueue"] = True
-        return ctx
-    from ..media_studio.services.storyboard_image_service import StoryboardImageService
-
-    payload = dict(ctx.options.get("image_payload") or {})
-    aspect = ctx.options.get("aspect_ratio")
-    if aspect is None and isinstance(ctx.beat_info, dict):
-        aspect = ctx.beat_info.get("aspect_ratio")
-    if aspect and not payload.get("aspect_ratio"):
-        payload["aspect_ratio"] = aspect
-    result = StoryboardImageService.enqueue(
-        ctx.project_id,
-        ctx.episode_id,
-        ctx.beat_id or str(beat.get("id") or ""),
-        payload,
-        "triptych",
-    )
-    ctx.jobs.append(result)
-    ctx.data["triptych_job"] = result
-    if result.get("job_id"):
-        ctx.beat_updates["triptych_job_id"] = result["job_id"]
-    return ctx
-
-
-@register_step("extract_triptych_panels")
-def extract_triptych_panels(ctx: StepContext) -> StepContext:
-    beat = ctx.merged_beat()
-    existing = normalize_panels(beat.get("triptych_panels"))
-    has_start = bool(public_panel_url(existing.get("start")))
-    missing_later = not public_panel_url(existing.get("mid")) or not public_panel_url(existing.get("end"))
-    if has_start and not missing_later:
-        ctx.data["triptych_panels"] = existing
-        return ctx
-    source = str(ctx.data.get("triptych_path") or beat.get("triptych_path") or "").strip()
-    raw = ctx.data.get("triptych_bytes")
-    remote = str(ctx.data.get("triptych_url") or beat.get("triptych_url") or "").strip()
-    panels_bytes: dict[str, bytes] = {}
-    try:
-        if isinstance(raw, (bytes, bytearray)) and raw:
-            panels_bytes = split_triptych_bytes(bytes(raw))
-        elif source:
-            panels_bytes = split_triptych_path(source)
-        elif remote.startswith(("http://", "https://")):
-            panels_bytes = split_triptych_url(remote)
-    except Exception:
-        if has_start:
-            ctx.data["triptych_panels"] = existing
-            return ctx
-        raise
-    if not panels_bytes:
-        ctx.data["triptych_panels"] = existing
-        return ctx
-    stored = _store_panel_bytes(ctx, panels_bytes)
-    ctx.beat_updates["triptych_panels"] = stored
-    ctx.data["triptych_panels"] = stored
-    return ctx
-
-
 @register_step("write_timestamped_zh_prompt")
 def write_timestamped_zh_prompt(ctx: StepContext) -> StepContext:
     from ..media_studio.services.h3_prompt_builder import H3PromptBuilder
@@ -491,16 +369,7 @@ def polish_ref2va(ctx: StepContext) -> StepContext:
 
 @register_step("bind_r2v_slots")
 def bind_r2v_slots(ctx: StepContext) -> StepContext:
-    info = ctx.beat_info if isinstance(ctx.beat_info, dict) else {}
-    aspect = _pack_aspect(
-        ctx.recipe,
-        aspect_ratio=ctx.options.get("aspect_ratio") or info.get("aspect_ratio"),
-        extra=ctx.options.get("extra"),
-        beat=ctx.merged_beat(),
-        beat_info=info,
-        project_id=ctx.project_id,
-    )
-    slots = bind_r2v_slot_images(ctx.recipe, ctx.merged_beat(), ctx.assets, aspect_ratio=aspect)
+    slots = bind_r2v_slot_images(ctx.recipe, ctx.merged_beat(), ctx.assets)
     ctx.data["ref_images"] = slots
     ctx.beat_updates["ref_images"] = slots
     if ctx.beat_info is not None:
@@ -563,9 +432,8 @@ def build_timestamped_zh_author_system(
         "- 每句中文只进一个 <d>；开口句禁止再当内心复制。<d> 顺序必须等于 user 里的表演顺序。\n"
         "- 台词必须逐字，不得改写、概括或翻译。同一人连续多句按问号/句号切开后每句都要出现；可以挂在相邻时间段，禁止改写成半句。\n"
         "- 参考图使用 <Picture n>，与 R2V 上传顺序一致。角色图是单人多视图设定板，只锁脸、发型和服装，不锁姿势；禁止把分格、白底或重复小人带进镜头。\n"
-        f"- R2V 槽位是角色设定板、场景卡，再是本镜起幅/中格/结果三张 {aspect} 构图；这三张是同一镜的时间路标（00:00 构图锚 / 主动作构图 / 落幅构图），不是新人物。\n"
-        "- 写稿附图可以看整张 16:9 三联来写运镜；禁止把整张 16:9 母图写成 <Picture n>。\n"
-        f"- 成片必须是单一 {aspect}，禁止分栏、禁止把三格同时摆进画面。\n"
+        f"- R2V 槽位只有角色设定板和本镜场景卡；场景卡提供环境空间但不锁站位。本镜不生成关键帧图，禁止虚构未上传的 <Picture n>。\n"
+        f"- 成片必须是单一 {aspect}，禁止分栏、禁止把多格拼板画进画面。\n"
         "- 禁止只输出「官方八块中文分秒稿与英文六段稿」这种说明句。"
     )
     return "\n\n".join(
@@ -587,13 +455,6 @@ def build_dual_author_system(
     zh_system = build_timestamped_zh_author_system(
         recipe,
         template,
-        aspect_ratio=aspect_ratio,
-        extra=extra,
-        beat_info=beat_info,
-        project_id=project_id,
-    )
-    aspect = _pack_aspect(
-        recipe,
         aspect_ratio=aspect_ratio,
         extra=extra,
         beat_info=beat_info,
@@ -625,7 +486,7 @@ def build_dual_author_system(
         "禁止：Name says: <d>内心原文</d>；禁止 thinks. In an off-screen inner voiceover。\n"
         "内心时段镜头不要顶在思考者嘴上。\n"
         "身份只锁 <Picture n> 的脸、发型和服装，不锁姿势；禁止把设定板分格、白底或重复小人带进镜头；场景卡不锁站位。\n"
-        f"写稿附图可以看整张 16:9 三联来写运镜；R2V 只上传三张 {aspect} 构图作时间路标，不要把整张三联写进 R2V 槽位。\n"
+        "本镜不生成关键帧图；R2V 只上传角色卡与场景卡，禁止引用未上传的 <Picture n>。\n"
         "禁止装箱器口吻：不要只输出英文成品稿；不要禁止对话标签；"
         "不要用占位符代替逐字中文台词；不要灌水凑词；不要省略中文八块。\n"
         "可见回复必须是两块完整正文，不要先写计划或摘要，"
@@ -654,7 +515,7 @@ def build_timestamped_zh_author_user(
         project_id=project_id,
     )
     seconds = _clip_shot_seconds(recipe, beat)
-    planned = expand_r2v_slot_plan(recipe, beat, assets, aspect_ratio=aspect)
+    planned = expand_r2v_slot_plan(recipe, beat, assets)
     shot_no = str(beat.get("story_shot") or beat.get("sequence") or beat.get("id") or "1").strip() or "1"
     heading, action, camera = _author_copy_fields(beat, aspect)
     lines = [
@@ -720,12 +581,12 @@ def build_timestamped_zh_author_user(
         )
         lines.append(f"- {_NO_THIRD_PERSON_NARRATION}")
     if planned:
-        lines.append("R2V 槽位（本地 H3 上传顺序；身份优先，随后是起幅/中格/结果 {aspect} 构图）：".format(aspect=aspect))
+        lines.append("R2V 槽位（本地 H3 上传顺序：角色设定板，然后是本镜场景卡）：")
         for item in planned:
             lines.append(f"- <Picture {item['index']}> {item['label']}")
     lines.append(
-        "这三张构图是同一镜的时间路标，不是新人物：起幅=00:00 构图锚，中格=主动作构图，结果=落幅构图。"
-        f"成片始终单一 {aspect}；禁止分栏、禁止把三格同时摆进画面。"
+        f"参考图只有上面这几张，禁止虚构未上传的 <Picture n>；本镜不生成关键帧图。"
+        f"成片始终单一 {aspect}，禁止分栏。"
     )
     previous = str(
         info.get("previous_shot")
@@ -738,7 +599,7 @@ def build_timestamped_zh_author_user(
         lines.append(f"上一镜承接：{previous}")
     image_notes = collect_zh_author_image_urls(recipe, beat, assets)
     if image_notes:
-        lines.append("写稿附图（供看图写运镜，不是 R2V 上传顺序）：角色卡、场景卡，然后是整张 16:9 三联母图。")
+        lines.append("写稿附图（供看图写运镜，与 R2V 上传顺序一致）：角色卡与场景卡。")
         for index, url in enumerate(image_notes, 1):
             lines.append(f"- 图{index}: {url}")
     lines.append(
@@ -754,24 +615,10 @@ def collect_zh_author_image_urls(
     assets: list[dict[str, Any]],
 ) -> list[str]:
     urls: list[str] = []
-
-    def add(url: Any) -> None:
-        text = str(url or "").strip()
-        if text.startswith(("http://", "https://")) and text not in urls:
-            urls.append(text)
-
-    planned = expand_r2v_slot_plan(recipe, beat, assets)
-    for item in planned:
-        source = str(item.get("source") or "")
-        if source in {"characters", "scene"}:
-            add(item.get("url"))
-    full = str(beat.get("triptych_url") or "").strip()
-    if full.startswith(("http://", "https://")):
-        add(full)
-    else:
-        panels = normalize_panels(beat.get("triptych_panels"))
-        for key in ("start", "mid", "end"):
-            add(public_panel_url(panels.get(key)))
+    for item in expand_r2v_slot_plan(recipe, beat, assets):
+        url = str(item.get("url") or "").strip()
+        if url.startswith(("http://", "https://")) and url not in urls:
+            urls.append(url)
     return urls[:8]
 
 
@@ -902,7 +749,7 @@ def fill_timestamped_zh_prompt(
     start_range, mid_range, end_range = _shot_time_ranges(seconds)
     aspect = _pack_aspect(recipe, beat=beat)
     heading, action, camera = _author_copy_fields(beat, aspect)
-    planned = expand_r2v_slot_plan(recipe, beat, assets, aspect_ratio=aspect)
+    planned = expand_r2v_slot_plan(recipe, beat, assets)
     picture_lines = []
     for item in planned:
         picture_lines.append(f"<Picture {item['index']}> {item['label']}")
@@ -960,23 +807,14 @@ def expand_r2v_slot_plan(
     recipe: PackRecipe,
     beat: dict[str, Any],
     assets: list[dict[str, Any]],
-    *,
-    aspect_ratio: Any = None,
 ) -> list[dict[str, Any]]:
-    identity: list[dict[str, Any]] = []
-    composition: list[dict[str, Any]] = []
+    slots: list[dict[str, Any]] = []
     by_id = {str(item.get("id") or ""): item for item in assets if item.get("id")}
-    full_triptych = str(beat.get("triptych_url") or "").strip()
-    shot_no = str(beat.get("story_shot") or beat.get("sequence") or beat.get("id") or "1").strip() or "1"
-    aspect = _pack_aspect(recipe, beat=beat, aspect_ratio=aspect_ratio)
-    panels = normalize_panels(beat.get("triptych_panels"))
     for spec in recipe.r2v_slots:
-        if spec.is_full_triptych:
-            continue
         if spec.source == "characters":
             for character in _beat_characters(beat, by_id):
                 name = character.get("name") or "角色"
-                identity.append({
+                slots.append({
                     "source": "characters",
                     "category": "character",
                     "name": name,
@@ -987,7 +825,7 @@ def expand_r2v_slot_plan(
         elif spec.source == "scene":
             scene = _beat_scene(beat, by_id)
             scene_name = scene.get("name") or str(beat.get("scene") or "场景")
-            identity.append({
+            slots.append({
                 "source": "scene",
                 "category": "scene",
                 "name": scene_name,
@@ -995,43 +833,20 @@ def expand_r2v_slot_plan(
                 "url": scene.get("url") or "",
                 "scene_id": scene.get("id") or beat.get("scene_id") or "",
             })
-        elif spec.source in {"triptych.start", "start", "triptych.mid", "mid", "triptych.end", "end"}:
-            role = _triptych_role_from_source(spec.source)
-            url = public_panel_url(panels.get(role))
-            if not url or url == full_triptych:
-                continue
-            composition.append({
-                "source": f"triptych.{role}" if spec.source in {"start", "mid", "end"} else spec.source,
-                "category": "composition",
-                "name": _TRIPTYCH_PANEL_NAMES[role],
-                "label": _triptych_panel_label(shot_no, role, aspect),
-                "url": url,
-                "role": role,
-            })
         else:
             continue
-    slots = _fit_r2v_slots(identity, composition)
-    return [{**item, "index": index} for index, item in enumerate(slots, 1)]
+    return [{**item, "index": index} for index, item in enumerate(slots[:_R2V_SLOT_LIMIT], 1)]
 
 
 def bind_r2v_slot_images(
     recipe: PackRecipe,
     beat: dict[str, Any],
     assets: list[dict[str, Any]],
-    *,
-    aspect_ratio: Any = None,
 ) -> list[dict[str, Any]]:
-    planned = expand_r2v_slot_plan(recipe, beat, assets, aspect_ratio=aspect_ratio)
-    full_triptych = str(beat.get("triptych_url") or "").strip()
-    bound: list[dict[str, Any]] = []
-    for item in planned:
-        url = public_panel_url(item.get("url"))
-        if url == full_triptych:
-            continue
-        if item.get("source") in {"triptych", "triptych.full"}:
-            continue
-        bound.append({**item, "url": url})
-    return bound
+    return [
+        {**item, "url": _public_image_url(item.get("url"))}
+        for item in expand_r2v_slot_plan(recipe, beat, assets)
+    ]
 
 
 def r2v_upload_urls(
@@ -1046,19 +861,6 @@ def r2v_upload_urls(
         for item in bind_r2v_slot_images(recipe, beat, assets)
         if str(item.get("url") or "").startswith(("http://", "https://"))
     ]
-
-
-def slot_contains_full_triptych(slots: list[dict[str, Any]], triptych_url: str) -> bool:
-    url = str(triptych_url or "").strip()
-    if not url:
-        return False
-    for item in slots:
-        source = str(item.get("source") or "")
-        if source in {"triptych", "triptych.full", "triptych_url"}:
-            return True
-        if str(item.get("url") or "").strip() == url:
-            return True
-    return False
 
 
 def _heading_matches(heading: str, hints: tuple[str, ...]) -> bool:
@@ -1079,12 +881,6 @@ def _split_markdown_sections(markdown: str) -> list[tuple[str, str]]:
         end = matches[index + 1].start() if index + 1 < len(matches) else len(markdown)
         sections.append((match.group(1).strip(), markdown[match.end():end].strip()))
     return sections
-
-
-def _has_character_and_scene(beat: dict[str, Any]) -> bool:
-    characters = beat.get("character_ids") or beat.get("characters") or []
-    scene = beat.get("scene_id") or beat.get("scene")
-    return bool(characters) and bool(str(scene or "").strip())
 
 
 def _beat_characters(beat: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1250,7 +1046,7 @@ def _official_prompt_blocks(
     must_lines = [
         f"- {scene} 的空间关系、站位和谁铺满{orientation}",
         f"- {action}",
-        f"- 起幅构图与结果构图的连续性，成片保持单一 {aspect}",
+        f"- 起幅到落幅的连续性，成片保持单一 {aspect}",
     ]
     order_items = _performance_speech_items(beat)
     if order_items:
@@ -1277,21 +1073,21 @@ def _official_prompt_blocks(
         "参考素材": "\n".join(picture_lines),
         "必须出现的视觉内容": "\n".join(must_lines),
         "按旁白和画面内容切镜": (
-            f"- {start_range}：建立{scene}空间与人物关系，用起幅构图锁站位。\n"
+            f"- {start_range}：建立{scene}空间与人物关系，稳住起幅站位。\n"
             f"- {mid_range}：画面要补出{action}，镜头动作{camera}。\n"
-            f"- {end_range}：画面收束到结果构图并稳住，保持连续性。"
+            f"- {end_range}：画面收束到本镜结果并稳住，保持连续性。"
         ),
         "对白": dialogue_block,
         "旁白": narration_block,
         "画面要求": (
             f"- {camera}\n"
             "- 真人实拍短剧摄影，空间轴线稳定\n"
-            f"- 用三张 {aspect} 构图对齐起幅→主动作→落幅；运镜从整张三联写出"
+            f"- 单一 {aspect} 成片画幅，运镜在同一镜内连续完成"
         ),
         "负向约束": (
             "- 不要插画、CG、文字、水印、美颜滤镜、人物消失、瞬移、反射重影\n"
-            "- 不要把整张三联参考图送进本地 H3；这三张裁切是时间路标不是新人物；"
-            f"成片必须是单一 {aspect}，不许分栏、不许把三格同时摆进画面\n"
+            "- 参考图只有角色卡与场景卡，禁止引用没有上传的构图裁切；"
+            f"成片必须是单一 {aspect}，不许分栏\n"
             f"- 技能包：{recipe.name}"
         ),
     }
@@ -1338,18 +1134,6 @@ def _fill_official_h3_template(
         f"画面要求：\n{blocks['画面要求']}\n\n"
         f"负向约束：\n{blocks['负向约束']}"
     )
-
-
-def _store_panel_bytes(ctx: StepContext, panels: dict[str, bytes]) -> dict[str, str]:
-    stored = normalize_panels(ctx.merged_beat().get("triptych_panels"))
-    if ctx.options.get("store_panels") is False:
-        for key, data in panels.items():
-            stored[key] = f"memory:{key}:{len(data)}"
-        return stored
-    uploaded = persist_panel_bytes(panels)
-    for key, url in uploaded.items():
-        stored[key] = url or stored.get(key) or ""
-    return stored
 
 
 def _range_lines(zh_prompt: str) -> list[str]:
@@ -1603,9 +1387,9 @@ def _fallback_zh_template() -> str:
 【空间建立】{{heading}}。{{start_range}} 锁定起幅站位与景深。
 【分秒动作】
 {{mid_range}} {{action}}
-{{end_range}} 落到结果构图并稳住。
+{{end_range}} 落到本镜结果并稳住。
 【运镜】{{camera}}
 【对白与旁白】{{dialogue}}
 内心/旁白闭嘴画外音，英文用 says in an off-screen voiceover，不要口型同步 says:。
 【声音】环境声与动作同步，不要抢台词。
-【禁止】不要把三联参考图画成一条胶片；不要姓名牌、字幕、水印。技能包：{{pack_name}}。"""
+【禁止】不要引用没有上传的参考图；不要姓名牌、字幕、水印。技能包：{{pack_name}}。"""

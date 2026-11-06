@@ -177,6 +177,7 @@ class ProjectItem(BaseModel):
     status: str = "active"
     settings: dict[str, Any] | None = None
     extra: dict[str, Any] | None = None
+    owner_user_id: str | None = Field(default=None, exclude=True)
     created_at: str
     updated_at: str
 

@@ -1,0 +1,212 @@
+{
+  "date": "2026-11-03",
+  "reference": "../../jimeng-flow-20261103/workshop-batch/reference-selected.png",
+  "capture": {
+    "assets": {},
+    "captured_at": "2026-11-03T04:48:32.347Z",
+    "document_height": 863,
+    "document_overflow_x": false,
+    "dpr": 1.159999966621399,
+    "elements": [
+      {
+        "box": [
+          420.79742431640625,
+          682.9337768554688,
+          1491.0426025390625,
+          171.99623107910156
+        ],
+        "computed": {
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "color": "rgb(243, 245, 247)",
+          "display": "block",
+          "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif",
+          "fontSize": "16px",
+          "fontWeight": "400",
+          "lineHeight": "24px",
+          "opacity": "1",
+          "visibility": "visible"
+        },
+        "count": 1,
+        "name": "filmstrip",
+        "selector": ".ws-filmstrip",
+        "status": "measured",
+        "text": "批量全选· 已选 1 个批量生成批量删除配音智能剪辑片段 01·13s片段 02·11s片段 03·11s片段 04·11s片段 05·11s片段 06·13s片段 07·13s片段 08·15s片段 09·13s片段 10·11s片段 11·11s片段 12·13s片段 13·11s片段 14·15s片段 15·13s",
+        "viewport_intersects": true
+      },
+      {
+        "box": [
+          442.7936706542969,
+          698.9224243164062,
+          75.9428939819336,
+          27.99030303955078
+        ],
+        "computed": {
+          "backgroundColor": "rgba(255, 255, 255, 0.07)",
+          "color": "rgb(243, 245, 247)",
+          "display": "flex",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "12px",
+          "fontWeight": "400",
+          "lineHeight": "20px",
+          "opacity": "1",
+          "visibility": "visible"
+        },
+        "count": 1,
+        "name": "batch-toggle",
+        "selector": ".ws-batch-toggle",
+        "status": "measured",
+        "text": "批量",
+        "viewport_intersects": true
+      },
+      {
+        "box": [
+          697.5889282226562,
+          698.9224243164062,
+          67.99569702148438,
+          27.99030303955078
+        ],
+        "computed": {
+          "backgroundColor": "rgb(243, 245, 247)",
+          "color": "rgb(15, 17, 21)",
+          "display": "flex",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "12px",
+          "fontWeight": "500",
+          "lineHeight": "20px",
+          "opacity": "1",
+          "visibility": "visible"
+        },
+        "count": 1,
+        "name": "generate",
+        "selector": ".ws-batch-generate",
+        "status": "measured",
+        "text": "批量生成",
+        "viewport_intersects": true
+      },
+      {
+        "box": [
+          773.572265625,
+          698.9224243164062,
+          67.99569702148438,
+          27.99030303955078
+        ],
+        "computed": {
+          "backgroundColor": "rgba(255, 255, 255, 0.07)",
+          "color": "rgb(243, 245, 247)",
+          "display": "flex",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "12px",
+          "fontWeight": "500",
+          "lineHeight": "20px",
+          "opacity": "1",
+          "visibility": "visible"
+        },
+        "count": 1,
+        "name": "delete",
+        "selector": ".ws-batch-delete",
+        "status": "measured",
+        "text": "批量删除",
+        "viewport_intersects": true
+      },
+      {
+        "box": [
+          448.7877502441406,
+          742.9014282226562,
+          113.99515533447266,
+          63.995155334472656
+        ],
+        "computed": {
+          "backgroundColor": "rgb(30, 34, 41)",
+          "color": "rgb(192, 199, 208)",
+          "display": "block",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "13px",
+          "fontWeight": "400",
+          "lineHeight": "19.5px",
+          "opacity": "1",
+          "visibility": "visible"
+        },
+        "count": 1,
+        "name": "thumbnail",
+        "selector": ".ws-filmstrip-entry:first-child .ws-filmstrip-thumb",
+        "status": "measured",
+        "text": "",
+        "viewport_intersects": true
+      },
+      {
+        "box": [
+          448.7877502441406,
+          814.8842163085938,
+          113.99515533447266,
+          19.98922538757324
+        ],
+        "computed": {
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "color": "rgb(243, 245, 247)",
+          "display": "flex",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "12px",
+          "fontWeight": "500",
+          "lineHeight": "20px",
+          "opacity": "1",
+          "visibility": "visible"
+        },
+        "count": 1,
+        "name": "caption",
+        "selector": ".ws-filmstrip-entry:first-child .ws-filmstrip-label",
+        "status": "measured",
+        "text": "片段 01·13s",
+        "viewport_intersects": true
+      },
+      {
+        "box": [
+          536.7996215820312,
+          748.8955078125,
+          19.98922538757324,
+          19.98922538757324
+        ],
+        "computed": {
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "color": "rgb(243, 245, 247)",
+          "display": "flex",
+          "fontFamily": "\"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif",
+          "fontSize": "14px",
+          "fontWeight": "400",
+          "lineHeight": "22px",
+          "opacity": "1",
+          "visibility": "visible"
+        },
+        "count": 1,
+        "name": "selection",
+        "selector": ".ws-filmstrip-entry:first-child .ws-batch-check",
+        "status": "measured",
+        "text": "",
+        "viewport_intersects": true
+      }
+    ],
+    "fonts_ready": true,
+    "images_ready": true,
+    "measurement_sha256": "689a228f6d1df96ce95b2c09107eb243f84123c890256208340561d8b50903ba",
+    "scroll": {
+      "x": 0,
+      "y": 0
+    },
+    "title": "ZLY AI 视频创作平台",
+    "url": "http://127.0.0.1:5173/director/projects/proj-a342bfd034eb4b20/workshop/ep-abd1a4a1f072",
+    "viewport": {
+      "height": 863,
+      "width": 1920
+    },
+    "full_page": false,
+    "screenshot_scale": "css"
+  },
+  "notes": [
+    "组件范围校准：全局页头和导航按工作台既有布局保留，横向起点比即梦多约8.8 CSS px，竖向差约1.1px。",
+    "控件尺寸实测：缩略图113.995×63.995，按钮67.996×27.990，角标19.989×19.989 CSS px；间距10px和标题8px。",
+    "采集器在只读宿主不暴露HTMLImageElement构造器，改用tagName判断；图片就绪检查排除没有src/srcset的ProseMirror-separator编辑占位，所有实际图片均加载。",
+    "round-03捕获于悬停边框修复前，并因编辑占位图片拒绝；最终round-04在修复悬停边框与间距后采集。",
+    "截图身份、视口、DPR和资源条件已通过；几何差异不换算为还原率。",
+    "真实项目仅勾选和确认取消，15个片段未删除，未提交视频任务。",
+    "补充实测：勾选第15片段会滚动到末尾，退出批量清空勾选；普通选片后正文和预览同步，最后恢复第1片段。"
+  ]
+}

@@ -47,7 +47,7 @@ export type AssistantArtifact = RecordBase & {
 }
 export type AssistantRun = RecordBase & { session_id: string; message_id: string; cancel_requested: boolean; error?: string | null }
 export type MediaProposal = RecordBase & {
-  title: string; media_type: "asset_image" | "storyboard_image" | "video" | "voice" | "compose"
+  title: string; media_type: "asset_image" | "video" | "voice" | "compose"
   project_id: string; project_name: string; asset_id?: string; episode_id?: string; beat_id?: string
   options: Record<string, unknown>; quantity: number; execution_id?: string
   model_name?: string; target_name?: string; creation_parameters?: { label: string; value: unknown }[]
@@ -65,7 +65,7 @@ export function assistantUpload<T>(csrfToken: string, path: string, file: File) 
   const body = new FormData(); body.append("file", file)
   return requestJson<T>(ASSISTANT_API + path, { method: "POST", headers: { "X-CSRF-Token": csrfToken }, body })
 }
-export const mediaLabels = { asset_image: "资产生图", storyboard_image: "分镜生图", video: "视频生成", voice: "配音", compose: "成片合成" }
+export const mediaLabels = { asset_image: "资产生图", video: "视频生成", voice: "配音", compose: "成片合成" }
 export const artifactLabels = { script: "剧本", assets: "资产设定", episodes: "分集大纲", storyboard: "分镜", prompt: "提示词", plan: "制作计划" }
 
 export function isAssistantRunning(run: AssistantRun | null | undefined) {

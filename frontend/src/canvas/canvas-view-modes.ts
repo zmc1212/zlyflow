@@ -29,7 +29,7 @@ export const CANVAS_GENERATION_MODE_OPTIONS: CanvasViewModeOption<CanvasGenerati
   {
     value: "independent",
     label: "独立",
-    description: "一次生成多个结果时落为多个独立节点，重新生成也会另建新节点；适合并排比较、自由挑选与组合不同结果。",
+    description: "生成后自动插入首个结果为独立素材节点；其它结果可切换版本后插入，便于并排比较与组合。重新生成会另建节点。",
   },
   {
     value: "aggregate",

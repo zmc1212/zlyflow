@@ -16,7 +16,7 @@ export const DIRECTOR2_EPISODE_COUNT_QUESTION: Director2ClarificationQuestion = 
 export const DIRECTOR2_SHOTS_PER_EPISODE_QUESTION: Director2ClarificationQuestion = {
   id: "shots_per_episode",
   question: "每一集默认拍多少个镜头？",
-    why: "每集镜头数是单集节奏建议（需要时可超过）。剧本按这个数量规划即可；导入内容库时大模型按本集动作和对白规划出片镜数和秒数，生成 H3 提示词时不再改镜头列表。",
+    why: "每集镜头数是单集节奏建议（需要时可超过）。剧本按这个数量规划即可；导入后在智能助手点「规划出片镜头」，大模型按本集动作和对白规划镜数和秒数，生成 H3 提示词时不再改镜头列表。",
   options: [
     { label: "4 个镜头 · 更紧凑", value: "4" },
     { label: "6 个镜头 · 推荐单集节奏", value: "6", recommended: true },

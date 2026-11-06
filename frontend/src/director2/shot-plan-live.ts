@@ -190,15 +190,6 @@ export function isDocumentShotPlanning(doc: ShotPlanDocumentLike | null | undefi
   return Boolean(doc?.shot_plan_job_id) || String(doc?.status || "") === "planning"
 }
 
-export function documentCanPlanShots(doc: ShotPlanDocumentLike | null | undefined): boolean {
-  if (!doc) return false
-  if (String(doc.input_mode || "").toLowerCase() === "ai_pipeline") return false
-  if (isDocumentShotPlanning(doc)) return false
-  const episodes = doc.analysis?.episodes || []
-  if (!episodes.length) return false
-  return episodes.some((episode) => String(episode.shots_source || "").toLowerCase() !== "llm")
-}
-
 export type ShotPlanBadge = {
   color?: "processing" | "success" | "error" | "warning"
   text: string

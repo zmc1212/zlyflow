@@ -104,7 +104,7 @@ class ArtifactDraft(StrictModel):
 
 class MediaDraft(StrictModel):
     title: str = Field(min_length=1, max_length=255)
-    media_type: Literal["asset_image", "storyboard_image", "video", "voice", "compose"]
+    media_type: Literal["asset_image", "video", "voice", "compose"]
     asset_id: str | None = Field(default=None, max_length=64)
     episode_id: str | None = Field(default=None, max_length=64)
     beat_id: str | None = Field(default=None, max_length=64)
@@ -116,8 +116,6 @@ class MediaDraft(StrictModel):
             raise ValueError("资产生图需要已存在的 asset_id")
         if self.media_type != "asset_image" and not self.episode_id:
             raise ValueError("媒体任务需要已存在的 episode_id")
-        if self.media_type == "storyboard_image" and not self.beat_id:
-            raise ValueError("分镜生图需要 beat_id")
         return self
 
 
@@ -204,7 +202,7 @@ question 可为 {"title":"完整问题？","type":"single|multiple|text","option
 - load_skill_reference {"path":"所选Skill的参考文件名"}：只读所选包内文本。path 必须逐字使用「当前选择」resources 中列出的参考文件名；列表为空表示该 Skill 没有参考文件，直接按 Skill 方法推进，不要调用本工具。
 - create_draft {"artifact_type":"script|assets|episodes|storyboard|prompt|plan","title":"...","content":"完整可交付Markdown正文","data":{},"revises_id":null}。
   script 的 data 可含 summary 和 section（body 正文 / setting 全剧设定）；assets 的 data.assets 每项 {kind:character|scene|prop,name,role,description,visual_prompt}；episodes 的 data.episodes 每项 {episode_num,title,summary,script_text}；storyboard 的 data.episodes 每项 {episode_num,title,episode_id,summary,script_text,beats:[{id,sequence,scene,action,dialogue,camera,duration,prompt,character_ids,scene_id,prop_ids}]}，单镜duration为2–15整数秒。不能用摘要冒充完整正文或完整剧本。
-- propose_media {"title":"...","media_type":"asset_image|storyboard_image|video|voice|compose","asset_id":null,"episode_id":null,"beat_id":null,"options":{}}。asset_image需asset_id；其它需episode_id；storyboard_image需beat_id。options只填用户确认或当前平台允许的创作参数。提案不会立即执行。
+- propose_media {"title":"...","media_type":"asset_image|video|voice|compose","asset_id":null,"episode_id":null,"beat_id":null,"options":{}}。asset_image需asset_id；其它需episode_id；单镜视频生成需beat_id。options只填用户确认或当前平台允许的创作参数。提案不会立即执行。
 - editor_read {}：仅在context.kind=smart_edit的会话中读取当前账号的剪辑素材、时间线和理解摘要（对白镜头数、对白秒数、高光候选及依据）。工程与分集由会话绑定，不能改为其它目标。analysis.understanding 是用户在剪辑页点击「视频理解」后由工作台抽取关键帧交给视觉模型得到的画面摘要；status为missing时不要假装看过画面，可提示用户先点「视频理解」。该摘要不含音轨转写。analysis.transcript 是用户在剪辑页点击「转写音频」后由工作台从时间线有声素材得到的带时间戳语音段落；status为missing、stale或empty时不要假装听过音轨内容，可提示用户先点「转写音频」。
 - propose_edit {"operation":"video_arrange|subtitle_arrange|audio_subtitle|dialogue_cut|quick_cut|highlight_cut|hook_cut","strategy":null}：为当前剪辑生成待授权方案。先editor_read再提案；video_arrange仅追加尚未铺轨的视频并保留原剪辑、文字和独立音频；subtitle_arrange按分集对白生成字幕并替换上次自动字幕；audio_subtitle只使用已有音轨转写段落生成字幕并替换上次自动字幕，没有可用转写证据时如实说明失败原因、建议用户先点「转写音频」，不得用剧本对白冒充转写结果；dialogue_cut/quick_cut/highlight_cut/hook_cut按对白、节奏、剧情关键词和理解摘要重建画面和配音轨，保留手工文字。hook_cut必须带strategy，可选conflict_3s（3秒进冲突）、climax_only（只留高潮）、quote_open（金句开场）、ending_hook（结尾悬念）、trailer（预告片）；用户只说“引流剪辑/钩子剪辑/预告片”但没选方式时，先用一个question让用户选择，不得替用户决定。所有方案都由工作台确定性生成，不调用生成模型，用户随后在授权弹窗确认。用户要求“铺轨”“自动字幕”“音轨字幕/按真实声音上字幕”“对白精剪”“成片速剪”“高光合集”“引流剪辑”时必须调用此工具，不能只给操作教程或声称已完成。提案后停止，等待用户确认；历史提案的真实执行状态以系统上下文为准。
 每次先读取必要资料，再依据工具结果交付；创建草稿/媒体提案或提问后停下来等用户。已有材料足够时直接交付，不为凑步骤反复提问。
@@ -240,7 +238,7 @@ def _native_tool(name: str, description: str, properties: dict | None = None, re
 
 
 ARTIFACT_TYPE_ENUM = ["script", "assets", "episodes", "storyboard", "prompt", "plan"]
-MEDIA_TYPE_ENUM = ["asset_image", "storyboard_image", "video", "voice", "compose"]
+MEDIA_TYPE_ENUM = ["asset_image", "video", "voice", "compose"]
 EDIT_OPERATION_ENUM = ["video_arrange", "subtitle_arrange", "audio_subtitle", "dialogue_cut", "quick_cut", "highlight_cut", "hook_cut"]
 HOOK_STRATEGY_ENUM = ["conflict_3s", "climax_only", "quote_open", "ending_hook", "trailer"]
 

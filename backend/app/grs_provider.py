@@ -63,6 +63,12 @@ class GrsProviderService:
     def api_key(self) -> str | None:
         return self.credentials.decrypt(self.store.get_grs_settings().get("api_key_encrypted"))
 
+    def reveal_secret(self, field: str) -> str | None:
+        """管理页「复制 Key」取回的明文。"""
+        if field != "api_key":
+            raise ValueError("GRS 图片供应商只支持复制 API Key")
+        return self.api_key()
+
     def availability(self, mode: JobMode | str | None = None) -> tuple[bool, str | None]:
         config = self.store.get_grs_settings()
         if not config["enabled"]:
@@ -76,6 +82,13 @@ class GrsProviderService:
             if entry is None or not entry["enabled"]:
                 return False, "该生图模型已被管理员停用或不存在。"
         return True, None
+
+    def model_enabled(self, provider_model: str) -> bool:
+        """目录中是否存在该生图模型且已启用（复合图片工作流按 provider_model 校验）。"""
+        return any(
+            item["provider_model"] == provider_model and item["enabled"]
+            for item in self.store.list_grs_image_models()
+        )
 
     def resolve_composite_model(self, requested: str | None) -> str:
         """复合图片工作流（局部重绘/消除笔/扩图）的实际生图模型。

@@ -64,6 +64,10 @@
 .script-empty>svg { color:var(--studio-text-muted); }
 .script-empty h2 { font-size:19px; font-weight:500; margin:0; }
 .script-empty p { font-size:13px; line-height:1.9; color:var(--studio-text-muted); margin:0 0 6px; }
+/* 加载骨架：按剧本正文排版形态占位，避免首屏闪「空故事」空态 */
+.script-loading { max-width:1040px; display:flex; flex-direction:column; gap:19px; padding-top:8px; }
+.script-loading .studio-skeleton-bar { height:14px; border-radius:5px; }
+.script-loading .script-loading-title { height:22px; border-radius:6px; margin-bottom:10px; }
 .script-next-step { display:flex; align-items:center; justify-content:flex-end; flex:none; gap:10px; min-height:66px; border-top:1px solid var(--studio-border); padding:12px 0; }
 .script-next-step>span { flex:1; font-size:12px; line-height:1.6; color:var(--studio-text-muted); }
 .script-next-step>.ant-btn { font-size:12px; flex:none; }

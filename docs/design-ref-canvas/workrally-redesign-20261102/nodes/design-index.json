@@ -1,0 +1,548 @@
+{
+  "date": "2026-11-02",
+  "status": "implemented",
+  "scope": "all existing canvas nodes and key states; desktop implementation",
+  "requested_images": 8,
+  "model": "gpt-image-2.5-flare",
+  "quality": "high",
+  "size": "1536x1024",
+  "n_per_request": 1,
+  "references": [
+    {
+      "path": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\canvas-workrally-dark-v001.png",
+      "role": "user-reviewed visual direction",
+      "sha256": "779277c7e3c3a53ba6a01f9314b305ff373472e2aa2829732b2ce2780c78e736"
+    },
+    {
+      "path": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\references\\workrally-dark.png",
+      "role": "original WorkRally canvas reference",
+      "sha256": "01aa7ad1540b7aa042d80ea7fc21a51dbae3252b5d8f45b397cb07ea956e7f04"
+    }
+  ],
+  "sheets": [
+    {
+      "id": "01-text",
+      "title": "文字节点",
+      "prompt": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\prompts\\01-text.v001.txt",
+      "image": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\01-text.v001.png",
+      "api_record": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\01-text.v001.api-result.json",
+      "status": "ready-for-user-review",
+      "actual_size": [
+        1536,
+        1024
+      ],
+      "sha256": "0fadbb9afc137718e0572ec506008ff20a45f2805ac82e7a1d6961ea4fb789f8",
+      "hash_matches_api": true,
+      "prompt_sha256": "0b618d5beddd476f7d8565e7c15cdbad3df7ec23221ba7f52a3d92384377dc53",
+      "usage": {
+        "input_tokens": 3921,
+        "input_tokens_details": {
+          "image_tokens": 2804,
+          "text_tokens": 1117
+        },
+        "output_tokens": 1372,
+        "output_tokens_details": {
+          "image_tokens": 1372,
+          "text_tokens": 0
+        },
+        "total_tokens": 5293
+      },
+      "visual_review": [
+        "空态、常态、选中编辑、提示词连线、长文本已逐项目视查看。",
+        "右输出端口；文本500字计数为AI示意，不作为字段限制。"
+      ],
+      "version": "v001",
+      "revisions": [
+        {
+          "version": "v001",
+          "record": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\01-text.v001.api-result.json",
+          "sha256": "0fadbb9afc137718e0572ec506008ff20a45f2805ac82e7a1d6961ea4fb789f8",
+          "usage": {
+            "input_tokens": 3921,
+            "input_tokens_details": {
+              "image_tokens": 2804,
+              "text_tokens": 1117
+            },
+            "output_tokens": 1372,
+            "output_tokens_details": {
+              "image_tokens": 1372,
+              "text_tokens": 0
+            },
+            "total_tokens": 5293
+          },
+          "status": "current"
+        }
+      ]
+    },
+    {
+      "id": "02-image",
+      "title": "图片节点",
+      "prompt": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\prompts\\02-image.v001.txt",
+      "image": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\02-image.v001.png",
+      "api_record": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\02-image.v001.api-result.json",
+      "status": "ready-for-user-review",
+      "actual_size": [
+        1536,
+        1024
+      ],
+      "sha256": "f84b424a03805794c4e9539b183e0c6c717ae59d5b814f620f5b62acd0f09d65",
+      "hash_matches_api": true,
+      "prompt_sha256": "5ea066989576c6c43c7c08d8cf094ab57338e800d67ccd2d335653e0ac476be5",
+      "usage": {
+        "input_tokens": 3927,
+        "input_tokens_details": {
+          "image_tokens": 2804,
+          "text_tokens": 1123
+        },
+        "output_tokens": 1372,
+        "output_tokens_details": {
+          "image_tokens": 1372,
+          "text_tokens": 0
+        },
+        "total_tokens": 5299
+      },
+      "visual_review": [
+        "正常/选中、等待上游、加载失败、保留比例的预览已目视查看。",
+        "普通图片没有附加生成区。"
+      ],
+      "version": "v001",
+      "revisions": [
+        {
+          "version": "v001",
+          "record": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\02-image.v001.api-result.json",
+          "sha256": "f84b424a03805794c4e9539b183e0c6c717ae59d5b814f620f5b62acd0f09d65",
+          "usage": {
+            "input_tokens": 3927,
+            "input_tokens_details": {
+              "image_tokens": 2804,
+              "text_tokens": 1123
+            },
+            "output_tokens": 1372,
+            "output_tokens_details": {
+              "image_tokens": 1372,
+              "text_tokens": 0
+            },
+            "total_tokens": 5299
+          },
+          "status": "current"
+        }
+      ]
+    },
+    {
+      "id": "03-video",
+      "title": "视频节点",
+      "prompt": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\prompts\\03-video.v001.txt",
+      "image": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\03-video.v001.png",
+      "api_record": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\03-video.v001.api-result.json",
+      "status": "ready-for-user-review",
+      "actual_size": [
+        1536,
+        1024
+      ],
+      "sha256": "a31bc0a51ff6d3ef7bbec5cff64897795f35591f86340d5445c840c64e834949",
+      "hash_matches_api": true,
+      "prompt_sha256": "cbb7257a61fda93a57e0d606784bdcf2b60a1369594eb268daaa4c0b32b29e41",
+      "usage": {
+        "input_tokens": 3983,
+        "input_tokens_details": {
+          "image_tokens": 2804,
+          "text_tokens": 1179
+        },
+        "output_tokens": 1372,
+        "output_tokens_details": {
+          "image_tokens": 1372,
+          "text_tokens": 0
+        },
+        "total_tokens": 5355
+      },
+      "visual_review": [
+        "默认/选中、播放、空态、等待/失败、封面取帧/裁切已目视查看。",
+        "普通视频工具条没有以此生成。"
+      ],
+      "version": "v001",
+      "revisions": [
+        {
+          "version": "v001",
+          "record": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\03-video.v001.api-result.json",
+          "sha256": "a31bc0a51ff6d3ef7bbec5cff64897795f35591f86340d5445c840c64e834949",
+          "usage": {
+            "input_tokens": 3983,
+            "input_tokens_details": {
+              "image_tokens": 2804,
+              "text_tokens": 1179
+            },
+            "output_tokens": 1372,
+            "output_tokens_details": {
+              "image_tokens": 1372,
+              "text_tokens": 0
+            },
+            "total_tokens": 5355
+          },
+          "status": "current"
+        }
+      ]
+    },
+    {
+      "id": "04-image-generator",
+      "title": "图片生成节点",
+      "prompt": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\prompts\\04-image-generator.v002.txt",
+      "image": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\04-image-generator.v002.png",
+      "api_record": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\04-image-generator.v002.api-result.json",
+      "status": "ready-for-user-review",
+      "actual_size": [
+        1536,
+        1024
+      ],
+      "sha256": "623a8e353fa37200d03cb133b8535c3503040770aaddf22ca743851309b77ada",
+      "hash_matches_api": true,
+      "prompt_sha256": "00a62ee24bfa65f0bd1ce481b2762733f668a810e7b9f7eeda7ed645fda380c0",
+      "usage": {
+        "input_tokens": 4382,
+        "input_tokens_details": {
+          "image_tokens": 2804,
+          "text_tokens": 1578
+        },
+        "output_tokens": 1372,
+        "output_tokens_details": {
+          "image_tokens": 1372,
+          "text_tokens": 0
+        },
+        "total_tokens": 5754
+      },
+      "visual_review": [
+        "已修正生成区为上方参考图、中间整宽提示词、底部参数操作。",
+        "待提交、排队、进度、成功版本、失败、2/4部分完成及停止/中断标签完整可见。"
+      ],
+      "version": "v002",
+      "revisions": [
+        {
+          "version": "v001",
+          "record": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\04-image-generator.v001.api-result.json",
+          "sha256": "21bc58540a7e19a909e06837d35e764ed326b038c2a6a3b80f8a14c64a98cd6c",
+          "usage": {
+            "input_tokens": 4062,
+            "input_tokens_details": {
+              "image_tokens": 2804,
+              "text_tokens": 1258
+            },
+            "output_tokens": 1372,
+            "output_tokens_details": {
+              "image_tokens": 1372,
+              "text_tokens": 0
+            },
+            "total_tokens": 5434
+          },
+          "status": "superseded"
+        },
+        {
+          "version": "v002",
+          "record": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\04-image-generator.v002.api-result.json",
+          "sha256": "623a8e353fa37200d03cb133b8535c3503040770aaddf22ca743851309b77ada",
+          "usage": {
+            "input_tokens": 4382,
+            "input_tokens_details": {
+              "image_tokens": 2804,
+              "text_tokens": 1578
+            },
+            "output_tokens": 1372,
+            "output_tokens_details": {
+              "image_tokens": 1372,
+              "text_tokens": 0
+            },
+            "total_tokens": 5754
+          },
+          "status": "current"
+        }
+      ]
+    },
+    {
+      "id": "05-video-generator",
+      "title": "视频生成节点",
+      "prompt": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\prompts\\05-video-generator.v002.txt",
+      "image": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\05-video-generator.v002.png",
+      "api_record": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\05-video-generator.v002.api-result.json",
+      "status": "ready-for-user-review",
+      "actual_size": [
+        1536,
+        1024
+      ],
+      "sha256": "71fcc1123dc2c092fb60af70313da6d778ab880be0ac68fb54d6209d5a70fa81",
+      "hash_matches_api": true,
+      "prompt_sha256": "7640019648aaf6a7a6e73011b3d8c253dfe0b5011344f3147c15c5644060ee6d",
+      "usage": {
+        "input_tokens": 4494,
+        "input_tokens_details": {
+          "image_tokens": 2804,
+          "text_tokens": 1690
+        },
+        "output_tokens": 1372,
+        "output_tokens_details": {
+          "image_tokens": 1372,
+          "text_tokens": 0
+        },
+        "total_tokens": 5866
+      },
+      "visual_review": [
+        "已修正三个输入模式为中性待提交；首尾帧严格两个槽位、尾帧可选。",
+        "文生无图片、多参考顺序、停止、一采确认两种操作、完成状态均可见；视频版本条复用04规范。"
+      ],
+      "version": "v002",
+      "revisions": [
+        {
+          "version": "v001",
+          "record": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\05-video-generator.v001.api-result.json",
+          "sha256": "4a5236ac9d3f1630be5a2aa4eb477913abb20b90aec520e94b7d36c1215dacc5",
+          "usage": {
+            "input_tokens": 4199,
+            "input_tokens_details": {
+              "image_tokens": 2804,
+              "text_tokens": 1395
+            },
+            "output_tokens": 1372,
+            "output_tokens_details": {
+              "image_tokens": 1372,
+              "text_tokens": 0
+            },
+            "total_tokens": 5571
+          },
+          "status": "superseded"
+        },
+        {
+          "version": "v002",
+          "record": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\05-video-generator.v002.api-result.json",
+          "sha256": "71fcc1123dc2c092fb60af70313da6d778ab880be0ac68fb54d6209d5a70fa81",
+          "usage": {
+            "input_tokens": 4494,
+            "input_tokens_details": {
+              "image_tokens": 2804,
+              "text_tokens": 1690
+            },
+            "output_tokens": 1372,
+            "output_tokens_details": {
+              "image_tokens": 1372,
+              "text_tokens": 0
+            },
+            "total_tokens": 5866
+          },
+          "status": "current"
+        }
+      ]
+    },
+    {
+      "id": "06-artboard-connections",
+      "title": "画板与连线",
+      "prompt": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\prompts\\06-artboard-connections.v001.txt",
+      "image": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\06-artboard-connections.v001.png",
+      "api_record": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\06-artboard-connections.v001.api-result.json",
+      "status": "ready-for-user-review",
+      "actual_size": [
+        1536,
+        1024
+      ],
+      "sha256": "855120c88f572e992155ecab1fd18b9e8838c7602974bf8ce3ac527fcaeeaf3e",
+      "hash_matches_api": true,
+      "prompt_sha256": "4eb5f9a6b879bc6c077ad6cf77d4ae77f18fbfd34117f31bb2839b446b5180de",
+      "usage": {
+        "input_tokens": 4128,
+        "input_tokens_details": {
+          "image_tokens": 2804,
+          "text_tokens": 1324
+        },
+        "output_tokens": 1372,
+        "output_tokens_details": {
+          "image_tokens": 1372,
+          "text_tokens": 0
+        },
+        "total_tokens": 5500
+      },
+      "visual_review": [
+        "已目视查看画板选中/空/常态、五类有效连接、拖出添加与未知兼容节点。",
+        "画板无图连接端口，不暗示自动分组移动。"
+      ],
+      "version": "v001",
+      "revisions": [
+        {
+          "version": "v001",
+          "record": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\06-artboard-connections.v001.api-result.json",
+          "sha256": "855120c88f572e992155ecab1fd18b9e8838c7602974bf8ce3ac527fcaeeaf3e",
+          "usage": {
+            "input_tokens": 4128,
+            "input_tokens_details": {
+              "image_tokens": 2804,
+              "text_tokens": 1324
+            },
+            "output_tokens": 1372,
+            "output_tokens_details": {
+              "image_tokens": 1372,
+              "text_tokens": 0
+            },
+            "total_tokens": 5500
+          },
+          "status": "current"
+        }
+      ]
+    },
+    {
+      "id": "07-panels-actions",
+      "title": "属性与公共操作",
+      "prompt": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\prompts\\07-panels-actions.v002.txt",
+      "image": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\07-panels-actions.v002.png",
+      "api_record": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\07-panels-actions.v002.api-result.json",
+      "status": "ready-for-user-review",
+      "version": "v002",
+      "actual_size": [
+        1536,
+        1024
+      ],
+      "sha256": "c45ca03d9dceafaa5f941275c8cd9f2153643e43ff1d725f13b56222ebb050b9",
+      "hash_matches_api": true,
+      "prompt_sha256": "f3fd4763f7a58aed5b0e30737163a2f33df5cad4637f8981613a270c29336719",
+      "usage": {
+        "input_tokens": 3299,
+        "input_tokens_details": {
+          "image_tokens": 2832,
+          "text_tokens": 467
+        },
+        "output_tokens": 1372,
+        "output_tokens_details": {
+          "image_tokens": 1372,
+          "text_tokens": 0
+        },
+        "total_tokens": 4671
+      },
+      "visual_review": [
+        "已修正关闭连线为仅隐藏、保留数据；聚合为结果版本留在同一节点。",
+        "属性、图层、恢复确认、真实添加菜单、模式设置与作品库面板均完整可见；图示文字以DESIGN字段规则为准。"
+      ],
+      "revisions": [
+        {
+          "version": "v001",
+          "record": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\07-panels-actions.v001.api-result.json",
+          "sha256": "f7cd64746c68188573c5812ccd674d2bb03a7deb3d5fe025a2e476ce69e2218c",
+          "usage": {
+            "input_tokens": 4345,
+            "input_tokens_details": {
+              "image_tokens": 2804,
+              "text_tokens": 1541
+            },
+            "output_tokens": 1372,
+            "output_tokens_details": {
+              "image_tokens": 1372,
+              "text_tokens": 0
+            },
+            "total_tokens": 5717
+          },
+          "status": "superseded"
+        },
+        {
+          "version": "v002",
+          "record": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\07-panels-actions.v002.api-result.json",
+          "sha256": "c45ca03d9dceafaa5f941275c8cd9f2153643e43ff1d725f13b56222ebb050b9",
+          "usage": {
+            "input_tokens": 3299,
+            "input_tokens_details": {
+              "image_tokens": 2832,
+              "text_tokens": 467
+            },
+            "output_tokens": 1372,
+            "output_tokens_details": {
+              "image_tokens": 1372,
+              "text_tokens": 0
+            },
+            "total_tokens": 4671
+          },
+          "status": "current"
+        }
+      ]
+    },
+    {
+      "id": "08-light-overview",
+      "title": "浅色节点总览",
+      "prompt": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\prompts\\08-light-overview.v002.txt",
+      "image": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\08-light-overview.v002.png",
+      "api_record": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\08-light-overview.v002.api-result.json",
+      "status": "ready-for-user-review",
+      "version": "v002",
+      "actual_size": [
+        1536,
+        1024
+      ],
+      "sha256": "9e5d4aeb98dafe13f813869f4da4f4196d17bef10e973ff9a0c7ebba3c6b64b2",
+      "hash_matches_api": true,
+      "prompt_sha256": "82919d43d16db6db313c238ce953992c6b127fa6de77a337dc56d997bae8620b",
+      "usage": {
+        "input_tokens": 3359,
+        "input_tokens_details": {
+          "image_tokens": 2832,
+          "text_tokens": 527
+        },
+        "output_tokens": 1372,
+        "output_tokens_details": {
+          "image_tokens": 1372,
+          "text_tokens": 0
+        },
+        "total_tokens": 4731
+      },
+      "visual_review": [
+        "已修正右侧为普通视频，图中实际覆盖文字、图片、视频、生成、画板五类。",
+        "已删除虚构模型目录，改为浅色连线显示菜单；空态、异常、选中、状态及弹层对照已目视查看。"
+      ],
+      "revisions": [
+        {
+          "version": "v001",
+          "record": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\08-light-overview.v001.api-result.json",
+          "sha256": "4469558d7d207d40b6adaa05b24658a50bcc13df31134f0a22a35c524701d387",
+          "usage": {
+            "input_tokens": 4138,
+            "input_tokens_details": {
+              "image_tokens": 2804,
+              "text_tokens": 1334
+            },
+            "output_tokens": 1372,
+            "output_tokens_details": {
+              "image_tokens": 1372,
+              "text_tokens": 0
+            },
+            "total_tokens": 5510
+          },
+          "status": "superseded"
+        },
+        {
+          "version": "v002",
+          "record": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\08-light-overview.v002.api-result.json",
+          "sha256": "9e5d4aeb98dafe13f813869f4da4f4196d17bef10e973ff9a0c7ebba3c6b64b2",
+          "usage": {
+            "input_tokens": 3359,
+            "input_tokens_details": {
+              "image_tokens": 2832,
+              "text_tokens": 527
+            },
+            "output_tokens": 1372,
+            "output_tokens_details": {
+              "image_tokens": 1372,
+              "text_tokens": 0
+            },
+            "total_tokens": 4731
+          },
+          "status": "current"
+        }
+      ]
+    }
+  ],
+  "implementation_status": "complete",
+  "delivered_images": 8,
+  "actual_api_requests": 12,
+  "superseded_images": 4,
+  "aggregate_usage": {
+    "input_tokens": 48237,
+    "output_tokens": 16464,
+    "total_tokens": 64701
+  },
+  "generation_summary": "8张分项稿；图片生成、视频生成、公共面板和浅色总览各做过一次定点修正，保留旧版本；所有请求为官方API，无重复提交、无原生回退。",
+  "known_limits": [
+    "AI栅格图中的小字号文案、示意计数与模型不作为业务约束，以工作流注册表和DOM文案为准。",
+    "桌面浅暗主题与隔离数据交互已验收；未提交真实图片/视频生成任务。"
+  ],
+  "implementation_date": "2026-11-03",
+  "implementation_evidence": "../implementation-20261103/ui-cases.json"
+}

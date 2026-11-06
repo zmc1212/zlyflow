@@ -1,0 +1,22 @@
+{
+  "sheet": "05-video-generator",
+  "started_at_utc": "2026-11-02T15:41:35.488739+00:00",
+  "model": "gpt-image-2.5-flare",
+  "size": "1536x1024",
+  "quality": "high",
+  "n": 1,
+  "prompt": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\prompts\\05-video-generator.v001.txt",
+  "references": [
+    {
+      "path": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\canvas-workrally-dark-v001.png",
+      "role": "user-reviewed visual direction",
+      "sha256": "779277c7e3c3a53ba6a01f9314b305ff373472e2aa2829732b2ce2780c78e736"
+    },
+    {
+      "path": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\references\\workrally-dark.png",
+      "role": "original WorkRally canvas reference",
+      "sha256": "01aa7ad1540b7aa042d80ea7fc21a51dbae3252b5d8f45b397cb07ea956e7f04"
+    }
+  ],
+  "status": "submitted-once"
+}

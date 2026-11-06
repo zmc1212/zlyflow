@@ -276,7 +276,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
               </Button>
             </>
           ) : null}
-          {record.status === "failed" && record.job_type !== "smart_edit_export" ? (
+          {record.status === "failed" && record.job_type !== "smart_edit_export" && record.job_type !== "asset_extraction" ? (
             <Button size="small" type="link" onClick={() => handleRetry(record.id)}>
               重试
             </Button>
@@ -433,8 +433,9 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
       await retryJob(csrfToken, projectId, id)
       message.success("任务已重新启动")
       await fetchJobs()
-    } catch {
-      message.error("重试失败")
+    } catch (err) {
+      // 已下线的镜头生图（草图 / 渲染图 / 三联关键帧）在后端给出中文原因，需要原样转达
+      message.error({ content: director2ErrorDetail(err, "重试失败"), key: "jobRetry", duration: 10 })
     }
   }
 
@@ -884,8 +885,40 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
               </div>
             ) : null}
 
+            {selectedJob.job_type === "asset_extraction" ? (
+              <div className="detail-section">
+                <div className="detail-section-title">资产拆解结果</div>
+                <div className="detail-grid">
+                  <div className="detail-row">
+                    <span className="detail-key">内容库文档</span>
+                    <span className="detail-val">{selectedJob.payload?.filename || shotPlanDocumentId(selectedJob) || "—"}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-key">已写入</span>
+                    <span className="detail-val">
+                      角色 {Number(selectedJob.payload?.transferred?.characters || 0)} · 场景 {Number(selectedJob.payload?.transferred?.scenes || 0)} · 道具 {Number(selectedJob.payload?.transferred?.props || 0)}
+                    </span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-key">跳过</span>
+                    <span className="detail-val">
+                      {Number(selectedJob.payload?.skipped_count || 0)} 项
+                      {Array.isArray(selectedJob.payload?.skipped) && selectedJob.payload.skipped.length
+                        ? `：${selectedJob.payload.skipped.slice(0, 6).map((item: { name?: string }) => item?.name).filter(Boolean).join("、")}`
+                        : ""}
+                    </span>
+                  </div>
+                </div>
+                {shotPlanDocumentId(selectedJob) ? (
+                  <Button type="primary" ghost onClick={() => openContentDocument(selectedJob)}>
+                    打开内容库文档
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+
             {/* 调用参数 */}
-            {!isVideoJob(selectedJob) && !isH3PromptJob(selectedJob) && !isShotPlanJob(selectedJob) && !isTtsJob(selectedJob) && selectedJob.payload && Object.keys(selectedJob.payload).length ? (
+            {!isVideoJob(selectedJob) && !isH3PromptJob(selectedJob) && !isShotPlanJob(selectedJob) && !isTtsJob(selectedJob) && selectedJob.job_type !== "asset_extraction" && selectedJob.payload && Object.keys(selectedJob.payload).length ? (
               <div className="detail-section">
                 <div className="detail-section-title">⚙️ 调用参数</div>
                 <div className="detail-grid">
@@ -967,7 +1000,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
             ) : null}
 
             {/* 参考图 */}
-            {!isVideoJob(selectedJob) && !isShotPlanJob(selectedJob) ? (
+            {!isVideoJob(selectedJob) && !isShotPlanJob(selectedJob) && selectedJob.job_type !== "asset_extraction" ? (
               <div className="detail-section">
                 <div className="detail-section-title">🖼 传入参考图 (images)</div>
                 {referenceUrls(selectedJob).length ? (
@@ -1043,7 +1076,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
             ) : null}
 
             {/* GRS 请求体 */}
-            {!isVideoJob(selectedJob) && !isH3PromptJob(selectedJob) && !isShotPlanJob(selectedJob) && !isTtsJob(selectedJob) ? (
+            {!isVideoJob(selectedJob) && !isH3PromptJob(selectedJob) && !isShotPlanJob(selectedJob) && !isTtsJob(selectedJob) && selectedJob.job_type !== "asset_extraction" ? (
               <div className="detail-section">
                 <div className="detail-section-title">📤 提交给 GRS 的完整参数</div>
                 <div className="prompt-block">

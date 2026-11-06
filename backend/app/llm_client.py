@@ -1796,6 +1796,59 @@ class OpenAICompatibleClient:
             raise LlmError("语音合成返回了空音频")
         return body
 
+    def speech_via_chat(
+        self,
+        *,
+        text: str,
+        model: str,
+        voice: str,
+        response_format: str = "mp3",
+        instructions: str = "",
+        timeout: float = 120.0,
+    ) -> bytes:
+        """Synthesize through chat/completions and decode base64 audio (MiMo TTS)."""
+        url = f"{self.base_url}/chat/completions"
+        messages = ([{"role": "user", "content": instructions}] if instructions else []) + [
+            {"role": "assistant", "content": text},
+        ]
+        payload = {
+            "model": model,
+            "messages": messages,
+            "audio": {"format": response_format, "voice": voice},
+        }
+        try:
+            response = self.session.post(url, headers=self.headers, json=payload, timeout=timeout)
+        except requests.exceptions.Timeout as exc:
+            raise LlmTemporaryError(f"语音合成超时（等待 {timeout:.0f} 秒仍无响应）：{exc}") from exc
+        except requests.exceptions.ConnectionError as exc:
+            raise LlmTemporaryError(f"无法连接语音合成服务 {self.base_url}：{exc}") from exc
+        except requests.exceptions.RequestException as exc:
+            raise LlmTemporaryError(f"请求语音合成服务异常：{exc}") from exc
+        if response.status_code >= 400:
+            upstream: dict[str, Any] | None = None
+            try:
+                parsed = response.json()
+                upstream = parsed if isinstance(parsed, dict) else None
+            except Exception:
+                upstream = None
+            msg = _payload_error_text(upstream) or (response.text or "").strip()[:400] or f"HTTP {response.status_code}"
+            raise_llm_http_error(action="语音合成", status=response.status_code, upstream=msg)
+        try:
+            data = response.json()
+        except ValueError as error:
+            raise LlmError("语音合成返回了无效 JSON 响应") from error
+        try:
+            encoded = data["choices"][0]["message"]["audio"]["data"]
+        except (KeyError, IndexError, TypeError) as error:
+            raise LlmError("语音合成响应缺少音频数据") from error
+        try:
+            audio = base64.b64decode(str(encoded), validate=True)
+        except Exception as error:
+            raise LlmError("语音合成返回的音频无法解码") from error
+        if not audio:
+            raise LlmError("语音合成返回了空音频")
+        return audio
+
     def transcribe(
         self,
         *,

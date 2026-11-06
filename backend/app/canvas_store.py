@@ -8,6 +8,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from .db import IntegrityError
 from .storage import JobStore
 
 EMPTY_CANVAS_CONTENT = json.dumps({"nodes": [], "edges": []}, ensure_ascii=False, separators=(",", ":"))
@@ -436,7 +437,7 @@ class CanvasStore:
         deleted_filter = "p.deleted_at IS NOT NULL" if trashed else "p.deleted_at IS NULL"
         with self._store.connection() as connection:
             rows = connection.execute(
-                f"""SELECT p.id, p.title, p.created_at, p.updated_at,
+                f"""SELECT p.id, p.title, p.linked_director_project_id, p.created_at, p.updated_at,
                            p.tags_json, p.is_favorite, p.deleted_at, p.preview_json,
                            d.version AS draft_version, d.node_count AS node_count,
                            d.updated_at AS draft_updated_at
@@ -448,10 +449,13 @@ class CanvasStore:
             ).fetchall()
         return [_project_payload(row) for row in rows]
 
-    def create_project(self, owner_user_id: str, title: str) -> dict[str, Any]:
+    def create_project(
+        self, owner_user_id: str, title: str, *, linked_director_project_id: str | None = None,
+    ) -> dict[str, Any]:
         title = title.strip() or "未命名画布"
         if len(title) > 120:
             raise CanvasValidationError("画布标题不能超过 120 个字符")
+        link = (linked_director_project_id or "").strip() or None
         now = _now()
         project_id = _new_id("canvas")
         node_count = 0
@@ -465,9 +469,9 @@ class CanvasStore:
         with self._store.connection() as connection:
             connection.execute(
                 """INSERT INTO canvas_projects
-                   (id, owner_user_id, title, preview_json, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (project_id, owner_user_id, title, preview_json, now, now),
+                   (id, owner_user_id, title, linked_director_project_id, tags_json, is_favorite, preview_json, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (project_id, owner_user_id, title, link, "[]", 0, preview_json, now, now),
             )
             connection.execute(
                 """INSERT INTO canvas_drafts
@@ -483,10 +487,36 @@ class CanvasStore:
             )
         return self.get_project(owner_user_id, project_id)
 
+    def _find_linked_canvas_id(self, owner_user_id: str, director_project_id: str) -> str | None:
+        with self._store.connection() as connection:
+            row = connection.execute(
+                """SELECT id FROM canvas_projects
+                   WHERE owner_user_id = ? AND linked_director_project_id = ? AND deleted_at IS NULL
+                   ORDER BY created_at ASC LIMIT 1""",
+                (owner_user_id, director_project_id),
+            ).fetchone()
+        return str(row["id"]) if row is not None else None
+
+    def get_or_create_linked(self, owner_user_id: str, director_project_id: str, title: str) -> dict[str, Any]:
+        """Idempotent per (owner, director project); the unique index guards concurrent creation."""
+        director_project_id = director_project_id.strip()
+        if not director_project_id:
+            raise CanvasValidationError("缺少绑定的导演项目 ID")
+        existing = self._find_linked_canvas_id(owner_user_id, director_project_id)
+        if existing:
+            return self.get_project(owner_user_id, existing)
+        try:
+            return self.create_project(owner_user_id, title, linked_director_project_id=director_project_id)
+        except IntegrityError:
+            found = self._find_linked_canvas_id(owner_user_id, director_project_id)
+            if found:
+                return self.get_project(owner_user_id, found)
+            raise
+
     def get_project(self, owner_user_id: str, project_id: str) -> dict[str, Any]:
         with self._store.connection() as connection:
             row = connection.execute(
-                """SELECT p.id, p.title, p.created_at, p.updated_at,
+                """SELECT p.id, p.title, p.linked_director_project_id, p.created_at, p.updated_at,
                           p.tags_json, p.is_favorite, p.deleted_at, p.preview_json,
                           d.version, d.checksum, d.content, d.node_count, d.updated_at AS draft_updated_at
                    FROM canvas_projects p

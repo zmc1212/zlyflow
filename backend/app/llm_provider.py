@@ -91,6 +91,12 @@ class LlmProviderService:
                 return "ollama"  # 本地服务默认虚拟 key
         return decrypted
 
+    def reveal_secret(self, field: str) -> str | None:
+        """管理页「复制 Key」取回的明文；本地虚拟 Key 不返回。"""
+        if field != "api_key":
+            raise ValueError("LLM 大模型只支持复制 API Key")
+        return self.credentials.decrypt(self.store.get_llm_settings().get("api_key_encrypted"))
+
     def availability(self) -> tuple[bool, str | None]:
         config = self.store.get_llm_settings()
         if not config["enabled"]:

@@ -1,0 +1,185 @@
+{
+  "date": "2026-11-03",
+  "entry": "http://127.0.0.1:5173",
+  "scope": "desktop only, real Root/ThemeProvider/CanvasEditor with isolated fetch fixtures",
+  "writes": "mocked in session; no real generation submitted",
+  "cases": [
+    {
+      "name": "参考图顺序",
+      "passed": true,
+      "before": [
+        "/generation-home/image-camellia.png",
+        "/generation-home/director-coast.png"
+      ],
+      "after": [
+        "/generation-home/director-coast.png",
+        "/generation-home/image-camellia.png"
+      ]
+    },
+    {
+      "name": "主要参数与隐藏技术项",
+      "passed": true,
+      "internalStepsVisible": false,
+      "summary": "16:9 横屏 · 1K · 2"
+    },
+    {
+      "name": "替换参考图保留上游与选择",
+      "passed": true,
+      "ownerSelected": true,
+      "referenceCount": 2,
+      "sourcePreserved": true
+    },
+    {
+      "name": "生成区编辑与快捷保存",
+      "passed": true,
+      "prompt": "画布验收：镜头缓缓推进，保持画面主体一致。",
+      "writes": 5
+    },
+    {
+      "name": "隔离提交进入队列",
+      "passed": true,
+      "disabled": true,
+      "status": "排队中",
+      "submissions": [
+        {
+          "id": "review-created-5",
+          "method": "POST",
+          "mode": "grs-gpt-image-2",
+          "path": "/api/jobs",
+          "prompt": "画布验收：镜头缓缓推进，保持画面主体一致。"
+        }
+      ]
+    },
+    {
+      "name": "停止任务保留草稿与旧结果",
+      "passed": true,
+      "hasResult": true,
+      "prompt": "画布验收：镜头缓缓推进，保持画面主体一致。",
+      "status": "已停止"
+    },
+    {
+      "name": "图层搜索与版本历史",
+      "filtered": "图片生成 · 镜头01",
+      "history": "本次编辑\n撤销\n重做\n\n最多保留最近 50 步画布改动，相机位置和面板开关不进入撤销栈。\n\n服务器版本\n刷新\nv1 · 6 个节点\n2026/11/3 00:00:00\n恢复\n节点层级\n图层\n7\n连线\n3\n打开图层列表"
+    },
+    {
+      "name": "图片预览放大与适配",
+      "zoomAfterFit": "1"
+    },
+    {
+      "name": "视频预览真实时长与播放",
+      "video": {
+        "controls": true,
+        "currentTime": 5,
+        "duration": 5,
+        "ended": true,
+        "readyState": 4
+      }
+    },
+    {
+      "name": "结束任务首次恢复部分结果",
+      "partial": "图片生成 · 部分完成\n部分完成 2/4\n已完成\n已完成\n生成失败\n生成失败\n1 / 2",
+      "running": "视频生成 · 2\n生成中\n正在生成\n生成中 42%\nMiniMax H3 多参考视频 · 画面比例 16:9 横屏 · 时长 5秒 · 二采精修 关闭",
+      "queuedProgress": null
+    },
+    {
+      "name": "保留一采仅调用skip",
+      "status": "视频生成 · 3\n已完成\n00:05\nMiniMax H3 多参考视频 · 画面比例 16:9 横屏 · 时长 5秒 · 二采精修 关闭",
+      "writes": "[{\"method\":\"PUT\",\"path\":\"/api/canvas/projects/canvas_design_review_20261103-states-skip/draft\",\"nodeCount\":7},{\"method\":\"POST\",\"path\":\"/api/jobs/review-awaiting_refine/refine/skip\"}]"
+    },
+    {
+      "name": "确认二采进入生成中",
+      "status": "视频生成 · 3\n生成中\n00:05\n生成中 · 当前显示历史结果\nMiniMax H3 多参考视频 · 画面比例 16:9 横屏 · 时长 5秒 · 二采精修 关闭",
+      "writes": "[{\"method\":\"PUT\",\"path\":\"/api/canvas/projects/canvas_design_review_20261103-states-confirm/draft\",\"nodeCount\":7},{\"method\":\"POST\",\"path\":\"/api/jobs/review-awaiting_refine/refine/confirm\"}]"
+    },
+    {
+      "name": "首尾帧标签无重复可选文案",
+      "labels": [
+        "添加首帧（必填）",
+        "添加尾帧（可选）"
+      ]
+    },
+    {
+      "name": "文生视频不显示参考槽位",
+      "slotCount": 0,
+      "submitEnabled": true
+    },
+    {
+      "name": "更多设置仅显示注册表advanced",
+      "content": "分辨率\n0.2 MP\n\n选择实际输出尺寸；尺寸会随画面比例变化，最高档 16:9 为 1920×1088。"
+    },
+    {
+      "name": "浅色主题高级参数弹层",
+      "theme": "light",
+      "visible": true
+    },
+    {
+      "name": "浅色空态失效等待与未知节点",
+      "panel": "图片空态\n图片节点\n基础信息\n标签\n说明 / 字幕\n媒体\n地址\n\n支持 http(s)、站内路径和 data:image 地址；留空显示图片占位。\n\n打开预览\n从作品库替换\n来源\n媒体类型\n图片\n来源素材\n未关联作品库素材\n来源任务\n未关联生成任务\n位置与节点信息",
+      "empty": "图片空态\n尚未选择图片\n从作品库选择\n填写图片地址",
+      "broken": "失效图片\n素材无法加载\n地址可能已过期\n查看节点属性",
+      "unknown": "未识别节点\n未识别节点\n类型「legacy_custom」由更新版本创建\n节点内容已保留，升级工作台后可继续编辑。"
+    },
+    {
+      "name": "视频封面按指定秒数取帧",
+      "cover": true,
+      "panel": "视频预览\n视频节点\n基础信息\n标签\n说明 / 字幕\n媒体\n地址\n\n支持 http(s) 和站内路径；留空显示视频占位。\n\n封面帧\n取帧 1.0 秒 · 1 KB\n按时间取帧\n上传封面\n自动取帧\n\n上传图片可先裁切比例与取景，再压缩成 320 px JPEG；封面改动随草稿自动保存，不进入撤销栈。\n\n打开预览\n从作品库替换\n来源\n媒体类型\n视频\n来源素材\n未关联作品库素材\n来源任务\n未关联生成任务\n位置与节点信息",
+      "toolbarBranchCount": 0
+    },
+    {
+      "name": "JSON导入文件选择与确认保持可用",
+      "dialog": true
+    },
+    {
+      "name": "PNG导出面板",
+      "preview": true,
+      "theme": "dark"
+    },
+    {
+      "name": "关闭连线只隐藏显示",
+      "visibleEdges": 0,
+      "ports": 10
+    },
+    {
+      "name": "重新显示保留全部连线",
+      "visibleEdges": 4
+    },
+    {
+      "name": "生成版本切换保持选择",
+      "active": "true",
+      "image": "/generation-home/director-coast.png"
+    }
+  ],
+  "fixes_verified": [
+    "打开草稿时补读结束任务明细，恢复部分完成结果和数量",
+    "参考标签中的必填/可选说明只展示一次",
+    "保留 JSON 导入隐藏文件控件与导入确认流程"
+  ],
+  "validation": {
+    "frontend": {
+      "command": "pnpm --dir frontend build",
+      "test_files": 97,
+      "tests_passed": 647,
+      "typescript": "passed",
+      "vite": "passed"
+    },
+    "backend": {
+      "command": "python -X utf8 -m unittest backend.tests.test_canvas_store backend.tests.test_library_query -q",
+      "tests_passed": 30
+    }
+  },
+  "screenshots": {
+    "overview-dark.png": "c18525635c6292e5c0986cb44410271be39ba42fdcd385374ecea893a12de740",
+    "overview-light.png": "589c187466203bfcddf9db4da7e137486b4037246c0f256c3cba47f8c6f7325a",
+    "states-dark.png": "f3428f8b4a286fb78b718008f902188599ddd21b8fc682f851c7cefd08569a2a",
+    "media-light.png": "f61be49233158ad5ba403aac9d58090e998e6822c9259545f1f41be303f022f7",
+    "advanced-light.png": "e5f713f45aac5724eab8cd072e36013f4266cb01f3cac08e7610f5f7389013ff",
+    "video-inspector-light.png": "eee6c80ad2b5ef34a02e24fe620db386c7e6807eeb9bb5a30754832bbef7e251"
+  },
+  "cleanup": {
+    "status": "blocked-by-automatic-policy",
+    "temporary_directory": "test-results/canvas-workrally/",
+    "git_ignored": true,
+    "reason": "Recursive Remove-Item rejected with blocked by policy; no finer reason supplied."
+  }
+}

@@ -49,6 +49,8 @@ describe("studio director routes", () => {
     expect(STUDIO_ROUTE_PATHS).toContain(ROUTE_PATTERNS.directorProjectEpisode)
     expect(STUDIO_ROUTE_PATHS).toContain(ROUTE_PATTERNS.directorProjectEdit)
     expect(ROUTE_PATTERNS.directorProjectEdit).toBe("/director/projects/:projectId/edit/:episodeId")
+    expect(ROUTE_PATTERNS.directorFeatured).toBe("/director/featured/:featuredId")
+    expect(STUDIO_ROUTE_PATHS).toContain(ROUTE_PATTERNS.directorFeatured)
     expect(STUDIO_ROUTE_PATHS).toContain(ROUTE_PATTERNS.directorBatch)
     expect(STUDIO_ROUTE_PATHS).toContain(ROUTE_PATTERNS.directorReplication)
     expect(STUDIO_ROUTE_PATHS).not.toContain(ROUTE_PATTERNS.directorLegacyRecipe)

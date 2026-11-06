@@ -3,9 +3,11 @@ from __future__ import annotations
 from typing import Annotated, Any, Callable
 
 import json
+import re
 
 from fastapi import Body, Depends, File, Form, HTTPException, Path, Query, Request, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.concurrency import run_in_threadpool
 
 from ..models import ProjectCreateRequest, ProjectItem, ProjectUpdateRequest
 from ..services.episode_video_service import EpisodeVideoService
@@ -15,17 +17,49 @@ from ..services.project_service import ProjectService
 from ..services.ai_generation_service import AiGenerationService
 from ..services.asset_source_references import MAX_SOURCE_REFERENCE_BYTES
 
+_PROJECT_PATH = re.compile(r"^/api/projects/([^/]+)(?:/|$)")
+
+
+class ProjectAccessMiddleware:
+    """按 owner_user_id 拦截跨账号访问项目详情与子资源。"""
+
+    def __init__(self, app: Any, *, state: Any, session_cookie: str) -> None:
+        self.app = app
+        self.state = state
+        self.session_cookie = session_cookie
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        match = _PROJECT_PATH.match(str(scope.get("path") or ""))
+        auth_store = getattr(self.state, "auth_store", None)
+        if not match or auth_store is None:
+            await self.app(scope, receive, send)
+            return
+        user = await run_in_threadpool(
+            auth_store.user_for_session, Request(scope).cookies.get(self.session_cookie)
+        )
+        if user and not await run_in_threadpool(
+            ProjectService.allows_user, match.group(1), str(user["id"])
+        ):
+            await JSONResponse({"detail": "项目不存在"}, status_code=404)(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
+
 
 def register_project_routes(
     app: Any,
     *,
     current_user: Callable,
     mutating_user: Callable,
+    session_cookie: str = "zly_ai_video_studio_session",
 ) -> None:
     """挂载 AI Media Studio 项目 API（路径与 dev0914 原版完全一致）。
 
     鉴权：读取走 current_user，写入走 mutating_user（沿用工作台会话体系）。
     """
+    app.add_middleware(ProjectAccessMiddleware, state=app.state, session_cookie=session_cookie)
     from .smart_edit_router import register_smart_edit_routes
     register_smart_edit_routes(app, current_user=current_user, mutating_user=mutating_user)
 
@@ -155,14 +189,14 @@ def register_project_routes(
     @app.get("/api/projects", response_model=list[ProjectItem], summary="获取项目列表")
     def list_projects(user: dict = Depends(current_user)):
         try:
-            return ProjectService.list_projects()
+            return ProjectService.list_projects(user["id"])
         except Exception as err:
             raise HTTPException(status_code=500, detail=f"获取项目列表失败: {err}")
 
     @app.post("/api/projects", response_model=ProjectItem, summary="创建项目")
     def create_project(payload: ProjectCreateRequest, user: dict = Depends(mutating_user)):
         try:
-            return ProjectService.create_project(payload)
+            return ProjectService.create_project(payload, owner_user_id=user["id"])
         except ValueError as err:
             raise HTTPException(status_code=400, detail=str(err))
         except Exception as err:
@@ -299,6 +333,18 @@ def register_project_routes(
                 doc_id,
                 aspect_ratio=str(aspect_ratio).strip() if aspect_ratio else None,
             )
+        except Exception as err:
+            raise HTTPException(status_code=400, detail=str(err))
+
+    @app.post("/api/projects/{project_id}/documents/{doc_id}/asset-extraction", status_code=202, summary="为剧本资产拆解入队后台任务")
+    def enqueue_asset_extraction(
+        project_id: Annotated[str, Path(description="项目 ID")],
+        doc_id: Annotated[str, Path(description="项目文档 ID")],
+        user: dict = Depends(mutating_user),
+    ):
+        from ..services.asset_extraction_job_service import AssetExtractionJobService
+        try:
+            return AssetExtractionJobService.enqueue(project_id, doc_id)
         except Exception as err:
             raise HTTPException(status_code=400, detail=str(err))
 
@@ -564,38 +610,10 @@ def register_project_routes(
         except Exception as err:
             raise HTTPException(status_code=400, detail=str(err))
 
-    @app.post("/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/generate-sketch", status_code=202, summary="AI 生成分镜草图")
-    def generate_beat_sketch(project_id: Annotated[str, Path(description="项目 ID")], episode_id: Annotated[str, Path(description="分集 ID")], beat_id: Annotated[str, Path(description="Beat ID")], payload: dict = None, user: dict = Depends(mutating_user)):
-        try:
-            return ProjectDetailService.generate_beat_sketch(project_id, episode_id, beat_id, payload or {})
-        except Exception as err:
-            raise HTTPException(status_code=400, detail=str(err))
-
-    @app.post("/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/generate-render", status_code=202, summary="把草图精绘为渲染图")
-    def generate_beat_render(project_id: Annotated[str, Path(description="项目 ID")], episode_id: Annotated[str, Path(description="分集 ID")], beat_id: Annotated[str, Path(description="Beat ID")], payload: dict = None, user: dict = Depends(mutating_user)):
-        try:
-            return ProjectDetailService.generate_beat_render(project_id, episode_id, beat_id, payload or {})
-        except Exception as err:
-            raise HTTPException(status_code=400, detail=str(err))
-
-    @app.post("/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/generate-triptych", status_code=202, summary="生成 16:9 三联关键帧母图并裁切起幅/中格/结果")
-    def generate_beat_triptych(project_id: Annotated[str, Path(description="项目 ID")], episode_id: Annotated[str, Path(description="分集 ID")], beat_id: Annotated[str, Path(description="Beat ID")], payload: dict = None, user: dict = Depends(mutating_user)):
-        try:
-            return ProjectDetailService.generate_beat_triptych(project_id, episode_id, beat_id, payload or {})
-        except Exception as err:
-            raise HTTPException(status_code=400, detail=str(err))
-
     @app.post("/api/projects/{project_id}/episodes/{episode_id}/beats/{beat_id}/h3-prompt", status_code=202, summary="生成或优化本镜 H3 视频提示词")
     def generate_beat_h3_prompt(project_id: Annotated[str, Path(description="项目 ID")], episode_id: Annotated[str, Path(description="分集 ID")], beat_id: Annotated[str, Path(description="Beat ID")], payload: dict = None, user: dict = Depends(mutating_user)):
         try:
             return ProjectDetailService.generate_beat_h3_prompt(project_id, episode_id, beat_id, payload or {})
-        except Exception as err:
-            raise HTTPException(status_code=400, detail=str(err))
-
-    @app.post("/api/projects/{project_id}/episodes/{episode_id}/generate-images", status_code=202, summary="批量生成分镜草图或渲染图")
-    def generate_beat_images_batch(project_id: Annotated[str, Path(description="项目 ID")], episode_id: Annotated[str, Path(description="分集 ID")], payload: dict, user: dict = Depends(mutating_user)):
-        try:
-            return ProjectDetailService.generate_beat_images_batch(project_id, episode_id, payload)
         except Exception as err:
             raise HTTPException(status_code=400, detail=str(err))
 
@@ -809,6 +827,7 @@ def register_project_routes(
         user: dict = Depends(current_user),
     ):
         from ..db import query_one
+        from ..services.asset_extraction_job_service import AssetExtractionJobService
         from ..services.h3_prompt_job_service import H3PromptJobService
         from ..services.shot_plan_job_service import ShotPlanJobService
 
@@ -827,6 +846,8 @@ def register_project_routes(
                 streamer = H3PromptJobService.stream
             elif job_type == "shot_plan":
                 streamer = ShotPlanJobService.stream
+            elif job_type == "asset_extraction":
+                streamer = AssetExtractionJobService.stream
             elif not job_type:
                 yield sse_frame({"event": "error", "terminal": True, "data": {"status": "failed", "message": "任务不存在"}})
                 return

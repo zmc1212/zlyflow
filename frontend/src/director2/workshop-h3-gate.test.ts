@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest"
 import {
-  beatHasWorkshopTriptych,
   beatsMissingH3Prompt,
   workshopH3GenerateLabel,
   workshopH3PromptGate,
@@ -9,41 +8,18 @@ import {
 const readyBeat = {
   character_ids: ["ast-1"],
   scene_id: "ast-scene",
-  triptych_url: "https://img.example/triptych.png",
-  triptych_panels: { start: "https://img.example/start.jpg" },
 }
 
 describe("workshop H3 prompt gate", () => {
-  it("treats start panel or full triptych as ready", () => {
-    expect(beatHasWorkshopTriptych({ triptych_url: "https://x/a.png" })).toBe(true)
-    expect(beatHasWorkshopTriptych({ triptych_panels: { start: "https://x/start.jpg" } })).toBe(true)
-    expect(beatHasWorkshopTriptych({ character_ids: ["a"], scene_id: "s" })).toBe(false)
-  })
-
-  it("asks for cast before triptych", () => {
+  it("asks for cast before writing the prompt", () => {
     expect(workshopH3PromptGate({ scene_id: "s" })).toBe("need_cast")
     expect(workshopH3PromptGate({ character_ids: ["a"] })).toBe("need_cast")
+    expect(workshopH3PromptGate({ character_ids: ["a"], scene: "走廊" })).toBe("ready")
+    expect(workshopH3PromptGate(null)).toBe("need_cast")
   })
 
-  it("can generate a prompt directly from bound assets without keyframes", () => {
+  it("never blocks on keyframes", () => {
     expect(workshopH3PromptGate({ character_ids: ["a"], scene_id: "s" })).toBe("ready")
-    expect(workshopH3PromptGate({ character_ids: ["a"], scene_id: "s" }, { triptychGenerating: true })).toBe("ready")
-  })
-
-  it("only requires keyframes when explicitly planning them", () => {
-    expect(workshopH3PromptGate({
-      character_ids: ["a"],
-      scene: "走廊",
-    }, { requireTriptych: true })).toBe("need_triptych")
-    expect(workshopH3PromptGate(
-      { character_ids: ["a"], scene_id: "s" },
-      { triptychGenerating: true, requireTriptych: true },
-    )).toBe("triptych_running")
-    expect(workshopH3PromptGate({
-      character_ids: ["a"],
-      scene_id: "s",
-      triptych_status: "queued",
-    }, { requireTriptych: true })).toBe("triptych_running")
     expect(workshopH3PromptGate(readyBeat)).toBe("ready")
   })
 

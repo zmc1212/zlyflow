@@ -1,0 +1,67 @@
+{
+  "canvas": [
+    {
+      "bg": "rgba(0, 0, 0, 0)",
+      "border": "1px solid rgba(0, 0, 0, 0.07)",
+      "className": "group/tabs flex gap-2 data-horizontal:flex-col homeComposer-yRnKsN",
+      "color": "rgb(0, 0, 0)",
+      "image": "linear-gradient(rgb(255, 255, 255), rgb(255, 255, 255) 106.67%)",
+      "outline": "rgb(0, 0, 0) none 3px",
+      "radius": "24px"
+    },
+    {
+      "bg": "rgb(248, 249, 250)",
+      "border": "0px none rgb(0, 0, 0)",
+      "className": "scroll-container-QZlJMD scroll-container-ccItuH page-IgR3gG",
+      "color": "rgb(0, 0, 0)",
+      "image": "none",
+      "outline": "rgb(0, 0, 0) none 3px",
+      "radius": "0px"
+    },
+    {
+      "bg": "rgb(248, 249, 250)",
+      "border": "0px none rgb(0, 0, 0)",
+      "className": "container-hpu50a main-frame-2026-SfR8kl",
+      "color": "rgb(0, 0, 0)",
+      "image": "none",
+      "outline": "rgb(0, 0, 0) none 3px",
+      "radius": "0px"
+    }
+  ],
+  "input": {
+    "bg": "rgba(0, 0, 0, 0)",
+    "border": "0px none rgb(0, 0, 0)",
+    "color": "rgb(0, 0, 0)",
+    "image": "none",
+    "outline": "rgb(0, 0, 0) none 3px",
+    "radius": "0px"
+  },
+  "shell": {
+    "bg": "rgba(0, 0, 0, 0)",
+    "border": "1px solid rgba(0, 0, 0, 0.07)",
+    "color": "rgb(0, 0, 0)",
+    "image": "linear-gradient(rgb(255, 255, 255), rgb(255, 255, 255) 106.67%)",
+    "outline": "rgb(0, 0, 0) none 3px",
+    "radius": "24px"
+  },
+  "suggestion": {
+    "bg": "rgba(0, 0, 0, 0)",
+    "border": "0px none rgb(0, 0, 0)",
+    "color": "rgb(0, 0, 0)",
+    "image": "none",
+    "outline": "rgb(0, 0, 0) none 3px",
+    "radius": "0px"
+  },
+  "tabs": {
+    "bg": "color(srgb 0.937255 0.937255 0.937255)",
+    "border": "0px none rgba(0, 0, 0, 0.4)",
+    "color": "rgba(0, 0, 0, 0.4)",
+    "image": "none",
+    "outline": "rgba(0, 0, 0, 0.4) none 3px",
+    "radius": "0px"
+  },
+  "viewport": [
+    1920,
+    863
+  ]
+}

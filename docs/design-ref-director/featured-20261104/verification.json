@@ -1,0 +1,25 @@
+{
+  "baseline_date": "2026-11-04",
+  "feature": "导演台首页精选作品与只读详情页",
+  "viewport": { "width": 1440, "height": 900, "device_scale_factor": 1 },
+  "browser": "Chrome 156 (Playwright headless)",
+  "entry": "http://127.0.0.1:5173/director",
+  "detail_route": "/director/featured/featured-edb63d1db19f4bf3",
+  "account_role": "admin",
+  "featured_works": [
+    { "id": "featured-0c24700e07484648", "project_id": "proj-ed7e739b91ac4bf3", "title": "凶宅回溯 - 完整剧本", "episodes": 3, "shots": 27, "published_at": "2026-11-04 15:16:24" },
+    { "id": "featured-edb63d1db19f4bf3", "project_id": "proj-a342bfd034eb4b20", "title": "短剧剧本：《闪婚蜜爱：厉总的独宠娇妻》- 第一集", "episodes": 4, "shots": 44, "published_at": "2026-11-04 14:44:45" }
+  ],
+  "files": {
+    "home-featured-dark.png": "首页精选作品区块（暗色，2 部作品）",
+    "home-featured-light.png": "首页精选作品区块（浅色，2 部作品）",
+    "detail-dark.png": "《闪婚蜜爱》精选作品只读详情：hero + 分集 Tab（暗色）",
+    "detail-light.png": "《闪婚蜜爱》精选作品只读详情（浅色）"
+  },
+  "notes": [
+    "首页截图为精选区块所在视口，未截取上方创作输入区；页面滚动容器为内层，full_page 截图不覆盖精选区块。",
+    "首页截图包含 2 部已发布作品：凶宅回溯（3 集 / 27 个镜头）与闪婚蜜爱（4 集 / 44 个镜头）。",
+    "详情页截图仍为《闪婚蜜爱》，展示 4 集 / 44 个镜头 / 28 项角色与场景；《凶宅回溯》只读详情走同一页面组件并已自查（3 集 / 27 个镜头 / 23 项角色与场景）。",
+    "本轮为只读版本，页面与截图中不存在复制到我的短剧入口。"
+  ]
+}

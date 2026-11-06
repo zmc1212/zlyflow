@@ -5,26 +5,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import {
   Button,
-  Col,
   Collapse,
-  Form,
-  Input,
   Modal,
   Popconfirm,
-  Radio,
-  Row,
-  Select,
   Space,
   Spin,
   Tabs,
   Tag,
-  Tooltip,
-  Upload,
   Alert,
   message,
 } from "antd"
 import {
-  Plus,
   FileText,
   Users,
   MapPin,
@@ -47,20 +38,13 @@ import ContentLibraryShotCard from "./content-library-shot-card"
 import ShotPlanSlimProgress from "./shot-plan-slim-progress"
 import {
   listDocuments,
-  listEpisodes,
   listJobs,
-  createDocument,
   deleteDocument,
-  enqueueDocumentShotPlan,
-  transferAssetsFromDoc,
-  transferEpisodesFromDoc,
-  director2ErrorDetail,
   type Director2Document,
 } from "../api"
 import {
   applyShotPlanJobSnapshot,
   applyShotPlanStreamEvent,
-  documentCanPlanShots,
   documentShotPlanHeaderTag,
   doneForEpisode,
   emptyShotPlanLiveState,
@@ -85,8 +69,6 @@ import "../../director/components/director-asset-card.css"
 interface ContentLibraryPaneProps {
   csrfToken: string
   projectId: string
-  onAssetsTransferred: () => void
-  onEpisodesTransferred: () => void
 }
 
 // 剧本解析结果形状（原版为 JS 未标注，按模板取值字段补全）
@@ -144,38 +126,19 @@ type DocAnalysis = {
 
 type LibraryDocument = Omit<Director2Document, "analysis"> & { analysis?: DocAnalysis | null }
 
-type ImportFormState = {
-  filename: string
-  spine_template: string
-  visual_style: string
-  raw_text: string
-  input_mode: string
-}
-
 type AnalysisTabKey = "episodes" | "characters" | "scenes" | "props" | "globals" | "raw"
 
 export default function ContentLibraryPane({
   csrfToken,
   projectId,
-  onAssetsTransferred,
-  onEpisodesTransferred,
 }: ContentLibraryPaneProps) {
   const navigate = useNavigate()
   const [documents, setDocuments] = useState<LibraryDocument[]>([])
   const [selectedDoc, setSelectedDoc] = useState<LibraryDocument | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [importing, setImporting] = useState(false)
-  const [transferring, setTransferring] = useState(false)
-  const [transferringEp, setTransferringEp] = useState(false)
-  const [importModalVisible, setImportModalVisible] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [formatModalVisible, setFormatModalVisible] = useState(false)
-  const [syncModalVisible, setSyncModalVisible] = useState(false)
-  const [syncMode, setSyncMode] = useState<"overwrite" | "append">("overwrite")
-  const [workshopEpisodeCount, setWorkshopEpisodeCount] = useState(0)
-  const [selectedScriptFileName, setSelectedScriptFileName] = useState("")
   const [activeTab, setActiveTab] = useState<AnalysisTabKey>("episodes")
   const [activeEpisodeKeys, setActiveEpisodeKeys] = useState<string[]>(["1"])
-  const [planningShots, setPlanningShots] = useState(false)
   const [hideShotPlanProgress, setHideShotPlanProgress] = useState(false)
   const [shotPlanLive, setShotPlanLive] = useState(() => emptyShotPlanLiveState())
   const [searchParams, setSearchParams] = useSearchParams()
@@ -185,13 +148,6 @@ export default function ContentLibraryPane({
   const shotPlanToastJobRef = useRef("")
   const urlDocId = searchParams.get("doc")
   const urlTab = searchParams.get("tab")
-  const [importForm, setImportForm] = useState<ImportFormState>({
-    filename: "",
-    spine_template: "drama",
-    visual_style: "chinese_period_drama",
-    raw_text: "",
-    input_mode: "paste",
-  })
 
   const headerGenreTag = contentLibraryHeaderTagText(selectedDoc?.analysis?.positioning?.genre)
   const headerWorldviewTag = contentLibraryHeaderTagText(selectedDoc?.analysis?.positioning?.worldview)
@@ -199,7 +155,6 @@ export default function ContentLibraryPane({
   const styleSectionHasContent = hasVisualStyleContent(selectedDoc?.analysis?.visual_style)
   const planning = isDocumentShotPlanning(selectedDoc)
   const planningJobId = String(selectedDoc?.shot_plan_job_id || "")
-  const canPlanShots = documentCanPlanShots(selectedDoc)
   const shotPlanHeaderTag = documentShotPlanHeaderTag(selectedDoc)
   const totalShotsCount = useMemo(() => {
     if (!selectedDoc?.analysis?.episodes) return 0
@@ -270,74 +225,6 @@ export default function ContentLibraryPane({
     })
   }, [setSearchParams])
 
-  function openImportModal() {
-    setImportForm({
-      filename: "",
-      spine_template: "drama",
-      visual_style: "chinese_period_drama",
-      raw_text: "",
-      input_mode: "paste",
-    })
-    setSelectedScriptFileName("")
-    setImportModalVisible(true)
-  }
-
-  function handleScriptFile(file: File): boolean {
-    const filename = String(file?.name || "")
-    if (!/\.(md|markdown)$/i.test(filename)) {
-      message.warning("请选择 Markdown 文件（.md 或 .markdown）")
-      return false
-    }
-    const reader = new FileReader()
-    reader.onload = () => {
-      const text = typeof reader.result === "string" ? reader.result : ""
-      if (!text.trim()) {
-        message.warning("所选 Markdown 文件内容为空")
-        return
-      }
-      setImportForm((prev) => ({
-        ...prev,
-        raw_text: text,
-        filename: filename.replace(/\.(md|markdown)$/i, ""),
-        input_mode: "file",
-      }))
-      setSelectedScriptFileName(filename)
-      message.success(`已读取 ${filename}`)
-    }
-    reader.onerror = () => message.error("读取 Markdown 文件失败")
-    reader.readAsText(file, "utf-8")
-    return false
-  }
-
-  async function handleImportSubmit() {
-    if (!importForm.raw_text.trim()) {
-      message.warning("请填写或粘贴剧本正文")
-      return
-    }
-    setImporting(true)
-    try {
-      const created = await createDocument(csrfToken, projectId, {
-        ...importForm,
-        input_mode: importForm.input_mode || "paste",
-      })
-      setImportModalVisible(false)
-      selectedDocIdRef.current = created.id
-      revealEpisodesWorkspace(1)
-      if (created.shot_plan_job_id) {
-        setShotPlanLive(emptyShotPlanLiveState(created.shot_plan_job_id))
-        message.success("剧本文档已导入，正在本页规划出片镜头")
-      } else {
-        message.success("剧本文档已导入")
-      }
-      setSelectedDoc(created as LibraryDocument)
-      await loadDocs({ selectId: created.id })
-    } catch (err) {
-      message.error(director2ErrorDetail(err, "导入失败"))
-    } finally {
-      setImporting(false)
-    }
-  }
-
   async function handleDeleteDoc(id: string) {
     try {
       await deleteDocument(csrfToken, projectId, id)
@@ -345,133 +232,6 @@ export default function ContentLibraryPane({
       await loadDocs()
     } catch {
       message.error("删除失败")
-    }
-  }
-
-  async function handleTransferAssets() {
-    if (!selectedDoc) return
-    setTransferring(true)
-    try {
-      const res = await transferAssetsFromDoc(csrfToken, projectId, selectedDoc.id)
-      const t = res.transferred
-      message.success(`已成功转入资产库：${t.characters} 角色、${t.scenes} 场景、${t.props} 道具`)
-      onAssetsTransferred()
-    } catch (err) {
-      message.error(director2ErrorDetail(err, "转入资产库失败"))
-    } finally {
-      setTransferring(false)
-    }
-  }
-
-  async function runEpisodeTransfer(mode: "overwrite" | "append") {
-    if (!selectedDoc) return
-    setTransferringEp(true)
-    try {
-      const res = await transferEpisodesFromDoc(csrfToken, projectId, selectedDoc.id, mode)
-      const replaced = Number(res.replaced_episodes || 0)
-      const created = Number(res.created_episodes || 0)
-      const skipped = Number(res.skipped_episodes || 0)
-      const deleted = Number(res.deleted_episodes || 0)
-      const shots = Number(res.transferred_shots || 0)
-      if (mode === "overwrite") {
-        message.success(
-          `已覆盖剧集工坊：重写 ${replaced} 集、新建 ${created} 集、共 ${shots} 个镜头`
-          + (deleted ? `，并删除 ${deleted} 集旧数据` : ""),
-        )
-      } else {
-        message.success(
-          `已只补新集：新建 ${created} 集、${shots} 个镜头`
-          + (skipped ? `，跳过已有 ${skipped} 集` : ""),
-        )
-      }
-      setSyncModalVisible(false)
-      onEpisodesTransferred()
-    } catch (err) {
-      message.error(director2ErrorDetail(err, "同步至剧集工坊失败"))
-    } finally {
-      setTransferringEp(false)
-    }
-  }
-
-  async function handleTransferEpisodes() {
-    if (!selectedDoc) return
-    if (isDocumentShotPlanning(selectedDoc)) {
-      message.warning("镜头规划完成后才能同步至剧集工坊")
-      return
-    }
-    const parsedEpisodes = selectedDoc.analysis?.episodes?.length || 0
-    if (!parsedEpisodes) {
-      message.warning("这份剧本还没有识别到分集或镜头，无法同步")
-      return
-    }
-    try {
-      const workshop = await listEpisodes(projectId)
-      if (!workshop.length) {
-        await runEpisodeTransfer("overwrite")
-        return
-      }
-      setWorkshopEpisodeCount(workshop.length)
-      setSyncMode("overwrite")
-      setSyncModalVisible(true)
-    } catch (err) {
-      message.error(director2ErrorDetail(err, "读取剧集工坊失败"))
-    }
-  }
-
-  // 快速填入官方范例文本
-  function fillSampleData() {
-    setImportForm((prev) => ({
-      ...prev,
-      filename: "《寒门硕士：穿越古代逆袭记》第一季——AI视频详细分镜版",
-      spine_template: "drama",
-      visual_style: "chinese_period_drama",
-      raw_text: SAMPLE_SCRIPT,
-    }))
-  }
-
-  async function quickImportSample() {
-    setImporting(true)
-    try {
-      const created = await createDocument(csrfToken, projectId, {
-        filename: "《寒门硕士：穿越古代逆袭记》第一季——AI视频详细分镜版",
-        spine_template: "drama",
-        visual_style: "chinese_period_drama",
-        raw_text: SAMPLE_SCRIPT,
-      })
-      selectedDocIdRef.current = created.id
-      revealEpisodesWorkspace(1)
-      if (created.shot_plan_job_id) {
-        setShotPlanLive(emptyShotPlanLiveState(created.shot_plan_job_id))
-        message.success("已导入《寒门硕士》，正在本页规划出片镜头")
-      } else {
-        message.success("已导入《寒门硕士》")
-      }
-      setSelectedDoc(created as LibraryDocument)
-      await loadDocs({ selectId: created.id })
-    } catch {
-      message.error("导入范例失败")
-    } finally {
-      setImporting(false)
-    }
-  }
-
-  async function handlePlanShots() {
-    if (!selectedDoc) return
-    setPlanningShots(true)
-    try {
-      const res = await enqueueDocumentShotPlan(csrfToken, projectId, selectedDoc.id)
-      const jobId = String(res.job_id || "")
-      revealEpisodesWorkspace(selectedDoc.analysis?.episodes?.[0]?.episode_num || 1)
-      if (jobId) {
-        setShotPlanLive(emptyShotPlanLiveState(jobId))
-        setSelectedDoc((prev) => (prev ? { ...prev, status: "planning", shot_plan_job_id: jobId } : prev))
-      }
-      message.success(res.duplicate ? "已有进行中的镜头规划，进度在本页，也可到全部任务查看" : "已开始规划出片镜头，进度在本页分集列表上方")
-      await loadDocs({ selectId: selectedDoc.id, silent: true })
-    } catch (err) {
-      message.error(director2ErrorDetail(err, "规划出片镜头失败"))
-    } finally {
-      setPlanningShots(false)
     }
   }
 
@@ -513,7 +273,7 @@ export default function ContentLibraryPane({
       if (event.event === "done") {
         if (shotPlanToastJobRef.current !== planningJobId) {
           shotPlanToastJobRef.current = planningJobId
-          message.success({ content: "镜头规划完成，可以同步至剧集工坊", duration: 6 })
+          message.success({ content: "镜头规划完成，关闭本抽屉后按助手进度卡继续出片", duration: 6 })
         }
       }
       if (event.event === "error") {
@@ -576,34 +336,40 @@ export default function ContentLibraryPane({
         <div>
           <h2 className="sub-pane-title">内容库</h2>
           <p className="sub-pane-subtitle">
-            导入剧本，整理人物与场景，继续制作分镜。
+            查看剧本解析出的人物与场景，分镜在剧集工坊继续。
           </p>
         </div>
 
-        <Space>
-          <Button icon={<BookOpen size={15} />} onClick={() => setFormatModalVisible(true)}>
-            标准剧本规范
-          </Button>
-          <Button type="primary" className="primary-btn" icon={<Plus size={16} />} onClick={openImportModal}>
-            导入剧本文档
-          </Button>
-        </Space>
+        <Button icon={<BookOpen size={15} />} onClick={() => setFormatModalVisible(true)}>
+          标准剧本规范
+        </Button>
       </div>
 
       {/* 加载与主内容 */}
-      <Spin spinning={loading}>
-        {documents.length === 0 ? (
+      <Spin spinning={loading && documents.length > 0}>
+        {loading && documents.length === 0 ? (
+          <div className="content-library-loading" role="status" aria-busy="true" aria-label="正在加载剧本">
+            <aside className="cl-loading-sidebar" aria-hidden="true">
+              <span className="studio-skeleton-bar" style={{ width: "55%" }} />
+              <span className="studio-skeleton-bar" style={{ width: "86%" }} />
+              <span className="studio-skeleton-bar" style={{ width: "78%" }} />
+              <span className="studio-skeleton-bar" style={{ width: "82%" }} />
+            </aside>
+            <div className="cl-loading-detail" aria-hidden="true">
+              <span className="studio-skeleton-bar cl-loading-title" style={{ width: "34%" }} />
+              <span className="studio-skeleton-bar" style={{ width: "24%" }} />
+              <span className="studio-skeleton-bar" style={{ width: "92%" }} />
+              <span className="studio-skeleton-bar" style={{ width: "84%" }} />
+              <span className="studio-skeleton-bar" style={{ width: "58%" }} />
+            </div>
+          </div>
+        ) : documents.length === 0 ? (
           <><div className="empty-doc-box">
             <div className="empty-icon-wrap">
               <FileText size={40} />
             </div>
-            <h3>暂无导入的剧本文档</h3>
-            <p>支持导入符合《短剧详细分镜规范》的标准文档。<br />集数来自剧本，镜头数和秒数由大模型按本集动作、对白规划。</p>
-            <Space>
-              <Button type="primary" onClick={openImportModal}>立即导入剧本</Button>
-              <Button onClick={quickImportSample}>一键导入《寒门硕士》标准范例</Button>
-            </Space>
-            <div className="empty-doc-formats">TXT <span>·</span> Markdown <span>·</span> Word</div>
+            <h3>还没有剧本</h3>
+            <p>关闭本抽屉后，在「剧本」页点「导入剧本」粘贴或上传正文。<br />集数来自剧本，镜头数和秒数由大模型按本集动作、对白规划。</p>
           </div><p className="empty-doc-assistant-hint"><Sparkles size={18} />也可以打开智能助手，从一个想法开始。</p></>
         ) : (
           <div className="content-layout">
@@ -661,41 +427,6 @@ export default function ContentLibraryPane({
                       <Button icon={<FileSearch size={15} />} onClick={() => navigate(director2DiagnosisPath({
                         projectId, documentId: selectedDoc.id,
                       }))}>剧本诊断</Button>
-                      <Button
-                        type="primary"
-                        loading={transferring}
-                        className="transfer-btn"
-                        onClick={handleTransferAssets}
-                        icon={<Users size={15} />}
-                      >
-                        转入资产库
-                      </Button>
-
-                      {canPlanShots ? (
-                        <Button
-                          type="primary"
-                          ghost
-                          loading={planningShots}
-                          onClick={handlePlanShots}
-                          icon={<Sparkles size={15} />}
-                        >
-                          规划出片镜头
-                        </Button>
-                      ) : null}
-
-                      <Tooltip title={planning ? "镜头规划完成后才能同步至剧集工坊" : undefined}>
-                        <span>
-                          <Button
-                            loading={transferringEp}
-                            className="sync-ep-btn"
-                            onClick={handleTransferEpisodes}
-                            icon={<Film size={15} />}
-                            disabled={planning}
-                          >
-                            同步至剧集工坊
-                          </Button>
-                        </span>
-                      </Tooltip>
 
                       <Popconfirm
                         title="确认删除该剧本文档？"
@@ -1023,135 +754,6 @@ export default function ContentLibraryPane({
         )}
       </Spin>
 
-      {/* 导入剧本弹窗 */}
-      <Modal
-        open={importModalVisible}
-        title="导入剧本文档 (支持标准分镜格式)"
-        confirmLoading={importing}
-        okText={importing ? "正在解析切集…" : "确认导入"}
-        cancelText="取消"
-        width={720}
-        destroyOnHidden
-        onOk={handleImportSubmit}
-        onCancel={() => setImportModalVisible(false)}
-        className="d2-content-library"
-      >
-        <Form layout="vertical">
-          <div className="quick-fill-bar">
-            <span className="quick-lbl">测试快捷操作：</span>
-            <Button type="dashed" size="small" onClick={fillSampleData}>
-              ✨ 一键填入《寒门硕士》官方标准分镜范例
-            </Button>
-          </div>
-
-          <Form.Item label="剧本标题 / 作品名称" required>
-            <Input
-              value={importForm.filename}
-              onChange={(event) => setImportForm({ ...importForm, filename: event.target.value })}
-              placeholder="例如：《寒门硕士：穿越古代逆袭记》第一季"
-            />
-          </Form.Item>
-
-          <Form.Item label="Markdown 文件">
-            <div className="script-file-picker">
-              <Upload accept=".md,.markdown,text/markdown" showUploadList={false} beforeUpload={handleScriptFile}>
-                <Button icon={<FileText size={14} />}>选择 .md 文件</Button>
-              </Upload>
-              {selectedScriptFileName ? (
-                <span className="script-file-name">{selectedScriptFileName}</span>
-              ) : (
-                <span className="script-file-hint">选择后会自动读取到下方编辑区</span>
-              )}
-            </div>
-          </Form.Item>
-
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item label="骨架模板">
-                <Select
-                  value={importForm.spine_template}
-                  onChange={(value) => setImportForm({ ...importForm, spine_template: value })}
-                  options={[
-                    { value: "drama", label: "精品短剧 (分镜/镜头/人物/道具标准结构)" },
-                    { value: "narrated", label: "解说剧 (画外旁白与画面)" },
-                  ]}
-                />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item label="视觉风格预设">
-                <Select
-                  value={importForm.visual_style}
-                  onChange={(value) => setImportForm({ ...importForm, visual_style: value })}
-                  options={[
-                    { value: "chinese_period_drama", label: "写实古装剧 (宋式古典电影感)" },
-                    { value: "anime", label: "动漫日漫二次元" },
-                    { value: "guoman_fantasy", label: "3D玄幻国漫" },
-                    { value: "realistic", label: "写实现代都市" },
-                    { value: "post_apocalyptic", label: "废土科幻末日" },
-                  ]}
-                />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Form.Item label="分镜剧本正文内容 (支持直接粘贴 Markdown / 文本)" required>
-            <Input.TextArea
-              value={importForm.raw_text}
-              onChange={(event) => setImportForm({ ...importForm, raw_text: event.target.value })}
-              placeholder="粘贴剧本文档，支持包含【视频定位、人物设定、视觉风格、分集分镜、固定场景库、人物一致性提示词】的标准格式..."
-              rows={12}
-            />
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      <Modal
-        open={syncModalVisible}
-        title="同步至剧集工坊"
-        okText={
-          transferringEp
-            ? "正在写入工坊…"
-            : syncMode === "overwrite"
-              ? "覆盖并同步"
-              : "只补新集"
-        }
-        cancelText="取消"
-        confirmLoading={transferringEp}
-        okButtonProps={{ danger: syncMode === "overwrite" }}
-        cancelButtonProps={{ disabled: transferringEp }}
-        maskClosable={!transferringEp}
-        onOk={() => runEpisodeTransfer(syncMode)}
-        onCancel={() => {
-          if (!transferringEp) setSyncModalVisible(false)
-        }}
-        className="d2-content-library"
-      >
-        <p>
-          当前文档《{selectedDoc?.filename || "未命名剧本"}》共{" "}
-          {selectedDoc?.analysis?.episodes?.length || 0} 集 / {totalShotsCount} 个出片镜头。
-          工坊里已有 {workshopEpisodeCount} 集。
-        </p>
-        <Radio.Group
-          value={syncMode}
-          onChange={(event) => setSyncMode(event.target.value)}
-          style={{ display: "flex", flexDirection: "column", gap: 12 }}
-        >
-          <Radio value="overwrite">
-            <strong>覆盖已有集数</strong>
-            <div style={{ color: "var(--studio-text-secondary)", marginTop: 4 }}>
-              同一部剧重新导入时选这项。按本剧本重写对应集的镜头，并删除这份剧本里没有的旧集。已生成的草图、视频不会带到新镜头上。
-            </div>
-          </Radio>
-          <Radio value="append">
-            <strong>只补新集</strong>
-            <div style={{ color: "var(--studio-text-secondary)", marginTop: 4 }}>
-              工坊已有的第 N 集保持不动，只创建还没有的集。适合内容库里多份不同剧本。
-            </div>
-          </Radio>
-        </Radio.Group>
-      </Modal>
-
       {/* 剧本规范说明弹窗 */}
       <Modal
         open={formatModalVisible}
@@ -1209,294 +811,3 @@ export default function ContentLibraryPane({
     </div>
   )
 }
-
-const SAMPLE_SCRIPT = `# 《寒门硕士：穿越古代逆袭记》第一季——AI视频详细分镜版
-
-## 视频定位
-- 类型：古装 / 穿越 / 寒门逆袭 / 科举 / 爽文
-- 世界观：架空“大晟王朝”
-- 单集：约30秒
-- 每集：6个镜头，每镜头约5秒
-- 主线：现代硕士 → 穿越寒门 → 进入陆家 → 富家少爷伴读 → 夫子看中 → 免费入学 → 替少爷写诗 → 一诗成名
-
-## 一、主要人物固定设定
-
-### 沈砚——男主
-17岁古代少年；清瘦高挑；清秀脸庞；剑眉；沉静眼神；黑色长发、少年发髻；前期穿洗得发白的青灰粗布长衫、旧布鞋；后期换浅青色长衫。气质贫寒但不卑微、聪明沉稳。固定道具：旧木书箱、破旧古书、毛笔、砚台、宣纸。
-
-### 陆承安——富家少爷
-16岁；白净少年脸；浅蓝锦袍；整齐束发；腰佩玉佩；贪玩骄傲但本性不坏。固定道具：折扇、玉佩、书卷。
-
-### 林夫子——贵人
-55岁；灰白胡须；深灰长袍；儒巾；严肃锐利；严厉、公正、爱才。固定道具：戒尺、《论语》、毛笔、砚台、木质讲案。
-
-### 苏婉——女主
-17岁；清秀温婉；纤细；黑色长发；淡青古装长裙；聪慧安静、喜欢读书。固定道具：书卷、团扇、绣花香囊。
-
-### 周景明——竞争对手
-18岁；修长英俊；深蓝锦袍；束发；腰佩玉佩；家境优越、自幼读书；性格骄傲，前期看不起寒门读书人。
-
-## 二、统一视觉风格
-> 中国古代架空王朝，大晟朝，写实古装电影风格，真实人物皮肤质感，真实布料纹理，柔和自然光，青砖黛瓦，宋式审美，低饱和古典色调，浅景深，电影构图，人物面部稳定，服装保持一致，写实而非动漫。
-
-禁止：现代汽车、电线杆、手机、手表、拉链、现代家具、现代发型、西式建筑。
-
----
-
-# 第1集：硕士穿越，醒来成了穷小子
-
-**剧情：** 现代硕士沈砚意外穿越，醒来成为贫苦农家少年。
-
-### 镜头1｜现代图书馆
-- 人物：现代26岁沈砚
-- 场景：现代大学图书馆深夜
-- 道具：古籍、电脑、台灯、笔记本
-- 动作：整理古籍、揉眼
-- 镜头：中近景缓慢推进
-- 台词：“这篇古文，到底是谁写的……”
-- 提示词：现代大学图书馆深夜，年轻男硕士研究生研究古代文献，桌面古籍和电脑，暖黄台灯，电影感写实摄影。
-
-### 镜头2｜穿越
-- 场景：图书馆
-- 道具：古籍
-- 动作：古书掉落，沈砚伸手接，突然白光
-- 镜头：快速推进→白光
-- 音效：书落地、风声
-
-### 镜头3｜破屋醒来
-- 人物：沈砚、母亲
-- 场景：破旧茅屋
-- 道具：木床、陶碗、旧被褥
-- 动作：沈砚猛然睁眼，看房顶
-- 台词：“这里……是什么地方？”
-
-### 镜头4｜母亲出现
-- 动作：母亲端破陶碗进屋
-- 台词：“砚儿，你终于醒了。”
-
-### 镜头5｜家徒四壁
-- 场景：土墙、木床、木桌、缺口陶碗
-- 动作：沈砚环顾四周，表情从疑惑变震惊
-
-### 镜头6｜最后半袋米
-- 动作：母亲打开米缸，只有少量米
-- 台词：“最后半袋米，也快吃完了。”
-- 字幕：**堂堂硕士，穿越第一天，先解决吃饭问题。**
-
-# 第2集：硕士的第一桶金
-
-**剧情：** 沈砚利用知识解决村中灌溉问题，获得第一笔钱。
-
-### 镜头1｜村口争论
-人物：沈砚、村民；场景：村口田地；道具：农具、竹筐、木车；村民因灌溉争论。
-
-### 镜头2｜沈砚开口
-沈砚听完说道：“如果把水渠从这里引过去，不但能解决田里的水，还能少花一半工。”
-
-### 镜头3｜画水渠
-沈砚蹲地，用树枝画路线；俯拍树枝与泥地。
-
-### 镜头4｜水渠成功
-村民照做，水流进入田地，众人震惊。
-
-### 镜头5｜众人询问
-村民：“沈家小子，你什么时候懂这些了？”沈砚：“书上看的。”
-
-### 镜头6｜第一桶金
-沈砚拿钱回家，买回一袋粮食；母亲眼眶微红。沈砚：“至少，今天不用饿肚子了。”
-
-# 第3集：进入陆家，当富家少爷伴读
-
-### 镜头1｜陆家大门
-青砖大宅、朱红大门、石狮；沈砚背旧书箱站门外。
-
-### 镜头2｜管家考察
-管家：“识字？”沈砚：“识一些。”
-
-### 镜头3｜第一次见陆承安
-陆承安穿浅蓝锦袍，坐石桌摇折扇，打量沈砚。
-
-### 镜头4｜富少爷嘲笑
-陆承安：“你这么穷，也读过书？”
-
-### 镜头5｜第一次反击
-沈砚：“读书，不看家里有几亩田。”陆承安脸色微变。
-
-### 镜头6｜陆老爷观察
-陆老爷远处看着：“这个孩子……倒是不卑不亢。”
-结尾：沈砚正式成为陆承安伴读。
-
-# 第4集：伴读竟然比少爷还会读书
-
-### 镜头1｜陆家书房
-沈砚、陆承安；书卷、砚台、毛笔；陆承安趴桌打瞌睡。
-
-### 镜头2｜少爷求教
-陆承安：“这文章到底是什么意思？”沈砚拿起书。
-
-### 镜头3｜沈砚讲解
-沈砚用简单方式解释，陆承安逐渐听懂。
-
-### 镜头4｜私塾课堂
-林夫子提问，陆承安答不上来，沈砚小声提醒。
-
-### 镜头5｜夫子发现
-林夫子突然转头：“沈砚，你来说。”所有学生看向沈砚。
-
-### 镜头6｜惊艳回答
-沈砚回答后，林夫子问：“你以前在哪里读书？”沈砚：“回夫子，学生没有正式读过书。”林夫子震惊。
-
-# 第5集：夫子破格，免费入学
-
-### 镜头1｜考经义
-林夫子拿《论语》：“解释这一句。”沈砚回答。
-
-### 镜头2｜考文章
-林夫子：“若让你写一篇文章，如何立意？”沈砚认真回答。
-
-### 镜头3｜众人震惊
-周景明第一次认真看向沈砚。
-
-### 镜头4｜夫子收徒
-林夫子：“你可愿意拜我为师？”沈砚愣住。
-
-### 镜头5｜说出难处
-沈砚：“学生家贫，交不起束脩。”
-
-### 镜头6｜免费入学
-林夫子：“有才之人，不该因贫寒而废学。你的束脩，免了。”沈砚眼神微红。
-
-# 第6集：替少爷写诗
-
-### 镜头1｜书房求助
-陆承安急得踱步：“父亲让我今日必须作诗。”
-
-### 镜头2｜沈砚回应
-沈砚：“那就自己写。”陆承安：“我要是会，还找你干什么？”
-
-### 镜头3｜执笔
-沈砚拿毛笔沉思。
-
-### 镜头4｜写诗
-特写笔尖、墨汁、宣纸。
-
-### 镜头5｜少爷震惊
-陆承安：“这是你写的？”沈砚：“记住，是你自己写的。”
-
-### 镜头6｜文会
-陆承安念诗，众人安静；名士：“好诗！此诗何人所作？”陆承安犹豫，画面切黑。
-
-# 第7集：寒门才子，一诗成名
-
-### 镜头1｜揭晓作者
-陆承安：“我的伴读，沈砚。”众人哗然。
-
-### 镜头2｜沈砚出现
-沈砚站远处，众人打量他的破旧衣服。
-
-### 镜头3｜议论
-“一个伴读？”“他能写出这种诗？”
-
-### 镜头4｜周景明挑战
-周景明：“明日，我与你比试。”
-
-### 镜头5｜沈砚接受
-沈砚：“可以。”
-
-### 镜头6｜旁白
-周景明离开。旁白：“他不知道，自己从这一刻开始，已经走进了真正的读书人世界。”
-
-# 第8集：才华带来的麻烦
-
-### 镜头1｜茶楼议论
-几个读书人在县城茶楼议论沈砚。
-
-### 镜头2｜质疑
-“一个穷伴读，怎么可能写出这种诗？”
-
-### 镜头3｜诬陷
-“我看，八成是偷来的。”
-
-### 镜头4｜陆承安愤怒
-陆承安：“他们凭什么说你？”沈砚：“因为他们不相信。”
-
-### 镜头5｜证明
-沈砚拿原稿，通过纸张、墨迹、书写习惯等细节证明文章为自己完成。
-
-### 镜头6｜夫子评价
-林夫子：“有才而不浮，有志而不狂。”沈砚拱手。林夫子：“继续读书。”
-
-# 第9集：真正的大人物
-
-### 镜头1｜大型文会
-亭台、水榭、竹林、石桥，众多读书人聚集。
-
-### 镜头2｜京城大儒
-大儒出现，众人行礼，沈砚站在人群后。
-
-### 镜头3｜被点名
-大儒：“你就是沈砚？”沈砚：“学生正是。”
-
-### 镜头4｜提出难题
-大儒提出难题，其他学子沉默。
-
-### 镜头5｜沈砚作答
-沈砚思考后：“学生认为，此题真正的问题，并不在题面。”众人震惊。
-
-### 镜头6｜乡试邀请
-大儒：“明年乡试，你可敢参加？”沈砚：“学生，敢。”
-
-# 第10集：寒门少年，踏上科举路
-
-### 镜头1｜回到破屋
-沈砚把赚来的钱放在桌上。
-
-### 镜头2｜母亲拒收
-母亲：“这是你的。”沈砚：“给家里买粮。”母亲：“你拿去读书。”
-
-### 镜头3｜沈砚动容
-沈砚沉默片刻，郑重点头。
-
-### 镜头4｜陆家门口
-陆承安背书箱：“沈砚，乡试一起去！”沈砚：“好。”
-
-### 镜头5｜苏婉送书
-苏婉递书：“愿你此去，得偿所愿。”沈砚：“多谢。”
-
-### 镜头6｜第一季结尾
-清晨，沈砚背书箱走在古道上，群山、晨雾、古树；镜头高空拉远。旁白：“那一年，他还只是一个吃不饱饭的寒门少年。没人知道，这个少年未来会走到哪里。”
-
-大字：**乡试，开始。**
-
-# 三、固定场景库
-
-## 沈家
-破旧茅草屋、土墙、木床、破木桌、陶碗、旧木箱、米缸、柴火。
-
-## 陆家
-青砖灰瓦大宅院、朱红木门、石狮、木质回廊、假山、水池、亭台。
-
-## 私塾
-木质讲案、书架、宣纸、砚台、毛笔、学生木桌、竹简。
-
-## 文会
-江南园林、水榭、竹林、石桥、亭台、灯笼、曲水。
-
-## 古道
-青石路、群山、晨雾、古树、竹林、远山。
-
-# 四、人物一致性提示词
-
-**沈砚：** 17岁中国古代少年，清瘦高挑，清秀脸庞，剑眉，沉静眼神，黑色长发，少年发髻，浅青灰色粗布长衫，旧布鞋，贫寒但不卑微，气质沉稳聪慧。
-
-**陆承安：** 16岁中国古代富家少年，白净脸庞，少年感，浅蓝色锦袍，整齐束发，腰佩玉佩，手持折扇，富贵气质，略带骄傲。
-
-**林夫子：** 55岁中国古代老夫子，灰白胡须，深灰色长袍，儒巾，严肃面容，锐利眼神，手持戒尺。
-
-**苏婉：** 17岁中国古代少女，清秀温婉，纤细身材，黑色长发，淡青色古装长裙，清雅气质，手持书卷。
-
-**周景明：** 18岁中国古代年轻书生，修长身材，英俊面容，深蓝色锦袍，束发，腰佩玉佩，气质骄傲。
-
-# 五、视频制作建议
-
-每个镜头控制在5秒左右。建议“1个镜头=1条视频”，生成后再剪辑成约30秒一集。这样更容易控制人物一致性、场景一致性、动作、台词和节奏。`

@@ -1,0 +1,33 @@
+{
+  "dpr": 1.159999966621399,
+  "imageReady": true,
+  "popup": {
+    "bottom": 771.9423828125,
+    "height": 309.9542236328125,
+    "left": 494.9892578125,
+    "right": 1024.986572265625,
+    "top": 461.9881591796875,
+    "width": 529.997314453125,
+    "x": 494.9892578125,
+    "y": 461.9881591796875
+  },
+  "style": "古偶柔光滤镜风",
+  "theme": "dark",
+  "title": "ZLY AI 视频创作平台",
+  "topics": "# 女频# 都市# 豪门",
+  "url": "http://127.0.0.1:5173/director",
+  "viewport": {
+    "height": 863,
+    "width": 1920
+  },
+  "screenshot": {
+    "fullPage": false,
+    "scale": "css",
+    "clip": {
+      "x": 360,
+      "y": 100,
+      "width": 1260,
+      "height": 700
+    }
+  }
+}

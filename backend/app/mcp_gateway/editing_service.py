@@ -80,9 +80,9 @@ class EditingService:
     def _proposal(record: dict) -> dict[str, Any]:
         return {key: record[key] for key in PROPOSAL_FIELDS if key in record}
 
-    def projects(self) -> dict[str, Any]:
+    def projects(self, user: dict) -> dict[str, Any]:
         projects = []
-        for project in ProjectService.list_projects():
+        for project in ProjectService.list_projects(user["id"]):
             sequences = [{"sequence_id": "main", "episode_num": 0, "title": "自由剪辑", "status": "active"}]
             for episode in ProjectDetailService.list_episodes(project.id):
                 sequences.append({"sequence_id": episode["id"], "episode_num": episode.get("episode_num"),
@@ -103,12 +103,12 @@ class EditingService:
                 "duration": timeline_duration(document), "assets": document["assets"],
                 "clips": document["clips"], "analysis": analysis}
 
-    def prepare_episode(self, project_name: str, episode_code: str, *, title: str = "",
+    def prepare_episode(self, user: dict, project_name: str, episode_code: str, *, title: str = "",
                         version: str = "v001", script_text: str = "") -> dict[str, Any]:
-        return self._guard(self._prepare_episode, project_name, episode_code, title=title,
+        return self._guard(self._prepare_episode, user, project_name, episode_code, title=title,
                            version=version, script_text=script_text)
 
-    def _prepare_episode(self, project_name: str, episode_code: str, *, title: str,
+    def _prepare_episode(self, user: dict, project_name: str, episode_code: str, *, title: str,
                          version: str, script_text: str) -> dict[str, Any]:
         name = str(project_name or "").strip()
         match = re.fullmatch(r"S(\d{2,})E(\d{2,})", episode_code)
@@ -116,11 +116,13 @@ class EditingService:
             raise ValueError("需要准确剧名、S01E09 形式的集号和 v001 形式的版本")
         if len(script_text) > 200000 or len(title) > 120:
             raise ValueError("剧本或集名过长")
-        matches = [p for p in ProjectService.list_projects() if p.name == name]
+        matches = [p for p in ProjectService.list_projects(user["id"]) if p.name == name]
         if len(matches) > 1:
             raise ValueError("存在多个同名工程，请先在工作台消除歧义后再创建本地剪辑目标")
         created_project = not matches
-        project = matches[0] if matches else ProjectService.create_project(ProjectCreateRequest(name=name))
+        project = matches[0] if matches else ProjectService.create_project(
+            ProjectCreateRequest(name=name), owner_user_id=user["id"]
+        )
         # A separate version target prevents an updated episode from replacing a manual cut.
         marker = f"{episode_code} {version}"
         matches = [e for e in ProjectDetailService.list_episodes(project.id)

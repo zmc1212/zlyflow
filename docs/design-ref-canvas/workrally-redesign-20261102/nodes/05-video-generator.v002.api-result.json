@@ -1,0 +1,28 @@
+{
+  "endpoint": "https://api.openai.com/v1/images/edits",
+  "model": "gpt-image-2.5-flare",
+  "size": "1536x1024",
+  "quality": "high",
+  "reference_count": 2,
+  "n": 1,
+  "images": [
+    {
+      "path": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\05-video-generator.v002.png",
+      "sha256": "71fcc1123dc2c092fb60af70313da6d778ab880be0ac68fb54d6209d5a70fa81"
+    }
+  ],
+  "request_id": "req_7a80816abe754efaa431afa97d3bd7f1",
+  "usage": {
+    "input_tokens": 4494,
+    "input_tokens_details": {
+      "image_tokens": 2804,
+      "text_tokens": 1690
+    },
+    "output_tokens": 1372,
+    "output_tokens_details": {
+      "image_tokens": 1372,
+      "text_tokens": 0
+    },
+    "total_tokens": 5866
+  }
+}

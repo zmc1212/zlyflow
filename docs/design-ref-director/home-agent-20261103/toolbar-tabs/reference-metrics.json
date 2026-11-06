@@ -1,0 +1,262 @@
+{
+  "source": "https://jimeng.jianying.com/ai-tool/novel",
+  "capturedAt": "2026-11-02T18:24:47.660Z",
+  "metrics": {
+    "shell": {
+      "bg": "rgba(0, 0, 0, 0)",
+      "border": "1px solid rgba(0, 0, 0, 0.07)",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "gap": "0px",
+      "height": 303,
+      "icons": [
+        {
+          "height": 16,
+          "width": 16
+        },
+        {
+          "height": 16,
+          "width": 16
+        },
+        {
+          "height": 16,
+          "width": 16
+        },
+        {
+          "height": 16,
+          "width": 16
+        },
+        {
+          "height": 16,
+          "width": 16
+        },
+        {
+          "height": 183,
+          "width": 228
+        },
+        {
+          "height": 12,
+          "width": 12
+        },
+        {
+          "height": 16,
+          "width": 16
+        },
+        {
+          "height": 16,
+          "width": 16
+        },
+        {
+          "height": 0,
+          "width": 0
+        },
+        {
+          "height": 0,
+          "width": 0
+        },
+        {
+          "height": 0,
+          "width": 0
+        },
+        {
+          "height": 0,
+          "width": 0
+        },
+        {
+          "height": 0,
+          "width": 0
+        },
+        {
+          "height": 16,
+          "width": 16
+        },
+        {
+          "height": 18.28125,
+          "width": 18.28125
+        }
+      ],
+      "lineHeight": "21px",
+      "padding": "0px",
+      "radius": "24px",
+      "shadow": "none",
+      "text": "上传剧本\n剧本创作\nNew\n转绘\n短\n短\n剧\n剧\n画\n画\n布\n布\nNew\n上传剧本/图/视频\n格式要求\n单文件不超过 200MB 最多 30 张图片、10 个视频\n\n\n\n\n风格\n选题\n比例\nDreamScript\n面向中国市场\n集数：10\n1/500字\n5/500字\n立即生成",
+      "width": 1200
+    },
+    "tabBar": {
+      "bg": "color(srgb 0.937255 0.937255 0.937255)",
+      "border": "0px none rgba(0, 0, 0, 0.4)",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "gap": "0px",
+      "height": 36,
+      "icons": [
+        {
+          "height": 16,
+          "width": 16
+        },
+        {
+          "height": 16,
+          "width": 16
+        },
+        {
+          "height": 16,
+          "width": 16
+        }
+      ],
+      "lineHeight": "21px",
+      "padding": "0px",
+      "radius": "0px",
+      "shadow": "none",
+      "text": "上传剧本\n剧本创作\nNew\n转绘",
+      "width": 898.5
+    },
+    "tabs": [
+      {
+        "after": {
+          "radius": "0px",
+          "shadow": "none"
+        },
+        "before": {
+          "radius": "0px",
+          "shadow": "none"
+        },
+        "bg": "rgba(0, 0, 0, 0)",
+        "border": "0px none rgba(0, 0, 0, 0)",
+        "fontSize": "12px",
+        "fontWeight": "400",
+        "gap": "4px",
+        "height": 36,
+        "icons": [
+          {
+            "height": 16,
+            "width": 16
+          }
+        ],
+        "lineHeight": "20px",
+        "padding": "0px",
+        "radius": "0px",
+        "shadow": "none",
+        "text": "上传剧本",
+        "width": 299.5
+      },
+      {
+        "after": {
+          "radius": "0px",
+          "shadow": "none"
+        },
+        "before": {
+          "radius": "0px",
+          "shadow": "none"
+        },
+        "bg": "rgba(0, 0, 0, 0)",
+        "border": "0px none rgba(0, 0, 0, 0)",
+        "fontSize": "12px",
+        "fontWeight": "500",
+        "gap": "4px",
+        "height": 36,
+        "icons": [
+          {
+            "height": 16,
+            "width": 16
+          }
+        ],
+        "lineHeight": "20px",
+        "padding": "0px",
+        "radius": "0px",
+        "shadow": "none",
+        "text": "剧本创作\nNew",
+        "width": 299.5
+      },
+      {
+        "after": {
+          "radius": "0px",
+          "shadow": "none"
+        },
+        "before": {
+          "radius": "0px",
+          "shadow": "none"
+        },
+        "bg": "rgba(0, 0, 0, 0)",
+        "border": "0px none rgba(0, 0, 0, 0)",
+        "fontSize": "12px",
+        "fontWeight": "400",
+        "gap": "4px",
+        "height": 36,
+        "icons": [
+          {
+            "height": 16,
+            "width": 16
+          }
+        ],
+        "lineHeight": "20px",
+        "padding": "0px",
+        "radius": "0px",
+        "shadow": "none",
+        "text": "转绘",
+        "width": 299.5
+      }
+    ],
+    "themeText": "rgb(0, 0, 0)",
+    "tools": [
+      {
+        "bg": "rgba(0, 0, 0, 0)",
+        "border": "1px solid rgba(0, 0, 0, 0)",
+        "fontSize": "12px",
+        "fontWeight": "500",
+        "gap": "4px",
+        "height": 32,
+        "icons": [
+          {
+            "height": 0,
+            "width": 0
+          }
+        ],
+        "lineHeight": "20px",
+        "padding": "0px 8px",
+        "radius": "8px",
+        "shadow": "none",
+        "text": "风格",
+        "width": 62
+      },
+      {
+        "bg": "rgba(0, 0, 0, 0)",
+        "border": "1px solid rgba(0, 0, 0, 0)",
+        "fontSize": "12px",
+        "fontWeight": "500",
+        "gap": "4px",
+        "height": 32,
+        "icons": [
+          {
+            "height": 0,
+            "width": 0
+          }
+        ],
+        "lineHeight": "20px",
+        "padding": "0px 8px",
+        "radius": "8px",
+        "shadow": "none",
+        "text": "比例",
+        "width": 62
+      },
+      {
+        "bg": "rgba(0, 0, 0, 0)",
+        "border": "0px none rgb(0, 0, 0)",
+        "fontSize": "12px",
+        "fontWeight": "500",
+        "gap": "4px",
+        "height": 32,
+        "icons": [],
+        "lineHeight": "20px",
+        "padding": "0px 8px",
+        "radius": "8px",
+        "shadow": "none",
+        "text": "DreamScript\n面向中国市场\n集数：10",
+        "width": 259.171875
+      }
+    ],
+    "viewport": [
+      1920,
+      919
+    ]
+  }
+}

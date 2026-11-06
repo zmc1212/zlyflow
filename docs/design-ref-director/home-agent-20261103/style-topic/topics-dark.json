@@ -1,0 +1,53 @@
+{
+  "card": {
+    "background": "rgba(0, 0, 0, 0)",
+    "borderRadius": "8px",
+    "font": "13px / 22px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+    "gap": "normal",
+    "height": 35.99138259887695,
+    "width": 157.61045837402344,
+    "x": 583.8497314453125,
+    "y": 550.7947387695312
+  },
+  "cover": null,
+  "dpr": 1.159999966621399,
+  "fontReady": "loaded",
+  "popup": {
+    "background": "rgba(0, 0, 0, 0)",
+    "borderRadius": "0px",
+    "font": "12px / 20px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+    "gap": "normal",
+    "height": 235.66812133789065,
+    "width": 529.997314453125,
+    "x": 566.9989624023438,
+    "y": 461.9881591796875
+  },
+  "theme": "dark",
+  "title": "ZLY AI 视频创作平台",
+  "url": "http://127.0.0.1:5173/director",
+  "viewport": {
+    "height": 863,
+    "width": 1920
+  },
+  "visibleImages": [],
+  "screenshot": {
+    "fullPage": false,
+    "scale": "css",
+    "clip": {
+      "x": 360,
+      "y": 100,
+      "width": 1260,
+      "height": 700
+    },
+    "panelClip": {
+      "background": "rgba(0, 0, 0, 0)",
+      "borderRadius": "0px",
+      "font": "12px / 20px \"CapCut Sans\", \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", Arial, sans-serif",
+      "gap": "normal",
+      "height": 235.66812133789065,
+      "width": 529.997314453125,
+      "x": 566.9989624023438,
+      "y": 461.9881591796875
+    }
+  }
+}

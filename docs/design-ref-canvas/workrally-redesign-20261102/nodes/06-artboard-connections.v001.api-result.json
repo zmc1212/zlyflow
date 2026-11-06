@@ -1,0 +1,28 @@
+{
+  "endpoint": "https://api.openai.com/v1/images/edits",
+  "model": "gpt-image-2.5-flare",
+  "size": "1536x1024",
+  "quality": "high",
+  "reference_count": 2,
+  "n": 1,
+  "images": [
+    {
+      "path": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\06-artboard-connections.v001.png",
+      "sha256": "855120c88f572e992155ecab1fd18b9e8838c7602974bf8ce3ac527fcaeeaf3e"
+    }
+  ],
+  "request_id": "req_aa71db44190b480d82c77c256bc0aa73",
+  "usage": {
+    "input_tokens": 4128,
+    "input_tokens_details": {
+      "image_tokens": 2804,
+      "text_tokens": 1324
+    },
+    "output_tokens": 1372,
+    "output_tokens_details": {
+      "image_tokens": 1372,
+      "text_tokens": 0
+    },
+    "total_tokens": 5500
+  }
+}

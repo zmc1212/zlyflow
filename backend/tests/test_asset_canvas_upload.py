@@ -93,7 +93,7 @@ class AssetCanvasImageUploadTests(unittest.TestCase):
         prefix = "backend.app.media_studio.services.project_detail_service."
         original = row(extra={"environment_prompt": "旧提示词"})
         latest = row(extra={"environment_prompt": "新的提示词", "creation_canvas": {"version": 1, "positions": {"group": {"x": 400, "y": 300}}}})
-        with patch(prefix + "query_one", side_effect=[original, {"provider_model": "test", "display_name": "Test"}, latest, latest]), patch(prefix + "execute_sql") as execute, patch(prefix + "grs_row", return_value={"base_url": "https://provider.test", "api_key_encrypted": "fixture"}), patch(prefix + "credential_manager") as credentials, patch(prefix + "GrsClient") as client, patch(prefix + "QiniuService.store_bytes", return_value=("object", "https://cdn/new.png")):
+        with patch(prefix + "query_one", side_effect=[original, {"provider_model": "test", "display_name": "Test", "profile": "gpt_image_2"}, latest, latest]), patch(prefix + "execute_sql") as execute, patch(prefix + "grs_row", return_value={"base_url": "https://provider.test", "api_key_encrypted": "fixture"}), patch(prefix + "credential_manager") as credentials, patch(prefix + "GrsClient") as client, patch(prefix + "QiniuService.store_bytes", return_value=("object", "https://cdn/new.png")):
             credentials.return_value.decrypt.return_value = "test-key"
             client.return_value.generate_sync.return_value = "https://provider.test/image.png"
             client.return_value.download_image.return_value = ("image.png", b"image")

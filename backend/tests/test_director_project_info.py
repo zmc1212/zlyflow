@@ -18,8 +18,8 @@ class DirectorProjectInfoTests(unittest.TestCase):
         self.db.row_factory = sqlite3.Row
         self.db.execute("""CREATE TABLE ai_projects (
             id TEXT PRIMARY KEY, name TEXT, description TEXT, cover_url TEXT,
-            status TEXT, settings_json TEXT, created_at TEXT, updated_at TEXT)""")
-        self.db.execute("INSERT INTO ai_projects VALUES ('p1', '未命名导演工程', '', NULL, 'active', ?, 'now', 'now')",
+            status TEXT, settings_json TEXT, owner_user_id TEXT, created_at TEXT, updated_at TEXT)""")
+        self.db.execute("INSERT INTO ai_projects VALUES ('p1', '未命名导演工程', '', NULL, 'active', ?, NULL, 'now', 'now')",
                         (json.dumps({"extra": {"workshop_aspect_ratio": "16:9"}}),))
         self.addCleanup(self.db.close)
         module = "backend.app.media_studio.services.project_service"
@@ -45,7 +45,7 @@ class DirectorProjectInfoTests(unittest.TestCase):
         self.assertEqual(ProjectService.get_project("p1").name, "雨夜回声")
 
     def test_home_placeholder_remains_eligible_for_generated_title(self):
-        created = ProjectService.create_project(ProjectCreateRequest(name="未命名短剧"))
+        created = ProjectService.create_project(ProjectCreateRequest(name="未命名短剧"), owner_user_id="alice")
         self.assertNotEqual("manual", (created.extra or {}).get("name_source"))
         ProjectService.sync_generated_script_info(created.id, {"title": "雨夜留灯"})
         self.assertEqual("雨夜留灯", ProjectService.get_project(created.id).name)

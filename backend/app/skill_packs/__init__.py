@@ -14,7 +14,6 @@ from .aspect import (
     resolve_workshop_aspect_ratio,
     rewrite_aspect_copy,
     scan_script_aspect_hints,
-    triptych_panel_geometry_en,
 )
 from .binding import (
     extra_mapping,
@@ -94,6 +93,5 @@ __all__ = [
     "rewrite_aspect_copy",
     "scan_script_aspect_hints",
     "skill_pack_scope",
-    "triptych_panel_geometry_en",
     "validate_skill_pack_id",
 ]

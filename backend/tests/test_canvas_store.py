@@ -430,3 +430,47 @@ class CanvasStoreTests(unittest.TestCase):
         self.assertEqual(validated.preview.nodeCount, 1)
         self.assertEqual(validated.preview.items[0].url, "/api/media/a.png")
         self.assertEqual(validated.model_dump()["preview"]["x"], 0)
+
+    def test_get_or_create_linked_is_idempotent_and_seeds_draft(self) -> None:
+        first = self.canvas.get_or_create_linked(self.user_id, "proj-055492fd2d34406b", "资产画布 · 雨夜")
+        self.assertEqual(first["title"], "资产画布 · 雨夜")
+        self.assertEqual(first["linked_director_project_id"], "proj-055492fd2d34406b")
+        self.assertEqual(first["version"], 1)
+        self.assertEqual(json.loads(first["content"]), {"nodes": [], "edges": []})
+        self.assertTrue(first["checksum"])
+        # 重复调用（哪怕标题不同）命中同一画布，不产生第二份。
+        second = self.canvas.get_or_create_linked(self.user_id, "proj-055492fd2d34406b", "另起的标题")
+        self.assertEqual(second["id"], first["id"])
+        self.assertEqual(second["title"], "资产画布 · 雨夜")
+        # 绑定关系随草稿保存正常演进。
+        content = canvas_content([{"id": "ast-1::definition", "type": "assetCreation", "position": {"x": 4, "y": 8}, "data": {}}])
+        saved = self.canvas.save_draft(self.user_id, first["id"], 1, content)
+        self.assertEqual(saved["version"], 2)
+        reloaded = self.canvas.get_or_create_linked(self.user_id, "proj-055492fd2d34406b", "ignored")
+        self.assertEqual(reloaded["version"], 2)
+        self.assertEqual(reloaded["content"], content)
+
+    def test_get_or_create_linked_scopes_by_owner_and_project(self) -> None:
+        mine = self.canvas.get_or_create_linked(self.user_id, "proj-mine", "我的资产画布")
+        theirs = self.canvas.get_or_create_linked("user_other", "proj-mine", "他人的资产画布")
+        self.assertNotEqual(mine["id"], theirs["id"])
+        other_project = self.canvas.get_or_create_linked(self.user_id, "proj-other", "另一项目")
+        self.assertNotEqual(other_project["id"], mine["id"])
+        # 归属隔离：他人无法读取我的 linked 画布。
+        with self.assertRaises(CanvasNotFoundError):
+            self.canvas.get_project("user_other", mine["id"])
+
+    def test_get_or_create_linked_rejects_blank_director_project_id(self) -> None:
+        with self.assertRaises(CanvasValidationError):
+            self.canvas.get_or_create_linked(self.user_id, "   ", "资产画布")
+
+    def test_linked_canvas_surfaces_in_list_and_response_model(self) -> None:
+        from backend.app.models import CanvasProjectResponse
+
+        project = self.canvas.get_or_create_linked(self.user_id, "proj-listed", "资产画布 · 列表")
+        listed = self.canvas.list_projects(self.user_id)
+        self.assertEqual([item["id"] for item in listed], [project["id"]])
+        self.assertEqual(listed[0]["linked_director_project_id"], "proj-listed")
+        validated = CanvasProjectResponse.model_validate(self.canvas.get_project(self.user_id, project["id"]))
+        self.assertEqual(validated.linked_director_project_id, "proj-listed")
+        self.assertEqual(validated.version, 1)

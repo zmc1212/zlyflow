@@ -105,16 +105,16 @@ export function buildAssetCanvas(assets: Director2Asset[]): { nodes: AssetCanvas
     let cursor = 60
     assets.filter(asset => asset.kind === kind).sort((a, b) => (a.created_at || "").localeCompare(b.created_at || "") || a.id.localeCompare(b.id)).forEach(asset => {
       const layout = readAssetCanvasLayout(asset), slots = assetImageSlots(asset)
-      const groupId = assetNodeId(asset.id, "group"), width = 470 + Math.max(1, slots.length) * 390
-      nodes.push({ id: groupId, type: "assetGroup", position: layout.positions.group || { x: cursor, y: row * 960 + 50 }, style: { width, height: 790 }, dragHandle: ".ac-group-heading", data: { asset, key: "group", role: "group", title: asset.name } })
+      const groupId = assetNodeId(asset.id, "group"), width = 490 + Math.max(1, slots.length) * 430
+      nodes.push({ id: groupId, type: "assetGroup", position: layout.positions.group || { x: cursor, y: row * 850 + 50 }, style: { width, height: 710 }, data: { asset, key: "group", role: "group", title: asset.name } })
       const add = (key: string, role: AssetCanvasData["role"], title: string, position: XYPosition, size: { width: number; height: number }, target?: AssetCanvasTarget) => {
-        nodes.push({ id: assetNodeId(asset.id, key), parentId: groupId, type: "assetCreation", position: layout.positions[key] || position, extent: "parent", style: size, dragHandle: ".ac-node-heading", data: { asset, key, role, title, target, image: target ? assetSlotImage(asset, target) : undefined } })
+        nodes.push({ id: assetNodeId(asset.id, key), parentId: groupId, type: "assetCreation", position: layout.positions[key] || position, style: size, data: { asset, key, role, title, target, image: target ? assetSlotImage(asset, target) : undefined } })
       }
       add("definition", "definition", kind === "character" ? "角色档案" : kind === "scene" ? "场景设定" : "道具设定", { x: 30, y: 45 }, { width: 300, height: 310 })
       add("references", "references", kind === "character" ? "人物参考图" : kind === "scene" ? "场景参考图" : "道具参考图", { x: 30, y: 405 }, { width: 300, height: 320 })
       slots.forEach(({ target, title }, index) => {
         const key = targetKey(target)
-        add(key, "image", title, { x: 430 + index * 390, y: 100 }, { width: 340, height: 485 }, target)
+        add(key, "image", title, { x: 430 + index * 430, y: 100 }, { width: 392, height: kind === "character" ? 524 : 460 }, target)
         const primary = kind === "scene" ? "scene_master" : kind === "prop" ? "prop_reference" : null
         const inputs = primary && target.type !== primary ? [primary] : ["definition", "references"]
         for (const input of inputs) edges.push({ id: `${asset.id}:${input}>${key}`, source: assetNodeId(asset.id, input), target: assetNodeId(asset.id, key), type: "default", selectable: false, deletable: false, style: { stroke: "var(--studio-border-strong, var(--studio-text-muted))", strokeWidth: 1 } })

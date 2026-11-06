@@ -1,4 +1,4 @@
-import { BaseEdge, getBezierPath, type EdgeProps } from "@xyflow/react"
+import { BaseEdge, EdgeLabelRenderer, getBezierPath, useReactFlow, type EdgeProps } from "@xyflow/react"
 
 export default function CanvasFlowEdge({
   id,
@@ -8,11 +8,15 @@ export default function CanvasFlowEdge({
   targetY,
   sourcePosition,
   targetPosition,
+  target,
+  targetHandleId,
   style,
   markerEnd,
   markerStart,
 }: EdgeProps) {
-  const [path] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition })
+  const { getNode } = useReactFlow()
+  const [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition })
+  const label = targetHandleId === "prompt" ? "提示词" : getNode(target)?.type === "generator" ? "参考图" : null
   const stroke = typeof style?.stroke === "string" ? style.stroke : "var(--studio-primary)"
   return (
     <>
@@ -32,6 +36,7 @@ export default function CanvasFlowEdge({
         style={{ stroke, color: stroke }}
         aria-hidden="true"
       />
+      {label ? <EdgeLabelRenderer><span className="canvas-edge-label" style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}>{label}</span></EdgeLabelRenderer> : null}
     </>
   )
 }

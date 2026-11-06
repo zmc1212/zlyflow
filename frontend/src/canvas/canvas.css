@@ -378,15 +378,30 @@
   color: var(--studio-text-muted);
 }
 
+/* 加载骨架：按画布编辑器形态占位（顶栏 + 点阵画布区 + 节点块），替代整页只转圈 */
+.canvas-loading-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  min-height: 360px;
+  width: 100%;
+  padding: 16px;
+}
+.canvas-skeleton-topbar { display: flex; align-items: center; gap: 14px; flex: none; padding: 4px 2px; }
+.canvas-skeleton-board {
+  position: relative; flex: 1; min-height: 260px; overflow: hidden;
+  border: 1px solid var(--studio-border); border-radius: 12px; background: var(--studio-canvas);
+  background-image: radial-gradient(var(--studio-border) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+.canvas-skeleton-node { position: absolute; height: auto; border: 1px solid var(--studio-border); border-radius: 12px; box-shadow: var(--canvas-float-shadow); }
+.canvas-skeleton-status { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 0; color: var(--studio-text-muted); font-size: 13px; }
+
 .canvas-editor-header {
   display: flex;
-  height: 64px;
   flex-shrink: 0;
   align-items: center;
-  gap: 8px;
-  padding: 0 18px;
-  border-bottom: 1px solid var(--studio-border);
-  background: var(--studio-surface);
 }
 
 .canvas-editor-divider {
@@ -578,24 +593,7 @@
   color: inherit;
 }
 
-.canvas-stage .react-flow__edge-path {
-  stroke: color-mix(in srgb, var(--studio-text-muted) 70%, transparent);
-  stroke-width: 1.6;
-}
-
-.canvas-stage .react-flow__edge.selected .react-flow__edge-path,
-.canvas-stage .react-flow__edge:focus .react-flow__edge-path {
-  stroke: var(--studio-primary);
-  stroke-width: 2.2;
-}
-
-.canvas-stage .react-flow__connection-path {
-  stroke: var(--studio-primary);
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-dasharray: 7 7;
-  animation: canvas-connection-dash .6s linear infinite;
-}
+/* 连线描边/宽度/选中态由共享层 canvas-node-shared.css 统一（取值＝资产画布 v006）。 */
 
 .canvas-flow-edge-light {
   fill: none;
@@ -652,21 +650,13 @@
   will-change: transform;
 }
 
+/* 外壳描边/圆角/背景/投影/选中态由共享层 canvas-node-shared.css 统一提供，此处只留布局与过渡。 */
 .canvas-node {
   position: relative;
   width: 100%;
   height: 100%;
-  border: 1px solid var(--studio-border);
-  border-radius: 12px;
-  background: var(--studio-surface);
   color: var(--studio-text);
-  box-shadow: var(--canvas-float-shadow);
   transition: border-color .15s ease, box-shadow .15s ease;
-}
-
-.canvas-node.is-selected {
-  border-color: var(--studio-primary);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--studio-focus) 55%, transparent), var(--canvas-float-shadow);
 }
 
 .canvas-node-text {

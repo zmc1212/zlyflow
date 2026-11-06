@@ -200,16 +200,6 @@ def persist_workshop_aspect_ratio(project_id: str, aspect: Any) -> str:
     return resolved
 
 
-def triptych_panel_geometry_en(aspect: Any) -> str:
-    confirmed = normalize_aspect_ratio(aspect) or DEFAULT_ASPECT
-    kind = aspect_orientation(confirmed)
-    if kind == "landscape":
-        return f"horizontal {confirmed} composition"
-    if kind == "square":
-        return f"square {confirmed} composition"
-    return f"vertical {confirmed}"
-
-
 def format_aspect_template(text: Any, aspect: Any) -> str:
     raw = str(text or "")
     if not raw or "{" not in raw:
@@ -219,7 +209,6 @@ def format_aspect_template(text: Any, aspect: Any) -> str:
         "aspect": confirmed,
         "orientation": aspect_orientation_zh(confirmed),
         "orientation_en": aspect_orientation_en(confirmed),
-        "panel_geometry": triptych_panel_geometry_en(confirmed),
         "fill": f"铺满{aspect_orientation_zh(confirmed)}",
     }
 

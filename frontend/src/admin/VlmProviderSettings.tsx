@@ -3,6 +3,7 @@ import { Alert, AutoComplete, Button, Input, Select, Switch, Tag, message } from
 import { CheckCircle2, ExternalLink, Eye, KeyRound, RefreshCw, Sparkles } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { jsonMutation, requestJson } from "../api"
+import { CopyFieldButton } from "./FieldCopy"
 import { buildModelOptions, modelPriceLabel, modelPriceTagStyle, providerPresetFor, resolveModelFree, sameProviderEndpoint } from "./provider-models"
 import type { CatalogModel, CatalogResponse, ProviderPresetsResponse } from "./provider-models"
 
@@ -326,6 +327,7 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
               placeholder="https://open.bigmodel.cn/api/paas/v4"
+              suffix={<CopyFieldButton label="Base URL" value={baseUrl} csrfToken={csrfToken} />}
             />
           </div>
             </>
@@ -337,14 +339,17 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
                 <label className="block text-xs font-medium text-[#4b5563]">Model (视觉模型名称)</label>
                 <Tag style={modelPriceTagStyle(selectedModelFree)}>{modelPriceLabel(selectedModelFree)}</Tag>
               </div>
-              <Button
-                size="small"
-                loading={catalog.isPending}
-                onClick={() => catalog.mutate()}
-                icon={<RefreshCw size={13} />}
-              >
-                拉取官方列表
-              </Button>
+              <div className="flex items-center gap-1">
+                <CopyFieldButton label="模型名称" value={model} csrfToken={csrfToken} />
+                <Button
+                  size="small"
+                  loading={catalog.isPending}
+                  onClick={() => catalog.mutate()}
+                  icon={<RefreshCw size={13} />}
+                >
+                  拉取官方列表
+                </Button>
+              </div>
             </div>
             <AutoComplete
               className="mt-1.5 w-full"
@@ -388,6 +393,7 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
                   ? "本地服务可留空"
                   : (savedKeyMatches ? query.data?.api_key_masked : null) || "输入平台生成的 API Key / Token"
               }
+              suffix={<CopyFieldButton label="API Key" value={apiKey} csrfToken={csrfToken} provider="vlm" />}
             />
             {selectedPreset === "zhipu" ? (
               <p className="mt-1.5 text-[11px] leading-4 text-[#6b7280]">

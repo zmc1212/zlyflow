@@ -98,43 +98,46 @@ function FeatureWall({ guest, onRequestLogin }: { guest?: boolean; onRequestLogi
   </div>
 }
 
-function CreationPreview({ item }: { item: RecentCreation }) {
+/**
+ * 单张作品卡：所有卡片等宽、缩略图统一 3:4 比例（画面居中裁切铺满），
+ * 行列严格对齐，标题与时间跟卡片同宽。
+ */
+function CreationCard({ item, onOpen }: { item: RecentCreation; onOpen: (jobId: string) => void }) {
   const [thumbnailFailed, setThumbnailFailed] = useState(false)
   const [mediaFailed, setMediaFailed] = useState(false)
-  const [measuredRatio, setMeasuredRatio] = useState<number>()
-  const ratio = measuredRatio ?? item.aspectRatio ?? (item.kind === "video" ? 16 / 9 : 1)
   const useImage = item.kind === "image" || (item.thumbnail && !thumbnailFailed)
-  return <div className="studio-home-preview" style={{ aspectRatio: ratio }}>
-    {mediaFailed ? <div className="studio-home-preview-fallback">
-      {item.kind === "video" ? <Clapperboard size={24} /> : <ImageIcon size={24} />}
-      <span>预览暂不可用</span><span>打开任务查看</span>
-    </div> : useImage ? <img
-      src={item.thumbnail && !thumbnailFailed ? item.thumbnail : item.src}
-      alt="" loading="lazy" decoding="async"
-      onLoad={(event) => {
-        const image = event.currentTarget
-        if (image.naturalWidth && image.naturalHeight) setMeasuredRatio(image.naturalWidth / image.naturalHeight)
-      }}
-      onError={() => item.thumbnail && !thumbnailFailed ? setThumbnailFailed(true) : setMediaFailed(true)}
-    /> : <video
-      src={item.src} muted playsInline preload="metadata" aria-hidden="true"
-      onLoadedMetadata={(event) => {
-        const video = event.currentTarget
-        if (video.videoWidth && video.videoHeight) setMeasuredRatio(video.videoWidth / video.videoHeight)
-      }}
-      onError={() => setMediaFailed(true)}
-    />}
-    <span className="studio-home-preview-open"><ExternalLink size={17} />打开任务</span>
-    {item.kind === "video" && <span className="studio-home-preview-duration"><Play size={11} fill="currentColor" />{item.duration || "视频"}</span>}
-  </div>
+  return <article className="studio-home-creation">
+    <button type="button" onClick={() => onOpen(item.jobId)} className="studio-home-creation-open" aria-label={`打开任务：${item.title}`}>
+      <div className="studio-home-preview">
+        {mediaFailed ? <div className="studio-home-preview-fallback">
+          {item.kind === "video" ? <Clapperboard size={24} /> : <ImageIcon size={24} />}
+          <span>预览暂不可用</span><span>打开任务查看</span>
+        </div> : useImage ? <img
+          src={item.thumbnail && !thumbnailFailed ? item.thumbnail : item.src}
+          alt="" loading="lazy" decoding="async"
+          onError={() => item.thumbnail && !thumbnailFailed ? setThumbnailFailed(true) : setMediaFailed(true)}
+        /> : <video
+          src={item.src} muted playsInline preload="metadata" aria-hidden="true"
+          onError={() => setMediaFailed(true)}
+        />}
+        <span className="studio-home-preview-open"><ExternalLink size={17} />打开任务</span>
+        {item.kind === "video" && <span className="studio-home-preview-duration"><Play size={11} fill="currentColor" />{item.duration || "视频"}</span>}
+      </div>
+    </button>
+    <div className="studio-home-creation-caption">
+      <Tooltip title={item.title}><button type="button" onClick={() => onOpen(item.jobId)} className="studio-home-creation-title">{item.title}</button></Tooltip>
+      <Dropdown trigger={["click"]} menu={{ items: [{ key: "open", label: "打开任务", icon: <ExternalLink size={14} /> }], onClick: () => onOpen(item.jobId) }}>
+        <Button type="text" size="small" aria-label={`作品操作：${item.title}`} icon={<MoreHorizontal size={16} />} />
+      </Dropdown>
+      <p>{createdLabel(item.createdAt)}<span>·</span>{item.kind === "video" ? "视频" : "图片"}</p>
+    </div>
+  </article>
 }
 
 export default function GenerationHomeSections({ jobs, loading, error, onRetry, onOpen, onImageCreate, guest, onRequestLogin, onUseInspiration }: Props) {
   const [filter, setFilter] = useState("all")
   const entries = useMemo(() => recentCreations(jobs, jobs.length), [jobs])
   const visible = entries.filter((item) => filter === "all" || item.kind === filter).slice(0, 12)
-  const columns = Array.from({ length: 4 }, () => [] as RecentCreation[])
-  visible.forEach((item, index) => columns[index % columns.length].push(item))
 
   return <div className="studio-home-sections">
     <nav className="studio-home-featurezone" aria-label="创作工具">
@@ -178,20 +181,7 @@ export default function GenerationHomeSections({ jobs, loading, error, onRetry, 
       </div> : !visible.length ? <div className="studio-home-empty">
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={entries.length ? `还没有${filter === "video" ? "视频" : "图片"}作品` : "第一幅作品，从上面的一个想法开始"} />
       </div> : <div className="studio-home-gallery">
-        {columns.map((items, index) => <div key={index} className="studio-home-gallery-column">
-          {items.map((item) => <article key={item.id} className="studio-home-creation">
-            <button type="button" onClick={() => onOpen(item.jobId)} className="studio-home-creation-open" aria-label={`打开任务：${item.title}`}>
-              <CreationPreview key={`${item.id}:${item.src}`} item={item} />
-            </button>
-            <div className="studio-home-creation-caption">
-              <Tooltip title={item.title}><button type="button" onClick={() => onOpen(item.jobId)} className="studio-home-creation-title">{item.title}</button></Tooltip>
-              <Dropdown trigger={["click"]} menu={{ items: [{ key: "open", label: "打开任务", icon: <ExternalLink size={14} /> }], onClick: () => onOpen(item.jobId) }}>
-                <Button type="text" size="small" aria-label={`作品操作：${item.title}`} icon={<MoreHorizontal size={16} />} />
-              </Dropdown>
-              <p>{createdLabel(item.createdAt)}<span>·</span>{item.kind === "video" ? "视频" : "图片"}</p>
-            </div>
-          </article>)}
-        </div>)}
+        {visible.map((item) => <CreationCard key={item.id} item={item} onOpen={onOpen} />)}
       </div>}
     </section>}
   </div>

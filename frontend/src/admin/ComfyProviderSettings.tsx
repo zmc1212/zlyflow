@@ -3,6 +3,7 @@ import { Alert, Button, Input, Select, message } from "antd"
 import { CheckCircle2, MonitorPlay } from "lucide-react"
 import { useEffect, useState } from "react"
 import { jsonMutation, requestJson } from "../api"
+import { CopyFieldButton } from "./FieldCopy"
 
 type ComfyConfig = {
   base_url: string
@@ -88,6 +89,7 @@ export default function ComfyProviderSettings({ csrfToken }: { csrfToken: string
                 value={baseUrl}
                 onChange={(event) => setBaseUrl(event.target.value)}
                 placeholder="http://127.0.0.1:8188"
+                suffix={<CopyFieldButton label="连接地址" value={baseUrl} csrfToken={csrfToken} />}
               />
               {query.data?.env_default ? (
                 <p className="mt-1.5 text-xs text-[#6b7280]">

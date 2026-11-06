@@ -12,8 +12,10 @@ CREATE TABLE IF NOT EXISTS `ai_projects` (
     `cover_url` VARCHAR(512) DEFAULT NULL,
     `status` VARCHAR(32) NOT NULL DEFAULT 'active',
     `settings_json` LONGTEXT DEFAULT NULL,
+    `owner_user_id` VARCHAR(64) DEFAULT NULL,
     `created_at` VARCHAR(64) NOT NULL,
     `updated_at` VARCHAR(64) NOT NULL,
+    KEY `idx_ai_projects_owner_updated` (`owner_user_id`, `updated_at`),
     KEY `idx_ai_projects_updated_at` (`updated_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

@@ -9,6 +9,8 @@ import {
   workshopVideoOverlayLabel,
   workshopVideoPercentLabel,
   workshopVideoStageLabel,
+  workshopEpisodeBannerLabel,
+  workshopEpisodeStageLabel,
   type WorkshopVideoJobLike,
 } from "./workshop-video-progress"
 
@@ -226,5 +228,111 @@ describe("workshop video progress mapping", () => {
     })
     expect(hasActiveWorkshopVideoProgress(mapped)).toBe(false)
     expect(workshopVideoStageLabel("awaiting_refine")).toBe("一采预览待确认")
+  })
+
+  it("stamps per-shot progress onto the cards once an episode job starts rendering segments", () => {
+    const mapped = mapWorkshopVideoProgress([
+      job({
+        status: "running",
+        progress: 62,
+        payload: {
+          render_scope: "episode",
+          beat_id: undefined,
+          render_progress: { total: 3, completed: 1, current: 2 },
+          shot_status: { "beat-a": "succeeded", "beat-b": "running", "beat-c": "queued" },
+          shots: [{ beat_id: "beat-a", video_url: "/api/a.mp4" }],
+        },
+      }),
+    ], "ep-1")
+    expect(mapped.beats["beat-a"]).toMatchObject({ shotStage: "succeeded", shotUrl: "/api/a.mp4", scope: "episode" })
+    expect(mapped.beats["beat-b"]).toMatchObject({ shotStage: "running" })
+    expect(mapped.beats["beat-c"]).toMatchObject({ shotStage: "queued" })
+    expect(isWorkshopShotRendered(mapped.beats["beat-a"])).toBe(true)
+    expect(mapped.episode).toMatchObject({ scope: "episode", renderProgress: { total: 3, completed: 1, current: 2 }, shotCount: 3 })
+    expect(hasActiveWorkshopVideoProgress(mapped)).toBe(true)
+  })
+
+  it("keeps cards blank during prompt prep and reports the whole-episode stage on the banner", () => {
+    const mapped = mapWorkshopVideoProgress([
+      job({ status: "prompt_generation", progress: 5, payload: { render_scope: "episode", beat_id: undefined, prompt_generation_progress: { completed: 3, total: 15 } } }),
+    ], "ep-1")
+    expect(mapped.beats).toEqual({})
+    expect(mapped.episode).toMatchObject({ scope: "episode", promptProgress: { completed: 3, total: 15 } })
+    expect(workshopEpisodeStageLabel(mapped.episode!)).toBe("整理生成指令 3 / 15")
+  })
+
+  it("phrases the episode banner across render, save and compose stages", () => {
+    expect(workshopEpisodeStageLabel({ status: "running", progress: 40, scope: "episode", renderProgress: { total: 4, completed: 1, current: 2 } })).toBe("正在生成第 2 / 4 组 · 已完成 1 · 40%")
+    expect(workshopEpisodeStageLabel({ status: "storing", progress: 90, scope: "episode", renderProgress: { total: 4, completed: 4, current: 4 } })).toBe("保存结果 · 已完成 4 / 4 组")
+    expect(workshopEpisodeStageLabel({ status: "preparing", progress: 0, scope: "episode", message: "正在规划关键帧" })).toBe("正在规划关键帧")
+    expect(workshopEpisodeStageLabel({ status: "running", progress: 20, scope: "compose" })).toBe("整集合片中")
+  })
+
+  it("prefixes the banner with 整集生成中 only when the stage wording does not already say it", () => {
+    expect(workshopEpisodeBannerLabel({ status: "running", progress: 40, scope: "episode", renderProgress: { total: 4, completed: 1, current: 2 } }))
+      .toBe("整集生成中 · 正在生成第 2 / 4 组 · 已完成 1 · 40%")
+    expect(workshopEpisodeBannerLabel({ status: "running", progress: 20, scope: "compose" })).toBe("整集合片中")
+  })
+})
+
+describe("gap_fill progress mapping", () => {
+  it("surfaces a gap_fill selection job as the episode banner with segment i/n", () => {
+    const mapped = mapWorkshopVideoProgress(
+      [
+        job({
+          status: "running",
+          progress: 55,
+          payload: {
+            render_scope: "selection",
+            beat_ids: ["beat-2", "beat-3"],
+            strategy: "gap_fill",
+            segment_index: 2,
+            segment_total: 3,
+          },
+        }),
+      ],
+      "ep-1",
+    )
+    expect(mapped.episode).not.toBeNull()
+    expect(mapped.episode!.gapSegment).toEqual({ index: 2, total: 3 })
+    expect(workshopEpisodeStageLabel(mapped.episode!)).toBe("补跑区间 2 / 3 · 生成中 55%")
+    expect(workshopEpisodeBannerLabel(mapped.episode!)).toBe("整集补跑中 · 生成中 55%")
+    expect(mapped.beats["beat-2"]).toBeTruthy()
+    expect(mapped.beats["beat-3"]).toBeTruthy()
+  })
+
+  it("keeps plain selection jobs off the episode banner", () => {
+    const mapped = mapWorkshopVideoProgress(
+      [
+        job({
+          payload: { render_scope: "selection", beat_ids: ["beat-2"] },
+        }),
+      ],
+      "ep-1",
+    )
+    expect(mapped.episode).toBeNull()
+    expect(mapped.beats["beat-2"]).toBeTruthy()
+  })
+
+  it("prefers a real episode job over an older gap_fill selection job", () => {
+    const mapped = mapWorkshopVideoProgress(
+      [
+        job({ payload: { render_scope: "episode" } }),
+        job({ payload: { render_scope: "selection", beat_ids: ["beat-2"], strategy: "gap_fill", segment_index: 1, segment_total: 2 } }),
+      ],
+      "ep-1",
+    )
+    expect(mapped.episode?.scope).toBe("episode")
+    expect(mapped.episode?.gapSegment).toBeUndefined()
+  })
+
+  it("ignores gap_fill payloads without segment_total", () => {
+    const mapped = mapWorkshopVideoProgress(
+      [
+        job({ payload: { render_scope: "selection", beat_ids: ["beat-2"], strategy: "gap_fill" } }),
+      ],
+      "ep-1",
+    )
+    expect(mapped.episode).toBeNull()
   })
 })

@@ -48,6 +48,11 @@ export type Director2GenerateVideoResult = {
   submitted?: number
   skipped?: number
   shot_count?: number
+  /** 整集补跑策略回显：gap_fill（区间补跑）或 continue（前缀续写）；整集直出无此字段。 */
+  strategy?: string
+  segment_count?: number
+  /** continue 策略：前缀最后一镜的 sequence，续写从 anchor_sequence + 1 镜开始。 */
+  anchor_sequence?: number
 }
 
 export type VideoWorkflowSelectOption = { value: string; label: string }
@@ -226,6 +231,19 @@ export function groupedVideoWorkflowOptions(workflows: Director2WorkflowMode[]):
 }
 
 export function formatEpisodeVideoSubmitMessage(result: Director2GenerateVideoResult): string {
+  if (result.strategy === "gap_fill") {
+    const submitted = result.submitted ?? 0
+    const skipped = result.skipped ?? 0
+    const segments = result.segment_count ?? 0
+    return segments > 1
+      ? `已按 ${segments} 个连续区间补跑 ${submitted} 镜（跳过 ${skipped} 镜已有成片）`
+      : `已补跑 ${submitted} 镜（跳过 ${skipped} 镜已有成片）`
+  }
+  if (result.strategy === "continue") {
+    const from = (result.anchor_sequence ?? 0) + 1
+    const submitted = result.submitted ?? 0
+    return submitted > 0 ? `已从第 ${from} 镜续写整集（${submitted} 镜待生成）` : "已提交整集续写任务"
+  }
   if (result.render_mode === "shot") {
     const submitted = result.submitted ?? result.job_ids?.length ?? 0
     const skipped = result.skipped ?? 0
@@ -247,6 +265,77 @@ export function formatSelectedShotSubmitMessage(result: Director2GenerateVideoRe
 
 export function selectedShotGenerateExtra(beatIds: string[]): { beat_ids: string[]; force: boolean } {
   return { beat_ids: [...new Set(beatIds.filter(Boolean))], force: true }
+}
+
+export type EpisodeGapSegment = {
+  startSeq: number
+  endSeq: number
+  beatIds: string[]
+}
+
+type EpisodeGapBeatInput = {
+  id?: string | null
+  sequence?: number | string | null
+  video_url?: string | null
+}
+
+// 整集直出补跑用：把按 sequence 排序后的 beats 切成「最大连续未出片区间」。
+// 后端 episode_video_service._compute_gap_segments 是同一规则的唯一权威实现；
+// 前端这份只做提交前的预期展示与勾选兜底，边界规则见 director2-video-settings.test.ts。
+export function computeEpisodeGapSegments(
+  beats: Array<EpisodeGapBeatInput | null | undefined> | null | undefined,
+): EpisodeGapSegment[] {
+  const ordered: EpisodeGapBeatInput[] = []
+  for (const beat of beats || []) {
+    if (!beat || !String(beat.id || "").trim()) continue
+    ordered.push(beat)
+  }
+  ordered.sort((left, right) => Number(left.sequence || 0) - Number(right.sequence || 0))
+  const segments: EpisodeGapSegment[] = []
+  let current: EpisodeGapSegment | null = null
+  for (const beat of ordered) {
+    const sequence = Number(beat.sequence || 0)
+    if (String(beat.video_url || "").trim()) {
+      if (current) {
+        segments.push(current)
+        current = null
+      }
+      continue
+    }
+    if (!current) current = { startSeq: sequence, endSeq: sequence, beatIds: [] }
+    current.endSeq = sequence
+    current.beatIds.push(String(beat.id))
+  }
+  if (current) segments.push(current)
+  return segments
+}
+
+export function formatEpisodeGapRangeLabel(segment: EpisodeGapSegment): string {
+  return segment.startSeq === segment.endSeq
+    ? `第 ${segment.startSeq} 镜`
+    : `第 ${segment.startSeq}-${segment.endSeq} 镜`
+}
+// B3 续写式整集直出：已出片恰好构成 sequence 1..k 的连续前缀（前缀外没有散落成片）
+// 时返回 k，可从第 k+1 镜整集续写；否则返回 0，前端推荐降级为 gap_fill。
+// 后端 episode_video_service._submit_continue_job 是同一规则的唯一权威实现。
+export function computeEpisodeContinuePrefix(
+  beats: Array<EpisodeGapBeatInput | null | undefined> | null | undefined,
+): number {
+  const ordered: EpisodeGapBeatInput[] = []
+  for (const beat of beats || []) {
+    if (!beat || !String(beat.id || "").trim()) continue
+    ordered.push(beat)
+  }
+  ordered.sort((left, right) => Number(left.sequence || 0) - Number(right.sequence || 0))
+  if (!ordered.length) return 0
+  let prefix = 0
+  for (let index = 0; index < ordered.length; index += 1) {
+    if (Number(ordered[index].sequence || 0) !== index + 1) return 0
+    if (!String(ordered[index].video_url || "").trim()) break
+    prefix += 1
+  }
+  if (prefix <= 0 || prefix >= ordered.length) return 0
+  return ordered.slice(prefix).every((beat) => !String(beat.video_url || "").trim()) ? prefix : 0
 }
 
 export function shotVideoActionLabel(hasVideo: boolean, workflowName?: string): string {
@@ -547,12 +636,14 @@ export function beatPlaybackUrl(beat: {
 
 export function beatUpscaleDisabledReason(
   beat: { video_url?: string | null } | null | undefined,
-  progress?: { scope?: string | null; stage?: string | null; status?: string | null } | null,
+  progress?: { scope?: string | null; stage?: string | null; status?: string | null; shotStage?: string | null } | null,
 ): string | undefined {
   if (!beatHasVideo(beat)) return "成片成功后才能智能超清"
   if (progress?.scope === "upscale" || progress?.stage === "upscaling" || progress?.status === "upscaling") {
     return "正在智能超清"
   }
+  // 整批还在跑不代表本镜还在跑：本镜成片已落地就该能立刻超清，否则用户只能等最后一段。
+  if (progress?.shotStage === "succeeded") return undefined
   if (progress) return "出片进行中"
   return undefined
 }

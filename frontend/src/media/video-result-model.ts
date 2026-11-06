@@ -1,10 +1,11 @@
 import { isUpscaleOutput, upscaleOutputLabel } from "../video-upscale"
+import { FACE_RESTORE_LABEL } from "../generation/face-restore"
 
 export type VideoResult = {
   generationItemId: string
   outputIndex: number
   output: {
-    kind: "image" | "video"
+    kind: "image" | "video" | "audio"
     path: string
     label: string
     delivery_status?: "pending" | "local" | "cloud" | "expired"
@@ -30,7 +31,7 @@ export function selectVideoResult(results: VideoResult[], selectedKey?: string):
 export function videoVersions(results: VideoResult[]) {
   let original = 0
   return results.filter((result) => result.output.kind === "video").map((result) => {
-    const upscaleLabel = upscaleOutputLabel(result.output)
+    const upscaleLabel = result.output.label === FACE_RESTORE_LABEL ? FACE_RESTORE_LABEL : upscaleOutputLabel(result.output)
     return {
       key: videoResultKey(result), result,
       label: upscaleLabel || `原片 ${++original}`,

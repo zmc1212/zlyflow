@@ -1,0 +1,183 @@
+{
+  "date": "2026-11-03",
+  "base_url": "http://127.0.0.1:5173",
+  "project_id": "proj-ed7e739b91ac4bf3",
+  "css_viewport": {
+    "width": 1655,
+    "height": 828,
+    "device_pixel_ratio": 1.159999966621399
+  },
+  "screenshots": [
+    "default-dark.jpg",
+    "default-light.jpg",
+    "selected-dark.jpg",
+    "selected-light.jpg",
+    "scene-canvas-light.jpg",
+    "prop-canvas-dark.jpg"
+  ],
+  "checks": [
+    "missing-image count by asset category",
+    "zero selection disables generate",
+    "single card selection",
+    "multi card selection",
+    "select all visible results only",
+    "cancel and category/search changes clear selection",
+    "empty search disables multiselect",
+    "light and dark contrast",
+    "one scene image slot",
+    "one prop image slot",
+    "manual upload and media library entry points",
+    "no reverse/panorama/turnaround/detail nodes"
+  ],
+  "isolated_generation": {
+    "method": "CDP Fetch interception for the existing asset generate requests only",
+    "single_request_asset": "ast-8b2e02fcd044",
+    "batch_request_assets": [
+      "ast-3ecc9f51d95f",
+      "ast-1dc659c0aa1e"
+    ],
+    "failure_continues": true,
+    "feedback": "已生成 1/2 张；失败项展示具体原因",
+    "provider_calls": 0,
+    "mock_interception_cleared": true,
+    "reloaded_real_server_data": true
+  },
+  "tests": {
+    "frontend": {
+      "files": 109,
+      "tests": 719,
+      "typescript": "passed",
+      "vite": "passed"
+    },
+    "backend_asset_tests": 33
+  },
+  "temporary_files": "Build/test logs are removed after verification; screenshots in this directory are the maintained design baseline.",
+  "real_generation": {
+    "date": "2026-11-03",
+    "project_id": "proj-ed7e739b91ac4bf3",
+    "entry": "http://127.0.0.1:5173/director/projects/proj-ed7e739b91ac4bf3/assets",
+    "model_from_task_titles": "gpt-image-2",
+    "response_interception_used": false,
+    "successes": [
+      {
+        "id": "ast-3ecc9f51d95f",
+        "name": "李然",
+        "kind": "character",
+        "jobId": "job-db55b98bdb2f",
+        "target": "identity",
+        "identityId": "ident-51d95f",
+        "imageUrl": "https://img.zlyun168.com/zly-ai-video-studio/image/20261103/160635_5dc7e0a27cf1addf.png",
+        "slotMatches": true,
+        "hasStoredUrl": true,
+        "width": 1672,
+        "height": 941,
+        "loaded_before_refresh": true,
+        "loaded_after_refresh": true
+      },
+      {
+        "id": "ast-d7a06b96714f",
+        "name": "玄关",
+        "kind": "scene",
+        "jobId": "job-0b62df00d32f",
+        "target": "scene_master",
+        "identityId": null,
+        "imageUrl": "https://img.zlyun168.com/zly-ai-video-studio/image/20261103/160916_e7f43b5a9ccd081a.png",
+        "slotMatches": true,
+        "hasStoredUrl": true,
+        "width": 1672,
+        "height": 941,
+        "loaded_before_refresh": true,
+        "loaded_after_refresh": true
+      },
+      {
+        "id": "ast-798b4b019485",
+        "name": "一楼客厅",
+        "kind": "scene",
+        "jobId": "job-7bb5515caec8",
+        "target": "scene_master",
+        "identityId": null,
+        "imageUrl": "https://img.zlyun168.com/zly-ai-video-studio/image/20261103/161143_f3ffbd2ff08a2428.png",
+        "slotMatches": true,
+        "hasStoredUrl": true,
+        "width": 1672,
+        "height": 941,
+        "loaded_before_refresh": true,
+        "loaded_after_refresh": true
+      }
+    ],
+    "jobs": [
+      {
+        "id": "job-7bb5515caec8",
+        "status": "completed",
+        "progress": 100,
+        "assetId": "ast-798b4b019485",
+        "title": "生成场景主视角: 一楼客厅 (gpt-image-2)",
+        "error": null
+      },
+      {
+        "id": "job-b5d2c174946e",
+        "status": "failed",
+        "progress": 0,
+        "assetId": "ast-798b4b019485",
+        "title": "生成场景主视角: 一楼客厅 (gpt-image-2)",
+        "error": "服务重启时生图任务已中断，请在任务中心重试。"
+      },
+      {
+        "id": "job-0b62df00d32f",
+        "status": "completed",
+        "progress": 100,
+        "assetId": "ast-d7a06b96714f",
+        "title": "生成场景主视角: 玄关 (gpt-image-2)",
+        "error": null
+      },
+      {
+        "id": "job-db55b98bdb2f",
+        "status": "completed",
+        "progress": 100,
+        "assetId": "ast-3ecc9f51d95f",
+        "title": "生成造型形象: 李然 - 李然 (日常/初始造型) (gpt-image-2)",
+        "error": null
+      }
+    ],
+    "requests": [
+      {
+        "assetId": "ast-3ecc9f51d95f",
+        "httpStatus": 200,
+        "requestId": "601116.497"
+      },
+      {
+        "assetId": "ast-d7a06b96714f",
+        "httpStatus": 200,
+        "requestId": "601116.797"
+      },
+      {
+        "assetId": "ast-798b4b019485",
+        "httpStatus": 500,
+        "requestId": "601116.819"
+      },
+      {
+        "assetId": "ast-798b4b019485",
+        "httpStatus": 200,
+        "requestId": "601116.856"
+      }
+    ],
+    "retry": {
+      "reason": "工作台服务重启，第二张请求返回 500；后端任务确认 failed 后重试原来的两项选择",
+      "completed_scene_skipped": true,
+      "only_missing_scene_regenerated": "ast-798b4b019485"
+    },
+    "preservation": {
+      "asset_count_before": 23,
+      "asset_count_after": 23,
+      "untested_assets": 20,
+      "untested_media_changed": [],
+      "text_fields_changed": []
+    },
+    "screenshots": [
+      "real-generation/single-returned.jpg",
+      "real-generation/single-refreshed.jpg",
+      "real-generation/batch-returned.jpg",
+      "real-generation/batch-refreshed.jpg"
+    ]
+  }
+}

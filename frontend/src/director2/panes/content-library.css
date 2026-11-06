@@ -1,8 +1,8 @@
 /* 内容库面板样式 —— 主体逐条复制自 dev0914 z-admin/src/views/project/ContentLibraryPane.vue <style scoped>；角色/场景/道具摘要卡已抽取到共享 director-asset-card.css。
    作用域化：每条选择器统一加 .d2-content-library 前缀（后代选择器）；
    :deep() 包装已还原为普通后代选择器；其余类名、数值、伪类、注释保持原样。
-   注：两个弹窗（导入剧本 / 剧本规范）传送至 body，Modal 上同样挂了 d2-content-library 类，
-   使弹窗内 .quick-fill-bar / .format-guide 等规则继续命中。 */
+   注：剧本规范弹窗传送至 body，Modal 上同样挂了 d2-content-library 类，
+   使弹窗内 .format-guide 等规则继续命中。 */
 
 .d2-content-library.content-library-pane {
   padding: 4px 0;
@@ -37,11 +37,6 @@
   margin: 0;
 }
 
-.d2-content-library .primary-btn {
-  background: var(--studio-primary);
-  border-color: var(--studio-primary);
-}
-
 .d2-content-library .empty-doc-box {
   background: var(--studio-surface);
   border: 1px solid var(--studio-border);
@@ -57,10 +52,6 @@
 
 .d2-content-library .empty-doc-box h3 { margin: 0 0 12px; color: var(--studio-text); font-size: 24px; line-height: 34px; font-weight: 650; }
 .d2-content-library .empty-doc-box p { margin: 0 0 20px; color: var(--studio-text-muted); font-size: 17px; line-height: 28px; }
-.d2-content-library .empty-doc-box .ant-space { gap: 14px !important; flex-wrap: wrap; justify-content: center; }
-.d2-content-library .empty-doc-box .ant-btn { height: 48px; padding-inline: 16px; border-radius: 8px; font-size: 18px; }
-.d2-content-library .empty-doc-box .ant-btn-primary { padding-inline: 32px; }
-.d2-content-library .empty-doc-formats { display: flex; align-items: center; gap: 14px; margin-top: 44px; color: var(--studio-text-muted); font-size: 14px; line-height: 22px; }
 .d2-content-library .empty-doc-assistant-hint { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 32px 0 0; color: var(--studio-text-muted); font-size: 14px; line-height: 26px; }
 .d2-content-library .empty-doc-assistant-hint > svg { width: 22px; height: 22px; color: var(--studio-accent-text); }
 
@@ -218,20 +209,6 @@
 .d2-content-library .char-count {
   font-size: 12px;
   color: var(--studio-text-muted);
-}
-
-.d2-content-library .transfer-btn {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  border: none;
-}
-
-.d2-content-library .sync-ep-btn {
-  background: var(--studio-surface);
-  color: #7047f6;
-  border-color: #7047f6;
-}
-.d2-content-library .sync-ep-btn:hover {
-  background: rgba(112, 71, 246, 0.06);
 }
 
 .d2-content-library .summary-box {
@@ -835,36 +812,16 @@
   white-space: pre-wrap;
 }
 
-.d2-content-library .quick-fill-bar {
-  background: #f5f3ff;
-  border: 1px dashed #a78bfa;
-  border-radius: 8px;
-  padding: 8px 12px;
-  margin-bottom: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+/* 加载骨架：与 content-layout 同构的占位（左文档列表卡 + 右详情卡），避免首屏闪「还没有剧本」空态 */
+.content-library-loading { display: flex; gap: 20px; align-items: stretch; min-width: 0; }
+.cl-loading-sidebar {
+  width: 250px; flex-shrink: 0; display: flex; flex-direction: column; gap: 22px;
+  background: var(--studio-surface); border: 1px solid var(--studio-border);
+  border-radius: 12px; padding: 16px 12px;
 }
-
-.d2-content-library .quick-lbl {
-  font-size: 12px;
-  font-weight: 600;
-  color: #6d28d9;
+.cl-loading-detail {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 18px;
+  background: var(--studio-surface); border: 1px solid var(--studio-border);
+  border-radius: 12px; padding: 20px;
 }
-
-.d2-content-library .script-file-picker {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.d2-content-library .script-file-name {
-  color: #334155;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.d2-content-library .script-file-hint {
-  color: #94a3b8;
-  font-size: 12px;
-}
+.cl-loading-detail .cl-loading-title { height: 18px; border-radius: 5px; margin-bottom: 6px; }

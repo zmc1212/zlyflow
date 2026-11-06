@@ -43,33 +43,6 @@ def prop_subject_line(index: int, name: str) -> str:
     )
 
 
-def composition_subject_line(index: int, name: str, role: str = "start") -> str:
-    key = str(role or "start").strip().lower()
-    if key in {"mid", "middle"}:
-        return (
-            f"<Subject {index}> is the same-shot main-action composition landmark in <Picture {index}>, "
-            "not a new character. "
-            f"<Picture {index}> locks blocking during the main-action window; "
-            "do not interpolate a full 16:9 triptych; do not show all three panels at once; "
-            "the finished clip stays a single 9:16 frame."
-        )
-    if key in {"end", "result"}:
-        return (
-            f"<Subject {index}> is the same-shot closing composition landmark in <Picture {index}>, "
-            "not a new character. "
-            f"<Picture {index}> locks the result/hold framing; "
-            "do not interpolate a full 16:9 triptych; do not show all three panels at once; "
-            "the finished clip stays a single 9:16 frame."
-        )
-    label = str(name or "").strip() or "start-frame composition"
-    return (
-        f"<Subject {index}> is the {label} still in <Picture {index}>, "
-        "a 00:00 composition landmark of this same shot, not a new character. "
-        f"<Picture {index}> anchors opening blocking only; do not interpolate a full 16:9 triptych; "
-        "do not show all three panels at once; the finished clip stays a single 9:16 frame."
-    )
-
-
 def is_identity_portrait_clause(clause: str) -> bool:
     text = str(clause or "").strip()
     if not text:

@@ -40,7 +40,24 @@ def ensure_schema(*, force: bool = False) -> None:
         database = MysqlDatabase(get_mysql_config())
         with database.connection() as connection:
             database.apply_mysql_schema(connection)
+            _ensure_project_owner(database, connection)
         _schema_ready = True
+
+
+def _ensure_project_owner(database: Any, connection: Any) -> None:
+    """给共享的 ai_projects 补归属列；历史无归属项目由最早的超管接管。"""
+    database.ensure_column(connection, "ai_projects", "owner_user_id", "VARCHAR(64) NULL")
+    database.ensure_index(
+        connection, "ai_projects", "idx_ai_projects_owner_updated", "owner_user_id, updated_at"
+    )
+    owner = connection.execute(
+        "SELECT id FROM users WHERE role = ? AND is_active = 1 ORDER BY created_at ASC LIMIT 1",
+        ("super_admin",),
+    ).fetchone()
+    if owner:
+        connection.execute(
+            "UPDATE ai_projects SET owner_user_id = ? WHERE owner_user_id IS NULL", (owner["id"],)
+        )
 
 
 def _connect_mysql(*, autocommit: bool = True) -> pymysql.Connection:

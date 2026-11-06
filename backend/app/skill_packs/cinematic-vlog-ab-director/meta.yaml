@@ -1,0 +1,25 @@
+# 本地移植：vlog-ab-director（MiniMax Hub 社区 Skill v1.0.0），见 SOURCE.md
+id: cinematic-vlog-ab-director
+name: 电影感Vlog双轨导演
+summary: 以 A 镜主观手持自拍与 B 镜客观电影镜头交替、2.5 秒黄金节拍器与自动口语台词，把人物与场景参考图生成零穿模、抗畸变、带地道对白的电影感 Vlog 单片（MiniMax H3 多参考 Ref2VA）。
+author: MiniMax Hub 用户
+cover: "https://img.zlyun168.com/zly-ai-video-studio/minimax_h3/20261107/001550_9fe43038d21c36e9.mp4"
+version: "1.0.0"
+surfaces: [workshop, optimize]
+visual_lock: cinematic-handheld-vlog
+workshop_shot:
+  - write_timestamped_zh_prompt
+  - polish_ref2va
+  - bind_r2v_slots
+r2v_slots:
+  - source: characters
+    role: subject
+  - source: scene
+packing_overrides:
+  allow_timeranges: true
+  allow_multi_camera_path: true
+  faithful_zh_pack: true
+  skip_program_pack: true
+confirm_format:
+  duration_min: 5
+  duration_max: 15

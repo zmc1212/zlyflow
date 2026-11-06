@@ -55,6 +55,7 @@ export async function prepareEpisodeShootAssets({
   beats,
   assets,
   plan,
+  scopeBeatIds,
   api,
   onProgress,
 }: {
@@ -63,11 +64,14 @@ export async function prepareEpisodeShootAssets({
   beats: Director2Beat[]
   assets: Director2Asset[]
   plan: EpisodeShootPreflight
+  scopeBeatIds?: string[] | null
   api: ShootPrepApi
   onProgress?: (progress: ShootPrepProgress) => void
 }): Promise<ShootPrepResult> {
   let generated = 0
   const failures: string[] = []
+  const scope = scopeBeatIds && scopeBeatIds.length ? new Set(scopeBeatIds.map(String)) : null
+  const inScope = (item: Director2Beat) => !scope || scope.has(String(item.id || ""))
   const createdScenes = new Map<string, string>()
   const createdLooks = new Set<string>()
   const generatedScenes = new Set<string>()
@@ -143,7 +147,7 @@ export async function prepareEpisodeShootAssets({
         api.getEpisodeDetail(projectId, episodeId),
         api.listAssets(projectId),
       ])
-      currentBeats = detail.beats || []
+      currentBeats = (detail.beats || []).filter(inScope)
       currentAssets = nextAssets
       const next = evaluateEpisodeShootPreflight({ beats: currentBeats, assets: currentAssets })
       if (next.ready) return result(true)
@@ -162,7 +166,7 @@ export async function prepareEpisodeShootAssets({
           await api.generateAssetImage(projectId, item.assetId, {
             target_type: "scene_master",
             prompt: item.prompt,
-            model: "gpt-image-2",
+            model: "gpt-image-2.5",
             aspect_ratio: "16:9",
             visual_style: item.style.visual_style,
             art_style_id: item.style.art_style_id,
@@ -180,7 +184,7 @@ export async function prepareEpisodeShootAssets({
             target_type: "identity",
             identity_id: item.identityId,
             prompt: item.costume,
-            model: "gpt-image-2",
+            model: "gpt-image-2.5",
             aspect_ratio: "16:9",
             ...item.style,
           })
@@ -197,7 +201,7 @@ export async function prepareEpisodeShootAssets({
       api.getEpisodeDetail(projectId, episodeId),
       api.listAssets(projectId),
     ])
-    const final = evaluateEpisodeShootPreflight({ beats: finalDetail.beats || [], assets: finalAssets })
+    const final = evaluateEpisodeShootPreflight({ beats: (finalDetail.beats || []).filter(inScope), assets: finalAssets })
     if (!final.ready) {
       const remaining = [...final.blocking, ...episodeShootPrepLines(final)].join("\n")
       return result(false, remaining)

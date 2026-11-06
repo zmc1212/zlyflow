@@ -181,6 +181,47 @@ def timeline_output_durations(payload: dict[str, Any], shots: list[dict[str, Any
     return [by_id.get(str(shot.get("beat_id") or ""), float(shot.get("duration_sec") or 8)) for shot in shots]
 
 
+# 整集直出智能补跑（B2 gap_fill / B3 continue）的策略字段与 payload 键约定，
+# 详见 docs/整集直出智能补跑开发计划.md；旧任务 payload 无这些键时全部走现有分支。
+GAP_FILL_STRATEGY = "gap_fill"
+CONTINUE_STRATEGY = "continue"
+ACCEPTED_FILL_STRATEGIES = frozenset({GAP_FILL_STRATEGY, CONTINUE_STRATEGY})
+
+_PICTURE_TAG_RE = re.compile(r"<Picture\s*\d+>", re.IGNORECASE)
+
+
+def strip_picture_tags(prompt: str) -> str:
+    """锚定段转为 fl2v 后不再携带 <Picture n> 图槽，提示词同步去掉悬空引用。"""
+    return _PICTURE_TAG_RE.sub("", str(prompt or "")).strip()
+
+
+def extract_video_tail_frame(source_url: str) -> bytes:
+    """下载成片并用 ffmpeg 抽最后一帧 PNG —— B2/B3 共用的尾帧锚定原语。"""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("系统未安装 ffmpeg，无法抽取锚定尾帧")
+    response = requests.get(source_url, timeout=600)
+    response.raise_for_status()
+    if not response.content:
+        raise RuntimeError("锚定成片下载为空，无法抽取尾帧")
+    with tempfile.TemporaryDirectory(prefix="zly-gap-anchor-") as directory:
+        root = Path(directory)
+        source = root / "anchor-source.mp4"
+        source.write_bytes(response.content)
+        tail = root / "tail.png"
+        last_error = ""
+        for seek in ("-0.1", "-1"):
+            completed = subprocess.run(
+                [ffmpeg, "-y", "-sseof", seek, "-i", str(source), "-frames:v", "1", str(tail)],
+                capture_output=True,
+                timeout=300,
+            )
+            if completed.returncode == 0 and tail.exists() and tail.stat().st_size:
+                return tail.read_bytes()
+            last_error = (completed.stderr or b"")[-800:].decode("utf-8", errors="replace")
+        raise RuntimeError(f"ffmpeg 抽取锚定尾帧失败: {last_error}")
+
+
 class EpisodeVideoService:
     DEFAULTS = {
         "workflow": "minimax-h3-director-accel-r2v",
@@ -197,7 +238,7 @@ class EpisodeVideoService:
     }
     JOB_CONTROL_KEYS = {
         "workflow", "workflow_id", "duration_per_beat", "render_pass", "render_scope",
-        "render_mode", "beat_ids", "force", "prompt_mode", "prepare_keyframes",
+        "render_mode", "beat_ids", "force", "prompt_mode",
     }
 
     @classmethod
@@ -332,6 +373,7 @@ class EpisodeVideoService:
         options: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         incoming = dict(options or {})
+        strategy = str(incoming.pop("strategy", "") or "").strip().lower()
         beat_ids = cls._requested_beat_ids(incoming)
         force = bool(incoming.pop("force", False)) or bool(beat_ids)
         incoming.pop("beat_ids", None)
@@ -341,6 +383,14 @@ class EpisodeVideoService:
         if render_mode == "episode":
             if beat_ids is not None and not beat_ids:
                 raise ValueError("请先勾选要生成的镜头")
+            # strategy 只对整集（无勾选）提交生效；勾选式 selection 收到时忽略，保持旧前端兼容。
+            if beat_ids is None:
+                if strategy and strategy not in ACCEPTED_FILL_STRATEGIES:
+                    raise ValueError("strategy 仅支持 gap_fill 或 continue")
+                if strategy:
+                    fill_result = cls._submit_episode_fill_jobs(project_id, episode_id, incoming, strategy)
+                    if fill_result is not None:
+                        return fill_result
             created = cls.create_job(
                 project_id,
                 episode_id,
@@ -409,6 +459,230 @@ class EpisodeVideoService:
             "skipped": skipped,
             "status": "queued",
             "render_scope": "shot",
+        }
+
+    @classmethod
+    def _episode_fill_context(
+        cls,
+        project_id: str,
+        episode_id: str,
+    ) -> tuple[list[dict[str, Any]], set[str], dict[str, dict[str, Any]]]:
+        """整集补跑上下文：sequence 有序 beats、进行中任务覆盖的 beat 集合、已出片 beat 映射。"""
+        detail = ProjectDetailService.get_episode_detail(project_id, episode_id)
+        beats = sorted(
+            (
+                beat for beat in (detail.get("beats") or [])
+                if isinstance(beat, dict) and str(beat.get("id") or "")
+            ),
+            key=lambda item: int(item.get("sequence") or 0),
+        )
+        active_beat_ids: set[str] = set()
+        for row in cls._active_video_jobs(project_id, episode_id):
+            active_beat_ids |= cls._job_beat_ids(cls._job_payload(row))
+        rendered = {
+            str(beat.get("id") or ""): beat
+            for beat in beats
+            if str(beat.get("video_url") or "").strip()
+        }
+        return beats, active_beat_ids, rendered
+
+    @classmethod
+    def _compute_gap_segments(
+        cls,
+        beats: list[dict[str, Any]],
+        active_beat_ids: set[str],
+    ) -> list[dict[str, Any]]:
+        """整集补跑区间划分（后端唯一权威）：最大连续「未出片且无进行中任务」的镜头段。
+
+        每段附带 anchor_beat_id = 段首镜前面最近的已出片镜头（无前缀时为空），
+        供执行器做尾帧锚定；算法镜像见前端 computeEpisodeGapSegments（仅做预期展示）。
+        """
+        segments: list[dict[str, Any]] = []
+        current: list[dict[str, Any]] = []
+        anchor_beat_id = ""
+        for beat in beats:
+            beat_id = str(beat.get("id") or "")
+            rendered_beat = bool(str(beat.get("video_url") or "").strip())
+            if rendered_beat or beat_id in active_beat_ids:
+                if current:
+                    segments.append({
+                        "beat_ids": [str(item.get("id") or "") for item in current],
+                        "anchor_beat_id": anchor_beat_id,
+                    })
+                    current = []
+                if rendered_beat:
+                    anchor_beat_id = beat_id
+                continue
+            current.append(beat)
+        if current:
+            segments.append({
+                "beat_ids": [str(item.get("id") or "") for item in current],
+                "anchor_beat_id": anchor_beat_id,
+            })
+        return segments
+
+    @classmethod
+    def _anchor_source_url_for_beat(
+        cls,
+        project_id: str,
+        episode_id: str,
+        beat: dict[str, Any],
+    ) -> str:
+        """尾帧锚定素材：优先本镜独立成片（shot_clip_urls），回退 beat.video_url。"""
+        beat_id = str(beat.get("id") or "")
+        fallback = str(beat.get("video_url") or "").strip()
+        try:
+            _, payload = cls._source_generation_job_for_beat(project_id, episode_id, beat_id)
+        except Exception:
+            payload = {}
+        clips = payload.get("shot_clip_urls") if isinstance(payload, dict) else None
+        clip_url = str((clips or {}).get(beat_id) or "").strip() if isinstance(clips, dict) else ""
+        return clip_url or fallback
+
+    @classmethod
+    def _submit_episode_fill_jobs(
+        cls,
+        project_id: str,
+        episode_id: str,
+        options: dict[str, Any],
+        strategy: str,
+    ) -> dict[str, Any] | None:
+        """整集补跑编排（B2 gap_fill / B3 continue）。
+
+        返回 None 表示无缺口可补（全部未出片），调用方回落普通整集直出；
+        否则返回多任务提交结果，strategy 回显实际执行策略。
+        """
+        beats, active_beat_ids, rendered = cls._episode_fill_context(project_id, episode_id)
+        if strategy == CONTINUE_STRATEGY:
+            continue_result = cls._submit_continue_job(
+                project_id, episode_id, options, beats, active_beat_ids, rendered,
+            )
+            if continue_result is not None:
+                return continue_result
+            # 不构成连续前缀（如 1、3、5 交错）→ 自动回退 gap_fill，响应回显实际策略。
+            strategy = GAP_FILL_STRATEGY
+        if not rendered:
+            return None
+        segments = cls._compute_gap_segments(beats, active_beat_ids)
+        if not segments:
+            raise ValueError("全部镜头已有成片或正在生成，无需补跑")
+        job_ids: list[str] = []
+        segment_total = len(segments)
+        submitted_shots = 0
+        for index, segment in enumerate(segments, start=1):
+            segment_beat_ids = [str(item) for item in segment.get("beat_ids") or []]
+            if not segment_beat_ids:
+                continue
+            anchor_beat_id = str(segment.get("anchor_beat_id") or "")
+            anchor_url = ""
+            if anchor_beat_id:
+                anchor_url = cls._anchor_source_url_for_beat(
+                    project_id, episode_id, rendered.get(anchor_beat_id) or {},
+                )
+            created = cls.create_job(
+                project_id,
+                episode_id,
+                beat_ids=segment_beat_ids,
+                render_scope="selection",
+                options=options,
+                payload_extra={
+                    "strategy": GAP_FILL_STRATEGY,
+                    "gap_fill": True,
+                    "segment_index": index,
+                    "segment_total": segment_total,
+                    "anchor_beat_id": anchor_beat_id,
+                    "anchor_source_url": anchor_url,
+                },
+            )
+            job_ids.append(str(created["job_id"]))
+            submitted_shots += len(segment_beat_ids)
+        if not job_ids:
+            raise ValueError("没有可补跑的镜头区间")
+        return {
+            "render_mode": "episode",
+            "strategy": GAP_FILL_STRATEGY,
+            "job_id": job_ids[0],
+            "job_ids": job_ids,
+            "submitted": submitted_shots,
+            "skipped": max(0, len(beats) - submitted_shots),
+            "segment_count": segment_total,
+            "status": "queued",
+            "render_scope": "selection",
+        }
+
+    @classmethod
+    def _submit_continue_job(
+        cls,
+        project_id: str,
+        episode_id: str,
+        options: dict[str, Any],
+        beats: list[dict[str, Any]],
+        active_beat_ids: set[str],
+        rendered: dict[str, dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        """B3 续写式整集直出：已出片构成连续前缀 [1..k] 时剔除前缀整集续写。
+
+        首镜锚定前缀尾帧；成片合并时前缀部分直接取已有成片文件参与 ffmpeg_concat。
+        不构成前缀时返回 None，由调用方回退 gap_fill。
+        """
+        if not rendered:
+            return None
+        prefix: list[dict[str, Any]] = []
+        for index, beat in enumerate(beats):
+            if str(beat.get("id") or "") not in rendered:
+                break
+            if int(beat.get("sequence") or 0) != index + 1:
+                break
+            prefix.append(beat)
+        if not prefix:
+            return None
+        # 已出片必须恰好等于前缀（如 1、3 已出片则不构成 [1..k] 前缀），否则回退 gap_fill。
+        if {str(beat.get("id") or "") for beat in prefix} != set(rendered):
+            return None
+        if len(prefix) >= len(beats):
+            raise ValueError("全部镜头已有成片，无需补跑")
+        remaining = beats[len(prefix):]
+        busy = [
+            str(beat.get("id") or "") for beat in remaining
+            if str(beat.get("id") or "") in active_beat_ids
+        ]
+        if busy:
+            raise ValueError("续写区间内有镜头正在生成中，请稍后再试")
+        prefix_urls: list[str] = []
+        for beat in prefix:
+            url = cls._anchor_source_url_for_beat(project_id, episode_id, beat)
+            if url:
+                prefix_urls.append(url)
+        anchor_beat = prefix[-1]
+        anchor_sequence = int(anchor_beat.get("sequence") or 0)
+        created = cls.create_job(
+            project_id,
+            episode_id,
+            beat_ids=[str(beat.get("id") or "") for beat in remaining],
+            render_scope="episode",
+            scope_lock=True,
+            scope_label=f"整集续写（从第 {anchor_sequence + 1} 镜起）",
+            options=options,
+            payload_extra={
+                "strategy": CONTINUE_STRATEGY,
+                "anchor_beat_id": str(anchor_beat.get("id") or ""),
+                "anchor_source_url": prefix_urls[-1] if prefix_urls else "",
+                "anchor_sequence": anchor_sequence,
+                "anchor_prefix_urls": prefix_urls,
+            },
+        )
+        return {
+            "render_mode": "episode",
+            "strategy": CONTINUE_STRATEGY,
+            "job_id": str(created["job_id"]),
+            "job_ids": [str(created["job_id"])],
+            "submitted": len(remaining),
+            "skipped": len(prefix),
+            "shot_count": len(remaining),
+            "segment_count": 1,
+            "anchor_sequence": anchor_sequence,
+            "status": "queued",
+            "render_scope": "episode",
         }
 
     @classmethod
@@ -759,6 +1033,9 @@ class EpisodeVideoService:
         beat_ids: list[str] | None = None,
         render_scope: str = "episode",
         options: dict[str, Any] | None = None,
+        payload_extra: dict[str, Any] | None = None,
+        scope_lock: bool = False,
+        scope_label: str | None = None,
     ) -> dict[str, Any]:
         prompt_mode = str((options or {}).get("prompt_mode") or "h3").strip().lower()
         if prompt_mode not in {"h3", "program"}:
@@ -783,11 +1060,12 @@ class EpisodeVideoService:
                     seen.add(item_id)
                     selected_ids.append(item_id)
 
-        if selected_ids:
+        if selected_ids and not (scope_lock and render_scope == "episode"):
+            # 整集续写（B3）按 beat 子集建任务但保持 episode 编排；其余情况勾选即 selection/shot。
             render_scope = "shot" if len(selected_ids) == 1 else "selection"
-        elif render_mode == "shot":
-            raise ValueError("逐镜工作流必须指定 Beat，请使用一键生成或「生成本镜」")
-        else:
+        elif not selected_ids:
+            if render_mode == "shot":
+                raise ValueError("逐镜工作流必须指定 Beat，请使用一键生成或「生成本镜」")
             render_scope = "episode"
         if render_scope == "episode":
             cls._apply_render_scope_settings(settings, render_scope)
@@ -824,12 +1102,12 @@ class EpisodeVideoService:
         jid = f"job-{uuid.uuid4().hex[:12]}"
         timestamp = now_str()
         if render_scope == "shot":
-            scope_label = f"Beat {shots[0].get('sequence')}"
+            scope_label_text = f"Beat {shots[0].get('sequence')}"
         elif render_scope == "selection":
             sequences = "、".join(str(shot.get("sequence") or "") for shot in shots)
-            scope_label = f"选中 {len(shots)} 镜（Beat {sequences}）"
+            scope_label_text = f"选中 {len(shots)} 镜（Beat {sequences}）"
         else:
-            scope_label = "整集"
+            scope_label_text = scope_label or "整集"
         payload = {
             **settings,
             "model": model_name,
@@ -839,7 +1117,6 @@ class EpisodeVideoService:
             "render_mode": render_mode,
             "render_pass": str((options or {}).get("render_pass") or "final"),
             "prompt_mode": prompt_mode,
-            "prepare_keyframes": coerce_bool_option((options or {}).get("prepare_keyframes", False), label="关键帧规划"),
             "workflow_id": workflow_id,
             "project_id": project_id,
             "episode_id": episode_id,
@@ -857,6 +1134,8 @@ class EpisodeVideoService:
             "shots": program_preview_shots,
             "render_plan": {"status": "queued", "chunks": [], "assembly": None},
         }
+        if payload_extra:
+            payload.update(payload_extra)
         if prompt_mode == "program":
             payload["prompt_source"] = "program_preview"
             payload["prompt_warning"] = "本次提交使用程序装箱预览，未使用 H3 六段式提示词。"
@@ -867,10 +1146,10 @@ class EpisodeVideoService:
              created_at, updated_at, worker_id, lease_updated_at)
             VALUES (%s, %s, 'video_generation', %s, 'queued', 0, NULL, %s, %s, %s, %s, %s)
             """,
-            (
-                jid,
-                project_id,
-                f"生成{scope_label}视频：第 {detail.get('number')} 集 {detail.get('title') or ''}",
+                (
+                    jid,
+                    project_id,
+                    f"生成{scope_label_text}视频：第 {detail.get('number')} 集 {detail.get('title') or ''}",
                 json.dumps(payload, ensure_ascii=False),
                 timestamp,
                 timestamp,
@@ -1801,20 +2080,12 @@ class EpisodeVideoService:
                         scene_picture_index,
                     )
             if recipe is None or recipe.is_default:
-                from ...skill_packs.triptych import normalize_panels
-
                 ref_images = [
                     {"index": index, "url": item["url"], "name": item["character_name"], "category": "character", "character_id": item["character_id"]}
                     for index, item in enumerate(character_references, 1)
                 ]
                 if scene_url:
                     ref_images.append({"index": len(ref_images) + 1, "url": scene_url, "name": str((scene or {}).get("name") or beat.get("scene") or "场景"), "category": "scene"})
-                panels = normalize_panels(beat.get("triptych_panels") or {})
-                for key in ("start", "mid", "end"):
-                    url = str(panels.get(key) or "").strip()
-                    if url and url not in reference_urls and len(reference_urls) < 9:
-                        reference_urls.append(url)
-                        ref_images.append({"index": len(ref_images) + 1, "url": url, "name": "关键帧 " + key, "category": "keyframe", "source": "triptych." + key})
             shot = {
                 "beat_id": str(beat.get("id") or f"beat-{sequence}"),
                 "sequence": sequence,
@@ -1852,9 +2123,6 @@ class EpisodeVideoService:
                 "timestamped_zh_prompt": str(beat.get("timestamped_zh_prompt") or "").strip(),
                 "time_of_day": beat.get("time_of_day") or "",
                 "take_role": beat.get("take_role") or "",
-                "triptych_url": beat.get("triptych_url") or "",
-                "triptych_panels": beat.get("triptych_panels") or {},
-                "triptych_job_id": beat.get("triptych_job_id") or "",
                 "prompt_cache_base": snapshot_prompt_inputs(beat),
                 "character_references": character_references,
                 "scene_picture_index": scene_picture_index,
@@ -1990,7 +2258,7 @@ class EpisodeVideoService:
 
     @classmethod
     def _prepare_job_prompts(cls, job_id: str, payload: dict[str, Any]) -> list[str]:
-        from .video_preparation import author_video_prompt, cache_video_prompt, prepare_video_keyframes
+        from .video_preparation import author_video_prompt, cache_video_prompt
 
         shots = payload.get("source_shots") or []
         progress = {"completed": 0, "total": len(shots)}
@@ -1998,20 +2266,6 @@ class EpisodeVideoService:
         generated = False
         prompts: list[str] = []
         for index, shot in enumerate(shots):
-            if payload.get("prepare_keyframes"):
-                payload["preparation"] = {"stage": "keyframes", "beat_id": shot["beat_id"], "message": "正在规划关键帧"}
-                checkpoint = lambda: cls._set_state(job_id, payload, "preparing", 12)
-                checkpoint()
-                planned = prepare_video_keyframes(shot, payload, checkpoint)
-                if planned is not shot:
-                    detail = ProjectDetailService.get_episode_detail(payload["project_id"], payload["episode_id"])
-                    assets = ProjectDetailService.list_assets(payload["project_id"])
-                    shot = cls._prepare_shots(detail, assets, beat_ids=[shot["beat_id"]])[0]
-                    shot["aspect_ratio"] = str(payload.get("aspect_ratio") or "")
-                    # New keyframes change the visual plan even when the prose is unchanged.
-                    shot["h3_prompt"] = ""
-                    shots[index] = shot
-                    cls._set_state(job_id, payload, "preparing", 15)
             prompt = cls._workshop_prompt_for_shot(shot)
             if prompt is None:
                 payload["preparation"] = {"stage": "prompt", "beat_id": shot["beat_id"], "message": "正在整理生成指令"}
@@ -2132,6 +2386,9 @@ class EpisodeVideoService:
                     uploaded_refs.append(uploaded_cache[url])
                 shot["uploaded_refs"] = uploaded_refs
 
+            # 尾帧锚定（B2 gap_fill / B3 continue 共用同一原语）：抽尾帧 → 上传 → 注入区间首镜。
+            anchor_image_file = cls._prepare_anchor_frame(payload, comfy, generated_shots, subfolder)
+
             if timeline_job:
                 result_url = cls._run_timeline_job(
                     job_id, payload, comfy, task_type, generated_shots, definition, resolved_workflow_id,
@@ -2201,6 +2458,43 @@ class EpisodeVideoService:
             finally:
                 if model_cm is not None:
                     model_cm.__exit__(None, None, None)
+
+    @classmethod
+    def _prepare_anchor_frame(
+        cls,
+        payload: dict[str, Any],
+        comfy: ComfyVideoClient,
+        generated_shots: list[dict[str, Any]],
+        subfolder: str,
+    ) -> str:
+        """尾帧锚定原语（gap_fill / continue 共用，禁止两处复制实现）。
+
+        抽取前置成片尾帧 PNG 并上传到 ComfyUI input，注入任务首镜（区间首镜）；
+        B0 spike 结论：锚定段在 timeline 中转为 fl2v 严格首帧（见计划文档 4.3 节）。
+        锚定失败只降级为无锚定补跑（记录 anchor_warning），不推翻整个任务。
+        """
+        anchor_source_url = str(payload.get("anchor_source_url") or "").strip()
+        if not anchor_source_url or not generated_shots:
+            return ""
+        try:
+            tail_png = extract_video_tail_frame(anchor_source_url)
+            digest = hashlib.sha1(anchor_source_url.encode("utf-8")).hexdigest()[:12]
+            anchor_beat_id = str(payload.get("anchor_beat_id") or "prev")
+            uploaded = comfy.upload_image_bytes(
+                tail_png,
+                subfolder=subfolder,
+                preferred_name=f"anchor-{anchor_beat_id}-{digest}.png",
+            )
+        except Exception as anchor_error:
+            payload["anchor_warning"] = f"锚定尾帧抽取/上传失败，本次按无锚定补跑：{anchor_error}"[:1000]
+            return ""
+        image_file = str(uploaded.get("imageFile") or "")
+        if image_file:
+            first_shot = generated_shots[0]
+            first_shot["anchor_image_file"] = image_file
+            first_shot["prompt"] = strip_picture_tags(str(first_shot.get("prompt") or ""))
+            payload["anchor_image_file"] = image_file
+        return image_file
 
     @classmethod
     def _run_timeline_job(
@@ -2760,8 +3054,17 @@ class EpisodeVideoService:
             )
 
     @staticmethod
-    def _merge_chunk_videos(comfy: ComfyVideoClient, outputs: list[dict[str, str]]) -> bytes:
-        return concat_video_bytes([comfy.download_output(output) for output in outputs])
+    def _merge_chunk_videos(
+        comfy: ComfyVideoClient,
+        outputs: list[dict[str, str]],
+        *,
+        prefix_clips: list[bytes] | None = None,
+    ) -> bytes:
+        # prefix_clips：B3 续写时排在最前面的已有成片（按 sequence 顺序）。
+        return concat_video_bytes([
+            *(prefix_clips or []),
+            *(comfy.download_output(output) for output in outputs),
+        ])
 
     @staticmethod
     def _apply_render_scope_settings(settings: dict[str, Any], render_scope: str) -> None:
@@ -2831,16 +3134,37 @@ class EpisodeVideoService:
     ) -> str:
         if not chunk_outputs:
             raise RuntimeError("Timeline 任务没有可发布的视频")
-        if len(chunk_outputs) == 1:
+        # B3 续写：前缀已有成片参与合并，整集成片 = 前缀片段 + 本次分段。
+        prefix_clips = cls._download_anchor_prefix_clips(payload)
+        if len(chunk_outputs) == 1 and not prefix_clips:
             return cls._publish_single_output(comfy, chunk_outputs[0], job_id=job_id, payload=payload)
-        payload.setdefault("render_plan", {})["assembly"] = {"status": "running", "method": "ffmpeg_concat"}
+        assembly_extra = {"prefix_clips": len(prefix_clips)} if prefix_clips else {}
+        payload.setdefault("render_plan", {})["assembly"] = {"status": "running", "method": "ffmpeg_concat", **assembly_extra}
         cls._set_state(job_id, payload, "assembling", 96)
-        merged = cls._merge_chunk_videos(comfy, chunk_outputs)
-        payload["render_plan"]["assembly"] = {"status": "succeeded", "method": "ffmpeg_concat"}
+        merged = cls._merge_chunk_videos(comfy, chunk_outputs, prefix_clips=prefix_clips)
+        payload["render_plan"]["assembly"] = {"status": "succeeded", "method": "ffmpeg_concat", **assembly_extra}
         if not QiniuService.get_config().available:
             raise RuntimeError("整集分段已经生成，但七牛云存储未配置，无法发布 ffmpeg 合成结果")
         _, result_url = QiniuService.store_bytes("video", f"episode-{job_id}.mp4", merged)
         return result_url
+
+    @staticmethod
+    def _download_anchor_prefix_clips(payload: dict[str, Any]) -> list[bytes]:
+        """下载续写前缀的已有成片字节；任一前缀下载失败直接失败任务（禁止拼出缺前缀的假整集）。"""
+        raw = payload.get("anchor_prefix_urls")
+        if not isinstance(raw, list) or not raw:
+            return []
+        clips: list[bytes] = []
+        for url in raw:
+            clean = str(url or "").strip()
+            if not clean:
+                continue
+            response = requests.get(clean, timeout=600)
+            response.raise_for_status()
+            if not response.content:
+                raise RuntimeError(f"续写前缀成片下载为空：{clean}")
+            clips.append(response.content)
+        return clips
 
     @classmethod
     def _mark_awaiting_refine(cls, job_id: str, payload: dict[str, Any], preview_url: str) -> None:

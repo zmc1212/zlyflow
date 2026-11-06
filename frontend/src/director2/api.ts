@@ -26,6 +26,7 @@ export type Director2Document = {
   raw_text: string | null
   analysis: Record<string, unknown> | null
   asset_extraction_required?: boolean
+  asset_extraction_job_id?: string | null
   shot_plan_job_id?: string | null
   locked_episode_nums?: number[]
   episode_lock_reasons?: Record<string, string>
@@ -224,6 +225,17 @@ export function transferAssetsFromDoc(csrfToken: string, projectId: string, docI
   return requestJson<Record<string, any>>(
     `/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(docId)}/transfer-assets`,
     jsonMutation(csrfToken, { mode }),
+  )
+}
+
+export function enqueueAssetExtraction(
+  csrfToken: string,
+  projectId: string,
+  docId: string,
+): Promise<{ job_id: string; document_id?: string; status?: string; duplicate?: boolean }> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(docId)}/asset-extraction`,
+    jsonMutation(csrfToken),
   )
 }
 
@@ -518,10 +530,6 @@ export type Director2Beat = {
   take_source?: Record<string, unknown> | null
   dialogue_turns?: Array<{ speaker?: string; text?: string; character_id?: string }>
   visible_text?: string | null
-  triptych_url?: string | null
-  triptych_panels?: { start?: string; mid?: string; end?: string } | null
-  triptych_job_id?: string | null
-  triptych_status?: string | null
   timestamped_zh_prompt?: string | null
   vision_status?: string | null
   vision_model?: string | null
@@ -552,34 +560,6 @@ export function listBeatVideoTakes(projectId: string, epId: string, beatId: stri
 
 export function adoptBeatVideoTake(csrfToken: string, projectId: string, epId: string, beatId: string, url: string): Promise<{ status: string; beat: Director2Beat }> {
   return requestJson(`/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/beats/${encodeURIComponent(beatId)}/video-takes/adopt`, jsonMutation(csrfToken, { url }, "POST"))
-}
-
-export function generateBeatSketch(csrfToken: string, projectId: string, epId: string, beatId: string, data: Record<string, unknown> = {}): Promise<Record<string, any>> {
-  return requestJson(
-    `/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/beats/${encodeURIComponent(beatId)}/generate-sketch`,
-    jsonMutation(csrfToken, data, "POST"),
-  )
-}
-
-export function generateBeatRender(csrfToken: string, projectId: string, epId: string, beatId: string, data: Record<string, unknown> = {}): Promise<Record<string, any>> {
-  return requestJson(
-    `/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/beats/${encodeURIComponent(beatId)}/generate-render`,
-    jsonMutation(csrfToken, data, "POST"),
-  )
-}
-
-export function generateBeatTriptych(csrfToken: string, projectId: string, epId: string, beatId: string, data: Record<string, unknown> = {}): Promise<Record<string, any>> {
-  return requestJson(
-    `/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/beats/${encodeURIComponent(beatId)}/generate-triptych`,
-    jsonMutation(csrfToken, data, "POST"),
-  )
-}
-
-export function generateBeatImagesBatch(csrfToken: string, projectId: string, epId: string, data: Record<string, unknown>): Promise<Record<string, any>> {
-  return requestJson(
-    `/api/projects/${encodeURIComponent(projectId)}/episodes/${encodeURIComponent(epId)}/generate-images`,
-    jsonMutation(csrfToken, data, "POST"),
-  )
 }
 
 export function generateBeatH3Prompt(csrfToken: string, projectId: string, epId: string, beatId: string, data: Record<string, unknown> = {}): Promise<{ job_id?: string; beat_id?: string; beat_ids?: string[]; job_ids?: string[]; status?: string; prompt?: string; duplicate?: boolean; split?: boolean; merged?: boolean }> {
@@ -778,4 +758,118 @@ export function aiOperationEventsUrl(projectId: string, operationId: string): st
 
 export function listVideoWorkflowModes(): Promise<{ modes: import("./director2-video-settings").Director2WorkflowMode[] }> {
   return requestJson("/api/modes")
+}
+
+// --- 精选作品（首页展示位，发布后为只读快照） ---
+export type Director2FeaturedWork = {
+  id: string
+  project_id: string
+  title: string
+  summary: string | null
+  cover_url: string | null
+  episode_count: number
+  shot_count: number
+  sort_order: number
+  published_at: string
+  updated_at: string
+}
+
+export type Director2FeaturedBeat = {
+  id: string
+  heading: string
+  speaker: string
+  dialogue: string
+  action: string
+  camera: string
+  scene: string
+  time_of_day: string
+  image_url: string
+  video_url: string
+  duration: number
+  /** 视频生成提示词（快照 v2 起，旧快照可能缺省）。 */
+  prompt?: string
+}
+
+export type Director2FeaturedEpisode = {
+  id: string
+  number: number
+  title: string
+  status: string
+  script_text: string
+  summary: string
+  episode_video_url: string
+  beats: Director2FeaturedBeat[]
+}
+
+export type Director2FeaturedAsset = {
+  id?: string
+  kind: string
+  name: string
+  role: string
+  description: string
+  visual_prompt?: string
+  image_url: string
+}
+
+/** 精选快照里冻结的画布草稿（资产画布或无限画布结构，节点 data 为自由 JSON）。 */
+export type Director2FeaturedCanvasNode = {
+  id: string
+  kind?: string
+  type?: string
+  position?: { x: number; y: number }
+  parentId?: string | null
+  data?: Record<string, unknown>
+  style?: { width?: number; height?: number }
+}
+
+export type Director2FeaturedCanvas = {
+  nodes: Director2FeaturedCanvasNode[]
+  edges: Array<{ id?: string; source: string; target: string; sourceHandle?: string | null; targetHandle?: string | null }>
+  viewport?: { x: number; y: number; zoom: number } | null
+}
+
+export type Director2FeaturedSnapshot = {
+  version: number
+  project: { id: string; name: string; description: string; cover_url: string }
+  documents: Array<{ filename: string; raw_text: string }>
+  episodes: Director2FeaturedEpisode[]
+  assets: Director2FeaturedAsset[]
+  canvas?: Director2FeaturedCanvas | null
+}
+
+export type Director2FeaturedWorkDetail = Director2FeaturedWork & {
+  published_by?: string | null
+  snapshot: Director2FeaturedSnapshot
+}
+
+export function listFeaturedWorks(): Promise<Director2FeaturedWork[]> {
+  return requestJson<Director2FeaturedWork[]>("/api/featured-works")
+}
+
+export function getFeaturedWork(featuredId: string): Promise<Director2FeaturedWorkDetail> {
+  return requestJson<Director2FeaturedWorkDetail>(`/api/featured-works/${encodeURIComponent(featuredId)}`)
+}
+
+export function copyFeaturedWork(csrfToken: string, featuredId: string): Promise<{ project_id: string; name: string }> {
+  return requestJson<{ project_id: string; name: string }>(
+    `/api/featured-works/${encodeURIComponent(featuredId)}/copy`,
+    jsonMutation(csrfToken, undefined, "POST"),
+  )
+}
+
+export function publishFeaturedWork(csrfToken: string, data: {
+  project_id: string
+  title?: string
+  summary?: string
+  cover_url?: string
+  sort_order?: number
+}): Promise<Director2FeaturedWorkDetail> {
+  return requestJson<Director2FeaturedWorkDetail>("/api/admin/featured-works", jsonMutation(csrfToken, data, "POST"))
+}
+
+export function unpublishFeaturedWork(csrfToken: string, featuredId: string): Promise<{ status: string }> {
+  return requestJson<{ status: string }>(
+    `/api/admin/featured-works/${encodeURIComponent(featuredId)}`,
+    jsonMutation(csrfToken, undefined, "DELETE"),
+  )
 }

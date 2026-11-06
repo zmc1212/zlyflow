@@ -74,7 +74,8 @@
 .studio-video-results .studio-video-play-button.ant-btn, .studio-video-results .studio-video-volume-button.ant-btn { width: 28px; height: 32px; padding: 0; color: #fff; border-radius: 5px; }
 .studio-video-quick-tools { display: flex; flex: none; align-items: center; padding: 2px 3px; border: 1px solid rgba(255, 255, 255, .16); border-radius: 7px; background: rgba(12, 15, 18, .55); backdrop-filter: blur(10px); }
 .studio-video-quick-tools > .ant-btn, .studio-video-quick-item { border-right: 1px solid rgba(255, 255, 255, .18); }
-.studio-video-results .studio-video-quick-button.ant-btn { display: flex; flex-direction: column; justify-content: center; width: 52px; height: 35px; padding: 0 4px; gap: 2px; border-radius: 0; color: #fff; font-size: 9px; line-height: 11px; }
+.studio-video-quick-tools > .ant-btn:last-child { border-right: 0; }
+.studio-video-results .studio-video-quick-button.ant-btn { display: grid; place-items: center; width: 36px; height: 35px; padding: 0; border-radius: 0; color: #fff; }
 .studio-video-results .studio-video-quick-button.ant-btn:disabled { color: rgba(255, 255, 255, .5); background: transparent; }
 .studio-video-results .studio-video-play-button.ant-btn:hover, .studio-video-results .studio-video-volume-button.ant-btn:hover,
 .studio-video-results .studio-video-quick-button.ant-btn:not(:disabled):hover { background: rgba(255, 255, 255, .16); color: #fff; }
@@ -87,11 +88,6 @@
 .studio-video-seek .ant-slider-handle:focus-visible::after { opacity: 1; }
 .studio-video-more-popup .ant-dropdown-menu { min-width: 180px; padding: 6px; border: 1px solid var(--studio-border); border-radius: 10px; background: var(--studio-surface); box-shadow: var(--studio-shadow); }
 .studio-video-more-popup .ant-dropdown-menu-item { min-height: 38px; gap: 8px; font-size: 13px; }
-.studio-video-upscale-popup .ant-dropdown-menu { min-width: 236px; padding: 6px; border: 1px solid var(--studio-border); border-radius: 10px; background: var(--studio-surface); box-shadow: var(--studio-shadow); }
-.studio-video-upscale-popup .ant-dropdown-menu-item { min-height: 44px; font-size: 13px; }
-.studio-video-upscale-option { display: flex; flex-direction: column; gap: 1px; padding-block: 2px; }
-.studio-video-upscale-hint { color: var(--studio-text-secondary); font-size: 11px; font-style: normal; font-weight: 400; line-height: 15px; }
-.studio-video-upscale-popup .ant-dropdown-menu-item-disabled .studio-video-upscale-hint { color: var(--studio-text-muted); }
 .studio-video-round .studio-round-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; width: fit-content; max-width: 100%; margin: 12px 0 0; }
 .studio-video-round .studio-round-action { display: inline-flex; align-items: center; justify-content: center; height: 36px; min-width: 94px; gap: 6px; padding: 0 12px; border: 1px solid var(--studio-border); border-radius: 8px; background: var(--studio-surface); color: var(--studio-text) !important; font-size: 12px; transition: background-color 140ms ease; }
 .studio-video-round .studio-round-action:hover { background: var(--studio-surface-raised); }
@@ -110,8 +106,7 @@
   .studio-video-playback { max-width: 100%; flex-wrap: wrap; }
   .studio-video-time { font-size: 10px; }
   .studio-video-quick-tools { max-width: 100%; flex-wrap: wrap; justify-content: flex-end; }
-  .studio-video-results .studio-video-quick-button.ant-btn { width: 32px; height: 30px; padding: 0; }
-  .studio-video-quick-button > span { display: none; }
+  .studio-video-results .studio-video-quick-button.ant-btn { width: 32px; height: 30px; }
 }
 @container (max-width: 130px) {
   .studio-video-time { font-size: 8px; }

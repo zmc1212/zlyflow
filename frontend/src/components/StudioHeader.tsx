@@ -1,5 +1,5 @@
 import { Avatar, Button, Dropdown, Tooltip, type MenuProps } from "antd"
-import { ChevronDown, Link2, LoaderCircle, LogOut, Moon, Sun, UserRound, Users } from "lucide-react"
+import { BookOpen, ChevronDown, ExternalLink, Link2, LoaderCircle, LogOut, Moon, Sun, UserRound, Users } from "lucide-react"
 import { useState } from "react"
 import type { User } from "../api"
 import { useStudioTheme } from "../ThemeProvider"
@@ -7,7 +7,10 @@ import ThemeToggle from "./ThemeToggle"
 import { StudioBrandSymbol } from "./StudioSymbols"
 import "./studio-header.css"
 
+const STUDIO_DOCS_URL = "https://ycntl2htf1l6.feishu.cn/docx/KLXadbEvboRaIAxRqTEcKBMmnTh"
+
 type StudioHeaderProps = {
+  compact?: boolean
   user: User | null
   onRequestLogin?: () => void
   provider: "ComfyUI" | "GRS"
@@ -21,7 +24,7 @@ type StudioHeaderProps = {
 }
 
 export default function StudioHeader({
-  user, provider, providerStatus, providerMessage, onOpenMcp, onOpenAdmin, onOpenProfile, onLogout, logoutPending, onRequestLogin,
+  user, provider, providerStatus, providerMessage, onOpenMcp, onOpenAdmin, onOpenProfile, onLogout, logoutPending, onRequestLogin, compact = false,
 }: StudioHeaderProps) {
   const { mode, toggleMode } = useStudioTheme()
   const [accountOpen, setAccountOpen] = useState(false)
@@ -33,6 +36,7 @@ export default function StudioHeader({
     { key: "profile", icon: <UserRound size={16} />, label: "修改姓名" },
     { key: "mcp", icon: <Link2 size={16} />, label: "MCP 连接" },
     ...(onOpenAdmin ? [{ key: "admin", icon: <Users size={16} />, label: "管理设置" }] : []),
+    { key: "docs", icon: <BookOpen size={16} />, label: <span className="studio-header-menu-label"><span>使用文档</span><ExternalLink size={14} aria-hidden="true" /></span> },
     { type: "divider" },
     { key: "logout", icon: logoutPending ? <LoaderCircle size={16} className="animate-spin" /> : <LogOut size={16} />, label: "退出登录", disabled: logoutPending },
   ]
@@ -43,11 +47,12 @@ export default function StudioHeader({
     else if (key === "profile") onOpenProfile()
     else if (key === "mcp") onOpenMcp()
     else if (key === "admin") onOpenAdmin?.()
+    else if (key === "docs") window.open(STUDIO_DOCS_URL, "_blank", "noopener,noreferrer")
     else if (key === "logout") onLogout()
   }
 
   return (
-    <header className="studio-header studio-header-floating" aria-label="工作台页头">
+    <header className={"studio-header studio-header-floating" + (compact ? " studio-header-compact" : "")} aria-label="工作台页头">
       <div className="studio-header-island studio-header-brand">
         <span className="studio-header-brand-mark" aria-hidden="true">
           <StudioBrandSymbol />

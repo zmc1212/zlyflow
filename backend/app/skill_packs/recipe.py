@@ -40,10 +40,6 @@ class R2VSlot:
     source: str
     role: str = ""
 
-    @property
-    def is_full_triptych(self) -> bool:
-        return self.source in {"triptych", "triptych.full", "triptych_url"}
-
 
 @dataclass(frozen=True)
 class PackRecipe:
@@ -109,7 +105,7 @@ def default_recipe() -> PackRecipe:
     return PackRecipe(
         id=DEFAULT_PACK_ID,
         name="H3 官方六段式",
-        summary="不绑定 Plaza 制作配方，直接按 H3 官方六段式 Skill 用大模型装箱。",
+        summary="默认通用配方：不套定制流程，直接按 MiniMax H3 官方六段式（主体定义·摘要·保留分析·详细描述·整体声景·非叙事配乐）由大模型逐镜生成结构化提示词，适合自由创作与各类题材出片。",
         surfaces=("workshop",),
         workshop_shot=(),
         packing_overrides=PackingOverrides(skip_program_pack=True),
@@ -177,6 +173,9 @@ def scan_pack_recipes(root: Path | None = None) -> dict[str, PackRecipe]:
     return packs
 
 
+# 进程级配方缓存：首次访问时扫描 PACKS_ROOT 下各 meta.yaml 并常驻，之后不再读盘。
+# 因此直接编辑 meta.yaml（例如新增/修改 cover）不会即时生效——需重启后端（dev_reloader
+# 监听 backend/app 下的 .py 变更）或显式调用 reset_pack_cache() 才会重新扫描。
 _CACHE: dict[str, PackRecipe] | None = None
 
 

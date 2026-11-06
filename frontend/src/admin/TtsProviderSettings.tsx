@@ -3,6 +3,7 @@ import { Alert, Button, Input, Select, Switch, message } from "antd"
 import { CheckCircle2, ExternalLink, KeyRound, Mic, Sparkles } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { jsonMutation, requestJson } from "../api"
+import { CopyFieldButton } from "./FieldCopy"
 
 type TtsConfig = {
   enabled: boolean
@@ -58,6 +59,18 @@ const OPENAI_VOICES: VoiceOption[] = [
   { id: "shimmer", label: "Shimmer（柔和女声）", gender: "female" },
 ]
 
+const MIMO_VOICES: VoiceOption[] = [
+  { id: "mimo_default", label: "MiMo 默认（冰糖 / Mia）" },
+  { id: "冰糖", label: "冰糖（中文女声）", gender: "female" },
+  { id: "茉莉", label: "茉莉（中文女声）", gender: "female" },
+  { id: "苏打", label: "苏打（中文男声）", gender: "male" },
+  { id: "白桦", label: "白桦（中文男声）", gender: "male" },
+  { id: "Mia", label: "Mia（英文女声）", gender: "female" },
+  { id: "Chloe", label: "Chloe（英文女声）", gender: "female" },
+  { id: "Milo", label: "Milo（英文男声）", gender: "male" },
+  { id: "Dean", label: "Dean（英文男声）", gender: "male" },
+]
+
 const PROVIDER_PRESETS: TtsPreset[] = [
   {
     label: "本机 IndexTTS-2.5（角色克隆，推荐配音台）",
@@ -70,6 +83,18 @@ const PROVIDER_PRESETS: TtsPreset[] = [
       { name: "IndexTTS-2.5（本机旁路）", id: "indextts-2.5" },
     ],
     voices: [{ id: "clone", label: "角色参考音克隆" }],
+  },
+  {
+    label: "小米 MiMo TTS（限时免费，无需 GPU）",
+    value: "mimo",
+    baseUrl: "https://api.xiaomimimo.com/v1",
+    model: "mimo-v2.5-tts",
+    voice: "mimo_default",
+    docUrl: "https://platform.xiaomimimo.com",
+    recommendedModels: [
+      { name: "MiMo-V2.5-TTS（预置音色）", id: "mimo-v2.5-tts" },
+    ],
+    voices: MIMO_VOICES,
   },
   {
     label: "SiliconFlow 硅基流动（CosyVoice2，无 GPU 时降级）",
@@ -115,6 +140,9 @@ function presetFromConfig(baseUrl: string, model: string) {
   const lowered = baseUrl.toLowerCase()
   const loweredModel = model.toLowerCase()
   if (lowered.includes("7866") || lowered.includes("indextts") || loweredModel.includes("indextts")) return "indextts"
+  if (lowered.includes("xiaomimimo") || loweredModel.startsWith("mimo-v2.5-tts") || loweredModel.startsWith("mimo-v2-tts")) {
+    return "mimo"
+  }
   if (lowered.includes("siliconflow")) return "siliconflow"
   if (loweredModel.includes("cosyvoice") || loweredModel.includes("moss-ttsd") || loweredModel.startsWith("funaudiollm/")) {
     return "siliconflow"
@@ -183,7 +211,7 @@ export default function TtsProviderSettings({ csrfToken }: { csrfToken: string }
     setSelectedPreset(value)
     const preset = PROVIDER_PRESETS.find((item) => item.value === value)
     if (!preset || value === "custom") return
-    if (value === "indextts") {
+    if (value === "indextts" || value === "mimo") {
       setUseLlm(false)
       setBaseUrl(preset.baseUrl)
     } else if (!useLlm) {
@@ -228,7 +256,7 @@ export default function TtsProviderSettings({ csrfToken }: { csrfToken: string }
         <div>
           <h2 className="text-base font-semibold text-[#111827]">TTS 语音合成</h2>
           <p className="mt-1 text-xs leading-5 text-[#4b5563]">
-            导演台2 配音台走本机 IndexTTS-2.5 旁路（参考音克隆 + 情绪/语速）。无 GPU 或旁路未启动时，可降级硅基 CosyVoice2 系统音色。测试连接对 IndexTTS 只打 <code>/health</code>，不会真正合成。
+            导演台2 配音台走本机 IndexTTS-2.5 旁路（参考音克隆 + 情绪/语速）。无 GPU 或旁路未启动时，可降级硅基 CosyVoice2 或小米 MiMo 云端音色（MiMo 当前限时免费）。测试连接对 IndexTTS 只打 <code>/health</code>，不会真正合成。
           </p>
         </div>
       </div>
@@ -259,10 +287,16 @@ export default function TtsProviderSettings({ csrfToken }: { csrfToken: string }
               <p className="mt-0.5 text-xs text-[#6b7280]">
                 {selectedPreset === "indextts"
                   ? "本机 IndexTTS 旁路不需要 API Key，也不复用大模型凭据。"
-                  : "使用 LLM 大模型页的 Base URL 与 API Key。LLM 为硅基流动时可直接复用同一 Key。"}
+                  : selectedPreset === "mimo"
+                    ? "MiMo 使用独立的 xiaomimimo.com 凭据，不能复用大模型 Key。"
+                    : "使用 LLM 大模型页的 Base URL 与 API Key。LLM 为硅基流动时可直接复用同一 Key。"}
               </p>
             </div>
-            <Switch checked={useLlm} disabled={selectedPreset === "indextts"} onChange={setUseLlm} />
+            <Switch
+              checked={useLlm}
+              disabled={selectedPreset === "indextts" || selectedPreset === "mimo"}
+              onChange={setUseLlm}
+            />
           </div>
 
           <div>
@@ -284,6 +318,15 @@ export default function TtsProviderSettings({ csrfToken }: { csrfToken: string }
             />
           ) : null}
 
+          {selectedPreset === "mimo" ? (
+            <Alert
+              type="info"
+              showIcon
+              message="MiMo TTS 当前限时免费（官方标注，可能随时结束）"
+              description="无需 GPU，接口走 OpenAI 兼容的 /chat/completions；限速 100 RPM / 10M TPM。配音台会按角色性别把声音映射到冰糖/苏打，也可在下方手动选英文音色。"
+            />
+          ) : null}
+
           {selectedPreset === "siliconflow" ? (
             <Alert
               type="info"
@@ -293,7 +336,7 @@ export default function TtsProviderSettings({ csrfToken }: { csrfToken: string }
             />
           ) : null}
 
-          {useLlm && selectedPreset !== "indextts" ? (
+          {useLlm && selectedPreset !== "indextts" && selectedPreset !== "mimo" ? (
             <Alert
               type="info"
               showIcon
@@ -312,7 +355,7 @@ export default function TtsProviderSettings({ csrfToken }: { csrfToken: string }
                       rel="noreferrer"
                       className="flex items-center gap-1 text-xs font-medium text-[#7047f6] hover:underline"
                     >
-                      <span>获取访问 Token</span>
+                      <span>{selectedPreset === "mimo" ? "获取 API Key" : "获取访问 Token"}</span>
                       <ExternalLink size={12} />
                     </a>
                   ) : null}
@@ -325,6 +368,7 @@ export default function TtsProviderSettings({ csrfToken }: { csrfToken: string }
                     setSelectedPreset(presetFromConfig(event.target.value, model))
                   }}
                   placeholder={selectedPreset === "indextts" ? "http://127.0.0.1:7866/v1" : "https://api.siliconflow.cn/v1"}
+                  suffix={<CopyFieldButton label="TTS Base URL" value={baseUrl} csrfToken={csrfToken} />}
                 />
               </div>
               {selectedPreset === "indextts" ? null : (
@@ -336,6 +380,7 @@ export default function TtsProviderSettings({ csrfToken }: { csrfToken: string }
                   onChange={(event) => setApiKey(event.target.value)}
                   prefix={<KeyRound size={15} className="text-[#9ca3af]" />}
                   placeholder={query.data?.api_key_masked || "独立 TTS 密钥，复用大模型时可留空"}
+                  suffix={<CopyFieldButton label="API Key" value={apiKey} csrfToken={csrfToken} provider="tts" />}
                 />
               </div>
               )}
@@ -362,7 +407,13 @@ export default function TtsProviderSettings({ csrfToken }: { csrfToken: string }
                 }}
               />
             ) : (
-              <Input className="mt-1.5" value={model} onChange={(event) => setModel(event.target.value)} placeholder="tts-1" />
+              <Input
+                className="mt-1.5"
+                value={model}
+                onChange={(event) => setModel(event.target.value)}
+                placeholder="tts-1"
+                suffix={<CopyFieldButton label="模型" value={model} csrfToken={csrfToken} />}
+              />
             )}
           </div>
 
@@ -376,7 +427,11 @@ export default function TtsProviderSettings({ csrfToken }: { csrfToken: string }
               showSearch
               optionFilterProp="label"
             />
-            {selectedPreset === "siliconflow" ? (
+            {selectedPreset === "mimo" ? (
+              <p className="mt-1.5 text-[11px] leading-4 text-[#6b7280]">
+                中文女声：冰糖 / 茉莉；中文男声：苏打 / 白桦；英文：Mia / Chloe / Milo / Dean。配音台男/女角色默认映射到苏打 / 冰糖。
+              </p>
+            ) : selectedPreset === "siliconflow" ? (
               <p className="mt-1.5 text-[11px] leading-4 text-[#6b7280]">
                 硅基流动音色 ID 格式为 <code>模型:角色名</code>。导演台男/女声默认会映射到 Benjamin / Bella。
               </p>
@@ -429,6 +484,8 @@ export default function TtsProviderSettings({ csrfToken }: { csrfToken: string }
             <p className="mt-1.5 text-[11px] leading-4 text-[#6b7280]">
               {selectedPreset === "indextts"
                 ? "测试连接只检查旁路 /health 与权重目录，不会占用显存合成。请先启动 IndexTTS 旁路。"
+                : selectedPreset === "mimo"
+                ? "MiMo 走 /chat/completions，和标准 /audio/speech 不同；工作台已做适配。免费为限时活动，结束后需改回 IndexTTS 或硅基。"
                 : selectedPreset === "siliconflow"
                 ? "与 LLM 同用硅基流动时，勾选复用凭据即可，无需重复填 Key。CosyVoice2 支持中文、英文及多种方言。"
                 : selectedPreset === "openai"

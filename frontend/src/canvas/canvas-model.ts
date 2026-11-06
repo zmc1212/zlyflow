@@ -128,6 +128,7 @@ export type CanvasPreview = {
 }
 
 export type CanvasProject = {
+  linked_director_project_id?: string | null
   id: string
   title: string
   created_at: string
@@ -447,7 +448,7 @@ const CANVAS_FALLBACK_NODE_SIZES: Record<string, { width: number; height: number
   image: CANVAS_LIBRARY_NODE_SIZES.image,
   video: CANVAS_LIBRARY_NODE_SIZES.video,
   artboard: { width: 720, height: 480 },
-  generator: { width: 356, height: 446 },
+  generator: { width: 400, height: 290 },
   unknown: { width: 260, height: 150 },
 }
 
@@ -857,7 +858,7 @@ export function createGeneratorNode(
       ...(init.mediaKind ? { resultKind: init.mediaKind } : {}),
       ...(init.branchDirection ? { branchDirection: init.branchDirection } : {}),
     },
-    style: { width: 356, height: 446 },
+    style: { width: 400, height: 290 },
   }
 }
 

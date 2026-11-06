@@ -123,7 +123,7 @@ class H3PromptJobService:
             "scene_id": str(scene_id or beat.get("scene_id") or ""),
         }
         if not recipe.is_default and recipe.r2v_slots:
-            ref_images = bind_r2v_slot_images(recipe, bind_beat, assets, aspect_ratio=aspect)
+            ref_images = bind_r2v_slot_images(recipe, bind_beat, assets)
         elif "ref_images" in req:
             ref_images = req.get("ref_images") or []
         else:
@@ -150,18 +150,6 @@ class H3PromptJobService:
                     "category": "prop",
                     "prop_id": prop.get("id") or "",
                 })
-        full_triptych = str(beat.get("triptych_url") or "").strip()
-        if full_triptych:
-            cleaned = []
-            for item in ref_images:
-                if not isinstance(item, dict):
-                    continue
-                url = str(item.get("url") or "").strip()
-                if url == full_triptych:
-                    continue
-                cleaned.append(item)
-            ref_images = cleaned
-
         duration_sec = resolve_shot_duration_sec(beat)
         if str(beat.get("video_duration") or "") != str(duration_sec):
             beat["video_duration"] = str(duration_sec)
@@ -210,8 +198,6 @@ class H3PromptJobService:
             "dialogue_turns": script_turns,
             "visible_text": beat.get("visible_text") or "",
             "narration": narration,
-            "triptych_url": beat.get("triptych_url") or "",
-            "triptych_panels": beat.get("triptych_panels") or {},
             "timestamped_zh_prompt": beat.get("timestamped_zh_prompt") or "",
             "skill_pack_id": pack_id,
             "aspect_ratio": aspect,

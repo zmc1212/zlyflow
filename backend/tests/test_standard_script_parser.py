@@ -341,6 +341,47 @@ class StandardScriptParserSectionHeadingTests(unittest.TestCase):
 """
         self.assertEqual("冷调夜景。", StandardScriptParser.parse(script)["visual_style"]["description"])
 
+    def test_plain_text_episode_headings_are_promoted(self) -> None:
+        script = """星尘信使
+
+第一集 深夜邮局
+雨夜，实习邮差苏晓抱着发光的包裹冲进老城邮局。
+第一集就要上线了，这句不是集标题。
+
+第2集：钟楼送信
+苏晓把发光的信封举向天空。
+"""
+        result = StandardScriptParser.parse(script)
+        episodes = result["episodes"]
+        self.assertEqual([1, 2], [item["episode_num"] for item in episodes])
+        self.assertEqual(["深夜邮局", "钟楼送信"], [item["title"] for item in episodes])
+        # 伪集行不产生新集，留在第一集正文里
+        self.assertNotIn("# 第一集就要上线了", episodes[0]["body"])
+        self.assertIn("第一集就要上线了", episodes[0]["body"])
+
+    def test_markdown_episode_scripts_skip_plain_promotion(self) -> None:
+        # 已有 markdown 集标题时不做提升，正文里的纯文本「第X集」句子保持原样
+        script = """# 星尘信使
+
+# 第1集 深夜邮局
+台词：苏晓：第一集就要上线了。
+"""
+        result = StandardScriptParser.parse(script)
+        episodes = result["episodes"]
+        self.assertEqual([1], [item["episode_num"] for item in episodes])
+        self.assertIn("第一集就要上线了", episodes[0]["body"])
+
+    def test_plain_episode_promotion_supports_bold_and_full_width_punctuation(self) -> None:
+        script = """**第一集** 雨夜
+苏晓冲进邮局。
+
+【第二集】雨停
+苏晓爬上钟楼。
+"""
+        episodes = StandardScriptParser.parse(script)["episodes"]
+        self.assertEqual([1, 2], [item["episode_num"] for item in episodes])
+        self.assertEqual(["雨夜", "雨停"], [item["title"] for item in episodes])
+
 
 if __name__ == "__main__":
     unittest.main()

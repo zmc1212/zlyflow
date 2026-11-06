@@ -25,7 +25,6 @@ from ...director_craft.coverage import (
 )
 from ...director_craft.references import (
     character_subject_line,
-    composition_subject_line,
     is_identity_portrait_clause,
     prop_subject_line,
     reference_authority_errors,
@@ -1185,6 +1184,67 @@ class H3PromptBuilder:
             guard += 1
             if cls.english_word_count(text) <= previous:
                 break
+        return text
+
+    _LIGHTING_TIME_RULES: list[tuple[tuple[str, ...], str]] = [
+        (("霓虹", "赛博", "夜店", "neon", "cyberpunk"),
+         "Neon signage spills saturated colored light across the wet surfaces."),
+        (("黄昏", "傍晚", "夕阳", "落日", "sunset", "golden hour", "golden-hour"),
+         "Golden-hour light rakes low across the frame, throwing long warm shadows."),
+        (("清晨", "晨", "黎明", "破晓", "dawn", "sunrise", "morning"),
+         "Soft cool dawn light washes the scene from a low horizon."),
+        (("深夜", "午夜", "夜", "晚", "月光", "night", "midnight", "moonlight"),
+         "Night is lit by cool moonlight balanced against warm practical sources."),
+        (("烈日", "正午", "中午", "阳光", "晴天", "晴", "太阳", "白昼", "户外", "工地",
+         "sun", "sunlight", "daylight", "midday", "bright day", "outdoor"),
+         "The scene is lit by hard midday sunlight with crisp shadows and bright highlights."),
+        (("室内", "房间", "屋", "办公室", "车间", "仓库", "indoors", "interior", "room", "office"),
+         "Motivated interior light models the faces against the practical sources."),
+    ]
+    _DEFAULT_LIGHTING_SENTENCE = (
+        "Soft cinematic lighting models the faces and separates them from the background."
+    )
+
+    @classmethod
+    def _scene_lighting_sentence(cls, shot: dict[str, Any] | None) -> str:
+        info = shot or {}
+        blob = " ".join(
+            str(info.get(key) or "")
+            for key in ("scene", "scene_description", "visual_prompt", "action")
+        ).lower()
+        for keys, sentence in cls._LIGHTING_TIME_RULES:
+            if any(token.lower() in blob for token in keys):
+                return sentence
+        return cls._DEFAULT_LIGHTING_SENTENCE
+
+    @classmethod
+    def _scene_camera_sentence(cls, shot: dict[str, Any] | None) -> str:
+        return "The camera holds a steady motivated move that keeps the subjects framed."
+
+    @classmethod
+    def ensure_thickness_terms(cls, text: str, shot: dict[str, Any] | None = None) -> str:
+        """Deterministically fill only the missing camera/lighting/sound keywords.
+
+        Lighting is derived from the scene (time-of-day / indoor-outdoor cues); this never
+        pads word count, so a genuinely thin draft still fails the thickness gate.
+        """
+        info = shot or {}
+        lower = str(text or "").lower()
+        if not re.search(r"\b(?:lighting|light|lit|illumination|illuminated)\b", lower):
+            text = cls._insert_into_named_section(
+                text, "detailed_description", cls._scene_lighting_sentence(info),
+            )
+            lower = text.lower()
+        if not re.search(r"\bcamera\b", lower):
+            text = cls._insert_into_named_section(
+                text, "detailed_description", cls._scene_camera_sentence(info),
+            )
+            lower = text.lower()
+        if not re.search(r"\b(?:sound|audio|ambience|ambient)\b", lower):
+            text = cls._insert_into_named_section(
+                text, "overall_soundscape",
+                "Ambient room sound and synchronized movement continue under the action.",
+            )
         return text
 
     @classmethod
@@ -2457,29 +2517,12 @@ class H3PromptBuilder:
                     name = name or str(match.get("character_name") or "").strip()
             elif cat != "scene" and 1 <= index <= len(chars):
                 name = name or str(chars[index - 1].get("character_name") or "").strip()
-            source = str(ref.get("source") or "").strip().lower()
-            role = str(ref.get("role") or "").strip().lower()
-            if not role:
-                if source in {"triptych.mid", "mid"} or source.endswith(".mid"):
-                    role = "mid"
-                elif source in {"triptych.end", "end"} or source.endswith(".end"):
-                    role = "end"
-                elif source in {"triptych.start", "start"} or source.endswith(".start"):
-                    role = "start"
-            is_composition = (
-                cat in {"composition", "start", "mid", "end"}
-                or source in {"triptych.start", "triptych.mid", "triptych.end", "start", "mid", "end"}
-                or role in {"start", "mid", "end"}
-            )
             is_scene = cat == "scene" or (
                 index == last
-                and cat not in {"character", "prop", "composition", "start", "mid", "end"}
-                and not is_composition
+                and cat not in {"character", "prop"}
                 and len(indexes) > len(chars)
             )
-            if is_composition:
-                lines.append(composition_subject_line(index, name, role or "start"))
-            elif is_scene:
+            if is_scene:
                 lines.append(scene_subject_line(index, name))
             elif cat == "prop":
                 lines.append(prop_subject_line(index, name))

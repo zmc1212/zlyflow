@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import io
+import ipaddress
 import json
 import secrets
+import socket
 import time
 import warnings
 from contextlib import ExitStack
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urljoin, urlsplit
 
+import requests
 from fastapi import HTTPException, UploadFile
 from PIL import Image, UnidentifiedImageError
 from starlette.datastructures import Headers
@@ -20,6 +24,7 @@ from .config import McpConfig
 from .store import digest
 
 MAX_REFERENCE_BYTES = 50 * 1024 * 1024
+MAX_URL_IMPORT_REDIRECTS = 3
 NON_IMAGE_SLOT_LABELS = {"video": "视频素材", "audio": "音频素材"}
 
 
@@ -158,6 +163,86 @@ class CreativeService:
             destination.unlink(missing_ok=True)
             raise
         return self._public_asset(self.records.get("reference:" + asset_id))
+
+    @staticmethod
+    def _safe_image_target(url: str) -> str:
+        """校验图片 URL 并确认解析结果均为公网地址，防止内网探测（SSRF）。"""
+        try:
+            parsed = urlsplit(url)
+            port = parsed.port
+        except ValueError as error:
+            raise HTTPException(422, "图片 URL 格式无效") from error
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+            raise HTTPException(422, "图片 URL 必须是不含凭据的 http/https 地址")
+        try:
+            addresses = {info[4][0] for info in socket.getaddrinfo(parsed.hostname, None)}
+        except socket.gaierror as error:
+            raise HTTPException(422, "图片 URL 域名无法解析") from error
+        if not addresses:
+            raise HTTPException(422, "图片 URL 域名无法解析")
+        for value in addresses:
+            ip = ipaddress.ip_address(value)
+            if ip.version == 6 and ip.ipv4_mapped:
+                ip = ip.ipv4_mapped
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
+                raise HTTPException(422, "图片 URL 不能指向内网或保留地址")
+        return url
+
+    def import_reference_from_url(self, user: dict, url: str, name: str | None = None) -> dict:
+        """把在线图片拉进参考图库，供 MCP 创作工具按 ID 引用。"""
+        target = url
+        response = None
+        for _ in range(MAX_URL_IMPORT_REDIRECTS + 1):
+            safe = self._safe_image_target(target)
+            response = requests.get(safe, timeout=(10, 60), stream=True, allow_redirects=False,
+                                    headers={"User-Agent": "zly-ai-studio-mcp/1.0", "Accept": "image/png,image/jpeg,image/webp"})
+            if response.status_code not in {301, 302, 303, 307, 308}:
+                break
+            location = response.headers.get("location")
+            response.close()
+            if not location:
+                raise HTTPException(422, "图片 URL 重定向缺少目标地址")
+            target = urljoin(safe, location)
+        else:
+            raise HTTPException(422, "图片 URL 重定向次数过多")
+        try:
+            if response.status_code != 200:
+                raise HTTPException(422, f"图片 URL 拉取失败（HTTP {response.status_code}）")
+            declared = int(response.headers.get("content-length") or 0)
+            if declared > MAX_REFERENCE_BYTES:
+                raise HTTPException(413, "参考图不能超过 50 MB")
+            chunks, size = [], 0
+            for chunk in response.iter_content(chunk_size=1024 * 256):
+                size += len(chunk)
+                if size > MAX_REFERENCE_BYTES:
+                    raise HTTPException(413, "参考图不能超过 50 MB")
+                chunks.append(chunk)
+            content = b"".join(chunks)
+        finally:
+            response.close()
+        candidate = (name or "").strip() or Path(urlsplit(target).path).name or "网络参考图"
+        return self.save_reference(user, content, candidate)
+
+    def import_reference_from_base64(self, user: dict, image_base64: str, name: str | None = None) -> dict:
+        """解码 MCP 客户端传来的 base64 图片（允许 data URL 前缀）存入参考图库，本地图片可在对话里直接提交。"""
+        payload = (image_base64 or "").strip()
+        if payload.startswith("data:") and "," in payload[:200]:
+            payload = payload.split(",", 1)[1]
+        if len(payload) > (MAX_REFERENCE_BYTES + 2) // 3 * 4 + 8:
+            raise HTTPException(413, "参考图不能超过 50 MB")
+        try:
+            content = base64.b64decode(payload, validate=True)
+        except ValueError as error:
+            raise HTTPException(422, "image_base64 不是有效的 base64 编码") from error
+        return self.save_reference(user, content, (name or "").strip() or "对话参考图")
+
+    def import_reference(self, user: dict, url: str | None = None, image_base64: str | None = None, name: str | None = None) -> dict:
+        """参考图入库统一入口：url 与 image_base64 二选一。"""
+        if bool(url) == bool(image_base64):
+            raise HTTPException(422, "请提供 url 或 image_base64 中的其中一个")
+        if image_base64:
+            return self.import_reference_from_base64(user, image_base64, name)
+        return self.import_reference_from_url(user, url or "", name)
 
     def delete_reference(self, user: dict, asset_id: str) -> None:
         row = self._asset(user, asset_id)

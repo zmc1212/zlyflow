@@ -9,6 +9,13 @@ EPISODE_HEADING = re.compile(
     r"([0-9一二三四五六七八九十百零〇两]+)[ \t]*集([^\r\n]*)"
 )
 
+# 纯文本剧本的「第一集 xxx」行：集号后必须到行尾或跟空白/标点，避免把
+# 「第一集就要上线了」这类普通句子误判成集标题。
+PLAIN_EPISODE_LINE = re.compile(
+    r"(?m)^[ \t]*\*{0,2}[【\[]?[ \t]*第[ \t]*([0-9一二三四五六七八九十百零〇两]+)[ \t]*集"
+    r"(?=$|[ \t\u3000*]|[：:，,、.。！!？?；;）)】\]（(\[【\-—…·])([^\r\n]*)"
+)
+
 
 def script_episode_number(value: str) -> int:
     if value.isdigit():
@@ -56,11 +63,18 @@ class StandardScriptParser:
     """
 
     @classmethod
+    def _promote_plain_episode_headings(cls, text: str) -> str:
+        """把纯文本「第X集」行提升为 markdown 标题，仅在标准解析找不到任何集标题时调用。"""
+        return PLAIN_EPISODE_LINE.sub(lambda match: "# " + match.group(0).strip(), text)
+
+    @classmethod
     def parse(cls, raw_text: str) -> dict[str, Any]:
         if not raw_text or not raw_text.strip():
             return cls._empty_result()
 
         text = raw_text.replace("\r\n", "\n").replace("\r", "\n")
+        if not script_episode_spans(text):
+            text = cls._promote_plain_episode_headings(text)
         lines = text.split("\n")
 
         title = cls._extract_title(lines)

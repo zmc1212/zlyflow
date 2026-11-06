@@ -229,7 +229,7 @@ describe("ensure episode shot prompts", () => {
       pollIntervalMs: 0,
       api: {
         generateBeatPrompt: async (beatId) => {
-          if (beatId === "beat-1") throw new Error("Beat 1 缺少三联图")
+          if (beatId === "beat-1") throw new Error("Beat 1 缺少角色或场景绑定")
           return { job_id: "job-beat-2" }
         },
         listJobs: async () => [
@@ -239,7 +239,7 @@ describe("ensure episode shot prompts", () => {
     })
     expect(result.ok).toBe(false)
     expect(result.prepared).toBe(1)
-    expect(result.failures).toEqual([{ beatId: "beat-1", sequence: 1, message: "Beat 1 缺少三联图" }])
+    expect(result.failures).toEqual([{ beatId: "beat-1", sequence: 1, message: "Beat 1 缺少角色或场景绑定" }])
   })
 
   it("reports a timeout for prompt jobs that never finish", async () => {

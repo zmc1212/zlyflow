@@ -51,9 +51,6 @@ def run_workshop_prompt(beat_info: dict[str, Any], *, ctx: StepContext | None = 
     context.episode_id = str(context.episode_id or info.get("episode_id") or "")
     context.beat_id = str(context.beat_id or info.get("beat_id") or "")
     context.assets = list(context.assets or info.get("assets") or [])
-    if "enqueue_images" not in context.options:
-        # H3 提示词路径默认不入队三联生图；工坊显式出图时再打开。
-        context.options["enqueue_images"] = False
     if not context.assets and context.project_id:
         try:
             from ..media_studio.services.project_detail_service import ProjectDetailService

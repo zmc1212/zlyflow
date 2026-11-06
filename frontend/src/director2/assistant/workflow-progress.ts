@@ -213,15 +213,15 @@ export function buildWorkflowProgress(input: {
     action = {
       kind: "import-script",
       title: "先准备剧本",
-      detail: "导入剧本文档，或直接描述创意让助手写第一集，采纳后会写入内容库。",
+      detail: "导入剧本，或直接描述创意让助手写第一集，采纳后会写入当前剧本。",
       button: "去导入剧本",
     }
   } else if (!scriptDone) {
     action = {
       kind: "check-script",
       title: "剧本还没有解析出分集",
-      detail: "文档已写入内容库，但没有可用的分集镜头。到内容库检查剧本格式，必要时重新导入。",
-      button: "去内容库检查",
+      detail: "正文已保存为剧本，但没有可用的分集镜头。到「剧本」页检查格式，必要时用「导入剧本」重新导入。",
+      button: "去剧本页检查",
     }
   } else if (!assetsDone) {
     action = {
@@ -260,8 +260,8 @@ export function buildWorkflowProgress(input: {
       : {
           kind: "check-script",
           title: "没有可同步的分集",
-          detail: "剧本已由 AI 流程处理，但内容库里没有可同步的分集镜头，请到内容库检查。",
-          button: "去内容库检查",
+          detail: "剧本已由 AI 流程处理，但还没有切出分集。到「剧本」页确认正文里有「# 第N集」这样的集标题。",
+          button: "去剧本页检查",
         }
   } else {
     const shootable = !!workshopTarget.episodeId && workshopTarget.shots > 0

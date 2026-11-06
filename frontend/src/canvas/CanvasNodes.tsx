@@ -1,193 +1,51 @@
 import {
-  Handle, NodeResizer, NodeToolbar, Position, useNodeConnections, useReactFlow, type NodeProps,
+  Handle, NodeResizer, NodeToolbar, Position, useReactFlow, type NodeProps,
 } from "@xyflow/react"
-import { Button, Dropdown, Input, Select, Tag, Tooltip } from "antd"
+import { Button, Input, Tooltip } from "antd"
 import {
-  ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Copy, Download, Image as ImageIcon,
-  LoaderCircle, MoreHorizontal, Play, Plus, Settings, Sparkles, Square, Trash2, TriangleAlert, Type, Video,
+  ChevronLeft, ChevronRight, CircleHelp, Download, Image as ImageIcon,
+  LoaderCircle, MoreHorizontal, Play, Plus, TriangleAlert, Type, Video,
 } from "lucide-react"
-import { createContext, useContext, useEffect, useState, type ComponentProps } from "react"
-import type { CanvasBranchDirection, CanvasCoverPatch, CanvasNode } from "./canvas-model"
+import { useContext, useEffect, useState } from "react"
+import type { CanvasNode } from "./canvas-model"
 import { readCanvasCover, requestCanvasCoverCapture } from "./canvas-cover"
+import { CanvasGeneratorComposer } from "./CanvasGeneratorComposer"
+import { canvasMediaTime } from "./canvas-composer"
 import {
-  canvasWorkflowChangePatch,
   canvasJobStatusLabel,
   canvasJobStatusTone,
-  canvasPictureToken,
   canvasResultHistory,
   canvasResultVersionIndex,
   generatorOptionValues,
   generatorParameterSummary,
-  generatorResultFromNodeData,
   displayedGeneratorResult,
   isCanvasJobActive,
   selectCanvasResultVersion,
-  type CanvasGeneratorLive,
-  type CanvasGeneratorPromptState,
-  type CanvasWorkflowMode,
 } from "./canvas-generation"
+import {
+  CanvasGeneratorContext,
+  CanvasMediaPreviewContext,
+  CanvasNodeActionsContext,
+  ConnectedHandle,
+  NodeFloatingToolbar,
+  NODE_RESIZE_HANDLE,
+  NODE_RESIZE_LINE,
+} from "./node-primitives"
 
-function ConnectedHandle(props: ComponentProps<typeof Handle>) {
-  const connections = useNodeConnections({ handleType: props.type, handleId: props.id ?? undefined })
-  const { getNode } = useReactFlow<CanvasNode>()
-  const sourceType = props.type === "target" && connections[0] ? getNode(connections[0].source)?.type : null
-  const color = sourceType === "generator" ? "var(--studio-primary)" : sourceType === "text" ? "var(--canvas-text-tone)" : sourceType === "video" ? "var(--canvas-video-tone)" : sourceType === "image" ? "var(--canvas-image-tone)" : undefined
-  return <Handle {...props} style={{ ...props.style, ...(color ? { color } : {}) }} className={`${props.className ?? ""}${connections.length ? " is-connected" : ""}`} />
-}
+// 上下文与原语已迁至 ./node-primitives（单一来源）；此处回传以保持既有 import 路径不变。
+export {
+  CanvasGeneratorContext,
+  CanvasMediaPreviewContext,
+  CanvasNodeActionsContext,
+} from "./node-primitives"
+export type {
+  CanvasGeneratorContextValue,
+  CanvasMediaPreview,
+  CanvasNodeActions,
+} from "./node-primitives"
 
-export type CanvasMediaPreview = {
-  url: string
-  label?: string
-  kind: "image" | "video"
-  poster?: string
-}
-
-export const CanvasMediaPreviewContext = createContext<(preview: CanvasMediaPreview) => void>(() => undefined)
-
-export type CanvasGeneratorContextValue = {
-  modes: CanvasWorkflowMode[]
-  modesLoading: boolean
-  disconnectInput: (nodeId: string, kind: "text" | "image") => void
-  workflowName: (workflowId?: string) => string
-  modeFor: (workflowId?: string) => CanvasWorkflowMode | null
-  liveFor: (jobId?: string | null) => CanvasGeneratorLive | null
-  referenceCountFor: (nodeId: string) => number
-  promptInfoFor: (nodeId: string) => CanvasGeneratorPromptState
-  issueFor: (nodeId: string) => string | null
-  submit: (nodeId: string) => void
-  cancel: (nodeId: string) => void
-  refine: (nodeId: string, action: "confirm" | "skip") => void
-  insertResult: (nodeId: string, direction: CanvasBranchDirection) => void
-  submitting: (nodeId: string) => boolean
-}
-
-export const CanvasGeneratorContext = createContext<CanvasGeneratorContextValue>({
-  modes: [],
-  modesLoading: false,
-  disconnectInput: () => undefined,
-  workflowName: () => "未选择工作流",
-  modeFor: () => null,
-  liveFor: () => null,
-  referenceCountFor: () => 0,
-  promptInfoFor: () => ({ text: "", connectedTextNodes: 0, emptyTextNodes: 0, fromTextNodes: false }),
-  issueFor: () => null,
-  submit: () => undefined,
-  cancel: () => undefined,
-  refine: () => undefined,
-  insertResult: () => undefined,
-  submitting: () => false,
-})
-
-export type CanvasNodeActions = {
-  openProperties: (nodeId: string) => void
-  branchGenerate: (nodeId: string, direction: CanvasBranchDirection) => void
-  duplicateNode: (nodeId: string) => void
-  deleteNode: (nodeId: string) => void
-  downloadNode: (nodeId: string) => void
-  updateCover: (nodeId: string, patch: CanvasCoverPatch) => void
-}
-
-export const CanvasNodeActionsContext = createContext<CanvasNodeActions>({
-  openProperties: () => undefined,
-  branchGenerate: () => undefined,
-  duplicateNode: () => undefined,
-  deleteNode: () => undefined,
-  downloadNode: () => undefined,
-  updateCover: () => undefined,
-})
-
-const branchMenu = (onPick: (direction: CanvasBranchDirection) => void) => ({
-  items: [
-    { key: "right", label: "向右生成" },
-    { key: "down", label: "向下生成" },
-  ],
-  onClick: ({ key }: { key: string }) => onPick(key === "down" ? "down" : "right"),
-})
-
-function NodeFloatingToolbar({ id, type, data, selected }: {
-  id: string
-  type: string
-  data: CanvasNode["data"]
-  selected: boolean
-}) {
-  const actions = useContext(CanvasNodeActionsContext)
-  const generator = useContext(CanvasGeneratorContext)
-  const result = generatorResultFromNodeData(data)
-  const mediaUrl = type === "image" || type === "video" ? data.url : result?.url
-  const canBranch = type === "text" || type === "image" || type === "generator"
-
-  return (
-    <NodeToolbar
-      isVisible={selected}
-      position={Position.Top}
-      offset={8}
-      className={`canvas-node-toolbar nodrag nopan${type === "generator" ? " is-generator" : ""}`}
-    >
-      {canBranch ? (
-        <Dropdown classNames={{ root: "canvas-popup canvas-branch-menu" }} trigger={["click"]} menu={branchMenu((direction) => actions.branchGenerate(id, direction))}>
-          <Button size="small" type="text" className="canvas-toolbar-branch" icon={<Sparkles size={15} />}>以此生成</Button>
-        </Dropdown>
-      ) : null}
-      <span className="canvas-toolbar-divider" />
-
-      {result ? (
-        <Tooltip title="把结果插入到右侧">
-          <Button
-            size="small"
-            type="text"
-            icon={<Plus size={14} />}
-            aria-label="插入生成结果"
-            onClick={() => generator.insertResult(id, "right")}
-          />
-        </Tooltip>
-      ) : null}
-
-      <Tooltip title="节点属性">
-        <Button
-          size="small"
-          type="text"
-          icon={<Settings size={16} />}
-          aria-label="节点属性"
-          onClick={() => actions.openProperties(id)}
-        />
-      </Tooltip>
-      <Tooltip title="复制节点 (Ctrl/⌘ D)">
-        <Button
-          size="small"
-          type="text"
-          icon={<Copy size={16} />}
-          aria-label="复制节点"
-          onClick={() => actions.duplicateNode(id)}
-        />
-      </Tooltip>
-      {mediaUrl || type === "generator" ? (
-        <Tooltip title={mediaUrl ? "下载素材" : "生成结果后可下载"}>
-          <Button
-            size="small"
-            type="text"
-            icon={<Download size={14} />}
-            aria-label="下载素材"
-            disabled={!mediaUrl}
-            onClick={() => actions.downloadNode(id)}
-          />
-        </Tooltip>
-      ) : null}
-      <Tooltip title="删除节点 (Delete)">
-        <Button
-          size="small"
-          type="text"
-          danger
-          icon={<Trash2 size={14} />}
-          aria-label="删除节点"
-          onClick={() => actions.deleteNode(id)}
-        />
-      </Tooltip>
-    </NodeToolbar>
-  )
-}
-
-const resizeLine = "canvas-resize-line"
-const resizeHandle = "canvas-resize-handle"
+const resizeLine = NODE_RESIZE_LINE
+const resizeHandle = NODE_RESIZE_HANDLE
 
 export function TextCanvasNode({ id, data, selected }: NodeProps<CanvasNode>) {
   const { updateNodeData } = useReactFlow()
@@ -251,13 +109,17 @@ export function ImageCanvasNode({ id, data, selected }: NodeProps<CanvasNode>) {
           <img src={url} alt={data.label || "画布图片"} draggable={false} onError={() => setLoadFailed(true)} />
         ) : (
           <div className="canvas-image-placeholder">
-            {loadFailed ? <TriangleAlert size={28} /> : <ImageIcon size={28} />}
-            <span>{loadFailed ? "素材无法加载" : data.label || "图片占位"}</span>
+            {loadFailed ? <TriangleAlert size={28} /> : data.pendingGeneratorId ? <LoaderCircle size={24} className="animate-spin" /> : <ImageIcon size={28} />}
+            <span>{loadFailed ? "素材无法加载" : data.pendingGeneratorId ? "等待生成" : "尚未选择图片"}</span>
             {loadFailed ? <small>地址可能已过期</small> : data.pendingGeneratorId ? <small>等待上游生成完成，自动填入</small> : null}
           </div>
         )}
         </div>
-        {data.caption ? <div className="canvas-media-caption" title={data.caption}>{data.caption}</div> : null}
+        {previewable ? <Button type="default" size="small" className="canvas-media-preview-button nodrag nopan" icon={<ImageIcon size={13} />} onClick={() => openPreview({ url, label: data.label, kind: "image" })}>放大预览</Button> : null}
+        {!previewable && !data.pendingGeneratorId ? <div className="canvas-media-empty-actions nodrag nopan">
+          {!loadFailed ? <Button size="small" onClick={() => actions.chooseMedia(id, "image")}>从作品库选择</Button> : null}
+          <Button size="small" onClick={() => actions.openProperties(id)}>{loadFailed ? "查看节点属性" : "填写图片地址"}</Button>
+        </div> : <div className="canvas-media-caption" title={data.caption}>{data.caption || "图片"}</div>}
         <ConnectedHandle type="target" position={Position.Left} id="in" className="canvas-handle canvas-handle-image" />
         <ConnectedHandle type="source" position={Position.Right} id="out" className="canvas-handle canvas-handle-image" />
       </div>
@@ -267,10 +129,12 @@ export function ImageCanvasNode({ id, data, selected }: NodeProps<CanvasNode>) {
 
 export function VideoCanvasNode({ id, data, selected }: NodeProps<CanvasNode>) {
   const openPreview = useContext(CanvasMediaPreviewContext)
-  const { updateCover } = useContext(CanvasNodeActionsContext)
+  const actions = useContext(CanvasNodeActionsContext)
+  const { updateCover } = actions
   const url = data.url ?? ""
   const cover = readCanvasCover(data)
   const [loadFailed, setLoadFailed] = useState(false)
+  const [duration, setDuration] = useState<number | null>(null)
   useEffect(() => { setLoadFailed(false) }, [url])
   useEffect(() => {
     if (!url || cover) return
@@ -315,19 +179,23 @@ export function VideoCanvasNode({ id, data, selected }: NodeProps<CanvasNode>) {
             aria-label={data.label || "画布视频"}
             draggable={false}
             onError={() => setLoadFailed(true)}
+            onLoadedMetadata={(event) => setDuration(event.currentTarget.duration)}
           />
         ) : (
           <div className="canvas-image-placeholder">
-            {loadFailed ? <TriangleAlert size={28} /> : <Video size={28} />}
-            <span>{loadFailed ? "素材无法加载" : data.label || "视频占位"}</span>
+            {loadFailed ? <TriangleAlert size={28} /> : data.pendingGeneratorId ? <LoaderCircle size={24} className="animate-spin" /> : <Video size={28} />}
+            <span>{loadFailed ? "素材无法加载" : data.pendingGeneratorId ? "等待生成" : "尚未选择视频"}</span>
             {loadFailed ? <small>地址可能已过期</small> : data.pendingGeneratorId ? <small>等待上游生成完成，自动填入</small> : null}
           </div>
         )}
         </div>
-        {data.caption ? <div className="canvas-media-caption" title={data.caption}>{data.caption}</div> : null}
+        {!playable && !data.pendingGeneratorId ? <div className="canvas-media-empty-actions nodrag nopan">
+          {!loadFailed ? <Button size="small" onClick={() => actions.chooseMedia(id, "video")}>从作品库选择</Button> : null}
+          <Button size="small" onClick={() => actions.openProperties(id)}>{loadFailed ? "查看节点属性" : "填写视频地址"}</Button>
+        </div> : <div className="canvas-media-caption" title={data.caption}>{data.caption || "视频"}{playable && canvasMediaTime(duration) ? ` · ${canvasMediaTime(duration)}` : ""}</div>}
         {playable ? (
-          <button
-            type="button"
+          <Button
+            type="text"
             className="canvas-video-play nodrag"
             aria-label="播放视频"
             onPointerDown={(event) => event.stopPropagation()}
@@ -336,8 +204,8 @@ export function VideoCanvasNode({ id, data, selected }: NodeProps<CanvasNode>) {
               openVideo()
             }}
           >
-            <Play size={12} />播放
-          </button>
+            <Play size={22} fill="currentColor" />
+          </Button>
         ) : null}
         <ConnectedHandle type="target" position={Position.Left} id="in" className="canvas-handle canvas-handle-video" />
         <ConnectedHandle type="source" position={Position.Right} id="out" className="canvas-handle canvas-handle-video" />
@@ -378,245 +246,108 @@ export function ArtboardCanvasNode({ id, data, selected }: NodeProps<CanvasNode>
 
 export function GeneratorCanvasNode({ id, data, selected }: NodeProps<CanvasNode>) {
   const { updateNodeData } = useReactFlow()
-  const {
-    modes, modesLoading, disconnectInput, modeFor, liveFor, referenceCountFor, promptInfoFor, issueFor, submit, cancel, insertResult,
-    submitting, refine,
-  } = useContext(CanvasGeneratorContext)
+  const generator = useContext(CanvasGeneratorContext)
   const actions = useContext(CanvasNodeActionsContext)
   const openPreview = useContext(CanvasMediaPreviewContext)
-  const live = liveFor(data.jobId)
+  const live = generator.liveFor(data.jobId)
   const status = live?.status ?? data.jobStatus ?? null
   const result = displayedGeneratorResult(data, live)
   const active = isCanvasJobActive(status)
   const progress = typeof live?.progress === "number" ? Math.max(0, Math.min(100, live.progress)) : null
-  const referenceCount = referenceCountFor(id)
-  const promptInfo = promptInfoFor(id)
-  const issue = issueFor(id)
-  const tone = canvasJobStatusTone(status)
-  const prompt = promptInfo.text
-  const mode = modeFor(data.workflowId)
+  const mode = generator.modeFor(data.workflowId)
+  const kind = mode?.media_type ?? data.resultKind ?? "image"
   const summary = generatorParameterSummary(mode, generatorOptionValues(mode, data.optionValues))
   const history = canvasResultHistory(data)
   const versionIndex = canvasResultVersionIndex(data)
   const resultUrl = result?.url ?? ""
   const [resultFailed, setResultFailed] = useState(false)
-  useEffect(() => { setResultFailed(false) }, [resultUrl])
-
-  const selectVersion = (nextIndex: number) => {
-    const patch = selectCanvasResultVersion(data, nextIndex)
+  const [duration, setDuration] = useState<number | null>(null)
+  useEffect(() => { setResultFailed(false); setDuration(null) }, [resultUrl])
+  const error = live?.error || data.jobError
+  const partialResults = status === "partial" ? live?.results : null
+  const label = !data.label || data.label === "生成" || data.label === "画面生成"
+    ? kind === "video" ? "视频生成" : "图片生成" : data.label
+  const preview = () => {
+    if (result && !resultFailed) openPreview({ url: result.url, label: result.label || label, kind: result.kind })
+  }
+  const selectVersion = (index: number) => {
+    const patch = selectCanvasResultVersion(data, index)
     if (patch) updateNodeData(id, patch)
   }
-
   return (
     <>
-      <NodeResizer
-        isVisible={selected}
-        minWidth={280}
-        minHeight={200}
-        lineClassName={resizeLine}
-        handleClassName={resizeHandle}
-      />
+      <NodeResizer isVisible={selected} minWidth={280} minHeight={200} lineClassName={resizeLine} handleClassName={resizeHandle} />
       <NodeFloatingToolbar id={id} type="generator" data={data} selected={selected} />
-      <div
-        className={`canvas-node canvas-node-generator ${selected ? "is-selected" : ""}`}
-        title={result && !resultFailed ? "双击预览生成结果" : undefined}
-        onDoubleClick={result && !resultFailed ? (event) => {
-          event.stopPropagation()
-          openPreview({ url: result.url, label: result.label || data.label, kind: result.kind })
-        } : undefined}
-      >
-        <div className="canvas-node-title"><span className="canvas-node-type-icon is-generator"><Sparkles size={20} /></span><strong title={data.label}>{!data.label || data.label === "生成" ? "画面生成" : data.label}</strong>
-          <span className={`canvas-generator-status is-${tone}`}>
-            {active ? <LoaderCircle size={14} className="animate-spin" /> : <span className="canvas-status-dot" />}
-            {canvasJobStatusLabel(status)}
-          </span>
-        </div>
-
-        <div className="canvas-generator-body nowheel">
-        <div className="canvas-node-workflow-field">
-          <label htmlFor={`canvas-node-workflow-${id}`}>{mode?.media_type === "video" ? "视频工作流" : "图像工作流"}</label>
-          <Select
-            id={`canvas-node-workflow-${id}`}
-            aria-label="节点生成工作流"
-            className="nodrag nopan"
-            classNames={{ popup: { root: "canvas-select-popup" } }}
-            value={mode?.id}
-            placeholder="选择工作流"
-            loading={modesLoading}
-            disabled={active || submitting(id)}
-            options={modes.map((item) => ({ value: item.id, label: item.name }))}
-            onChange={(value) => updateNodeData(id, canvasWorkflowChangePatch(value, modes.find((item) => item.id === value) ?? null))}
-          />
-        </div>
-        {result ? (
-          <div className="canvas-generator-result">
-            {resultFailed ? (
-              <div className="canvas-generator-media-error">
-                <TriangleAlert size={20} />
-                <span>结果素材无法加载</span>
-                <small>可能已过期，可在属性面板核对来源任务</small>
-              </div>
+      <div className="canvas-generator-shell">
+        <div className={`canvas-node canvas-node-generator ${selected ? "is-selected" : ""}`} title={result && !resultFailed ? "双击预览生成结果" : undefined}
+          onDoubleClick={(event) => { event.stopPropagation(); preview() }}>
+          <div className="canvas-node-title">
+            <span className="canvas-node-type-icon is-generator">{kind === "video" ? <Video size={15} /> : <ImageIcon size={15} />}</span>
+            <strong title={label}>{label}</strong>
+            <span className={`canvas-generator-status is-${status === "partial" ? "warning" : canvasJobStatusTone(status)}`}>
+              {active && status !== "awaiting_refine" ? <LoaderCircle size={12} className="animate-spin" /> : <span className="canvas-status-dot" />}
+              {canvasJobStatusLabel(status)}{status === "partial" && live?.requestedCount ? ` ${live.completedCount}/${live.requestedCount}` : ""}
+            </span>
+          </div>
+          <div className="canvas-generator-media">
+            {partialResults?.length ? <div className="canvas-partial-results" aria-label="部分完成的生成结果">
+              {Array.from({ length: Math.min(4, live?.requestedCount || partialResults.length) }, (_, index) => {
+                const entry = partialResults[index]
+                return entry ? <Button type="text" key={index} className={`canvas-partial-result${result?.url === entry.url ? " is-selected" : ""}`} aria-label={`查看已完成结果 ${index + 1}`}
+                  onClick={() => selectVersion(history.findIndex((version) => version.url === entry.url))}
+                  onDoubleClick={(event) => { event.stopPropagation(); openPreview({ url: entry.url, kind: entry.kind, label: entry.label }) }}>
+                  {entry.kind === "video" ? <video src={entry.url} muted preload="metadata" /> : <img src={entry.url} alt={`已完成结果 ${index + 1}`} />}
+                  <span className="canvas-partial-result-status">已完成</span>
+                </Button> : <div key={index} className="canvas-partial-result is-failed"><ImageIcon size={22} /><span>生成失败</span></div>
+              })}
+            </div> : result ? resultFailed ? (
+              <div className="canvas-generator-empty is-error"><TriangleAlert size={26} /><strong>结果素材无法加载</strong><small>可能已过期，可在属性中核对来源任务</small></div>
             ) : result.kind === "video" ? (
-              <video
-                src={result.url}
-                muted
-                loop
-                playsInline
-                preload="metadata"
-                draggable={false}
-                onError={() => setResultFailed(true)}
-              />
-            ) : (
-              <img
-                src={result.url}
-                alt={result.label || "生成结果"}
-                draggable={false}
-                onError={() => setResultFailed(true)}
-              />
-            )}
-            {!resultFailed ? (
-              <span className="canvas-generator-result-hint">
-                {result.kind === "video" ? <Video size={11} /> : <ImageIcon size={11} />}
-                双击预览
-              </span>
-            ) : null}
-            {history.length > 1 ? (
-              <div className="canvas-result-version-switch nodrag nopan" onPointerDown={(event) => event.stopPropagation()}>
-                <Button
-                  size="small"
-                  type="text"
-                  className="canvas-result-version-button"
-                  icon={<ChevronLeft size={12} />}
-                  aria-label="上一个生成版本"
-                  disabled={versionIndex <= 0}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    selectVersion(versionIndex - 1)
-                  }}
-                />
-                <span>{versionIndex + 1}/{history.length}</span>
-                <Button
-                  size="small"
-                  type="text"
-                  className="canvas-result-version-button"
-                  icon={<ChevronRight size={12} />}
-                  aria-label="下一个生成版本"
-                  disabled={versionIndex >= history.length - 1}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    selectVersion(versionIndex + 1)
-                  }}
-                />
+              <video src={result.url} muted playsInline preload="metadata" draggable={false} onError={() => setResultFailed(true)} onLoadedMetadata={(event) => setDuration(event.currentTarget.duration)} />
+            ) : <img src={result.url} alt={result.label || "生成结果"} draggable={false} onError={() => setResultFailed(true)} /> : (
+              <div className={`canvas-generator-empty${status === "failed" ? " is-error" : ""}`}>
+                {status === "failed" ? <TriangleAlert size={28} /> : active ? <LoaderCircle size={27} className="animate-spin" /> : kind === "video" ? <Video size={30} /> : <ImageIcon size={30} />}
+                <strong>{status === "queued" ? "正在等待处理" : status === "running" ? "正在生成" : status === "awaiting_refine" ? "等待一采预览" : status === "failed" ? "生成未完成，请重试" : status === "cancelled" || status === "interrupted" ? canvasJobStatusLabel(status) : "待生成"}</strong>
+                {!active && status !== "failed" ? <small>{selected ? "在下方填写提示词并生成" : "选中节点，开始创作"}</small> : null}
               </div>
-            ) : null}
+            )}
+            {result && result.kind === "video" && !resultFailed ? <Button type="text" className="canvas-generator-play nodrag nopan" aria-label="播放生成视频" icon={<Play size={22} fill="currentColor" />} onClick={preview} /> : null}
+            {result && canvasMediaTime(duration) ? <span className="canvas-media-time">{canvasMediaTime(duration)}</span> : null}
+            {active && status !== "awaiting_refine" ? <div className="canvas-media-progress">
+              <span>{status === "queued" ? "排队中" : `生成中${progress === null ? "" : ` ${Math.round(progress)}%`}`}{result ? " · 当前显示历史结果" : ""}</span>
+              <div className="canvas-generator-progress" role="progressbar" aria-label="生成进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress ?? undefined}>
+                <span className={progress === null ? "is-indeterminate" : undefined} style={{ width: `${progress === null ? 12 : progress}%` }} />
+              </div>
+            </div> : null}
           </div>
-        ) : (
-          <div className="canvas-node-prompt-field nowheel">
-            <label htmlFor={`canvas-generator-prompt-${id}`}>提示词</label>
-            <Input.TextArea
-              className="canvas-generator-prompt-input nodrag nopan"
-              id={`canvas-generator-prompt-${id}`}
-              aria-label={promptInfo.fromTextNodes ? "来自文字节点的提示词" : "生成提示词"}
-              value={promptInfo.fromTextNodes ? prompt : data.prompt ?? ""}
-              readOnly={promptInfo.fromTextNodes}
-              disabled={active}
-              rows={4}
-              maxLength={4000}
-              showCount
-              placeholder="描述画面、镜头与动作…"
-              onChange={(event) => updateNodeData(id, { prompt: event.target.value })}
-              onPointerDown={(event) => event.stopPropagation()}
-            />
+          <div className="canvas-generator-footer nodrag nopan" onPointerDown={(event) => event.stopPropagation()}>
+            {history.length > 1 ? <div className="canvas-generator-versions" aria-label="生成结果版本">
+              <Button type="text" size="small" icon={<ChevronLeft size={12} />} aria-label="上一个生成版本" disabled={versionIndex <= 0} onClick={() => selectVersion(versionIndex - 1)} />
+              <span>{versionIndex + 1} / {history.length}</span>
+              <div className="canvas-generator-version-thumbnails">
+                {history.map((entry, index) => <Button type="text" key={`${entry.url}-${index}`} className={index === versionIndex ? "is-active" : ""} aria-label={`查看生成版本 ${index + 1}`} aria-pressed={index === versionIndex} onClick={() => selectVersion(index)}>
+                  {entry.kind === "image" ? <img src={entry.url} alt={`版本 ${index + 1}`} loading="lazy" draggable={false} /> : <Video size={14} />}
+                </Button>)}
+              </div>
+              <Button type="text" size="small" icon={<ChevronRight size={12} />} aria-label="下一个生成版本" disabled={versionIndex >= history.length - 1} onClick={() => selectVersion(versionIndex + 1)} />
+            </div> : <span className="canvas-generator-summary" title={summary.join(" · ")}>{mode?.name || "选择工作流"}{summary.length ? ` · ${summary.join(" · ")}` : ""}</span>}
+            {result ? <div className="canvas-generator-result-actions">
+              <Tooltip title="插入结果"><Button type="text" size="small" icon={<Plus size={14} />} aria-label="插入生成结果" onClick={() => generator.insertResult(id, "right")} /></Tooltip>
+              <Tooltip title="下载素材"><Button type="text" size="small" icon={<Download size={14} />} aria-label="下载生成结果" onClick={() => actions.downloadNode(id)} /></Tooltip>
+            </div> : null}
+            {error && !active ? <Tooltip title={error}><Button type="text" size="small" className="canvas-generator-error-link" onClick={() => actions.openProperties(id)}>查看错误详情</Button></Tooltip> : null}
           </div>
-        )}
-
-        {result && prompt ? <p className="canvas-generator-prompt-caption">{prompt}</p> : null}
-
-        <div className="canvas-generator-meta" title={summary.join(" · ")}>
-          {referenceCount ? <Tag className="nodrag nopan" closable={!active && !submitting(id)} icon={<ImageIcon size={18} />} onClose={(event) => { event.preventDefault(); disconnectInput(id, "image") }} title={`按连线顺序对应 ${canvasPictureToken(1)} 至 ${canvasPictureToken(referenceCount)}`}>{referenceCount} 张参考</Tag> : <Tag className="nodrag nopan" icon={<ImageIcon size={18} />}>连接参考图</Tag>}
-          {promptInfo.fromTextNodes ? <Tag className="nodrag nopan" closable={!active && !submitting(id)} icon={<Type size={18} />} onClose={(event) => { event.preventDefault(); disconnectInput(id, "text") }}>文字已连接</Tag> : null}
+          {status === "awaiting_refine" && !selected ? <div className="canvas-generator-refine-actions nodrag nopan">
+            <Button type="primary" size="small" loading={generator.submitting(id)} onClick={() => generator.refine(id, "confirm")}>确认二采</Button>
+            <Button size="small" disabled={generator.submitting(id)} onClick={() => generator.refine(id, "skip")}>保留一采</Button>
+          </div> : null}
+          <ConnectedHandle type="target" position={Position.Left} id="prompt" className="canvas-handle canvas-handle-text canvas-prompt-handle" title="提示词输入" />
+          <ConnectedHandle type="target" position={Position.Left} id="in" className="canvas-handle canvas-handle-image canvas-reference-handle" title="参考图输入" />
+          <ConnectedHandle type="source" position={Position.Right} id="out" className={`canvas-handle canvas-handle-${kind === "video" ? "video" : "generator"}`} />
         </div>
-
-        {!active && issue ? (
-          <span className="canvas-generator-warning" title={issue}>
-            <TriangleAlert size={11} />{issue}
-          </span>
-        ) : null}
-
-        {active ? (
-          <div
-            className="canvas-generator-progress"
-            role="progressbar"
-            aria-label="生成进度"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={progress ?? 0}
-          >
-            <span
-              className={progress === null ? "is-indeterminate" : undefined}
-              style={{ width: `${progress === null ? 8 : Math.max(4, progress)}%` }}
-            />
-          </div>
-        ) : null}
-
-        {!active && data.jobError ? (
-          <span className="canvas-generator-error" title={data.jobError}>{data.jobError}</span>
-        ) : null}
-
-        </div>
-        <div className="canvas-generator-actions nodrag nopan">
-          <Tooltip title="生成设置"><Button className="canvas-generator-settings" aria-label="生成设置" icon={<Settings size={22} />} onClick={() => actions.openProperties(id)} /></Tooltip>
-
-          {active ? (
-            <Button
-              size="small"
-              danger
-              loading={submitting(id)}
-              icon={<Square size={12} />}
-              onClick={() => cancel(id)}
-            >
-              停止
-            </Button>
-          ) : (
-            <Button
-              size="small"
-              type="primary"
-              icon={<Sparkles size={22} />}
-              loading={submitting(id)}
-              disabled={Boolean(issue)}
-              title={issue ?? undefined}
-              onClick={() => submit(id)}
-            >
-              {result ? "重新生成" : "生成"}
-            </Button>
-          )}
-          {status === "awaiting_refine" ? (
-            <Dropdown trigger={["click"]} disabled={submitting(id)} menu={{ items: [
-              { key: "confirm", label: "确认二采" }, { key: "skip", label: "保留一采" },
-            ], onClick: ({ key }) => refine(id, key === "confirm" ? "confirm" : "skip") }}>
-              <Button size="small" type="primary" loading={submitting(id)}>确认预览<ChevronDown size={12} /></Button>
-            </Dropdown>
-          ) : null}
-          {result ? (
-            <Button
-              size="small"
-              type="text"
-              icon={<Plus size={13} />}
-              onClick={() => insertResult(id, "right")}
-            >
-              插入
-            </Button>
-          ) : null}
-        </div>
-
-        <ConnectedHandle type="target" position={Position.Left} id="prompt" className="canvas-handle canvas-handle-text canvas-prompt-handle" />
-        <ConnectedHandle type="target" position={Position.Left} id="in" className="canvas-handle canvas-handle-image canvas-reference-handle" />
-        <ConnectedHandle
-          type="source"
-          position={Position.Right}
-          id="out"
-          className={`canvas-handle canvas-handle-${data.resultKind === "video" ? "video" : "generator"}`}
-        />
+        {selected ? <NodeToolbar position={Position.Bottom} offset={12} isVisible className="canvas-composer-anchor">
+          <CanvasGeneratorComposer id={id} data={data} generator={generator} actions={actions} />
+        </NodeToolbar> : null}
       </div>
     </>
   )

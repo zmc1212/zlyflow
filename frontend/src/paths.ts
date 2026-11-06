@@ -12,8 +12,28 @@ export const PATHS = {
   generateImage: "/generate/image",
   generateVideo: "/generate/video",
   tools: "/tools",
+  inspiration: "/inspiration",
   toolPromptReverse: "/tools/prompt-reverse",
   toolMotionTransfer: "/tools/motion-transfer",
+  toolCharacterReplace: "/tools/character-replace",
+  toolFaceSwap: "/tools/face-swap",
+  toolPartialRetake: "/tools/partial-retake",
+  toolKeyframeNarrative: "/tools/keyframe-narrative",
+  toolActionShot: "/tools/action-shot",
+  toolDepthCapture: "/tools/depth-capture",
+  toolVideoEdit: "/tools/video-edit",
+  toolVideoUpscale: "/tools/video-upscale",
+  toolFaceRestore: "/tools/face-restore",
+  toolStemSplit: "/tools/stem-split",
+  toolDigitalHuman: "/tools/digital-human",
+  toolLipSync: "/tools/lip-sync",
+  toolImageBgRemove: "/tools/image-bg-remove",
+  toolImageBgRemoveEditor: "/tools/image-bg-remove/editor",
+  toolImageLayerSplit: "/tools/image-layer-split",
+  toolPhotoEdit: "/tools/photo-edit",
+  toolImageInpaint: "/tools/image-inpaint",
+  toolImageEraser: "/tools/image-eraser",
+  toolImageOutpaint: "/tools/image-outpaint",
   director: "/director",
   director2: "/director2",
   canvas: "/canvas",
@@ -38,6 +58,8 @@ export const ROUTE_PATTERNS = {
   directorProjectMenu: "/director/projects/:projectId/:menu",
   directorProjectEpisode: "/director/projects/:projectId/workshop/:episodeId",
   directorProjectEdit: "/director/projects/:projectId/edit/:episodeId",
+  directorFeatured: "/director/featured/:featuredId",
+  directorFeaturedProcess: "/director/featured/:featuredId/process",
   director2: "/director2",
   director2Splat: "/director2/*",
   canvasProject: "/canvas/:canvasId",
@@ -60,14 +82,36 @@ export const STUDIO_ROUTE_PATHS = [
   PATHS.generateVideo,
   ROUTE_PATTERNS.generateVideoJob,
   PATHS.tools,
+  PATHS.inspiration,
   PATHS.toolPromptReverse,
   PATHS.toolMotionTransfer,
+  PATHS.toolCharacterReplace,
+  PATHS.toolFaceSwap,
+  PATHS.toolPartialRetake,
+  PATHS.toolKeyframeNarrative,
+  PATHS.toolActionShot,
+  PATHS.toolDepthCapture,
+  PATHS.toolVideoEdit,
+  PATHS.toolVideoUpscale,
+  PATHS.toolFaceRestore,
+  PATHS.toolStemSplit,
+  PATHS.toolDigitalHuman,
+  PATHS.toolLipSync,
+  PATHS.toolImageBgRemove,
+  PATHS.toolImageBgRemoveEditor,
+  PATHS.toolImageLayerSplit,
+  PATHS.toolPhotoEdit,
+  PATHS.toolImageInpaint,
+  PATHS.toolImageEraser,
+  PATHS.toolImageOutpaint,
   ROUTE_PATTERNS.directorBatch,
   ROUTE_PATTERNS.directorReplication,
   ROUTE_PATTERNS.directorProject,
   ROUTE_PATTERNS.directorProjectMenu,
   ROUTE_PATTERNS.directorProjectEpisode,
   ROUTE_PATTERNS.directorProjectEdit,
+  ROUTE_PATTERNS.directorFeatured,
+  ROUTE_PATTERNS.directorFeaturedProcess,
   PATHS.director,
   PATHS.canvas,
   ROUTE_PATTERNS.canvasProject,
@@ -86,7 +130,7 @@ export type LoginRedirectState = {
   from?: Pick<Location, "pathname" | "search" | "hash">
 }
 
-export type StudioWorkspace = "generate" | "tools" | "director" | "canvas" | "assets"
+export type StudioWorkspace = "generate" | "inspiration" | "tools" | "director" | "canvas" | "assets"
 export type GenerateMediaType = "image" | "video"
 
 const DIRECTOR_LEGACY_STUDIO_SEGMENTS = new Set(["batch", "replication"])
@@ -98,6 +142,7 @@ export function generateJobPath(mediaType: GenerateMediaType, jobId?: string) {
 
 export function studioWorkspaceFromPath(pathname: string): StudioWorkspace {
   if (pathname === PATHS.assets) return "assets"
+  if (pathname === PATHS.inspiration) return "inspiration"
   if (pathname === PATHS.tools || pathname.startsWith(`${PATHS.tools}/`)) return "tools"
   if (pathname === PATHS.canvas || pathname.startsWith(`${PATHS.canvas}/`)) return "canvas"
   if (pathname === PATHS.director || pathname.startsWith(`${PATHS.director}/`)) return "director"

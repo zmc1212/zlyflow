@@ -38,20 +38,15 @@ from backend.app.skill_packs.handlers import (
     build_timestamped_zh_author_user,
     collect_zh_author_image_urls,
     extract_ref2va_prompt,
-    extract_triptych_panels,
     fill_timestamped_zh_prompt,
-    generate_shot_triptych,
     inject_craft_text,
     parse_dual_author_output,
     polish_ref2va,
-    slot_contains_full_triptych,
     validate_timestamped_zh_prompt,
     write_timestamped_zh_prompt,
 )
 from backend.app.skill_packs.recipe import PACKS_ROOT, default_recipe, load_recipe_file, reset_pack_cache
-from backend.app.skill_packs.triptych import split_triptych_image
 from backend.app.skill_packs.yaml_util import parse_yaml
-from backend.app.media_studio.services.storyboard_image_service import StoryboardImageService
 from backend.app.vision_runtime import VisionCallMeta
 
 
@@ -64,8 +59,6 @@ class SkillPackRegistryTests(unittest.TestCase):
         self.assertEqual([], unknown)
         self.assertEqual(
             (
-                "generate_shot_triptych",
-                "extract_triptych_panels",
                 "write_timestamped_zh_prompt",
                 "polish_ref2va",
                 "bind_r2v_slots",
@@ -80,7 +73,7 @@ class SkillPackRegistryTests(unittest.TestCase):
         self.assertEqual(15, recipe.confirm_format.get("duration_max"))
         self.assertEqual("user-confirmed", recipe.confirm_format.get("resolution"))
         self.assertEqual(
-            ("characters", "scene", "triptych.start", "triptych.mid", "triptych.end"),
+            ("characters", "scene"),
             tuple(item.source for item in recipe.r2v_slots),
         )
         self.assertIn("真人短剧", recipe.summary)
@@ -209,86 +202,51 @@ class SkillPackPackingPromptTests(unittest.TestCase):
         self.assertNotEqual("skeleton", beat_info.get("timestamped_zh_fallback"))
         self.assertFalse(str(beat_info.get("timestamped_zh_prompt") or "").strip())
 
-    def test_bind_r2v_slots_skips_full_triptych(self):
+    def test_r2v_slot_plan_orders_identity_then_scene_and_caps_at_nine(self):
         recipe = get_pack(HALF_NARRATED_PACK_ID)
-        beat = {
-            "characters": [{"id": "c1", "name": "沈砚", "url": "https://x/char.png"}],
-            "scene": "出租屋",
-            "triptych_url": "https://x/triptych.png",
-            "triptych_panels": {"start": "https://x/start.png", "mid": "https://x/mid.png", "end": "https://x/end.png"},
-        }
-        slots = bind_r2v_slot_images(recipe, beat, [])
-        sources = [item["source"] for item in slots]
-        self.assertIn("characters", sources)
-        self.assertIn("scene", sources)
-        self.assertIn("triptych.start", sources)
-        self.assertIn("triptych.mid", sources)
-        self.assertIn("triptych.end", sources)
-        self.assertNotIn("triptych", sources)
-        char_slot = next(item for item in slots if item["source"] == "characters")
-        self.assertIn("设定板分格", char_slot["label"])
-        self.assertIn("发型", char_slot["label"])
-        self.assertFalse(slot_contains_full_triptych(slots, "https://x/triptych.png"))
-        self.assertEqual("https://x/start.png", next(item["url"] for item in slots if item["source"] == "triptych.start"))
-        self.assertEqual("https://x/mid.png", next(item["url"] for item in slots if item["source"] == "triptych.mid"))
-        self.assertEqual("https://x/end.png", next(item["url"] for item in slots if item["source"] == "triptych.end"))
-        start_label = next(item["label"] for item in slots if item["source"] == "triptych.start")
-        self.assertIn("00:00", start_label)
-        self.assertIn("时间路标", start_label)
-        self.assertTrue(all(item.get("url") != "https://x/triptych.png" for item in slots))
+        assets = [{"id": "s1", "name": "走廊", "extra": {"master_url": "https://x/scene.png"}}]
+        six = [{"id": f"c{i}", "name": f"角色{i}", "url": f"https://x/c{i}.png"} for i in range(6)]
+        six_slots = bind_r2v_slot_images(
+            recipe,
+            {"characters": six, "scene": "走廊", "scene_id": "s1"},
+            assets,
+        )
+        self.assertEqual(7, len(six_slots))
+        self.assertEqual(list(range(1, 8)), [item["index"] for item in six_slots])
+        self.assertEqual(["characters"] * 6 + ["scene"], [item["source"] for item in six_slots])
+        self.assertEqual("https://x/c0.png", six_slots[0]["url"])
+        self.assertEqual("https://x/scene.png", six_slots[-1]["url"])
+        char_label = six_slots[0]["label"]
+        self.assertIn("设定板分格", char_label)
+        self.assertIn("发型", char_label)
+        self.assertIn("不锁站位", six_slots[-1]["label"])
+        twelve = [{"id": f"c{i}", "name": f"角色{i}", "url": f"https://x/c{i}.png"} for i in range(12)]
+        capped = bind_r2v_slot_images(
+            recipe,
+            {"characters": twelve, "scene": "走廊", "scene_id": "s1"},
+            assets,
+        )
+        self.assertEqual(9, len(capped))
+        self.assertEqual(list(range(1, 10)), [item["index"] for item in capped])
+        self.assertEqual(["characters"] * 9, [item["source"] for item in capped])
 
-    def test_bind_r2v_skips_empty_or_master_panel_urls(self):
+    def test_r2v_slot_urls_only_keep_public_http_images(self):
         recipe = get_pack(HALF_NARRATED_PACK_ID)
         slots = bind_r2v_slot_images(
             recipe,
             {
-                "characters": [{"id": "c1", "name": "沈砚", "url": "https://x/char.png"}],
+                "characters": [
+                    {"id": "c1", "name": "沈砚", "url": "/uploads/char.png"},
+                    {"id": "c2", "name": "吴耐", "url": "https://x/wu.png"},
+                ],
                 "scene": "出租屋",
-                "triptych_url": "https://x/triptych.png",
-                "triptych_panels": {
-                    "start": "https://x/start.png",
-                    "mid": "https://x/triptych.png",
-                    "end": "",
-                },
             },
             [],
         )
-        sources = [item["source"] for item in slots]
-        self.assertIn("triptych.start", sources)
-        self.assertNotIn("triptych.mid", sources)
-        self.assertNotIn("triptych.end", sources)
+        self.assertEqual(3, len(slots))
+        self.assertEqual(["", "https://x/wu.png", ""], [item["url"] for item in slots])
 
-    def test_r2v_drops_mid_before_end_when_slots_exceed_nine(self):
-        recipe = get_pack(HALF_NARRATED_PACK_ID)
-        six = [{"id": f"c{i}", "name": f"角色{i}", "url": f"https://x/c{i}.png"} for i in range(6)]
-        seven = six + [{"id": "c6", "name": "角色6", "url": "https://x/c6.png"}]
-        panels = {
-            "start": "https://x/start.png",
-            "mid": "https://x/mid.png",
-            "end": "https://x/end.png",
-        }
-        six_slots = bind_r2v_slot_images(
-            recipe,
-            {"characters": six, "scene": "走廊", "triptych_url": "https://x/triptych.png", "triptych_panels": panels},
-            [],
-        )
-        six_sources = [item["source"] for item in six_slots]
-        self.assertEqual(9, len(six_slots))
-        self.assertIn("triptych.start", six_sources)
-        self.assertNotIn("triptych.mid", six_sources)
-        self.assertIn("triptych.end", six_sources)
-        seven_slots = bind_r2v_slot_images(
-            recipe,
-            {"characters": seven, "scene": "走廊", "triptych_url": "https://x/triptych.png", "triptych_panels": panels},
-            [],
-        )
-        seven_sources = [item["source"] for item in seven_slots]
-        self.assertEqual(9, len(seven_slots))
-        self.assertIn("triptych.start", seven_sources)
-        self.assertNotIn("triptych.mid", seven_sources)
-        self.assertNotIn("triptych.end", seven_sources)
-
-    def test_zh_author_images_keep_full_triptych(self):
+    def test_zh_author_images_return_only_identity_and_scene_urls(self):
         recipe = get_pack(HALF_NARRATED_PACK_ID)
         urls = collect_zh_author_image_urls(
             recipe,
@@ -296,22 +254,16 @@ class SkillPackPackingPromptTests(unittest.TestCase):
                 "characters": [{"id": "c1", "name": "沈砚", "url": "https://x/char.png"}],
                 "scene": "出租屋",
                 "scene_id": "s1",
-                "triptych_url": "https://x/triptych.png",
-                "triptych_panels": {
-                    "start": "https://x/start.png",
-                    "mid": "https://x/mid.png",
-                    "end": "https://x/end.png",
-                },
             },
             [
                 {"id": "c1", "name": "沈砚", "extra": {"avatar_url": "https://x/char.png"}},
                 {"id": "s1", "name": "出租屋", "extra": {"master_url": "https://x/scene.png"}},
             ],
         )
-        self.assertIn("https://x/char.png", urls)
-        self.assertIn("https://x/scene.png", urls)
-        self.assertIn("https://x/triptych.png", urls)
-        self.assertNotIn("https://x/start.png", urls)
+        self.assertEqual(["https://x/char.png", "https://x/scene.png"], urls)
+        many = [{"id": f"c{i}", "name": f"角色{i}", "url": f"https://x/c{i}.png"} for i in range(12)]
+        capped_urls = collect_zh_author_image_urls(recipe, {"characters": many, "scene": "走廊"}, [])
+        self.assertEqual([f"https://x/c{i}.png" for i in range(8)], capped_urls)
 
     def test_official_h3_template_fill_starts_at_zero_and_uses_pictures(self):
         recipe = get_pack(HALF_NARRATED_PACK_ID)
@@ -326,7 +278,6 @@ class SkillPackPackingPromptTests(unittest.TestCase):
                 "duration_seconds": 8,
                 "characters": [{"id": "c1", "name": "沈砚", "url": "https://x/char.png"}],
                 "scene": "出租屋",
-                "triptych_panels": {"start": "https://x/start.png"},
             },
             [],
             recipe.reference_text("h3-video-prompt-template.md"),
@@ -348,7 +299,10 @@ class SkillPackPackingPromptTests(unittest.TestCase):
         self.assertIn("画面要求", text)
         self.assertIn("负向约束", text)
         self.assertRegex(text, r"00:00\s*[–\-]\s*00:")
-        self.assertIn("不要把整张三联参考图送进本地 H3", text)
+        self.assertIn("参考图只有角色卡与场景卡，禁止引用没有上传的构图裁切", text)
+        self.assertIn("成片必须是单一 9:16，不许分栏", text)
+        self.assertIn("单一 9:16 成片画幅，运镜在同一镜内连续完成", text)
+        self.assertNotIn("三联", text)
         self.assertIn("本镜无第三人称旁白", text)
         self.assertIn("（开口）：你好。", text)
         self.assertIn("不要用内心或开口句充数", recipe.reference_text("h3-video-prompt-template.md"))
@@ -365,80 +319,11 @@ class SkillPackPackingPromptTests(unittest.TestCase):
                     "characters": [{"id": "c1", "name": "沈砚", "url": "https://x/char.png"}],
                     "scene": "出租屋",
                     "scene_id": "s1",
-                    "triptych_panels": {"start": "https://x/start.png"},
                     "assets": [
                         {"id": "c1", "name": "沈砚", "extra": {"avatar_url": "https://x/char.png"}},
                         {"id": "s1", "name": "出租屋", "extra": {"master_url": "https://x/scene.png"}},
                     ],
                 })
-
-    def test_extract_triptych_panels_from_bytes_without_upload(self):
-        import io
-
-        from PIL import Image
-
-        image = Image.new("RGB", (30, 10), (0, 0, 0))
-        for x in range(10):
-            image.putpixel((x, 0), (255, 0, 0))
-            image.putpixel((x + 10, 0), (0, 255, 0))
-            image.putpixel((x + 20, 0), (0, 0, 255))
-        panels = split_triptych_image(image)
-        self.assertEqual((10, 10), panels["start"].size)
-        self.assertEqual((10, 10), panels["mid"].size)
-        self.assertEqual((10, 10), panels["end"].size)
-        self.assertEqual((255, 0, 0), panels["start"].getpixel((0, 0)))
-        buffer = io.BytesIO()
-        image.save(buffer, format="JPEG", quality=95)
-        ctx = StepContext(recipe=get_pack(HALF_NARRATED_PACK_ID), beat={"id": "b1"})
-        ctx.data["triptych_bytes"] = buffer.getvalue()
-        ctx.options["store_panels"] = False
-        extract_triptych_panels(ctx)
-        stored = ctx.beat_updates["triptych_panels"]
-        self.assertTrue(stored["start"].startswith("memory:start:"))
-        self.assertTrue(stored["mid"].startswith("memory:mid:"))
-        self.assertTrue(stored["end"].startswith("memory:end:"))
-
-    def test_extract_triptych_panels_recrops_when_mid_or_end_missing(self):
-        ctx = StepContext(
-            recipe=get_pack(HALF_NARRATED_PACK_ID),
-            beat={
-                "id": "b1",
-                "triptych_url": "https://x/triptych.png",
-                "triptych_panels": {"start": "https://x/start.png"},
-            },
-        )
-        ctx.options["store_panels"] = False
-        with patch(
-            "backend.app.skill_packs.handlers.split_triptych_url",
-            return_value={"start": b"aaa", "mid": b"bbbb", "end": b"ccccc"},
-        ) as split:
-            extract_triptych_panels(ctx)
-        split.assert_called_once_with("https://x/triptych.png")
-        stored = ctx.beat_updates["triptych_panels"]
-        self.assertTrue(stored["mid"].startswith("memory:mid:"))
-        self.assertTrue(stored["end"].startswith("memory:end:"))
-
-    @patch("backend.app.media_studio.services.storyboard_image_service.StoryboardImageService.enqueue")
-    def test_generate_shot_triptych_enqueues_16x9_stage(self, enqueue):
-        enqueue.return_value = {"job_id": "job-triptych", "beat_id": "b1", "status": "queued"}
-        ctx = StepContext(
-            recipe=get_pack(HALF_NARRATED_PACK_ID),
-            project_id="p1",
-            episode_id="e1",
-            beat_id="b1",
-            beat={"id": "b1", "character_ids": ["c1"], "scene": "出租屋", "scene_id": "s1"},
-        )
-        ctx.options["enqueue_images"] = True
-        generate_shot_triptych(ctx)
-        enqueue.assert_called_once()
-        self.assertEqual("triptych", enqueue.call_args.args[4])
-        self.assertEqual("job-triptych", ctx.beat_updates["triptych_job_id"])
-
-    def test_storyboard_canvas_and_stage_guard(self):
-        self.assertEqual(("16:9", "2K", 2048, 1152), StoryboardImageService._stage_canvas("triptych"))
-        self.assertEqual(("2:3", "1K", 768, 1152), StoryboardImageService._stage_canvas("sketch"))
-        with self.assertRaisesRegex(ValueError, "sketch、render 或 triptych"):
-            StoryboardImageService.enqueue("p", "e", "b", {}, "nope")
 
 
 def _shot2_author_zh() -> str:
@@ -449,9 +334,6 @@ def _shot2_author_zh() -> str:
 - <Picture 1> 吴耐角色卡，提供身份与外形连续性（只锁脸、发型和服装，不锁姿势；禁止把设定板分格、白底或重复小人带进镜头）
 - <Picture 2> 沙丽丽角色卡，提供身份与外形连续性（只锁脸、发型和服装，不锁姿势；禁止把设定板分格、白底或重复小人带进镜头）
 - <Picture 3> 电梯场景卡，提供环境空间（不锁站位）
-- <Picture 4> 镜头2起幅（三联左格 9:16 裁切），同一镜 00:00 构图锚；这是时间路标不是新人物；禁止分栏、禁止把三格同时摆进画面、禁止把 16:9 母图当参考图
-- <Picture 5> 镜头2中格（三联中格 9:16 裁切），同一镜主动作时段构图路标；不是新人物；成片始终单一 9:16
-- <Picture 6> 镜头2结果（三联右格 9:16 裁切），同一镜落幅构图路标；不是新人物；成片始终单一 9:16
 
 必须出现的视觉内容：
 - 轿厢内已站定，不要开门
@@ -474,17 +356,17 @@ def _shot2_author_zh() -> str:
 画面要求：
 - 已在电梯轿厢内站定
 - 真人实拍短剧摄影
-- 用三张 9:16 裁切对齐起幅→主动作→落幅；运镜从整张三联写出
+- 单一 9:16 成片画幅，运镜在同一镜内连续完成
 
 负向约束：
 - 不要插画、CG、文字、水印、美颜滤镜、人物消失、瞬移、反射重影
-- 不要把整张三联参考图送进本地 H3；这三张裁切是时间路标不是新人物；成片必须是单一 9:16，不许分栏、不许把三格同时摆进画面
+- 参考图只有角色卡与场景卡，禁止引用没有上传的构图裁切；成片必须是单一 9:16，不许分栏
 """
 
 
 def _shot2_author_en() -> str:
     return """subject_definitions:
-<Subject 1> is locked by <Picture 1>. <Subject 2> is locked by <Picture 2>. <Subject 3> is the lift anchored by <Picture 3>. <Picture 4> is the start-frame still. <Picture 5> is the same-shot main-action composition landmark. <Picture 6> is the same-shot closing composition landmark.
+<Subject 1> is locked by <Picture 1>. <Subject 2> is locked by <Picture 2>. <Subject 3> is the lift anchored by <Picture 3>.
 summary:
 [Shot 1] Wu Nai waves off the rent while Sha Lili listens, then asks, then covers her chest.
 retention_analysis:
@@ -523,8 +405,6 @@ def _shot2_author_beat() -> dict:
         ],
         "scene": "电梯",
         "scene_id": "s-el",
-        "triptych_url": "https://x/triptych.png",
-        "triptych_panels": {"start": "https://x/start.png", "mid": "https://x/mid.png", "end": "https://x/end.png"},
     }
 
 
@@ -556,8 +436,6 @@ def _shot1_author_beat() -> dict:
         ],
         "scene": "走廊",
         "scene_id": "s-el",
-        "triptych_url": "https://x/triptych.png",
-        "triptych_panels": {"start": "https://x/start.png", "mid": "https://x/mid.png", "end": "https://x/end.png"},
     }
 
 
@@ -573,9 +451,6 @@ def _shot1_wrong_zh() -> str:
 - <Picture 1> 吴耐角色卡
 - <Picture 2> 沙丽丽角色卡
 - <Picture 3> 走廊场景卡
-- <Picture 4> 起幅
-- <Picture 5> 中格
-- <Picture 6> 结果
 
 必须出现的视觉内容：
 - 9楼电梯厅
@@ -619,9 +494,6 @@ def _shot1_fixed_zh() -> str:
 - <Picture 1> 吴耐角色卡
 - <Picture 2> 沙丽丽角色卡
 - <Picture 3> 走廊场景卡
-- <Picture 4> 起幅
-- <Picture 5> 中格
-- <Picture 6> 结果
 
 必须出现的视觉内容：
 - 9楼电梯厅
@@ -659,7 +531,7 @@ def _shot1_wrong_en() -> str:
     spoken_b = "那个，那个房租下个月一定给你。"
     spoken_c = "不用想也知道，做的是什么。"
     return f"""subject_definitions:
-<Picture 1> Wu Nai. <Picture 2> Sha Lili. <Picture 3> corridor. <Picture 4> start. <Picture 5> mid. <Picture 6> end.
+<Picture 1> Wu Nai. <Picture 2> Sha Lili. <Picture 3> corridor.
 summary:
 A 15-second corridor beat.
 retention_analysis:
@@ -689,9 +561,6 @@ def _shot1_tilt_down_inner_zh() -> str:
 - <Picture 1> 吴耐角色卡
 - <Picture 2> 沙丽丽角色卡
 - <Picture 3> 走廊场景卡
-- <Picture 4> 起幅
-- <Picture 5> 中格
-- <Picture 6> 结果
 
 必须出现的视觉内容：
 - 9楼电梯厅
@@ -729,7 +598,7 @@ def _shot1_tilt_down_inner_en() -> str:
     spoken_b = "那个，那个房租下个月一定给你。"
     spoken_c = "不用想也知道，做的是什么。"
     return f"""subject_definitions:
-<Picture 1> Wu Nai. <Picture 2> Sha Lili. <Picture 3> corridor. <Picture 4> start. <Picture 5> mid. <Picture 6> end.
+<Picture 1> Wu Nai. <Picture 2> Sha Lili. <Picture 3> corridor.
 summary:
 A 15-second corridor beat.
 retention_analysis:
@@ -752,7 +621,7 @@ def _shot1_fixed_en() -> str:
     spoken_b = "那个，那个房租下个月一定给你。"
     spoken_c = "不用想也知道，做的是什么。"
     return f"""subject_definitions:
-<Picture 1> Wu Nai. <Picture 2> Sha Lili. <Picture 3> corridor. <Picture 4> start. <Picture 5> mid. <Picture 6> end.
+<Picture 1> Wu Nai. <Picture 2> Sha Lili. <Picture 3> corridor.
 summary:
 A 15-second corridor beat.
 retention_analysis:
@@ -798,7 +667,7 @@ class SkillPackZhAuthorTests(unittest.TestCase):
         with patch.object(
             LlmService,
             "_complete_zh_author",
-            return_value=(_shot2_author_raw(), VisionCallMeta(status="unavailable", model="7b", image_count=4)),
+            return_value=(_shot2_author_raw(), VisionCallMeta(status="unavailable", model="7b", image_count=3)),
         ) as chat:
             result = LlmService.author_timestamped_zh_prompt(
                 recipe,
@@ -808,7 +677,11 @@ class SkillPackZhAuthorTests(unittest.TestCase):
             )
         chat.assert_called()
         self.assertIn("算了，房租免了。", result.zh_prompt)
-        self.assertIn("<Picture 4>", result.zh_prompt)
+        self.assertIn("<Picture 3>", result.zh_prompt)
+        self.assertEqual(
+            ["https://x/wu.png", "https://x/sha.png", "https://x/scene.png"],
+            list(chat.call_args.args[2]),
+        )
 
     def test_write_timestamped_stores_dual_en_and_vision(self):
         recipe = get_pack(HALF_NARRATED_PACK_ID)
@@ -893,7 +766,6 @@ class SkillPackZhAuthorTests(unittest.TestCase):
             "characters": [{"id": "c1", "name": "沈砚", "url": "https://x/char.png"}],
             "scene": "走廊",
             "scene_id": "s1",
-            "triptych_panels": {"start": "https://x/start.png"},
         }
         assets = [
             {"id": "c1", "name": "沈砚", "extra": {"avatar_url": "https://x/char.png"}},
@@ -941,7 +813,6 @@ class SkillPackZhAuthorTests(unittest.TestCase):
             "characters": [{"id": "c1", "name": "沈砚", "url": "https://x/char.png"}],
             "scene": "走廊",
             "scene_id": "s1",
-            "triptych_panels": {"start": "https://x/start.png"},
         }
         assets = [
             {"id": "c1", "name": "沈砚", "extra": {"avatar_url": "https://x/char.png"}},
@@ -1043,10 +914,13 @@ class SkillPackZhAuthorTests(unittest.TestCase):
         self.assertIn("英文冒号", system)
         self.assertIn("detailed_description", system)
         self.assertIn("设定板分格", system)
-        self.assertIn("9:16 构图", system)
+        self.assertIn("R2V 槽位只有角色设定板和本镜场景卡", system)
+        self.assertIn("本镜不生成关键帧图", system)
+        self.assertIn("禁止虚构未上传的 <Picture n>", system)
+        self.assertIn("成片必须是单一 9:16，禁止分栏、禁止把多格拼板画进画面", system)
         self.assertNotIn("9:16 裁切", system)
-        self.assertIn("时间路标", system)
-        self.assertIn("整张 16:9 三联", system)
+        self.assertNotIn("时间路标", system)
+        self.assertNotIn("整张 16:9 三联", system)
         self.assertIn("只锁脸、发型和服装", zh_system)
         self.assertIn(ZH_BLOCK_MARK, zh_system)
         self.assertIn(EN_BLOCK_MARK, zh_system)
@@ -1066,12 +940,13 @@ class SkillPackZhAuthorTests(unittest.TestCase):
         self.assertIn("exactly one <d>", system)
         user = build_timestamped_zh_author_user(recipe, _shot2_author_beat(), _shot2_author_assets())
         self.assertIn("直接输出完整 <<<ZH>>>", user)
-        self.assertIn("时间路标", user)
+        self.assertIn("R2V 槽位（本地 H3 上传顺序：角色设定板，然后是本镜场景卡）", user)
+        self.assertIn("禁止虚构未上传的 <Picture n>；本镜不生成关键帧图", user)
         self.assertIn("写稿附图", user)
-        self.assertIn("https://x/triptych.png", user)
-        self.assertIn("<Picture 4>", user)
-        self.assertIn("<Picture 5>", user)
-        self.assertIn("<Picture 6>", user)
+        self.assertIn("图3: https://x/scene.png", user)
+        self.assertIn("<Picture 3>", user)
+        self.assertNotIn("<Picture 4>", user)
+        self.assertNotIn("triptych", user)
         self.assertIn("表演顺序", user)
         self.assertIn("1. 吴耐（开口）：算了，房租免了。", user)
         self.assertIn("本镜无第三人称旁白", user)
@@ -1158,7 +1033,7 @@ class SkillPackZhAuthorTests(unittest.TestCase):
         beat_info = {
             "dialogue": beat["dialogue"],
             "skill_pack_id": HALF_NARRATED_PACK_ID,
-            "ref_images": [{"index": i} for i in range(1, 7)],
+            "ref_images": [{"index": i} for i in range(1, 4)],
         }
         wrong_en = LlmService._validate_h3_prompt(_shot1_wrong_en(), "Ref2VA", beat_info)
         self.assertTrue(any("duplicated" in item for item in wrong_en))
@@ -1204,9 +1079,6 @@ class SkillPackZhAuthorTests(unittest.TestCase):
 - <Picture 1> 吴耐
 - <Picture 2> 沙丽丽
 - <Picture 3> 电梯
-- <Picture 4> 起幅
-- <Picture 5> 中格
-- <Picture 6> 结果
 
 必须出现的视觉内容：
 - 电梯门前
@@ -1246,9 +1118,6 @@ class SkillPackZhAuthorTests(unittest.TestCase):
 - <Picture 1> 吴耐
 - <Picture 2> 沙丽丽
 - <Picture 3> 电梯
-- <Picture 4> 起幅
-- <Picture 5> 中格
-- <Picture 6> 结果
 
 必须出现的视觉内容：
 - 电梯门前
@@ -1273,7 +1142,7 @@ class SkillPackZhAuthorTests(unittest.TestCase):
 
     def test_normalize_injects_missing_shot_1(self):
         en = """subject_definitions:
-<Picture 1> locks Wu Nai. <Picture 2> locks Sha Lili. <Picture 3> is the corridor. <Picture 4> start. <Picture 5> mid. <Picture 6> end.
+<Picture 1> locks Wu Nai. <Picture 2> locks Sha Lili. <Picture 3> is the corridor.
 summary:
 Wu Nai waives rent.
 retention_analysis:
@@ -1293,7 +1162,7 @@ None.
                 "吴耐：“算了，房租免了。” "
                 "沙丽丽：“啊？大爷你不要房租？该不会想让我那啥吧？我是正经人，卖艺不卖身的。”"
             ),
-            "ref_images": [{"index": i} for i in range(1, 7)],
+            "ref_images": [{"index": i} for i in range(1, 4)],
             "skill_pack_id": HALF_NARRATED_PACK_ID,
         }
         self.assertEqual([], LlmService._validate_h3_prompt(normalized, "Ref2VA", beat_info))
@@ -1407,15 +1276,14 @@ class SkillPackCraftOverlayTests(unittest.TestCase):
         )
         overlay = inject_craft_text(recipe, "script", aspect_ratio="16:9")
         workshop = inject_craft_text(recipe, "workshop", aspect_ratio="16:9")
+        optimize = inject_craft_text(recipe, "optimize", aspect_ratio="16:9")
         extra_overlay = inject_craft_text(
             recipe,
             "script",
             extra={"workshop_aspect_ratio": "1:1"},
         )
-        slots = bind_r2v_slot_images(recipe, _shot2_author_beat(), [], aspect_ratio="16:9")
-        start_label = next((item["label"] for item in slots if item.get("source") == "triptych.start"), "")
         self.assertIn("成片 16:9", system)
-        self.assertIn("16:9 构图", system)
+        self.assertIn("成片必须是单一 16:9，禁止分栏、禁止把多格拼板画进画面", system)
         self.assertNotIn("成片始终单一 9:16", system)
         self.assertNotIn("9:16 裁切", system)
         self.assertNotIn("成片始终单一 9:16", user)
@@ -1427,10 +1295,10 @@ class SkillPackCraftOverlayTests(unittest.TestCase):
         self.assertEqual("竖屏 9:16 单镜到底", original["heading"])
         self.assertIn("确认画幅 16:9", overlay)
         self.assertIn("确认画幅 1:1", extra_overlay)
-        self.assertIn("16:9 构图", workshop)
+        self.assertIn("R2V 只上传角色卡与场景卡", workshop)
         self.assertIn("确认画幅 16:9", workshop)
-        self.assertIn("16:9 构图", start_label)
-        self.assertNotIn("9:16 裁切", start_label)
+        self.assertIn("R2V 只送角色卡与场景卡 16:9 参考图", optimize)
+        self.assertNotIn("{aspect}", optimize)
 
     def test_inject_craft_maps_official_chapters_without_rewriting_stages(self):
         recipe = get_pack(HALF_NARRATED_PACK_ID)
@@ -1463,7 +1331,6 @@ class SkillPackCraftOverlayTests(unittest.TestCase):
         skill = (root / "SKILL.md").read_text(encoding="utf-8")
         source = (root / "SOURCE.md").read_text(encoding="utf-8")
         template = (root / "references" / "h3-video-prompt-template.md").read_text(encoding="utf-8")
-        triptych = (root / "references" / "triptych-prompt.md").read_text(encoding="utf-8")
         self.assertIn("half-narrated-live-action-short-drama", source)
         self.assertIn("1.0.1", source)
         self.assertIn("Design Image 2", skill)
@@ -1477,10 +1344,9 @@ class SkillPackCraftOverlayTests(unittest.TestCase):
         self.assertIn("分格", template)
         self.assertIn("设定板", skill)
         self.assertIn("禁止抄分格", source)
-        self.assertIn("16:9", triptych)
-        self.assertIn("{aspect}", triptych)
-        self.assertIn("{panel_geometry}", triptych)
-        self.assertNotIn("9:16 裁切", triptych)
+        self.assertIn("本工作台不为单镜生成三联关键帧", template)
+        self.assertIn("R2V 只上传角色卡与场景卡", template)
+        self.assertFalse((root / "references" / "triptych-prompt.md").is_file())
         self.assertFalse((root / "references" / "shot-prompt-template.md").is_file())
 
     def test_director_system_appends_overlay_in_pack_scope(self):
@@ -1508,6 +1374,149 @@ class SkillPackDefaultRecipeTests(unittest.TestCase):
         self.assertFalse(recipe.packing_overrides.allow_multi_camera_path)
         self.assertFalse(recipe.packing_overrides.faithful_zh_pack)
         self.assertEqual("", validate_skill_pack_id(""))
+
+
+CINEMATIC_VLOG_PACK_ID = "cinematic-vlog-ab-director"
+_CINEMATIC_OFFICIAL_TITLES = (
+    "镜头目的",
+    "参考素材",
+    "必须出现的视觉内容",
+    "按旁白和画面内容切镜",
+    "对白",
+    "旁白",
+    "画面要求",
+    "负向约束",
+)
+
+
+def _vlog_author_beat() -> dict:
+    return {
+        "id": "b1",
+        "sequence": 1,
+        "story_shot": 1,
+        "heading": "雨夜黑胶店",
+        "action": "男主角雨夜造访复古黑胶店，翻找、试听、夹臂带走唱片。",
+        "camera": "A 镜手持自拍与 B 镜客观电影镜头交替，2.5 秒节拍器。",
+        "duration_seconds": 15,
+        "dialogue": "男主角：“躲个雨，顺便淘张片。” 男主角：“夹走，回家慢慢听。”",
+        "dialogue_turns": [
+            {"speaker": "男主角", "text": "躲个雨，顺便淘张片。"},
+            {"speaker": "男主角", "text": "夹走，回家慢慢听。"},
+        ],
+        "characters": [{"id": "c-lead", "name": "男主角", "url": "https://x/lead.png"}],
+        "scene": "黑胶店",
+        "scene_id": "s-store",
+    }
+
+
+def _vlog_author_assets() -> list[dict]:
+    return [
+        {"id": "c-lead", "name": "男主角", "extra": {"avatar_url": "https://x/lead.png"}},
+        {"id": "s-store", "name": "黑胶店", "extra": {"master_url": "https://x/store.png"}},
+    ]
+
+
+def _vlog_author_zh() -> str:
+    return """镜头01，总时长15秒，内部时间从00:00开始。
+镜头目的：一位年轻男子雨夜造访复古黑胶唱片店，记录翻找、试听、夹臂带走唱片的心流时刻。
+
+参考素材：
+- <Picture 1> 男主角人物设定板（单人多视图），只锁身份五官发型服装，禁止把分格、白底、重复小人带进镜头
+- <Picture 2> 雨夜街角复古黑胶唱片店内景卡，提供暖光唱片墙与试听台空间，不锁站位
+
+必须出现的视觉内容：
+- A 镜右手持机自拍近景与眼神对视
+- B 镜低角跟拍唱片墙翻找与试听台俯身聆听
+- 黑胶唱片道具完整物理链与雨夜霓虹湿地反光
+
+按旁白和画面内容切镜（A/B 机位与 2.5 秒节拍器）：
+- 00:00–00:02.500【A 镜】：手持微晃自拍，雨夜暖光打脸，挑眉浅笑。
+- 00:02.500–00:05.000【B 镜】：硬切第三人称低角横移，左手逐张翻找唱片，右手垂于身侧，推门进店已省略。
+- 00:05.000–00:07.500【A 镜】：切回自拍脸颊微距，左手举起一张唱片展示给镜头。
+- 00:07.500–00:10.000【B 镜】：电影级侧颜跟拍，把唱片放到试听台唱机俯身聆听。
+- 00:10.000–00:12.500【A 镜】：手持自拍，左手拿起唱片夹到左臂下方，被逗乐轻笑。
+- 00:12.500–00:15.000【B 镜】：低角全景后拉定格，左臂夹唱片从容转身朝店门走去。
+
+对白：
+- 男主角在 00:00–00:02.500 说：“躲个雨，顺便淘张片。”
+- 男主角在 00:10.000–00:12.500 说：“夹走，回家慢慢听。”
+- 其余镜头不说话，嘴唇闭合
+
+旁白：
+- 本镜无第三人称旁白。角色内心写在对白里，标（内心）。
+
+画面要求：
+- A 镜 handheld shake slightly；B 镜低角跟拍与光栅景深，单一画幅满幅无分栏
+- 右手专职持机、左手专职互动，唱片道具与门口伞桶锚点跨镜连续不瞬移
+
+负向约束：
+- 不要字幕、文字、水印、Logo、虚假 UI、插画、CG、反射重影、道具瞬移、肢体穿模、多指变形
+"""
+
+
+class SkillPackCinematicVlogTests(unittest.TestCase):
+    def test_meta_yaml_loads_and_declares_registered_steps(self):
+        recipe = load_recipe_file(PACKS_ROOT / CINEMATIC_VLOG_PACK_ID / "meta.yaml")
+        self.assertEqual(CINEMATIC_VLOG_PACK_ID, recipe.id)
+        registered = registered_step_ids()
+        unknown = [step for step in recipe.declared_step_ids() if step not in registered]
+        self.assertEqual([], unknown)
+        self.assertEqual(
+            (
+                "write_timestamped_zh_prompt",
+                "polish_ref2va",
+                "bind_r2v_slots",
+            ),
+            recipe.workshop_shot,
+        )
+        self.assertTrue(recipe.packing_overrides.allow_timeranges)
+        self.assertTrue(recipe.packing_overrides.allow_multi_camera_path)
+        self.assertTrue(recipe.packing_overrides.faithful_zh_pack)
+        self.assertTrue(recipe.packing_overrides.skip_program_pack)
+        self.assertEqual(5, recipe.confirm_format.get("duration_min"))
+        self.assertEqual(15, recipe.confirm_format.get("duration_max"))
+        self.assertEqual(
+            ("characters", "scene"),
+            tuple(item.source for item in recipe.r2v_slots),
+        )
+        self.assertEqual("subject", recipe.r2v_slots[0].role)
+        self.assertIn("电影感", recipe.summary)
+        self.assertTrue(recipe.cover.startswith("https://"))
+        self.assertTrue(recipe.cover.endswith(".mp4"))
+
+    def test_catalog_starts_with_default_and_includes_cinematic_vlog(self):
+        reset_pack_cache()
+        catalog = list_pack_catalog()
+        self.assertEqual("", catalog[0]["id"])
+        ids = [item["id"] for item in catalog]
+        self.assertIn(CINEMATIC_VLOG_PACK_ID, ids)
+        vlog = next(item for item in catalog if item["id"] == CINEMATIC_VLOG_PACK_ID)
+        self.assertIn("电影感", vlog["summary"])
+
+    def test_template_keeps_eight_official_block_titles_and_ab_metronome(self):
+        recipe = get_pack(CINEMATIC_VLOG_PACK_ID)
+        template = recipe.reference_text("h3-video-prompt-template.md")
+        for title in _CINEMATIC_OFFICIAL_TITLES:
+            self.assertIn(title, template)
+        self.assertIn("2.5 秒节拍器", template)
+        self.assertIn("<Picture 1>", template)
+        self.assertIn("右手专职持机", template)
+        self.assertNotIn("@Image", template)
+
+    def test_vlog_zh_draft_passes_official_validation(self):
+        recipe = get_pack(CINEMATIC_VLOG_PACK_ID)
+        beat = _vlog_author_beat()
+        assets = _vlog_author_assets()
+        slots = bind_r2v_slot_images(recipe, beat, assets)
+        self.assertEqual(["characters", "scene"], [item["source"] for item in slots])
+        self.assertEqual([1, 2], [item["index"] for item in slots])
+        self.assertEqual([], validate_timestamped_zh_prompt(_vlog_author_zh(), recipe, beat, assets))
+
+    def test_vlog_r2v_slot_labels_follow_identity_then_scene(self):
+        recipe = get_pack(CINEMATIC_VLOG_PACK_ID)
+        slots = bind_r2v_slot_images(recipe, _vlog_author_beat(), _vlog_author_assets())
+        self.assertEqual("https://x/lead.png", slots[0]["url"])
+        self.assertEqual("https://x/store.png", slots[1]["url"])
 
 
 if __name__ == "__main__":

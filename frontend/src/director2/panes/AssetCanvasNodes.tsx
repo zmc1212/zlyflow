@@ -1,0 +1,59 @@
+import { useContext } from "react"
+import { Handle, Position, type NodeProps } from "@xyflow/react"
+import { Button, Dropdown, Input, Spin, Tooltip } from "antd"
+import { CheckCircle2, FileText, FolderOpen, Image as ImageIcon, Maximize2, Mic, MoreHorizontal, Plus, Upload, Video, Play, Layers, ChevronRight, X } from "lucide-react"
+import type { AssetCanvasNode } from "../asset-canvas-model"
+import { assetDefinitionText } from "../asset-canvas-model"
+import { sourceReferencesOf } from "../asset-source-references"
+import { assetCanvasMedia } from "../asset-canvas-creative"
+import { getKindIcon, kindLabel } from "./assets/shared"
+import { AssetCanvasContext, type CanvasNodeData } from "./asset-canvas-context"
+
+export function AssetNodePorts({ id, input = true }: { id: string; input?: boolean }) {
+  const context = useContext(AssetCanvasContext)!
+  return <>{input && <Handle type="target" position={Position.Left} className="ac-port ac-port-in" aria-label="添加上下文" onClick={event => { event.stopPropagation(); context.portMenu(id, "in", event.currentTarget) }}><Plus size={13}/></Handle>}<Handle type="source" position={Position.Right} className="ac-port ac-port-out" aria-label="引用该节点生成" onClick={event => { event.stopPropagation(); context.portMenu(id, "out", event.currentTarget) }}><Plus size={13}/></Handle></>
+}
+
+export function AssetGroupNode({ data }: NodeProps<AssetCanvasNode>) {
+  const context = useContext(AssetCanvasContext)!
+  const Icon = getKindIcon(data.asset.kind)
+  return <section className="ac-asset-group" aria-label={`${data.asset.name}节点组`}><div className="ac-group-heading"><Icon size={15}/><span>{data.asset.name}</span></div>{data.asset.kind === "character" && <Button className="ac-add-look nodrag" type="text" icon={<Plus size={14}/>} onClick={() => context.actions.addLook(data.asset.id)}>新增形象</Button>}</section>
+}
+
+export function AssetCreationNode({ id, data, selected }: NodeProps<AssetCanvasNode>) {
+  const context = useContext(AssetCanvasContext)!
+  const { asset, role, title, image } = data
+  const refs = sourceReferencesOf(asset)
+  const Icon = role === "definition" ? FileText : getKindIcon(asset.kind)
+  const menu = [{ key: "edit", label: "编辑信息", onClick: () => role === "definition" ? context.editDefinition(id) : context.editMetadata(id) }, { key: "copy", label: "创建副本", onClick: () => context.duplicate(id) }, { key: "replace", label: "上传替换图片", onClick: () => context.chooseFile(id, false) }, { key: "library", label: "从素材库选择", onClick: () => context.chooseFile(id, true) }]
+  return <article className={`ac-node ac-node-${role} ac-asset-${asset.kind}${selected ? " is-selected" : ""}`} aria-label={`${asset.name} · ${title}`}>
+    <header className="ac-node-heading"><span><Icon size={14}/><span>{role === "image" ? asset.name : title}</span></span><Dropdown trigger={["click"]} menu={{ items: menu }}><Button className="nodrag" type="text" size="small" aria-label={`${asset.name}${title}更多操作`} icon={<MoreHorizontal size={15}/>} onClick={event => event.stopPropagation()}/></Dropdown></header>
+    {role === "definition" ? <><div className="ac-definition-body"><strong>{asset.name}</strong>{asset.role && <span className="ac-definition-role">{asset.role}</span>}<p>{assetDefinitionText(asset) || `描述${kindLabel(asset.kind)}的外观、风格与细节`}</p></div><Button className="ac-node-quiet nodrag" type="text" onClick={event => { event.stopPropagation(); context.editDefinition(id) }}>编辑档案</Button></> : role === "references" ? <div className="ac-reference-body nodrag" onClick={event => event.stopPropagation()}>{refs.length ? <div className="ac-reference-grid">{refs.map(ref => <div key={ref.id}><button type="button" aria-label={`预览${ref.filename || "参考图"}`} onClick={() => context.preview(ref.url, ref.filename || "参考图")}><img src={ref.url} alt={ref.filename || "参考图"}/></button><Button type="text" size="small" aria-label={`移除${ref.filename || "参考图"}`} icon={<X size={11}/>} onClick={() => void context.actions.removeReference(asset.id, ref.id)}/></div>)}</div> : <ImageIcon size={26}/>}<div className="ac-upload-options"><Button size="small" icon={<Upload size={13}/>} disabled={!!context.working} onClick={() => context.chooseFile(id, false)}>上传参考图</Button><Button size="small" icon={<FolderOpen size={13}/>} onClick={() => context.chooseFile(id, true)}>素材库</Button></div><p>{refs.length} / 9 张参考图</p></div> : <>
+      <div className="ac-image-body" onClick={event => { event.stopPropagation(); context.choose(id) }}>
+        {image ? <button className="ac-image-preview nodrag" type="button" aria-label={`预览${asset.name}${title}`} onDoubleClick={() => context.preview(image, `${asset.name} · ${title}`)}><img src={image} alt={`${asset.name} · ${title}`}/><span><Maximize2 size={18}/>双击预览</span></button> : <div className="ac-empty-image"><div className="ac-upload-options"><Button className="nodrag" size="small" icon={<Upload size={14}/>} disabled={!!context.working} onClick={event => { event.stopPropagation(); context.chooseFile(id, false) }}>上传</Button><Button className="nodrag" size="small" icon={<FolderOpen size={14}/>} onClick={event => { event.stopPropagation(); context.chooseFile(id, true) }}>素材库</Button></div><small>你还可以试试：</small><Button className="nodrag ac-template-link" type="text" onClick={event => { event.stopPropagation(); context.choose(id) }}><Icon size={14}/>{kindLabel(asset.kind)}设定板</Button>{asset.kind === "character" && <Button className="nodrag ac-template-link" type="text" onClick={event => { event.stopPropagation(); context.editDesign(id) }}><Icon size={14}/>角色设计</Button>}</div>}
+        {context.working === id && <div className="ac-node-working"><Spin/><span>正在处理此节点…</span></div>}
+      </div>
+      {asset.kind === "character" && <div className="ac-image-tools" onClick={event => event.stopPropagation()}><Tooltip title="角色音色"><Button className="nodrag" type="text" aria-label={`${asset.name}角色音色`} icon={<Mic size={18}/>} onClick={() => context.actions.voice(asset.id)}/></Tooltip><Tooltip title="角色与形象信息"><Button className="nodrag" type="text" aria-label={`${asset.name}形象信息`} icon={<Plus size={18}/>} onClick={() => context.editMetadata(id)}/></Tooltip></div>}
+      <footer><strong>{title}</strong><span className={image ? "ac-ready" : "ac-missing"}>{image ? "已就绪" : "待补充"}</span><p>{String(asset.extra?.episodes || asset.extra?.episode_numbers || "") ? `出现集数：${String(asset.extra?.episodes || asset.extra?.episode_numbers)}` : `${kindLabel(asset.kind)}资产 · 全剧复用`}</p><Dropdown trigger={["click"]} menu={{ items: menu }}><Button className="ac-card-more nodrag" type="text" aria-label="图片节点操作" icon={<MoreHorizontal size={16}/>} onClick={event => event.stopPropagation()}/></Dropdown></footer>
+    </>}
+    <AssetNodePorts id={id}/>
+  </article>
+}
+
+export function UniversalAssetNode({ id, data, selected }: NodeProps) {
+  const context = useContext(AssetCanvasContext)!
+  const canvas = data as CanvasNodeData
+  const kind = canvas.canvasKind === "generator" ? canvas.resultKind === "image" ? "image" : "video" : canvas.canvasKind
+  const url = canvas.url || canvas.resultUrl || ""
+  const label = canvas.label || ({ text: "文本", audio: "音频", editor: "剪辑工程", image: "图片", video: "视频" }[String(kind)] || "创作节点")
+  const Icon = kind === "text" ? FileText : kind === "audio" ? Mic : kind === "editor" ? Layers : kind === "image" ? ImageIcon : Video
+  const history = canvas.resultHistory || []
+  const inputs = context.inputsOf(id).map(assetCanvasMedia).filter(item => !!item)
+  const totalDuration = Math.max(5, ...inputs.map(item => item.duration))
+  return <article className={`ac-node ac-universal-node ac-node-${kind}${selected ? " is-selected" : ""}`} aria-label={label}>
+    <header className="ac-node-heading"><span><Icon size={14}/><span>{label} · {kind === "image" ? "图片" : kind === "video" ? "视频" : kind === "audio" ? "音频" : kind === "editor" ? "工程" : "文本"}</span></span><Dropdown trigger={["click"]} menu={{ items: [{ key: "duplicate", label: "创建副本", onClick: () => context.duplicate(id) }, { key: "delete", label: "删除节点", danger: true, onClick: () => context.removeCanvasNode(id) }] }}><Button className="nodrag" type="text" aria-label="节点更多操作" icon={<MoreHorizontal size={15}/>} onClick={event => event.stopPropagation()}/></Dropdown></header>
+    {kind === "text" ? <Input.TextArea style={{ fontSize: Number(canvas.fontSize) || 14 }} className="ac-text-body nodrag nowheel" aria-label="文本节点内容" value={String(canvas.text || "")} onChange={event => context.patchCanvasNode(id, { text: event.target.value })} placeholder="写下故事、镜头提示或创作想法…" variant="borderless" autoSize={false}/> : kind === "editor" ? <div className="ac-editor-body nodrag"><div className="ac-editor-ruler">{[0,1,2,3,4,5].map(n => <span key={n}>{Math.round(totalDuration * n / 5)}s</span>)}</div><div className="ac-editor-tracks">{inputs.length ? inputs.map((item, i) => <div className={`ac-editor-track is-${item.kind}`} key={i}>{item.kind === "image" ? <img src={item.url} alt={item.name}/> : item.kind === "video" ? <video src={item.url} preload="metadata"/> : <Mic size={16}/>}<span>{item.name}</span><small>{item.duration}s</small></div>) : <div className="ac-editor-empty">连接图片、视频或音频，开始剪辑</div>}</div><Button className="ac-open-edit" loading={context.working === id} icon={<Play size={13}/>} onClick={() => void context.openSmartEdit(id)}>打开智能剪辑</Button></div> : kind === "audio" && url ? <div className="ac-audio-body nodrag nowheel"><audio src={url} controls preload="metadata"/><span><CheckCircle2 size={13}/>已上传</span></div> : <div className={`ac-media-body${kind === "image" ? " is-square" : ""}`} onClick={event => { event.stopPropagation(); context.choose(id) }}>{url ? kind === "image" ? <button className="ac-image-preview nodrag" aria-label={`预览${label}`} onDoubleClick={() => context.preview(url, label)}><img src={url} alt={label}/></button> : <video className="nodrag nowheel" src={url} controls preload="metadata" onLoadedMetadata={event => { const duration = event.currentTarget.duration; if (Number.isFinite(duration) && duration > 0 && duration !== canvas.duration) context.patchCanvasNode(id, { duration }) }}/> : <div className="ac-empty-image"><div className="ac-upload-options"><Button className="nodrag" size="small" icon={<Upload size={14}/>} onClick={event => { event.stopPropagation(); context.chooseFile(id, false) }}>上传</Button>{kind === "image" && <Button className="nodrag" size="small" icon={<FolderOpen size={14}/>} onClick={event => { event.stopPropagation(); context.chooseFile(id, true) }}>素材库</Button>}</div>{kind !== "audio" && <><small>{kind === "image" ? "文生图 · 图生图 · 图片编辑" : "文生视频 · 图生视频 · 多参考"}</small><Button className="nodrag ac-template-link" type="text" onClick={event => { event.stopPropagation(); context.choose(id) }}>描述画面，开始创作</Button></>}</div>}{["queued", "running", "awaiting_refine"].includes(String(canvas.jobStatus)) && <div className="ac-node-working"><Spin/><span>{canvas.jobStatus === "awaiting_refine" ? "等待精修确认" : `正在生成…${typeof canvas.jobProgress === "number" ? ` ${canvas.jobProgress}%` : ""}`}</span></div>}</div>}
+    {!["text", "editor", "audio"].includes(String(kind)) && <footer className="ac-media-footer"><span className={canvas.jobError ? "ac-missing" : "ac-ready"}>{canvas.jobError ? "生成失败" : url ? <><CheckCircle2 size={13}/>已完成</> : "待创作"}</span>{history.length > 1 && <Dropdown trigger={["click"]} menu={{ items: history.map((item, i) => ({ key: String(i), label: `版本 ${i + 1}${i === canvas.resultIndex ? " · 当前" : ""}`, onClick: () => context.patchCanvasNode(id, { url: item.url, resultUrl: item.url, assetPath: item.path, resultIndex: i }) })) }}><Button size="small" type="text" className="nodrag">版本 {(canvas.resultIndex ?? history.length - 1) + 1} / {history.length}<ChevronRight size={13}/></Button></Dropdown>}</footer>}
+    <AssetNodePorts id={id}/>
+  </article>
+}

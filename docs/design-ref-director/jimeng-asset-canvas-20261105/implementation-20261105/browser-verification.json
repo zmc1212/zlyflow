@@ -1,0 +1,71 @@
+{
+  "date": "2026-11-05",
+  "dialogs": 0,
+  "nodeCount": "节点 71",
+  "overflow": false,
+  "pendingConnections": 0,
+  "projectHeaderHidden": true,
+  "theme": "dark",
+  "url": "http://127.0.0.1:5173/director/projects/proj-055492fd2d34406b/assets?view=canvas&asset=ast-d34ecd1e0af2",
+  "viewport": {
+    "dpr": 1.159999966621399,
+    "height": 1088,
+    "width": 1920
+  },
+  "roleTabs": [
+    {
+      "tab": "基础",
+      "text": "角色设计\n基础\n妆容与穿搭\n五官\n体型\n发型\n风格\n性别表达\n女性\n男性\n中性\n年龄\n18–22\n23–28\n29–35\n36–45\n46–60\n60+\n区域 "
+    },
+    {
+      "tab": "妆容与穿搭",
+      "text": "角色设计\n基础\n妆容与穿搭\n五官\n体型\n发型\n风格\n妆容\n伪素颜\n清透水光\n冷感哑光\n明艳红唇\n无妆原生\n清透底妆\n自然修容\n服装\n白色基础上衣\n黑色基础上衣\n"
+    },
+    {
+      "tab": "五官",
+      "text": "角色设计\n基础\n妆容与穿搭\n五官\n体型\n发型\n风格\n脸型\n柔和鹅蛋脸\n流畅瓜子脸\n利落方脸\n幼态圆脸\n高颊长脸\n宽额菱形脸\n窄长鹅蛋脸\n高颧骨菱形脸\n立体方圆脸"
+    },
+    {
+      "tab": "体型",
+      "text": "角色设计\n基础\n妆容与穿搭\n五官\n体型\n发型\n风格\n体型\n高挑纤细\n匀称健康\n小骨架纤薄\n修长有力\n丰润柔和\n肩背挺拔\n纤细修长\n取 消\n保 存"
+    },
+    {
+      "tab": "发型",
+      "text": "角色设计\n基础\n妆容与穿搭\n五官\n体型\n发型\n风格\n发型\n法式层次锁骨发\n水波纹流苏波波\n轻狼尾层次发\n水母层次发\n高颅顶半扎发\n八字刘海低马尾\n韩系大波浪\n低"
+    },
+    {
+      "tab": "风格",
+      "text": "角色设计\n基础\n妆容与穿搭\n五官\n体型\n发型\n风格\n表情状态\n轻微浅笑\n恬静放空\n平静正视\n若有所思\n自信微笑\n沉静思考\n自信克制\n摄影方案\n白底定妆\n浅灰影棚"
+    }
+  ],
+  "cleanup": [
+    {
+      "node": "剪辑工程",
+      "remaining": 0
+    },
+    {
+      "node": "音频",
+      "remaining": 0
+    },
+    {
+      "node": "图片",
+      "remaining": 0
+    },
+    {
+      "node": "创作文本",
+      "remaining": 0
+    },
+    {
+      "node": "视频",
+      "remaining": 0
+    }
+  ],
+  "linkedCanvasRedirect": true,
+  "smartEditHandoff": {
+    "sequence": "canvas-ac-editor_mw3p94lz_bvwml3",
+    "clips": 1,
+    "seconds": 5.167,
+    "returnedToCanvas": true
+  },
+  "paidGenerationTriggered": false
+}

@@ -196,21 +196,6 @@ class ReferenceAuthorityTests(unittest.TestCase):
         self.assertIn("repeated mini figures", line)
         self.assertIn("do not transfer pose", line)
 
-    def test_composition_subject_line_uses_time_landmarks(self) -> None:
-        from backend.app.director_craft.references import composition_subject_line
-
-        start = composition_subject_line(4, "起幅构图", "start")
-        mid = composition_subject_line(5, "中格构图", "mid")
-        end = composition_subject_line(6, "结果构图", "end")
-        self.assertIn("anchors opening blocking only", start)
-        self.assertIn("not a new character", start)
-        self.assertIn("00:00 composition landmark", start)
-        self.assertIn("main-action composition landmark", mid)
-        self.assertIn("closing composition landmark", end)
-        self.assertIn("do not show all three panels at once", start)
-        self.assertIn("single 9:16 frame", end)
-        self.assertNotIn("perform the mid/right panels with local clip ranges", start)
-
     def test_label_discipline_forbids_copying_design_sheet(self) -> None:
         from backend.app.llm_minimax_skills import H3_REF2VA_LABEL_DISCIPLINE
 

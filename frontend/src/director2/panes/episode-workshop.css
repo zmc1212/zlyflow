@@ -2143,3 +2143,128 @@
   }
 }
 
+/* ==================== 整集补跑确认弹窗 (episode-gap-confirm) ==================== */
+/* Modal.confirm 传送至 body，弹窗自身挂 d2-episode-workshop 作用域类；颜色全部走根级双主题变量。 */
+.d2-episode-workshop .episode-gap-confirm-body {
+  display: grid;
+  gap: 12px;
+  padding-top: 2px;
+}
+
+.d2-episode-workshop .episode-gap-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 22px;
+  padding: 10px 14px;
+  border: 1px solid var(--studio-border);
+  border-radius: 10px;
+  background: var(--studio-surface-raised);
+}
+
+.d2-episode-workshop .episode-gap-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--studio-text-muted);
+}
+
+.d2-episode-workshop .episode-gap-stat em {
+  font-style: normal;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--studio-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.d2-episode-workshop .episode-gap-stat.is-missing em {
+  color: var(--studio-accent-text);
+}
+
+.d2-episode-workshop .episode-gap-ranges {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.d2-episode-workshop .episode-gap-ranges-label {
+  margin-right: 2px;
+  font-size: 12px;
+  color: var(--studio-text-muted);
+}
+
+.d2-episode-workshop .episode-gap-ranges-list {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.d2-episode-workshop .episode-gap-range.ant-tag {
+  margin: 0;
+  padding: 1px 9px;
+  border: 1px solid var(--studio-border);
+  border-radius: 999px;
+  background: var(--studio-surface);
+  color: var(--studio-text-secondary);
+  font-size: 12px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.d2-episode-workshop .episode-gap-options {
+  display: grid;
+  gap: 8px;
+}
+
+.d2-episode-workshop .episode-gap-option {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--studio-border);
+  border-radius: 10px;
+  background: var(--studio-surface);
+}
+
+.d2-episode-workshop .episode-gap-option.is-recommended {
+  border-color: var(--studio-primary);
+  background: var(--studio-primary-soft);
+}
+
+.d2-episode-workshop .episode-gap-option-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--studio-text);
+}
+
+.d2-episode-workshop .episode-gap-option-desc {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--studio-text-secondary);
+}
+
+.d2-episode-workshop .episode-gap-recommend.ant-tag {
+  margin: 0;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--studio-primary);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 17px;
+}
+
+/* 自定义 footer 的三枚按钮直接跟在正文网格后：补出与卡片的间距，并避免按钮贴合。 */
+.d2-episode-workshop.episode-gap-confirm .ant-modal-confirm-body-wrapper > .ant-btn {
+  margin-top: 20px;
+  margin-inline-start: 8px;
+}
+
+.d2-episode-workshop.episode-gap-confirm .ant-modal-confirm-body-wrapper > .ant-btn:first-of-type {
+  margin-inline-start: 0;
+}

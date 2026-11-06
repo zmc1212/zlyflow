@@ -23,13 +23,19 @@ class JobMode(str, Enum):
     MINIMAX_H3_DIRECTOR_ACCEL_T2V = "minimax-h3-director-accel-t2v"
     MINIMAX_H3_DIRECTOR_ACCEL_I2V = "minimax-h3-director-accel-i2v"
     MINIMAX_H3_DIRECTOR_ACCEL_R2V = "minimax-h3-director-accel-r2v"
+    MINIMAX_H3_ACTION_T2V = "minimax-h3-action-t2v"
+    MINIMAX_H3_ACTION_I2V = "minimax-h3-action-i2v"
+    MINIMAX_H3_ACTION_R2V = "minimax-h3-action-r2v"
     MINIMAX_H3_T8_ALL_REFERENCE = "minimax-h3-t8-all-reference"
     MINIMAX_H3_T8_DUAL_CLOCK = "minimax-h3-t8-dual-clock"
     NVIDIA_RTX_VSR = "nvidia-rtx-vsr"
     SEEDVR2_UPSCALE = "seedvr2-upscale"
+    KEEP_FACE_RESTORE = "keep-face-restore"
     WAN_VACE_DEPTH_V2V = "wan21-vace-depth-v2v"
     MINIMAX_H3_MOTION_TRANSFER = "minimax-h3-motion-transfer"
+    MINIMAX_H3_MOTION_REF_VIDEO = "minimax-h3-motion-ref-video"
     SCAIL2_REPLACEMENT = "scail2-replacement"
+    MINIMAX_H3_FACE_SWAP = "minimax-h3-face-swap"
     MINIMAX_H3_INPAINT = "minimax-h3-inpaint"
     MINIMAX_H3_DEPTH = "minimax-h3-depth"
     MINIMAX_H3_VIDEO_EDIT = "minimax-h3-video-edit"
@@ -275,6 +281,8 @@ class ModeResponse(BaseModel):
     min_references: int
     max_references: int
     reference_labels: list[str] = Field(default_factory=list)
+    reference_slots: list[str] = Field(default_factory=list)
+    result_compare: str = "none"
     accepts_negative_prompt: bool
     accepts_image_size: bool
     accepts_audio_reference: bool = False
@@ -388,6 +396,17 @@ class QiniuProviderResponse(BaseModel):
     last_test_status: str | None = None
     last_test_message: str | None = None
     last_test_at: str | None = None
+
+
+class ProviderSecretRevealRequest(BaseModel):
+    provider: Literal["llm", "vlm", "tts", "grs", "qiniu"]
+    field: Literal["api_key", "access_key", "secret_key"] = "api_key"
+
+
+class ProviderSecretRevealResponse(BaseModel):
+    provider: str
+    field: str
+    value: str | None = None
 
 
 class GrsImageModelResponse(BaseModel):
@@ -1147,6 +1166,11 @@ class CanvasProjectCreateRequest(BaseModel):
     title: str = Field(default="未命名画布", max_length=120, description="画布标题")
 
 
+class CanvasLinkedProjectRequest(BaseModel):
+    director_project_id: str = Field(min_length=1, max_length=64, description="绑定的导演项目 ID")
+    title: str = Field(default="", max_length=120, description="首次创建时使用的画布标题")
+
+
 class CanvasProjectUpdateRequest(BaseModel):
     title: str | None = Field(default=None, max_length=120, description="画布标题")
     tags: list[str] | None = Field(default=None, max_length=8, description="标签，去重后最多 8 个")
@@ -1182,6 +1206,7 @@ class CanvasPreview(BaseModel):
 class CanvasProjectListItem(BaseModel):
     id: str
     title: str
+    linked_director_project_id: str | None = None
     created_at: str
     updated_at: str
     tags: list[str] = Field(default_factory=list)

@@ -1,14 +1,29 @@
 import { describe, expect, it } from "vitest"
 import {
+  MOTION_REF_VIDEO_WORKFLOW,
+  MOTION_TOOL_WORKFLOWS,
+  motionImageLimit,
   motionDurationError,
   motionReferenceError,
   motionToolDefaults,
   motionToolOptions,
   motionToolPayload,
   REFERENCE_MAX_BYTES,
+  hasSubject,
+  hasSubjects,
+  subjectPointAt,
 } from "./motion-transfer"
 
 describe("motion transfer reference roles", () => {
+  it("maps visible image clicks without letterbox padding and requires a positive subject", () => {
+    const rect = { left: 100, top: 50, width: 200, height: 400 }
+    expect(subjectPointAt(160, 210, rect)).toEqual({ x: 0.3, y: 0.4, exclude: false })
+    expect(subjectPointAt(90, 210, rect)).toBeNull()
+    expect(subjectPointAt(160, 210, { ...rect, width: 0 })).toBeNull()
+    expect(hasSubject([])).toBe(false)
+    expect(hasSubject([{ x: 0.3, y: 0.4, exclude: true }])).toBe(false)
+    expect(hasSubject([{ x: 0.3, y: 0.4, exclude: false }])).toBe(true)
+  })
   const image = { name: "character.png", type: "image/png", size: 500 }
   const video = { name: "dance.mp4", type: "video/mp4", size: 2000 }
 
@@ -32,6 +47,10 @@ describe("motion transfer reference roles", () => {
     expect(motionDurationError(4.98, "5s")).toBe("")
     expect(motionDurationError(5.17, "10s")).toContain("更短")
     expect(motionDurationError(15, "15s")).toBe("")
+    expect(motionDurationError(15.116, "full", {min_source_seconds:1,max_source_seconds:30})).toBe("")
+    expect(motionDurationError(31, "full", {max_source_seconds:30})).toContain("30")
+    expect(hasSubjects([{x:.3,y:.4,exclude:false,subject:0}],2)).toBe(false)
+    expect(hasSubjects([{x:.3,y:.4,exclude:false,subject:0},{x:.8,y:.5,exclude:false,subject:1}],2)).toBe(true)
     expect(motionDurationError(undefined, "5s")).toBe("")
   })
 })
@@ -84,5 +103,21 @@ describe("motion tool page schema helpers", () => {
 
   it("keeps explicit payload values and drops empties", () => {
     expect(motionToolPayload({ seed: 7, duration: "10s", prompt: "" })).toEqual({ seed: 7, duration: "10s" })
+  })
+
+  it("declares the three coexisting motion transfer methods for the tool page", () => {
+    expect(MOTION_TOOL_WORKFLOWS).toEqual(["scail2-replacement", "minimax-h3-motion-transfer", MOTION_REF_VIDEO_WORKFLOW])
+  })
+
+  it("derives the character image limit from declared reference slots", () => {
+    expect(motionImageLimit(null)).toBe(0)
+    expect(motionImageLimit({ accepts_video_reference: false })).toBe(0)
+    // 骨架/SCAIL 版未声明 slots：固定 1 图。
+    expect(motionImageLimit({ accepts_video_reference: true })).toBe(1)
+    expect(motionImageLimit({ accepts_video_reference: true, reference_slots: ["image", "video"] })).toBe(1)
+    // 多人版声明 image×6 + video 尾槽。
+    expect(motionImageLimit({ accepts_video_reference: true, reference_slots: ["image", "image", "image", "image", "image", "image", "video"] })).toBe(6)
+    // 声明槽位中无图片槽时按 1 图兜底（调用方仅限动作迁移族）。
+    expect(motionImageLimit({ accepts_video_reference: true, reference_slots: ["video"] })).toBe(1)
   })
 })

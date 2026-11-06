@@ -33,7 +33,7 @@ const half: Director2SkillPack = {
   summary: "旁白推进的真人短剧。",
   surfaces: ["director2", "workshop"],
   visual_lock: "photoreal-live-action-short-drama",
-  workshop_shot: ["generate_shot_triptych"],
+  workshop_shot: ["write_timestamped_zh_prompt", "polish_ref2va", "bind_r2v_slots"],
   packing_overrides: {},
   confirm_format: {},
 }

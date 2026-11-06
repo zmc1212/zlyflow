@@ -2,6 +2,7 @@
 # 1. 运行时生成数据与素材
 # ==========================================
 data/
+交付视频/
 results/
 backend/app/director_catalog/previews/*.jpg
 backend/app/director_catalog/previews/*.jpg.part
@@ -106,6 +107,9 @@ docs/design-ref-director/*
 !docs/design-ref-director/specialists-ui-20261025/
 !docs/design-ref-director/series-ui-20261025/
 !docs/design-ref-director/language-flow-20261025/
+!docs/design-ref-director/featured-20261104/
+!docs/design-ref-director/featured-20261106/
+!docs/design-ref-director/gap-fill-20261105/
 !docs/design-ref-director/26-project-info-light.png
 !docs/design-ref-director/27-project-info-dark.png
 !docs/design-ref-director/28-assistant-question-light.png
@@ -144,10 +148,14 @@ submit_*.py
 backend/tests/test_*.py
 !backend/tests/test_llm_request_policy.py
 !backend/tests/test_asset_manifest.py
+!backend/tests/test_asset_canvas_upload.py
+!backend/tests/test_workshop_batch_delete.py
 !backend/tests/test_comfy_upload.py
 !backend/tests/test_minimax_h3_director_refine.py
 !backend/tests/test_h3_refine.py
 !backend/tests/test_h3_motion_transfer.py
+!backend/tests/test_scail2_replacement.py
+!backend/tests/test_tts_mimo.py
 !backend/tests/test_motion_transfer_media.py
 !backend/tests/test_motion_transfer_browser.py
 !backend/tests/test_h3_confirmation_probe.py
@@ -196,3 +204,24 @@ backend/tests/test_*.py
 scripts/action_previs_worker/vendor/
 !docs/design-ref-director/navigation-brand-20261031/
 !docs/design-ref-director/navigation-brand-20261101/
+!docs/design-ref-director/home-agent-20261103/
+!docs/design-ref-director/three-stage-20261103/
+!docs/design-ref-director/jimeng-flow-20261103/
+!docs/design-ref-director/live-flow-20261103/
+docs/design-ref-director/live-flow-20261103/workshop-queued.png
+!backend/tests/test_director_compact_script.py
+!backend/tests/test_storyboard_image_resume.py
+!backend/tests/test_media_studio_db_isolation.py
+
+!docs/design-ref-director/script-episodes-20261103/
+
+!backend/tests/test_workshop_video_preparation.py
+
+!backend/tests/test_project_ownership.py
+
+# v006 implementation baseline and its focused regression test
+!backend/tests/test_canvas_character_design.py
+!docs/design-ref-director/jimeng-asset-canvas-20261105/
+docs/design-ref-director/jimeng-asset-canvas-20261105/*
+!docs/design-ref-director/jimeng-asset-canvas-20261105/DESIGN.md
+!docs/design-ref-director/jimeng-asset-canvas-20261105/implementation-20261105/

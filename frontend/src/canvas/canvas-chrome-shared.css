@@ -1,0 +1,17 @@
+/*
+ * 画布顶栏共享层。两个画布的顶栏都挂 `canvas-chrome-bar` 类，改一次两边生效。
+ * 基准＝导演台资产画布的顶栏（56px、画布底色、左右两组、12px 字号）。
+ */
+.canvas-chrome-bar {
+  display: flex;
+  flex: none;
+  height: 56px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 20px 8px 24px;
+  border-bottom: 1px solid var(--studio-border);
+  background: var(--studio-canvas);
+}
+.canvas-chrome-bar .ant-btn,
+.canvas-chrome-bar .ant-segmented { font-size: 12px; }

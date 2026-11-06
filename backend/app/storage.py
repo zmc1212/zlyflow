@@ -10,6 +10,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from .grs_catalog import (
     builtin_catalog_records,
@@ -118,6 +119,11 @@ class JobStore:
     def _ensure_column(self, connection: DbConnection, table: str, name: str, declaration: str) -> None:
         self._db.ensure_column(connection, table, name, declaration)
 
+    def _ensure_unique_index(self, connection: DbConnection, table: str, name: str, columns: str) -> None:
+        if self._db.index_exists(connection, table, name):
+            return
+        connection.execute(f"CREATE UNIQUE INDEX {name} ON {table} ({columns})")
+
     def initialize(self) -> None:
         with self.connection() as connection:
             if self._db.dialect == "mysql":
@@ -126,6 +132,10 @@ class JobStore:
                 self._ensure_column(connection, "canvas_projects", "is_favorite", "INTEGER NOT NULL DEFAULT 0")
                 self._ensure_column(connection, "canvas_projects", "deleted_at", "VARCHAR(64) NULL")
                 self._ensure_column(connection, "canvas_projects", "preview_json", "TEXT NULL")
+                self._ensure_column(connection, "canvas_projects", "linked_director_project_id", "VARCHAR(64) NULL")
+                self._ensure_unique_index(
+                    connection, "canvas_projects", "uk_canvas_projects_linked", "owner_user_id, linked_director_project_id",
+                )
                 self._ensure_column(connection, "llm_provider_settings", "assistant_models_json", "TEXT")
                 self._ensure_column(connection, "generation_items", "refine_state_json", "LONGTEXT NULL")
                 self._ensure_column(connection, "job_rounds", "display_prompt", "LONGTEXT NULL")
@@ -390,6 +400,7 @@ class JobStore:
                     id TEXT PRIMARY KEY,
                     owner_user_id TEXT NOT NULL,
                     title TEXT NOT NULL,
+                    linked_director_project_id TEXT,
                     tags_json TEXT NOT NULL DEFAULT '[]',
                     is_favorite INTEGER NOT NULL DEFAULT 0,
                     deleted_at TEXT,
@@ -421,12 +432,65 @@ class JobStore:
                     created_at TEXT NOT NULL,
                     UNIQUE(canvas_id, version)
                 );
+
+                CREATE TABLE IF NOT EXISTS ai_featured_works (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL UNIQUE,
+                    title TEXT NOT NULL,
+                    summary TEXT NOT NULL DEFAULT '',
+                    cover_url TEXT,
+                    snapshot_json TEXT NOT NULL,
+                    episode_count INTEGER NOT NULL DEFAULT 0,
+                    shot_count INTEGER NOT NULL DEFAULT 0,
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    status TEXT NOT NULL DEFAULT 'published',
+                    published_by TEXT,
+                    published_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_featured_status_order
+                    ON ai_featured_works(status, sort_order, published_at);
+
+                CREATE TABLE IF NOT EXISTS ai_showcase_items (
+                    id TEXT PRIMARY KEY,
+                    slug TEXT NOT NULL UNIQUE,
+                    category TEXT NOT NULL DEFAULT 'general',
+                    title TEXT NOT NULL,
+                    blurb TEXT NOT NULL DEFAULT '',
+                    origin TEXT NOT NULL DEFAULT 'local',
+                    mode TEXT NOT NULL,
+                    prompt TEXT NOT NULL,
+                    display_prompt TEXT NOT NULL DEFAULT '',
+                    negative_prompt TEXT NOT NULL DEFAULT '',
+                    image_size TEXT,
+                    options_json TEXT,
+                    references_json TEXT,
+                    tags_json TEXT,
+                    cover_url TEXT,
+                    media_url TEXT,
+                    media_type TEXT NOT NULL DEFAULT 'video',
+                    duration_seconds INTEGER NOT NULL DEFAULT 0,
+                    source_job_id TEXT,
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    status TEXT NOT NULL DEFAULT 'published',
+                    published_by TEXT,
+                    published_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_showcase_status_category
+                    ON ai_showcase_items(status, category, sort_order);
+                CREATE INDEX IF NOT EXISTS idx_showcase_source_job
+                    ON ai_showcase_items(source_job_id);
                 """
             )
             self._ensure_column(connection, "canvas_projects", "tags_json", "TEXT NOT NULL DEFAULT '[]'")
             self._ensure_column(connection, "canvas_projects", "is_favorite", "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(connection, "canvas_projects", "deleted_at", "TEXT")
             self._ensure_column(connection, "canvas_projects", "preview_json", "TEXT")
+            self._ensure_column(connection, "canvas_projects", "linked_director_project_id", "TEXT")
+            self._ensure_unique_index(
+                connection, "canvas_projects", "uk_canvas_projects_linked", "owner_user_id, linked_director_project_id",
+            )
             self._ensure_column(connection, "director_projects", "revision", "INTEGER NOT NULL DEFAULT 1")
             self._ensure_column(connection, "director_projects", "content_revision", "INTEGER NOT NULL DEFAULT 1")
             self._ensure_column(connection, "generation_items", "cancel_requested", "INTEGER NOT NULL DEFAULT 0")
@@ -520,13 +584,22 @@ class JobStore:
 
     @staticmethod
     def _media_for_mode(mode: str) -> str:
-        if mode == JobMode.IMAGE.value or mode.startswith("grs-"):
-            return "image"
-        return "video"
+        # 注册表是工作流能力的唯一来源；无法识别的模式保留旧前缀推断兜底。
+        from .workflow_registry import workflow_for
+        try:
+            return str(workflow_for(mode).media_type) or ("image" if mode.startswith("grs-") else "video")
+        except KeyError:
+            return "image" if mode == JobMode.IMAGE.value or mode.startswith("grs-") else "video"
 
     @staticmethod
     def _executor_for_mode(mode: str) -> str:
-        return "grs" if mode.startswith("grs-") else "comfyui"
+        # 复合图片工作流（局部重绘/消除笔/扩图）声明 executor=grs；
+        # 若只按 grs- 前缀判断会被错路由进 ComfyUI 兜底分支。
+        from .workflow_registry import workflow_for
+        try:
+            return str(workflow_for(mode).executor) or ("grs" if mode.startswith("grs-") else "comfyui")
+        except KeyError:
+            return "grs" if mode.startswith("grs-") else "comfyui"
 
     def _ensure_grs_image_models(self, connection: DbConnection) -> None:
         if connection.dialect != "mysql":
@@ -1415,9 +1488,70 @@ class JobStore:
         self._bump_content_epoch()
         return result
 
-    def delete(self, job_id: str) -> bool:
+    def job_media_in_use(self, job_id: str, keys: list[str], connection: DbConnection) -> bool:
+        sources = {
+            "jobs": ("source_job_id", "references_json", "outputs_json", "options_json", "submitted_options_json"),
+            "job_rounds": ("references_json", "options_json", "submitted_options_json"),
+            "generation_items": ("outputs_json", "refine_state_json"),
+            "director_projects": ("payload_json",),
+            "director_library_assets": ("image_job_id", "image_path", "image_url"),
+            "director_operations": ("request_json", "result_json"),
+            "canvas_projects": ("preview_json",),
+            "canvas_drafts": ("content",),
+            "canvas_draft_versions": ("content",),
+            "ai_projects": ("cover_url", "settings_json"),
+            "ai_project_documents": ("analysis_json",),
+            "ai_project_assets": ("image_url", "extra_json"),
+            "ai_project_episodes": ("data_json",),
+            "ai_project_jobs": ("result_url", "payload_json"),
+            "ai_smart_edit_documents": ("document_json",),
+            "ai_featured_works": ("cover_url", "snapshot_json"),
+            "ai_showcase_items": ("source_job_id", "cover_url", "media_url", "references_json", "options_json"),
+        }
+        exclusions = {
+            "jobs": "id <> ?",
+            "job_rounds": "job_id <> ?",
+            "generation_items": "round_id NOT IN (SELECT id FROM job_rounds WHERE job_id = ?)",
+        }
+        needles = {job_id}
+        for key in keys:
+            for value in (key, quote(key, safe="/"), json.dumps(key, ensure_ascii=True)[1:-1]):
+                needles.add(value)
+                needles.add(value.replace("/", "\\/"))
+        ordered = sorted(needles)
+        for table, columns in sources.items():
+            if not self._db.table_exists(connection, table):
+                continue
+            # 只检索已知媒体字段；不把日志、审计里的历史任务 ID 当成使用引用。
+            for start in range(0, len(ordered), 64):
+                batch = ordered[start:start + 64]
+                clauses = [f"INSTR({column}, ?) > 0" for column in columns for _ in batch]
+                parameters = [needle for _ in columns for needle in batch]
+                exclusion = exclusions.get(table)
+                if exclusion:
+                    parameters.append(job_id)
+                match = connection.execute(
+                    f"SELECT 1 FROM {table} WHERE ({' OR '.join(clauses)})"
+                    + (f" AND {exclusion}" if exclusion else "") + " LIMIT 1",
+                    tuple(parameters),
+                ).fetchone()
+                if match is not None:
+                    return True
+        return False
+
+    def delete(
+        self, job_id: str, *, before_commit: Callable[[dict, DbConnection], None] | None = None,
+    ) -> bool:
         with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT * FROM jobs WHERE id = ?", (job_id,), for_update=True).fetchone()
+            if row is None:
+                return False
+            job = self.decode(row, connection=connection) if before_commit is not None else None
+            # 先取得级联删除的全部行锁，让锁冲突发生在不可回滚的云端清理之前。
             cursor = connection.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+            if before_commit is not None:
+                before_commit(job, connection)
         if cursor.rowcount > 0:
             self._bump_content_epoch()
         return cursor.rowcount > 0

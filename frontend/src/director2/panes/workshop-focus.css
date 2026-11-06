@@ -38,7 +38,26 @@
 .ws-save-state.is-error { color:var(--studio-danger,#e26b6b); }
 .ws-project-controls { display:flex; flex-direction:column; gap:10px; width:260px; }
 .ws-project-controls>label { font-size:12px; color:var(--studio-text-secondary); }
-.ws-loading { flex:1; display:flex; align-items:center; justify-content:center; gap:10px; color:var(--studio-text-secondary); font-size:13px; }
+.ws-loading { flex:1; min-height:0; display:grid; grid-template-rows:minmax(0,1fr) auto auto; gap:10px; padding:0 8px 10px; color:var(--studio-text-secondary); font-size:13px; }
+.ws-loading-body { min-height:0; display:grid; grid-template-columns:340px minmax(0,1fr) minmax(230px,300px); gap:8px; }
+.ws-loading-side { min-height:0; background:var(--studio-surface); border-radius:16px; padding:16px 14px; display:flex; flex-direction:column; align-items:flex-start; gap:16px; overflow:hidden; }
+.ws-loading-editor { min-width:0; padding:14px 24px 0; display:flex; flex-direction:column; align-items:flex-start; gap:20px; }
+.ws-loading-player { min-height:0; display:flex; flex-direction:column; gap:10px; }
+.ws-loading-strip { display:grid; grid-template-columns:repeat(9,minmax(0,1fr)); gap:8px; }
+.ws-loading-status { display:flex; align-items:center; justify-content:center; gap:10px; margin:0; }
+/* 骨架条视觉（渐变/动画/延迟）来自全局 .studio-skeleton-bar，这里只管结构尺寸 */
+.ws-skeleton-stage { display:block; width:100%; height:auto; aspect-ratio:16/9; border-radius:8px; }
+.ws-loading-strip .ws-skeleton-tile { display:block; height:62px; border-radius:8px; }
+.ws-loading-editor .studio-skeleton-heading { margin-top:0; }
+.studio-skeleton-bar.ws-skeleton-cover { flex:none; width:88px; height:124px; margin:12px 8px 12px 12px; border-radius:6px; }
+.studio-skeleton-bar.ws-skeleton-chip { width:44px; height:16px; border-radius:3px; }
+.studio-skeleton-bar.ws-skeleton-heading { height:20px; border-radius:4px; margin-top:10px; }
+.studio-skeleton-bar.ws-skeleton-caption { height:12px; border-radius:3px; margin-top:12px; }
+.ws-episode-card.is-skeleton .studio-skeleton-heading { width:64%; }
+.ws-episode-card.is-skeleton .studio-skeleton-caption { width:52%; }
+.studio-skeleton-bar.ws-skeleton-action { width:48px; height:24px; border-radius:6px; }
+.studio-skeleton-bar.ws-skeleton-action.is-wide { width:64px; }
+.ws-episode-card.is-skeleton { pointer-events:none; }
 .ws-overview { flex:1; min-height:0; overflow:auto; padding:44px 60px 60px; }
 .ws-overview-heading { display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:32px; gap:24px; }
 .ws-overview-heading h1 { margin:0; font-size:24px; line-height:32px; font-weight:500; }
@@ -46,6 +65,8 @@
 .ws-overview-actions { display:flex; align-items:center; gap:8px; }
 .ws-overview-actions>.ant-btn { height:36px; padding:0 16px; border-radius:8px; }
 .ws-overview-actions>span { font-size:12px; color:var(--studio-text-secondary); }
+.ws-overview-actions .ws-subtle.ant-btn.ant-btn-dangerous { color:var(--studio-danger); background:var(--studio-danger-soft); }
+.ws-overview-actions .ws-subtle.ant-btn.ant-btn-dangerous:disabled { color:var(--studio-danger); background:var(--studio-danger-soft); opacity:.4; }
 .ws-overview-filter { width:260px; display:flex; flex-direction:column; gap:10px; }
 .ws-episode-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
 .ws-episode-card { height:148px; display:flex; min-width:0; border-radius:16px; background:var(--studio-surface); overflow:hidden; }
@@ -140,6 +161,9 @@
 .ws-preview-actions>.ant-btn:last-child { width:20px; }
 .ws-video-progress { margin:6px 0; }
 .ws-video-progress>span { color:var(--studio-text-secondary); font-size:11px; }
+.ws-episode-progress { display:flex; align-items:center; gap:10px; margin:0 0 8px; padding:8px 12px; border:1px solid var(--studio-border); border-radius:8px; background:var(--studio-surface); }
+.ws-episode-progress>.ant-progress { flex:0 0 160px; margin:0; }
+.ws-episode-progress-label { color:var(--studio-text-secondary); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .ws-refine-actions { padding:10px 0; display:flex; flex-wrap:wrap; gap:6px; }
 .ws-refine-actions p { width:100%; font-size:12px; margin:0; color:var(--studio-text-secondary); }
 .ws-player { width:100%; min-width:0; }
@@ -263,6 +287,13 @@
 .ws-history-entry video { width:72px; height:48px; object-fit:cover; border-radius:4px; }
 .ws-history-entry .ant-btn-content { font-size:12px; text-align:left; }
 .ws-history-entry small { display:block; font-size:10px; color:var(--studio-text-secondary); }
+/* 历史版本加载骨架：按真实形态占位（左近黑视频台 + 右缩略图列表），替代整区只转圈 */
+.ws-history-skeleton-preview { display:grid; place-items:center; min-height:360px; padding:12px; background:#08090b; border-radius:8px; }
+.ws-history-skeleton-stage { width:100%; height:auto; aspect-ratio:16/9; border-radius:8px; }
+.ws-history-skeleton-list { display:flex; flex-direction:column; gap:8px; }
+.ws-history-skeleton-entry { display:flex; align-items:center; gap:10px; padding:8px; border-radius:8px; background:var(--studio-surface); }
+.studio-skeleton-bar.ws-history-skeleton-thumb { flex:none; width:72px; height:48px; border-radius:4px; }
+.ws-history-skeleton-entry .studio-skeleton-bar:last-child { height:26px; border-radius:4px; }
 .ws-history-entry>.ant-btn:not(.ant-btn-text) { margin-top:8px; }
 .ws-history-entry .ant-tag { font-size:10px; margin:0; }
 .ws-sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }

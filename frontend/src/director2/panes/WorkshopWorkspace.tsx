@@ -7,14 +7,14 @@ import { beatHasUpscaled, beatPlaybackUrl, beatUpscaleDisabledReason } from "../
 import { assetKindLabel, isPromptDocument, promptDocument, promptPatch, promptReferences, promptText, workshopAssets, type PromptDocument, type WorkshopAsset, type WorkshopPromptPatch } from "../workshop-editor"
 import { createWorkshopSaveQueue } from "../workshop-save-queue"
 import { selectedWorkshopBeatIds, workshopBatchDeleteReason } from "../workshop-batch"
-import { isAwaitingRefineStatus, isWorkshopShotRendered, workshopVideoOverlayLabel, type WorkshopShotVideoProgress } from "../workshop-video-progress"
+import { isAwaitingRefineStatus, isWorkshopShotRendered, workshopEpisodeBannerLabel, workshopVideoOverlayLabel, type WorkshopEpisodeVideoProgress, type WorkshopShotVideoProgress } from "../workshop-video-progress"
 import { WorkshopAssetCard, WorkshopAssetThumbnail, WorkshopPromptEditor, type WorkshopPromptEditorHandle } from "./WorkshopPromptEditor"
 import WorkshopPlayer from "./WorkshopPlayer"
 
 type SaveDraft = { document: PromptDocument; patch?: WorkshopPromptPatch; error?: string; state: "pending" | "saving" | "saved" | "error" | "recovered" }
 export type WorkshopWorkspaceProps = {
   csrfToken: string; projectId: string; episode: Director2EpisodeDetail; selected: Director2Beat | null; assets: Director2Asset[]; assetsState: "loading" | "ready" | "error"
-  progress: Record<string, WorkshopShotVideoProgress>; checked: Set<string>; generatingPrompt: boolean; upscalingId: string | null
+  progress: Record<string, WorkshopShotVideoProgress>; episodeProgress?: WorkshopEpisodeVideoProgress | null; checked: Set<string>; generatingPrompt: boolean; upscalingId: string | null
   onSelect: (beat: Director2Beat) => void; onPatch: (id: string, patch: Partial<Director2Beat>) => void
   onCheck: (beat: Director2Beat, value: boolean) => void; onCheckAll: (value: boolean) => void
   onDetails: () => void; onDubbing: () => void; onSmartEdit: () => void; onGenerate: () => void; onPrompt: () => void; onUpscale: (beat: Director2Beat) => void; onBatchGenerate: () => void; onBatchDelete: (ids: string[]) => Promise<void>; batchGenerating: boolean; batchDeleting: boolean
@@ -24,7 +24,6 @@ export type WorkshopWorkspaceProps = {
   submittingVideo: boolean
   failures: Record<string, WorkshopShotVideoProgress & { error: string }>
   retryingJobId: string | null
-  onGenerateKeyframes: () => void
   onRetryVideo: (progress: WorkshopShotVideoProgress) => void
   onBeforeSubmitReady: (flush: ((ids?: string[]) => Promise<void>) | null) => void
 }
@@ -153,6 +152,7 @@ export default function WorkshopWorkspace(props: WorkshopWorkspaceProps) {
   return <div className={"ws-workspace" + (collapsed ? " is-asset-collapsed" : "")}>
     {!collapsed && <WorkshopAssetLibrary assets={assets} episode={episode.number} beats={episode.beats} loading={props.assetsState === "loading"} error={props.assetsState === "error"} onRetry={props.onRefreshAssets} onInsert={insert} onCollapse={() => setCollapsed(true)}/>}
     <section className="ws-workbench">
+      {props.episodeProgress && <div className="ws-episode-progress" role="status" aria-live="polite"><Progress percent={props.episodeProgress.progress} size="small" showInfo={false} status="active"/><span className="ws-episode-progress-label">{workshopEpisodeBannerLabel(props.episodeProgress)}</span></div>}
       <div className="ws-workbench-upper">
         <section className="ws-script-panel" aria-label="片段正文编辑区">
           {beat && document ? <>
@@ -173,7 +173,7 @@ export default function WorkshopWorkspace(props: WorkshopWorkspaceProps) {
           {progress && !awaiting && <div className="ws-video-progress" role="status">{shotRendered ? <Check size={13} aria-hidden/> : !shotQueued && <Progress percent={progress.progress} size="small" showInfo={false}/>}<span>{workshopVideoOverlayLabel(progress.status, progress.progress, progress)}</span></div>}
           {failure && !progress && <Alert type="error" showIcon title="视频生成中断" description={<>{failure.error}<br/>重试会继续本次提交；修改正文后请重新生成。</>} action={<Button size="small" loading={props.retryingJobId === failure.jobId} disabled={Boolean(props.retryingJobId) || submitting} onClick={() => props.onRetryVideo(failure)}>重试当前步骤</Button>}/>}
           {awaiting && progress && <div className="ws-refine-actions"><p>一采预览已生成</p><Button size="small" loading={props.refineBusy} onClick={() => props.onRefine("confirm", progress)}>确认二采</Button><Button size="small" disabled={props.refineBusy} onClick={() => props.onRefine("skip", progress)}>保留一采</Button></div>}
-          <div className="ws-preview-actions"><Button type="text" size="small" onClick={() => props.onHistory(beat)}>历史版本</Button><Button type="text" size="small" icon={<RefreshCw size={13}/>} loading={props.submittingVideo || Boolean(progress) && progress?.scope !== "upscale"} disabled={props.generatingPrompt || submitting || Boolean(progress)} onClick={props.onGenerate}>{beatPlaybackUrl(activeBeat) ? "重拍片段" : "生成片段"}</Button><Dropdown trigger={["click"]} menu={{ items: [{ key: "keyframes", label: "规划关键帧并生成视频", disabled: submitting || props.generatingPrompt || Boolean(progress), onClick: props.onGenerateKeyframes }, { key: "upscale", label: "智能超清", disabled: Boolean(beatUpscaleDisabledReason(beat, progress)) || props.upscalingId === beat.id, title: beatUpscaleDisabledReason(beat, progress), onClick: () => props.onUpscale(beat) }, { key: "download", label: "下载当前视频", disabled: !beatPlaybackUrl(activeBeat), onClick: () => { const a = window.document.createElement("a"); a.href = beatPlaybackUrl(activeBeat); a.download = "片段-" + beat.sequence + ".mp4"; a.target = "_blank"; a.rel = "noopener"; a.click() } }, { key: "details", label: "高级制作详情", onClick: props.onDetails }] }}><Button type="text" size="small" aria-label="片段更多操作" icon={<MoreHorizontal size={14}/>}/></Dropdown></div>
+          <div className="ws-preview-actions"><Button type="text" size="small" onClick={() => props.onHistory(beat)}>历史版本</Button><Button type="text" size="small" icon={<RefreshCw size={13}/>} loading={props.submittingVideo || Boolean(progress) && progress?.scope !== "upscale"} disabled={props.generatingPrompt || submitting || Boolean(progress)} onClick={props.onGenerate}>{beatPlaybackUrl(activeBeat) ? "重拍片段" : "生成片段"}</Button><Dropdown trigger={["click"]} menu={{ items: [{ key: "upscale", label: "智能超清", disabled: Boolean(beatUpscaleDisabledReason(beat, progress)) || props.upscalingId === beat.id, title: beatUpscaleDisabledReason(beat, progress), onClick: () => props.onUpscale(beat) }, { key: "download", label: "下载当前视频", disabled: !beatPlaybackUrl(activeBeat), onClick: () => { const a = window.document.createElement("a"); a.href = beatPlaybackUrl(activeBeat); a.download = "片段-" + beat.sequence + ".mp4"; a.target = "_blank"; a.rel = "noopener"; a.click() } }, { key: "details", label: "高级制作详情", onClick: props.onDetails }] }}><Button type="text" size="small" aria-label="片段更多操作" icon={<MoreHorizontal size={14}/>}/></Dropdown></div>
         </div>}</aside>
       </div>
       <section className="ws-filmstrip" aria-label="本集视频片段">

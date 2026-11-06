@@ -59,6 +59,9 @@ export default function SkillPackPickerModal({
   onChange,
   onOk,
   onCancel,
+  title = "选择制作配方",
+  okText = "创建工程",
+  hint = "后续剧本、定妆和工坊都按这个配方处理。内容库里的骨架模板不是这一项。",
 }: {
   open: boolean
   packs: Director2SkillPack[]
@@ -68,22 +71,25 @@ export default function SkillPackPickerModal({
   onChange: (packId: string) => void
   onOk: (packId?: string) => void
   onCancel: () => void
+  title?: string
+  okText?: string
+  hint?: string
 }) {
   return (
     <Modal
-      title="选择制作配方"
+      title={title}
       open={open}
       onOk={() => onOk()}
       onCancel={onCancel}
-      okText="创建工程"
+      okText={okText}
       cancelText="取消"
       confirmLoading={Boolean(confirming)}
       okButtonProps={{ disabled: Boolean(loading) }}
       destroyOnClose
       wrapClassName="dh-pack-picker-modal"
-      width={920}
+      width={680}
     >
-      <p className="dh-pack-picker-hint">后续剧本、定妆和工坊都按这个配方处理。内容库里的骨架模板不是这一项。</p>
+      <p className="dh-pack-picker-hint">{hint}</p>
       {loading ? (
         <div className="dh-pack-picker-loading"><Spin /><span>正在加载配方</span></div>
       ) : (

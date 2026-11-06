@@ -1,0 +1,22 @@
+{
+  "sheet": "07-panels-actions",
+  "started_at_utc": "2026-11-02T15:47:50.797876+00:00",
+  "model": "gpt-image-2.5-flare",
+  "size": "1536x1024",
+  "quality": "high",
+  "n": 1,
+  "prompt": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\prompts\\07-panels-actions.v002.txt",
+  "references": [
+    {
+      "path": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\nodes\\07-panels-actions.v001.png",
+      "role": "existing sheet to edit",
+      "sha256": "f7cd64746c68188573c5812ccd674d2bb03a7deb3d5fe025a2e476ce69e2218c"
+    },
+    {
+      "path": "D:\\zlyun\\Toonflow\\本地视频工作台\\docs\\design-ref-canvas\\workrally-redesign-20261102\\canvas-workrally-dark-v001.png",
+      "role": "user-reviewed visual direction",
+      "sha256": "779277c7e3c3a53ba6a01f9314b305ff373472e2aa2829732b2ce2780c78e736"
+    }
+  ],
+  "status": "submitted-once"
+}

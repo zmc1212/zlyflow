@@ -1,0 +1,15 @@
+{
+  "document_height": 864,
+  "dpr": 1.159999966621399,
+  "fonts_ready": true,
+  "horizontal_overflow": false,
+  "images_ready": true,
+  "title": "ZLY AI 视频创作平台",
+  "url": "http://127.0.0.1:5173/director",
+  "viewport": {
+    "height": 864,
+    "width": 1536
+  },
+  "full_page": false,
+  "screenshot_scale": "css"
+}

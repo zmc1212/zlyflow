@@ -87,6 +87,8 @@
 .studio-header-account-heading > span { overflow-wrap: anywhere; color: var(--studio-text-muted); font-size: 12px; line-height: 18px; }
 .studio-header-account-dropdown .ant-dropdown-menu { border-radius: 0; background: transparent; padding: 6px; box-shadow: none; }
 .studio-header-account-dropdown .ant-dropdown-menu-item { min-height: 36px; border-radius: 8px; }
+.studio-header-menu-label { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 8px; }
+.studio-header-menu-label > svg { color: var(--studio-text-muted); flex-shrink: 0; }
 
 @media (min-width: 1024px) {
   .studio-workspace.studio-floating-workspace { min-height: calc(100vh - 76px); margin-top: 76px; }

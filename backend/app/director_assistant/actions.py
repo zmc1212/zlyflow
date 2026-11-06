@@ -400,7 +400,7 @@ class ProjectActions:
                     raise ValueError("媒体目标镜头不存在")
                 target_name += f" / 镜头{beat.get('sequence', '')}"
         media_type = draft["media_type"]
-        if media_type in {"asset_image", "storyboard_image"}:
+        if media_type == "asset_image":
             with self.repo.store.connection() as conn:
                 rows = conn.execute("SELECT provider_model,display_name FROM grs_image_models WHERE enabled=1 ORDER BY is_default DESC,sort_order,provider_model").fetchall()
             chosen = next((row for row in rows if row["provider_model"] == options.get("model")), None) if options.get("model") else (rows[0] if rows else None)
@@ -458,7 +458,7 @@ class ProjectActions:
         row = conn.execute(f"SELECT * FROM {table} WHERE id=? AND project_id=?", (target_id, proposal["project_id"])).fetchone()
         if not row or fingerprint(row) != proposal["target_fingerprint"]:
             raise AssistantConflict("目标素材已变化，请按最新内容重新生成执行提案")
-        if proposal["media_type"] in {"asset_image", "storyboard_image"}:
+        if proposal["media_type"] == "asset_image":
             model = conn.execute("SELECT provider_model FROM grs_image_models WHERE provider_model=? AND enabled=1", (proposal["options"]["model"],)).fetchone()
             if not model:
                 raise AssistantConflict("提案中的生图模型已停用，请重新选择")
@@ -480,8 +480,6 @@ class ProjectActions:
                 kind, pid, eid, bid = proposal["media_type"], proposal["project_id"], proposal.get("episode_id"), proposal.get("beat_id")
                 if kind == "asset_image":
                     result = ProjectDetailService.generate_asset_image(pid, proposal["asset_id"], options)
-                elif kind == "storyboard_image":
-                    result = ProjectDetailService.generate_beat_sketch(pid, eid, bid, options)
                 elif kind == "video":
                     result = EpisodeVideoService.create_job(pid, eid, beat_id=bid, render_scope="shot", options=options) if bid else EpisodeVideoService.generate_episode_videos(pid, eid, options=options)
                 elif kind == "voice":

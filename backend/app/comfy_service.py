@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import io
 import json
 import logging
 import mimetypes
@@ -17,11 +19,13 @@ from urllib.parse import quote, urlsplit, urlunsplit
 
 import requests
 import websocket
+from PIL import Image
 
 import local_video_studio as legacy
 
 from .config import Settings
 from .minimax_h3_director_accel_workflow import build_minimax_h3_director_accel_workflow
+from .minimax_h3_action_workflow import build_minimax_h3_action_workflow
 from .minimax_h3_dual_accel_workflow import build_minimax_h3_dual_accel_workflow
 from .minimax_h3_lightx2v_workflow import build_minimax_h3_lightx2v_workflow
 from .minimax_h3_refine_workflow import (
@@ -34,8 +38,15 @@ from .minimax_h3_avatar_workflow import build_minimax_h3_avatar_workflow
 from .minimax_h3_lipsync_workflow import build_minimax_h3_lipsync_workflow
 from .minimax_h3_workflow import build_minimax_h3_workflow
 from .models import JobMode
-from .motion_transfer_media import prepare_motion_video
+from .motion_transfer_media import prepare_motion_reference_video, prepare_motion_video
+from .keep_face_restore_workflow import (
+    KEEP_NODE, KEEP_OUTPUT_NODE, KEEP_OUTPUT_LABEL,
+    build_keep_face_restore_workflow, keep_missing_message,
+)
 from .scail2_workflow import SCAIL_OUTPUT_NODE, SCAIL_DIAGNOSTIC_PREFIX, build_scail2_workflow, prepare_scail_inputs, scail_missing_message
+from .face_swap_workflow import (
+    FACE_OUTPUT_NODE, build_face_swap_workflow, face_aspect_ratio, face_swap_missing_message,
+)
 from .video_analysis import probe_video
 from .resource_storage import BrowserLocalStagingStorage, ResourceStorage, StoredResource, resource_object_url
 from .rtx_vsr_workflow import (
@@ -72,6 +83,35 @@ from .h3_motion_transfer_workflow import (
     MOTION_TRANSFER_OUTPUT_NODE,
     build_h3_motion_transfer_workflow,
 )
+from .h3_motion_ref_video_workflow import (
+    MOTION_REF_VIDEO_OUTPUT_NODE,
+    build_h3_motion_ref_video_workflow,
+)
+
+# 2026-11-04 复刻官方 Aiden 多人模板的 ImageCaption 机制：后端视觉模型逐角色生成
+# 像素级外观描述 bake 进 <Subject> 绑定，使用户不写角色长相也能稳定换人。
+# 提示词沿用模板"像素级描述(by:阿丹)"的约束：忠实图片、描述体型比例、不描述手持物品。
+MOTION_REF_CAPTION_SYSTEM = (
+    "你是视频换人工作流的角色外观速记员。只看图片中唯一的主要角色，"
+    "输出恰好一句 40-80 字的中文外观短语（以“的XX”结尾，可直接当句子主语），"
+    "忠实图片只写：人设类型（真人/3D娃娃/卡通等）、身形、发型发色、"
+    "服装款式与颜色、鞋。不要标题、引号、序号、解释，不要写手持物品和配饰，"
+    "不要编造看不到的细节。"
+)
+
+# 2026-11-04 三代图内 caption 注入实测全部不换人，唯一成功样本 xbzyTzeDkK6S 的写法是
+# 描述段首句用中文外观主语紧贴动作。润色改写就是把这个写法自动化。
+MOTION_REF_POLISH_SYSTEM = (
+    "你在为“多人动作迁移视频”改写创作描述。模型只认一种主语写法：描述段首句用"
+    "“外观特征 + 身份”直接点名画面主角，紧接着写他要复刻的动作。规则："
+    "1) 把每个角色的外观短语自然织入与其动作绑定的主语句（如“长直黑发、穿黑色"
+    "吊带裙和白色运动鞋的女孩是画面中央的唯一主角，她完整复刻……”），主角动作的"
+    "节拍、幅度、镜头、背景、音画同步等其余内容必须原意保留；"
+    "2) 不得引入用户和外观短语里没有的新角色、新物品、新场景；"
+    "3) 输出恰好一段纯中文创作描述，不写小标题、序号、英文模板、<Picture>、"
+    "<Video>、subject_definitions 或任何解释。"
+)
+
 from .h3_inpaint_workflow import (
     INPAINT_OUTPUT_NODE,
     build_h3_inpaint_workflow,
@@ -109,6 +149,7 @@ from .stem_split_workflow import (
     build_stem_split_workflow,
 )
 from .workflow_registry import (
+    ACTION_WORKFLOWS,
     DIRECTOR_ACCEL_WORKFLOWS,
     DUAL_ACCEL_WORKFLOWS,
     H3_WORKFLOWS,
@@ -185,7 +226,7 @@ LOADER_CLASS_TYPES = frozenset({
 SAMPLER_CLASS_TYPES = frozenset({
     "SamplerCustomAdvanced", "SamplerCustom", "KSampler", "KSamplerAdvanced",
     "MiniMaxH3MultiRateSamplerEXPT8", "MiniMaxH3DualClockSamplerT8",
-    "MiniMaxH3Director", RTX_VSR_NODE_TYPE,
+    "MiniMaxH3Director", RTX_VSR_NODE_TYPE, KEEP_NODE,
 })
 DECODE_CLASS_TYPES = frozenset({
     "VAEDecode", "VAEDecodeAudio", "CreateVideo", "SaveVideo",
@@ -312,6 +353,32 @@ def resolve_minimax_picture_prompt(prompt: str, reference_count: int) -> str:
     return text
 
 
+def _split_box_pixels(per_mille: object, source: str) -> dict:
+    """框选拆分：把千分比坐标串 "x0,y0,x1,y1" 换算成原图像素矩形（供 graph 构建）。"""
+    if not isinstance(per_mille, str) or not per_mille.strip():
+        raise legacy.ComfyError("框选拆分需要在原图上先框选区域。")
+    parts = per_mille.split(",")
+    if len(parts) != 4:
+        raise legacy.ComfyError("框选区域格式不正确。")
+    try:
+        x0, y0, x1, y1 = (float(part) for part in parts)
+    except ValueError as error:
+        raise legacy.ComfyError("框选区域格式不正确。") from error
+    if not all(0 <= value <= 1000 for value in (x0, y0, x1, y1)) or x1 - x0 < 1 or y1 - y0 < 1:
+        raise legacy.ComfyError("框选区域无效，请在原图上重新框选。")
+    try:
+        with Image.open(source) as image:
+            width, height = image.size
+    except OSError as error:
+        raise legacy.ComfyError("原图无法读取，请重新上传。") from error
+    return {
+        "x": round(x0 / 1000 * width),
+        "y": round(y0 / 1000 * height),
+        "width": max(1, round((x1 - x0) / 1000 * width)),
+        "height": max(1, round((y1 - y0) / 1000 * height)),
+    }
+
+
 class ComfyService:
     """ComfyUI HTTP client that reuses the proven workflow node mappings."""
 
@@ -424,6 +491,11 @@ class ComfyService:
             comfy_url=self.comfy_url,
             device_name=comfy_vram_device_name(self.system_stats()),
         )
+        if reason:
+            raise legacy.ComfyError(reason)
+
+    def require_keep_face_restore(self) -> None:
+        reason = keep_missing_message(self.object_info(KEEP_NODE))
         if reason:
             raise legacy.ComfyError(reason)
 
@@ -985,6 +1057,28 @@ class ComfyService:
         )
         return [self.output_payload(output, "video", "VACE 复刻视频")]
 
+    def _run_keep_face_restore(
+        self, references: list[str], options: dict | None,
+        update_stage: Callable[[str, int | None], None],
+        on_submitted: Callable[[str, str, str], None] | None,
+        is_cancelled: Callable[[], bool] | None,
+    ) -> list[dict]:
+        if not 1 <= len(references) <= 2:
+            raise legacy.ComfyError("人脸高清修复需要待修复视频，可另外提供同一片段的高清前原片。")
+        self.require_keep_face_restore()
+        normalized = normalize_options(JobMode.KEEP_FACE_RESTORE, options or {})
+        self.free_resources(force=True)
+        uploaded = []
+        for index, path in enumerate(references):
+            if is_cancelled and is_cancelled():
+                raise ComfyCancelled("任务已停止")
+            update_stage("正在上传人脸修复素材", None)
+            uploaded.append(self.upload_video(path, f"keep_face_{index}"))
+        workflow = build_keep_face_restore_workflow(uploaded[0], uploaded[-1], normalized)
+        record = self.run_workflow(workflow, "正在跟踪并高清修复所选人脸", update_stage,
+                                   on_submitted=on_submitted, is_cancelled=is_cancelled)
+        return self.completed_outputs(JobMode.KEEP_FACE_RESTORE, record)
+
     def _run_scail2_replacement(
         self, references: list[str], prompt: str, options: dict | None,
         update_stage: Callable[[str, int | None], None],
@@ -1023,6 +1117,49 @@ class ComfyService:
         record = self.run_workflow(graph, "正在跟踪人物并迁移动作与表情", update_stage,
                                    on_submitted=on_submitted, is_cancelled=is_cancelled)
         return self.completed_outputs(JobMode.SCAIL2_REPLACEMENT, record)
+
+    def _run_face_swap(
+        self, references: list[str], prompt: str, options: dict | None,
+        update_stage: Callable[[str, int | None], None],
+        on_submitted: Callable[[str, str, str], None] | None,
+        is_cancelled: Callable[[], bool] | None,
+    ) -> list[dict]:
+        """H3 角色替换（换头修脸）：references[0] 为角色形象图，references[1] 为原片视频。
+        形象图在远端由内嵌 yolov8m 子图自动裁成纯脸特写，避免半身参考图导致矩形鬼影。"""
+        if len(references) != 2:
+            raise legacy.ComfyError("角色替换需要上传角色形象图和原片视频。")
+        def check_cancelled() -> None:
+            if is_cancelled and is_cancelled():
+                raise ComfyCancelled("任务已停止")
+        check_cancelled()
+        normalized = normalize_options(JobMode.MINIMAX_H3_FACE_SWAP, options or {})
+        update_stage("正在上传角色形象图", None)
+        reference_image = self.upload_image(references[0], "face_swap_reference")
+        check_cancelled()
+        update_stage("正在上传原片视频", None)
+        source_video = self.upload_video(references[1], "face_swap_source")
+        check_cancelled()
+        # 交付链是“整段重生成→贴脸”，重生成底图画幅跟随原片方向；模板冻结的 9:16
+        # 竖屏会把横屏原片重画成竖屏。探测失败时保留模板画幅，不因此阻断任务。
+        aspect_ratio = ""
+        try:
+            probe = probe_video(Path(references[1]))
+            aspect_ratio = face_aspect_ratio(int(probe.width), int(probe.height))
+        except (OSError, ValueError, RuntimeError):  # VideoAnalysisError 继承 RuntimeError
+            pass
+        graph = build_face_swap_workflow(
+            reference_image, source_video, prompt,
+            crop_factor=normalized["crop_factor"],
+            frame_load_cap=normalized["frame_load_cap"],
+            confidence=normalized["confidence"],
+            aspect_ratio=aspect_ratio or None,
+        )
+        reason = face_swap_missing_message(self.object_info(), graph)
+        if reason:
+            raise legacy.ComfyError(reason)
+        record = self.run_workflow(graph, "正在检测人脸并替换角色身份", update_stage,
+                                   on_submitted=on_submitted, is_cancelled=is_cancelled)
+        return self.completed_outputs(JobMode.MINIMAX_H3_FACE_SWAP, record)
 
     def _run_motion_transfer(
         self, references: list[str], prompt: str, negative_prompt: str, options: dict | None,
@@ -1070,6 +1207,221 @@ class ComfyService:
         output = self.download(
             legacy.output_file(record, MOTION_TRANSFER_OUTPUT_NODE, ("videos", "gifs", "images")),
             "h3_motion_transfer",
+        )
+        return [self.output_payload(output, "video", "H3 动作迁移视频")]
+
+    @staticmethod
+    def _caption_image_data_url(path: str) -> str:
+        """角色图缩到长边 1024 JPEG 再转 data URL：原图 base64 动辄 2MB，会撞上游
+        输入长度上限，也会让部分视觉网关直接丢弃图片（模型谎称看不到图）。"""
+        mime = mimetypes.guess_type(path)[0] or "image/png"
+        raw = Path(path).read_bytes()
+        try:
+            image = Image.open(io.BytesIO(raw))
+            if image.mode in ("RGBA", "LA", "P"):
+                image = image.convert("RGBA")
+                background = Image.new("RGB", image.size, (255, 255, 255))
+                background.paste(image, mask=image.getchannel("A"))
+                image = background
+            else:
+                image = image.convert("RGB")
+            image.thumbnail((1024, 1024))
+            buffer = io.BytesIO()
+            image.save(buffer, format="JPEG", quality=88)
+            return "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+        except Exception:
+            return f"data:{mime};base64," + base64.b64encode(raw).decode("ascii")
+
+    def _describe_motion_ref_characters(
+        self, paths: list[str], is_cancelled: Callable[[], bool] | None,
+    ) -> list[str]:
+        """逐角色图生成像素级外观描述（复刻官方模板 ImageCaption 机制）。
+
+        不走全局 authoring 路由（它会把名义可用的免费 VLM 当视觉），只选探针记录
+        或模型名实锤能看图的端点。视觉服务缺失、未启用或单图失败时该项返回空串
+        （构图时自然跳过，退化回旧行为），绝不阻断任务；取消信号照常抛出。
+        """
+        captions: list[str] = []
+        try:
+            from .llm_provider import model_supports_vision
+            from .media_studio.provider_bridge import credential_manager, llm_row, vlm_row
+            from .vision_runtime import (
+                VisionEndpoint,
+                chat_on_endpoint,
+                endpoint_from_row,
+                overlay_vlm_credentials,
+            )
+            decrypt = credential_manager().decrypt
+            llm, vlm = dict(llm_row() or {}), dict(vlm_row() or {})
+            endpoint = None
+            for source, row in (("llm", llm), ("vlm", vlm)):
+                candidate = endpoint_from_row(
+                    source,
+                    overlay_vlm_credentials(row, llm) if source == "vlm" else row,
+                    decrypt,
+                    require_vision=False,
+                )
+                if candidate is None:
+                    continue
+                probed = str(row.get("vision_capability") or "").lower() == "supported"
+                if probed or model_supports_vision(candidate.model):
+                    endpoint = VisionEndpoint(
+                        source=candidate.source,
+                        base_url=candidate.base_url,
+                        model=candidate.model,
+                        api_key=candidate.api_key,
+                        attach_images=True,
+                    )
+                    break
+            if endpoint is None:
+                return [""] * len(paths)
+        except Exception:
+            # 配置不可读（隔离测试/未初始化）同样退化，不阻断建任务。
+            return [""] * len(paths)
+        consecutive_failures = 0
+        for path in paths:
+            if is_cancelled is not None and is_cancelled():
+                raise ComfyCancelled("任务已停止")
+            if consecutive_failures >= 2:
+                # 视觉服务连续两张图都打不通（限流/网络死）就放弃余下角色，
+                # 避免每张白等超时；单张审核失败（夹在成功之间）不会触发。
+                captions.extend([""] * (len(paths) - len(captions)))
+                break
+            caption = ""
+            try:
+                text = chat_on_endpoint(
+                    endpoint,
+                    MOTION_REF_CAPTION_SYSTEM,
+                    "用一句中文速记图片中主要角色的外观，可直接作句子主语。",
+                    [self._caption_image_data_url(path)],
+                    max_tokens=600,
+                    temperature=0.3,
+                    timeout=120.0,
+                )
+                caption = re.sub(r"\s+", " ", str(text or "")).strip().strip('"')[:400]
+                if caption:
+                    ascii_ratio = sum(1 for ch in caption if ord(ch) < 128) / max(len(caption), 1)
+                    if ascii_ratio > 0.6:
+                        # 要求输出中文短语；英文占比高说明模型在答非所问（如声称看不到图），
+                        # 这种文本烧进 prompt 只会污染身份绑定，直接丢弃。
+                        caption = ""
+            except Exception:
+                caption = ""
+            consecutive_failures = consecutive_failures + 1 if not caption else 0
+            captions.append(caption)
+        return captions
+
+    def _inject_appearance_into_prompt(
+        self, prompt: str, captions: list[str], is_cancelled: Callable[[], bool] | None,
+    ) -> str:
+        """润色改写：把角色外观短语织成描述段首句的中文外观主语（复刻成功样本句式）。
+
+        三代图内注入实测证明模型不做跨段引用推理，也不认长英文 caption 主语句，
+        只认"中文外观主语紧贴动作"。改写失败或产出可疑（英文模板/乱码/过短）时
+        原样返回用户提示词，绝不阻断建任务；取消信号照常抛出。
+        """
+        profiles = [
+            f"角色 {index + 1}：{str(caption).strip()}"
+            for index, caption in enumerate(captions)
+            if str(caption or "").strip()
+        ]
+        text = str(prompt or "").strip()
+        if not profiles or not text:
+            return text
+        if is_cancelled is not None and is_cancelled():
+            raise ComfyCancelled("任务已停止")
+        try:
+            from .media_studio.provider_bridge import credential_manager, llm_row, vlm_row
+            from .vision_runtime import complete_authoring
+
+            rewritten, _meta = complete_authoring(
+                llm_row(), vlm_row(), credential_manager().decrypt,
+                MOTION_REF_POLISH_SYSTEM,
+                "角色外观短语：\n" + "\n".join(profiles)
+                + "\n\n用户的创作描述：\n" + text,
+                None,
+                max_tokens=1200,
+                temperature=0.3,
+                timeout=120.0,
+            )
+            rewritten = str(rewritten or "").strip()
+            lowered = rewritten.lower()
+            if (
+                len(rewritten) < len(text) * 0.5
+                or any(mark in lowered for mark in ("subject_definitions", "<picture", "<video", "character 1"))
+                or sum(1 for ch in rewritten if "\u4e00" <= ch <= "\u9fff") < max(8, len(text) * 0.2)
+            ):
+                # 过短/夹带英文模板结构/几乎没中文都视为改写失败，退化用原文。
+                return text
+            return rewritten
+        except ComfyCancelled:
+            raise
+        except Exception:
+            return text
+
+    def _run_motion_ref_video(
+        self, references: list[str], prompt: str, negative_prompt: str, options: dict | None,
+        update_stage: Callable[[str, int | None], None],
+        on_submitted: Callable[[str, str, str], None] | None,
+        is_cancelled: Callable[[], bool] | None,
+    ) -> list[dict]:
+        """多人参考视频版：references[0..N-1] 为角色形象图（<Picture n> 顺序），references[-1] 为动作参考视频。"""
+        if not 2 <= len(references) <= 7:
+            raise legacy.ComfyError("多人动作迁移需要 1-6 张角色形象图和 1 个动作参考视频。")
+        if is_cancelled is not None and is_cancelled():
+            raise ComfyCancelled("任务已停止")
+        update_stage("正在上传角色形象图")
+        character_images: list[str] = []
+        for index, path in enumerate(references[:-1]):
+            if is_cancelled is not None and is_cancelled():
+                raise ComfyCancelled("任务已停止")
+            character_images.append(self.upload_image(path, f"motion_ref_character_{index + 1}"))
+        normalized = normalize_options(JobMode.MINIMAX_H3_MOTION_REF_VIDEO, options or {})
+        if is_cancelled is not None and is_cancelled():
+            raise ComfyCancelled("任务已停止")
+        # 自动 caption:用户不写角色长相也能稳定换人（失败静默退化，不阻断）。
+        update_stage("正在生成角色外观描述")
+        character_captions = self._describe_motion_ref_characters(references[:-1], is_cancelled)
+        if is_cancelled is not None and is_cancelled():
+            raise ComfyCancelled("任务已停止")
+        # 润色改写：把外观短语织成描述段首句的中文外观主语（实测唯一生效的换人写法）。
+        prompt = self._inject_appearance_into_prompt(prompt, character_captions, is_cancelled)
+        update_stage("正在截取动作片段并保留原声")
+        self.settings.staging_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="motion-ref-video-", dir=self.settings.staging_dir) as directory:
+            prepared, source_has_audio = prepare_motion_reference_video(
+                Path(references[-1]), Path(directory) / "motion.mp4",
+                fps=normalized["fps"], length=normalized["length"],
+                width=normalized["width"], height=normalized["height"],
+            )
+            if is_cancelled is not None and is_cancelled():
+                raise ComfyCancelled("任务已停止")
+            update_stage("正在上传动作参考视频")
+            motion_video = self.upload_video(str(prepared), "motion_ref_video_control")
+        workflow = build_h3_motion_ref_video_workflow(
+            character_images,
+            motion_video,
+            prompt,
+            width=normalized["width"],
+            height=normalized["height"],
+            length=normalized["length"],
+            steps=int(normalized.get("steps") or 20),
+            seed=normalized["seed"],
+            # 只有预处理实测到音轨才接 AV latent 链,否则 VAEEncodeAudio 会拿空音轨报错。
+            preserve_audio=bool(normalized.get("preserve_audio", True)) and source_has_audio,
+            weight_dtype=str(normalized.get("weight_dtype") or "default"),
+            fps=int(normalized.get("fps") or 24),
+            # 按位传入（个别失败留空串，不能过滤——否则描述与角色序号错位）。
+            character_captions=character_captions if any(character_captions) else None,
+            # 快速预览档 = DMAD turbo LoRA + 8 步 euler，对齐官方 Aiden 模板主采样。
+            turbo=str(normalized.get("render_quality")) == "preview",
+        )
+        record = self.run_workflow(
+            workflow, "H3 正在迁移多人动作", update_stage, on_submitted=on_submitted, is_cancelled=is_cancelled,
+        )
+        output = self.download(
+            legacy.output_file(record, MOTION_REF_VIDEO_OUTPUT_NODE, ("videos", "gifs", "images")),
+            "h3_motion_ref_video",
         )
         return [self.output_payload(output, "video", "H3 动作迁移视频")]
 
@@ -1316,17 +1668,38 @@ class ComfyService:
         on_submitted: Callable[[str, str, str], None] | None,
         is_cancelled: Callable[[], bool] | None,
     ) -> list[dict]:
-        """ComfyUI 图片编辑工作流（去背景 / 图层分离）：references[0] 为原图。"""
-        if len(references) != 1:
-            raise legacy.ComfyError("该图片工具需要上传 1 张原图。")
+        """ComfyUI 图片编辑工作流（去背景 / 图层分离）：references[0] 为原图。
+
+        去背景画布编辑器可追加 references[1] 移除蒙版、references[2] 保留蒙版
+        （PNG，白色生效）；图层分离仍只收 1 张原图。
+        """
+        if mode is JobMode.IMAGE_LAYER_SPLIT:
+            if len(references) != 1:
+                raise legacy.ComfyError("图层分离需要上传 1 张原图。")
+        elif not 1 <= len(references) <= 3:
+            raise legacy.ComfyError("图片去背景需要 1 张原图，以及可选的移除蒙版与保留蒙版。")
         if is_cancelled is not None and is_cancelled():
             raise ComfyCancelled("任务已停止")
         normalized = normalize_options(mode, options or {})
         update_stage("正在上传原图")
         filename = self.upload_image(references[0], "image_edit_source")
+        mask_remove = None
+        mask_keep = None
+        if len(references) > 1:
+            update_stage("正在上传蒙版")
+            mask_remove = self.upload_image(references[1], "image_edit_mask_remove")
+        if len(references) > 2:
+            mask_keep = self.upload_image(references[2], "image_edit_mask_keep")
         if is_cancelled is not None and is_cancelled():
             raise ComfyCancelled("任务已停止")
-        workflow = build_image_edit_workflow(mode, filename, prompt, normalized)
+        split_box = None
+        if mode is JobMode.IMAGE_LAYER_SPLIT and normalized.get("split_mode") == "box":
+            split_box = _split_box_pixels(normalized.get("split_box"), references[0])
+        workflow = build_image_edit_workflow(
+            mode, filename, prompt, normalized,
+            mask_remove_filename=mask_remove, mask_keep_filename=mask_keep,
+            split_box=split_box,
+        )
         record = self.run_workflow(
             workflow, "正在编辑图片", update_stage, on_submitted=on_submitted, is_cancelled=is_cancelled,
         )
@@ -1489,6 +1862,9 @@ class ComfyService:
         return self.output_payload(output, "video", label)
 
     def completed_outputs(self, mode: JobMode, record: dict) -> list[dict]:
+        if mode is JobMode.KEEP_FACE_RESTORE:
+            output = self.download(legacy.output_file(record, KEEP_OUTPUT_NODE, ("videos", "gifs", "images")), "keep_face_restore")
+            return [self.output_payload(output, "video", KEEP_OUTPUT_LABEL)]
         if mode in H3_WORKFLOWS:
             output = self.download(legacy.output_file(record, "14", ("videos", "gifs", "images")), "minimax_h3")
             return [self.output_payload(output, "video", generation_output_label(mode))]
@@ -1512,10 +1888,19 @@ class ComfyService:
         if mode is JobMode.SCAIL2_REPLACEMENT:
             output = self.download(legacy.output_file(record, SCAIL_OUTPUT_NODE, ("videos", "gifs", "images")), "scail2_replacement")
             return [self.output_payload(output, "video", "SCAIL-2 动作迁移视频")]
+        if mode is JobMode.MINIMAX_H3_FACE_SWAP:
+            output = self.download(legacy.output_file(record, FACE_OUTPUT_NODE, ("videos", "gifs", "images")), "face_swap")
+            return [self.output_payload(output, "video", "角色替换视频")]
         if mode is JobMode.MINIMAX_H3_MOTION_TRANSFER:
             output = self.download(
                 legacy.output_file(record, MOTION_TRANSFER_OUTPUT_NODE, ("videos", "gifs", "images")),
                 "h3_motion_transfer",
+            )
+            return [self.output_payload(output, "video", "H3 动作迁移视频")]
+        if mode is JobMode.MINIMAX_H3_MOTION_REF_VIDEO:
+            output = self.download(
+                legacy.output_file(record, MOTION_REF_VIDEO_OUTPUT_NODE, ("videos", "gifs", "images")),
+                "h3_motion_ref_video",
             )
             return [self.output_payload(output, "video", "H3 动作迁移视频")]
         if mode is JobMode.MINIMAX_H3_INPAINT:
@@ -1668,6 +2053,8 @@ class ComfyService:
         self.last_refine_state = None
         if is_cancelled is not None and is_cancelled():
             raise ComfyCancelled("任务已停止")
+        if mode is JobMode.KEEP_FACE_RESTORE:
+            return self._run_keep_face_restore(references, options, update_stage, on_submitted, is_cancelled)
         if is_rtx_vsr_workflow(mode) or is_seedvr2_upscale_workflow(mode):
             if not references:
                 raise legacy.ComfyError("超分需要原片视频。")
@@ -1711,6 +2098,8 @@ class ComfyService:
                 workflow = build_minimax_h3_dual_accel_workflow(mode, resolved_prompt, uploaded, options, seed)
             elif mode in DIRECTOR_ACCEL_WORKFLOWS:
                 workflow = build_minimax_h3_director_accel_workflow(mode, resolved_prompt, uploaded, options, seed)
+            elif mode in ACTION_WORKFLOWS:
+                workflow = build_minimax_h3_action_workflow(mode, resolved_prompt, uploaded, options, seed)
             else:
                 workflow = build_minimax_h3_workflow(mode, resolved_prompt, uploaded, options, seed)
             if refine_preview:
@@ -1765,8 +2154,16 @@ class ComfyService:
         if mode is JobMode.SCAIL2_REPLACEMENT:
             return self._run_scail2_replacement(references, prompt, options, update_stage, on_submitted, is_cancelled)
 
+        if mode is JobMode.MINIMAX_H3_FACE_SWAP:
+            return self._run_face_swap(references, prompt, options, update_stage, on_submitted, is_cancelled)
+
         if mode is JobMode.MINIMAX_H3_MOTION_TRANSFER:
             return self._run_motion_transfer(
+                references, prompt, negative_prompt, options, update_stage, on_submitted, is_cancelled,
+            )
+
+        if mode is JobMode.MINIMAX_H3_MOTION_REF_VIDEO:
+            return self._run_motion_ref_video(
                 references, prompt, negative_prompt, options, update_stage, on_submitted, is_cancelled,
             )
 

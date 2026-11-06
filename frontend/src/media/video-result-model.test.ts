@@ -14,6 +14,10 @@ const upscale: VideoResult = {
 }
 
 describe("video result versions", () => {
+  it("labels a face repair as its own result version", () => {
+    const face = { ...original, output: { ...original.output, label: "人脸高清修复" } }
+    expect(videoVersions([original, face]).map((v) => v.label)).toEqual(["原片 1", "人脸高清修复"])
+  })
   it("keeps a selected original when polling appends an upscale result", () => {
     expect(selectVideoResult([original, second, upscale], videoResultKey(second))).toBe(second)
   })

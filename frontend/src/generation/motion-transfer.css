@@ -20,6 +20,7 @@
   border-color: var(--studio-accent-text);
 }
 .studio-motion-reference.is-filled { border-style: solid; }
+.studio-motion-reference-stage { display: contents; }
 .studio-motion-reference-placeholder, .studio-motion-reference-preview.ant-btn {
   position: relative;
   display: grid;
@@ -71,6 +72,16 @@
   color: var(--studio-text-secondary);
 }
 .studio-motion-validation { margin-top: 6px; color: var(--studio-danger); font-size: 12px; }
+.studio-motion-reference .studio-motion-reference-move.ant-btn {
+  flex: none;
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0;
+  margin-right: 14px;
+  border-radius: 6px;
+  color: var(--studio-text-muted);
+}
 .studio-toolbar-label { flex: none; white-space: nowrap; color: var(--studio-text-secondary); font-size: 11px; }
 
 /* The shared composer still has legacy dark-only number styles. Keep this
@@ -87,9 +98,4 @@
 #studio-composer:has(.studio-motion-references) .studio-number .ant-input-number-actions {
   background: var(--studio-surface-raised);
   color: var(--studio-text-secondary);
-}
-#studio-composer:has(.studio-motion-references) .studio-more-settings.ant-btn {
-  background: var(--studio-field);
-  border-color: var(--studio-border-strong);
-  color: var(--studio-text);
 }

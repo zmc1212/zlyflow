@@ -3,6 +3,7 @@ import {
   DIRECTOR2_PREFIX,
   director2ContentLibraryDocPath,
   director2DiagnosisPath,
+  director2FeaturedPath,
   director2HomePath,
   director2MenuEpisodeId,
   director2ProjectPath,
@@ -20,6 +21,12 @@ describe("director2 paths", () => {
   it("uses /director as the studio prefix", () => {
     expect(DIRECTOR2_PREFIX).toBe("/director")
     expect(director2HomePath()).toBe("/director")
+  })
+
+  it("opens a read-only featured work under /director", () => {
+    expect(parseDirector2Path("/director/featured/featured-abc")).toEqual({ kind: "featured", featuredId: "featured-abc" })
+    expect(director2FeaturedPath("featured abc")).toBe("/director/featured/featured%20abc")
+    expect(parseDirector2Path(director2FeaturedPath("featured abc"))).toEqual({ kind: "featured", featuredId: "featured abc" })
   })
 
   it("opens a content-library document from a shot_plan job", () => {
