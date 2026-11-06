@@ -33,7 +33,7 @@ describe("image edit tool helpers", () => {
       { id: "image-background-remove", name: "图片去背景", media_type: "image", available: true },
       { id: "minimax-h3-t2v", name: "官方 H3 文生视频", media_type: "video", available: true },
     ])
-    expect(choices).toEqual([{ id: "grs-gpt-image-2", name: "GPT Image 2" }])
+    expect(choices).toEqual([{ id: "grs-gpt-image-2", name: "GPT Image 2", isDefault: false }])
   })
 
   it("submits photo edits with auto aspect ratio; resolution and count only when meaningful", () => {

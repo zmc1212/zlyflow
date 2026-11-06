@@ -15,6 +15,7 @@ import {
   photoEditWorkflowChoices,
   regionAnnotationPromptSuffix,
   type PhotoEditModeDetail,
+  type PhotoEditWorkflowChoice,
   type PhotoEditRegion,
 } from "../generation/image-edit"
 import { generateJobPath } from "../paths"
@@ -132,9 +133,9 @@ export default function PhotoEditTool({ csrfToken }: { csrfToken: string }) {
     staleTime: 1000 * 60,
   })
   const modes = useMemo(() => modesQuery.data?.modes ?? [], [modesQuery.data])
-  const choices: { id: string; name: string }[] = photoEditWorkflowChoices(modes)
+  const choices: PhotoEditWorkflowChoice[] = photoEditWorkflowChoices(modes)
   // 初值直接派生自可选列表，避免首帧空选择；effect 只跟踪用户显式切换。
-  const activeWorkflowId = workflowId ?? choices[0]?.id ?? null
+  const activeWorkflowId = workflowId ?? choices.find((item) => item.isDefault)?.id ?? choices[0]?.id ?? null
   const activeMode = modes.find((mode) => mode.id === activeWorkflowId)
   const selectedUnavailable = activeMode?.available === false
   const resolutionMeta = useMemo(() => photoEditResolutionChoices(activeMode), [activeMode])

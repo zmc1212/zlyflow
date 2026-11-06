@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from backend.app import main as main_module
 from backend.app.auth import csrf_token
 from backend.app.config import Settings
+from backend.app.director_jobs import default_image_workflow_id
 from backend.app.grs_client import (
     GRS_INTERNATIONAL_BASE_URL, GRS_SUBMIT_TIMEOUT, GrsClient, GrsConnectionError, GrsError,
     GrsUncertainSubmitError, with_grs_billing_caution,
@@ -110,6 +111,45 @@ class RegistryTests(unittest.TestCase):
             validate_references(JobMode.GRS_GPT_IMAGE_2, [object()] * 11)
 
 
+class GptImage25RegistryTests(unittest.TestCase):
+    def test_gpt_image_25_base_profile_is_1k_without_quality(self) -> None:
+        base = workflow_for("grs-gpt-image-2.5")
+        self.assertEqual(base.media_type, "image")
+        self.assertEqual(base.executor, "grs")
+        self.assertEqual(base.max_references, 10)
+        properties = base.option_schema["properties"]
+        self.assertEqual(properties["provider_model"]["default"], "gpt-image-2.5")
+        self.assertEqual(properties["provider_model"]["ui_group"], "internal")
+        self.assertEqual(properties["aspect_ratio"]["ui_group"], "primary")
+        self.assertEqual(properties["aspect_ratio"]["ui_companions"], ["resolution", "count"])
+        self.assertEqual(properties["resolution"]["enum"], ["1K"])
+        self.assertNotIn("quality", properties)
+        options = normalize_options("grs-gpt-image-2.5", {"aspect_ratio": "16:9"})
+        self.assertEqual(grs_request_size("grs-gpt-image-2.5", options), ("1280x720", "1K"))
+        auto = normalize_options("grs-gpt-image-2.5", {"aspect_ratio": "auto"})
+        self.assertEqual(grs_request_size("grs-gpt-image-2.5", auto), ("auto", "1K"))
+
+    def test_gpt_image_25_vip_quality_is_advanced_and_model_scoped(self) -> None:
+        flare = workflow_for("grs-gpt-image-2.5-flare").option_schema["properties"]
+        self.assertEqual(flare["quality"]["ui_group"], "advanced")
+        self.assertEqual(flare["quality"]["enum"], ["low", "medium", "high"])
+        self.assertEqual(flare["quality"]["default"], "medium")
+        self.assertEqual(flare["resolution"]["enum"], ["1K", "2K", "4K"])
+        sunburst = workflow_for("grs-gpt-image-2.5-sunburst").option_schema["properties"]
+        self.assertEqual(sunburst["quality"]["enum"], ["low", "medium", "high", "xhigh", "max"])
+        self.assertEqual(sunburst["quality"]["default"], "high")
+        options = normalize_options(
+            "grs-gpt-image-2.5-flare",
+            {"aspect_ratio": "21:9", "resolution": "2K", "quality": "high"},
+        )
+        self.assertEqual(options["quality"], "high")
+        self.assertEqual(grs_request_size("grs-gpt-image-2.5-flare", options), ("2912x1248", "2K"))
+
+    def test_gpt_image_25_rejects_unsupported_ratio_resolution_pair(self) -> None:
+        with self.assertRaises(ValueError):
+            normalize_options("grs-gpt-image-2.5-flare", {"aspect_ratio": "1:3", "resolution": "1K"})
+
+
 class GrsCatalogTests(unittest.TestCase):
     def test_store_seeds_builtin_catalog_with_legacy_models_enabled(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -118,11 +158,12 @@ class GrsCatalogTests(unittest.TestCase):
             self.assertEqual(models["gpt-image-2"]["workflow_id"], "grs-gpt-image-2")
             self.assertTrue(models["gpt-image-2"]["enabled"])
             self.assertTrue(models["gpt-image-2-vip"]["enabled"])
-            self.assertTrue(models["gpt-image-2"]["is_default"])
+            self.assertFalse(models["gpt-image-2"]["is_default"])
+            self.assertTrue(models["gpt-image-2.5"]["is_default"])
             self.assertFalse(models["nano-banana-2"]["enabled"])
             self.assertEqual(models["nano-banana-2-2k-cl"]["resolutions"], ["2K"])
             enabled_ids = [item.id for item in GrsProviderService(store, Fernet.generate_key().decode()).enabled_image_workflows()]
-            self.assertEqual(enabled_ids[0], "grs-gpt-image-2")
+            self.assertEqual(enabled_ids[0], "grs-gpt-image-2.5")
             self.assertIn("grs-gpt-image-2-vip", enabled_ids)
             self.assertNotIn("grs-nano-banana-2", enabled_ids)
 
@@ -178,10 +219,138 @@ class GrsCatalogTests(unittest.TestCase):
                 item["enabled"] = item["workflow_id"] in {"grs-gpt-image-2", "grs-my-custom-model"}
                 item["is_default"] = item["workflow_id"] == "grs-my-custom-model"
             store.update_grs_image_models(items)
-            enabled_ids = [item.id for item in GrsProviderService(store, Fernet.generate_key().decode()).enabled_image_workflows()]
-            self.assertEqual(enabled_ids[0], "grs-my-custom-model")
+            service = GrsProviderService(store, Fernet.generate_key().decode())
+            enabled_ids = [item.id for item in service.enabled_image_workflows()]
             self.assertIn("grs-gpt-image-2", enabled_ids)
             self.assertNotIn("grs-gpt-image-2-vip", enabled_ids)
+            # 默认模型不再被钉在首位：未重排时仍按目录 sort_order 显示。
+            self.assertEqual(enabled_ids[0], "grs-gpt-image-2")
+            self.assertEqual(default_image_workflow_id(service), "grs-my-custom-model")
+
+    def test_catalog_sort_order_is_independent_from_the_default_model(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            service = GrsProviderService(store, Fernet.generate_key().decode())
+            visible = {"grs-nano-banana-2": 10, "grs-gpt-image-2": 20, "grs-gpt-image-2.5": 30}
+            items = store.list_grs_image_models()
+            for item in items:
+                item["enabled"] = item["workflow_id"] in visible
+                if item["workflow_id"] in visible:
+                    item["sort_order"] = visible[item["workflow_id"]]
+            store.update_grs_image_models(items)
+
+            workflows = service.enabled_image_workflows()
+            self.assertEqual([item.id for item in workflows], [
+                "grs-nano-banana-2", "grs-gpt-image-2", "grs-gpt-image-2.5",
+            ])
+            self.assertEqual([item.is_default for item in workflows], [False, False, True])
+            self.assertTrue(workflows[2].payload()["is_default"])
+            # 导演台自动出图与复合工作流回落都认默认标记，不受显示顺序影响。
+            self.assertEqual(default_image_workflow_id(service), "grs-gpt-image-2.5")
+            self.assertEqual(service.resolve_composite_model("gpt-image-2-vip"), "gpt-image-2.5")
+
+    def test_new_grs_image_model_appends_after_the_custom_order(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            items = store.list_grs_image_models()
+            for index, item in enumerate(items):
+                item["sort_order"] = (index + 1) * 10
+            store.update_grs_image_models(items)
+            added = store.add_grs_image_model({
+                "provider_model": "brand-new-model", "display_name": "新导入模型",
+                "profile": "nano_banana", "enabled": True,
+            })
+            self.assertEqual(added["sort_order"], len(items) * 10 + 10)
+            self.assertEqual(store.list_grs_image_models()[-1]["provider_model"], "brand-new-model")
+
+    def test_store_seeds_gpt_image_25_series_enabled_with_quality_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            models = {item["provider_model"]: item for item in store.list_grs_image_models()}
+            for provider_model in ("gpt-image-2.5", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"):
+                self.assertTrue(models[provider_model]["enabled"], provider_model)
+                self.assertTrue(models[provider_model]["builtin"], provider_model)
+                self.assertEqual(models[provider_model]["profile"], "gpt_image_2_5_vip" if provider_model != "gpt-image-2.5" else "gpt_image_2_5")
+            self.assertEqual(models["gpt-image-2.5-flare"]["quality_options"], ["low", "medium", "high"])
+            self.assertEqual(models["gpt-image-2.5-flare"]["default_quality"], "medium")
+            self.assertEqual(models["gpt-image-2.5-sunburst"]["quality_options"], ["low", "medium", "high", "xhigh", "max"])
+            self.assertEqual(models["gpt-image-2.5-sunburst"]["default_quality"], "high")
+            service = GrsProviderService(store, Fernet.generate_key().decode())
+            self.assertEqual([item.id for item in service.enabled_image_workflows()][0], "grs-gpt-image-2.5")
+
+    def test_legacy_catalog_migrates_gpt_image_25_default(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "legacy-catalog.db"
+            timestamp = "2026-09-01T00:00:00+00:00"
+            connection = sqlite3.connect(path)
+            try:
+                connection.execute("CREATE TABLE schema_migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL)")
+                connection.execute(
+                    """CREATE TABLE grs_image_models (
+                        workflow_id TEXT PRIMARY KEY,
+                        provider_model TEXT NOT NULL UNIQUE,
+                        display_name TEXT NOT NULL,
+                        description TEXT NOT NULL DEFAULT '',
+                        profile TEXT NOT NULL,
+                        resolutions_json TEXT,
+                        enabled INTEGER NOT NULL DEFAULT 0,
+                        sort_order INTEGER NOT NULL DEFAULT 100,
+                        is_default INTEGER NOT NULL DEFAULT 0,
+                        builtin INTEGER NOT NULL DEFAULT 0,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )"""
+                )
+                for workflow_id, provider_model, profile, enabled, sort_order, is_default in (
+                    ("grs-gpt-image-2", "gpt-image-2", "gpt_image_2", 1, 10, 1),
+                    ("grs-gpt-image-2-vip", "gpt-image-2-vip", "gpt_image_2_vip", 1, 20, 0),
+                    ("grs-nano-banana", "nano-banana", "nano_banana", 0, 30, 0),
+                ):
+                    connection.execute(
+                        """INSERT INTO grs_image_models
+                        (workflow_id, provider_model, display_name, description, profile, resolutions_json,
+                         enabled, sort_order, is_default, builtin, created_at, updated_at)
+                        VALUES (?, ?, ?, '', ?, NULL, ?, ?, ?, 1, ?, ?)""",
+                        (workflow_id, provider_model, provider_model, profile, enabled, sort_order, is_default, timestamp, timestamp),
+                    )
+                connection.execute(
+                    "INSERT INTO schema_migrations (name, applied_at) VALUES ('2026-08-25-grs-image-models-v1', ?)",
+                    (timestamp,),
+                )
+                connection.execute(
+                    """CREATE TABLE grs_provider_settings (
+                        id INTEGER PRIMARY KEY CHECK(id = 1),
+                        enabled INTEGER NOT NULL DEFAULT 0,
+                        base_url TEXT NOT NULL,
+                        api_key_encrypted TEXT,
+                        gpt_image_2_enabled INTEGER NOT NULL DEFAULT 1,
+                        gpt_image_2_vip_enabled INTEGER NOT NULL DEFAULT 1,
+                        models TEXT NOT NULL DEFAULT 'gpt-image-2',
+                        vip_models TEXT NOT NULL DEFAULT 'gpt-image-2-vip',
+                        last_test_status TEXT, last_test_message TEXT, last_test_at TEXT,
+                        last_balance REAL, last_balance_at TEXT, updated_at TEXT NOT NULL
+                    )"""
+                )
+                connection.execute(
+                    "INSERT INTO grs_provider_settings (id, enabled, base_url, updated_at) VALUES (1, 1, 'https://grsai.dakka.com.cn', ?)",
+                    (timestamp,),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+            store = JobStore(path)
+            models = {item["provider_model"]: item for item in store.list_grs_image_models()}
+            self.assertEqual(len(models), 6)
+            for provider_model in ("gpt-image-2.5", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"):
+                self.assertTrue(models[provider_model]["enabled"], provider_model)
+                self.assertTrue(models[provider_model]["builtin"], provider_model)
+            self.assertTrue(models["gpt-image-2.5"]["is_default"])
+            self.assertTrue(models["gpt-image-2"]["enabled"])
+            self.assertFalse(models["gpt-image-2"]["is_default"])
+            self.assertFalse(models["nano-banana"]["enabled"])
+            self.assertEqual(models["gpt-image-2.5-flare"]["quality_options"], ["low", "medium", "high"])
+            service = GrsProviderService(store, Fernet.generate_key().decode())
+            self.assertEqual([item.id for item in service.enabled_image_workflows()][0], "grs-gpt-image-2.5")
 
 
 class GrsClientTests(unittest.TestCase):
@@ -209,6 +378,23 @@ class GrsClientTests(unittest.TestCase):
         self.assertEqual(status, "succeeded")
         self.assertEqual(urls, ["https://file1.aitohumanize.com/a.png"])
         self.assertIsNone(message)
+
+    def test_submit_forwards_quality_only_when_present(self) -> None:
+        session = FakeSession([FakeResponse({"id": "remote-quality"})])
+        client = GrsClient("https://grs.example.com", "secret", session=session)
+        remote_id = client.submit(
+            model="gpt-image-2.5-flare", prompt="test", images=[],
+            aspect_ratio="1024x1024", image_size="1K", quality="low",
+        )
+        self.assertEqual(remote_id, "remote-quality")
+        body = session.calls[0][2]["json"]
+        self.assertEqual(body["quality"], "low")
+        self.assertEqual(body["aspectRatio"], "1024x1024")
+        self.assertEqual(body["imageSize"], "1K")
+        plain_session = FakeSession([FakeResponse({"id": "remote-plain"})])
+        plain_client = GrsClient("https://grs.example.com", "secret", session=plain_session)
+        plain_client.submit(model="gpt-image-2", prompt="test", images=[], aspect_ratio="1:1", image_size="1K")
+        self.assertNotIn("quality", plain_session.calls[0][2]["json"])
 
     def test_result_parses_http_400_violation_and_keeps_urls(self) -> None:
         session = FakeSession([
@@ -307,6 +493,14 @@ class GrsClientTests(unittest.TestCase):
         filename, content = proxy_v6.download_image("https://file5.aitohumanize.com/a.png")
         self.assertEqual(filename, "grs-result.png")
         self.assertEqual(content, image)
+        translated_v6_session = FakeSession([FakeResponse({}, headers={"Content-Type": "image/png"}, content=image)])
+        translated_v6 = GrsClient(
+            "https://grs.example.com", "secret", session=translated_v6_session,
+            resolver=lambda _host: ["198.18.6.105", "2001:2::64d"],
+        )
+        filename, content = translated_v6.download_image("https://file3.aitohumanize.com/a.png")
+        self.assertEqual(filename, "grs-result.png")
+        self.assertEqual(content, image)
         untrusted = GrsClient(
             "https://grs.example.com", "secret", session=FakeSession([]),
             resolver=lambda _host: ["198.18.1.176"],
@@ -319,6 +513,12 @@ class GrsClientTests(unittest.TestCase):
         )
         with self.assertRaises(GrsError):
             untrusted_v6.download_image("https://cdn.example.com/a.png")
+        translated_untrusted = GrsClient(
+            "https://grs.example.com", "secret", session=FakeSession([]),
+            resolver=lambda _host: ["2001:2::64d"],
+        )
+        with self.assertRaises(GrsError):
+            translated_untrusted.download_image("https://cdn.example.com/a.png")
 
     def test_format_failure_translates_upstream_generate_image_failed(self) -> None:
         self.assertEqual(GrsClient.format_failure("failed", "generate image failed"), "上游生图失败，请重新生成")

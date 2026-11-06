@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Alert, Button, Input, Modal, Select, Switch, Table, Tag, message } from "antd"
-import { CheckCircle2, Cloud, KeyRound, Plus, RefreshCw, WalletCards } from "lucide-react"
+import { CheckCircle2, Cloud, CloudDownload, GripVertical, KeyRound, Plus, RefreshCw, WalletCards } from "lucide-react"
 import { useEffect, useMemo, useState, useRef } from "react"
 import { jsonMutation, requestJson } from "../api"
+import { reorderCatalogRows } from "./grs-catalog-order"
 
 type ProviderConfig = {
   enabled: boolean
@@ -30,12 +31,39 @@ type CatalogModel = {
   sort_order: number
   is_default: boolean
   builtin: boolean
+  credit_cost?: number | null
 }
 
 type CatalogPayload = {
   models: CatalogModel[]
   profiles: { value: string; label: string }[]
 }
+
+type PlatformModel = {
+  provider_model: string
+  workflow_id: string
+  display_name: string
+  profile: string
+  resolutions: string[] | null
+  profile_source: "builtin" | "guess"
+  in_catalog: boolean
+  enabled: boolean
+  is_default: boolean
+  description?: string
+  credit_cost?: number | null
+}
+
+type PlatformPayload = {
+  models: PlatformModel[]
+  off_platform: { provider_model: string; workflow_id: string; display_name: string; enabled: boolean }[]
+  total: number
+  fetched_at: string
+  message?: string | null
+}
+
+type ImportPayload = CatalogPayload & { created: string[]; skipped: string[] }
+
+type PlatformDraft = { display_name: string; profile: string; enabled: boolean }
 
 export default function GrsProviderSettings({ csrfToken }: { csrfToken: string }) {
   const queryClient = useQueryClient()
@@ -52,6 +80,13 @@ export default function GrsProviderSettings({ csrfToken }: { csrfToken: string }
   const [newModelId, setNewModelId] = useState("")
   const [newDisplayName, setNewDisplayName] = useState("")
   const [newProfile, setNewProfile] = useState("nano_banana")
+  const [platformOpen, setPlatformOpen] = useState(false)
+  const [platform, setPlatform] = useState<PlatformModel[]>([])
+  const [platformTotal, setPlatformTotal] = useState(0)
+  const [offPlatform, setOffPlatform] = useState<string[]>([])
+  const [platformNotice, setPlatformNotice] = useState<string | null>(null)
+  const [drafts, setDrafts] = useState<Record<string, PlatformDraft>>({})
+  const [selected, setSelected] = useState<string[]>([])
   const formLoaded = useRef(false)
 
   const applyConfig = (config: ProviderConfig) => {
@@ -133,12 +168,53 @@ export default function GrsProviderSettings({ csrfToken }: { csrfToken: string }
       message.success("已同步内置目录中缺失的模型")
     },
   })
+  const fetchPlatform = useMutation({
+    mutationFn: () => requestJson<PlatformPayload>("/api/admin/providers/grs/models/fetch", jsonMutation(csrfToken, {
+      base_url: baseUrl,
+      api_key: apiKey || null,
+    })),
+    onSuccess: (payload) => {
+      const nextDrafts: Record<string, PlatformDraft> = {}
+      payload.models.forEach((item) => {
+        if (item.in_catalog) return
+        nextDrafts[item.provider_model] = { display_name: item.display_name, profile: item.profile, enabled: true }
+      })
+      setPlatform(payload.models)
+      setPlatformTotal(payload.total)
+      setOffPlatform(payload.off_platform.map((item) => item.provider_model))
+      setDrafts(nextDrafts)
+      setSelected(Object.keys(nextDrafts))
+      setPlatformNotice(payload.message ?? null)
+      setPlatformOpen(true)
+      if (!payload.message) {
+        message.success(`平台在售生图模型 ${payload.models.length} 个（上游共 ${payload.total} 个）`)
+      }
+    },
+  })
+  const importModels = useMutation({
+    mutationFn: () => requestJson<ImportPayload>("/api/admin/providers/grs/models/import", jsonMutation(csrfToken, {
+      models: selected.map((providerModel) => ({
+        provider_model: providerModel,
+        display_name: drafts[providerModel]?.display_name,
+        profile: drafts[providerModel]?.profile,
+        enabled: drafts[providerModel]?.enabled ?? true,
+      })),
+    })),
+    onSuccess: (payload) => {
+      setModels(payload.models)
+      setPlatform((current) => current.map((item) => ({ ...item, in_catalog: true })))
+      setOffPlatform((current) => current.filter((item) => !selected.includes(item)))
+      setPlatformOpen(false)
+      queryClient.invalidateQueries({ queryKey: ["grs-image-models"] })
+      const skipped = payload.skipped.length ? `，跳过 ${payload.skipped.length} 个已在目录中的模型` : ""
+      message.success(`已导入 ${payload.created.length} 个平台生图模型${skipped}`)
+    },
+  })
   const test = useMutation({
     mutationFn: () => requestJson<ProviderConfig>("/api/admin/providers/grs/test", jsonMutation(csrfToken, {
       base_url: baseUrl,
       api_key: apiKey || null,
-    })),
-    onSuccess: () => {
+    })),    onSuccess: () => {
       refresh()
       message.success("GRS 连接测试成功")
     },
@@ -150,7 +226,8 @@ export default function GrsProviderSettings({ csrfToken }: { csrfToken: string }
       message.success("上游余额查询成功")
     },
   })
-  const error = save.error ?? saveModels.error ?? addModel.error ?? syncCatalog.error ?? test.error ?? balance.error ?? query.error ?? catalogQuery.error
+  const error = save.error ?? saveModels.error ?? addModel.error ?? syncCatalog.error ?? fetchPlatform.error
+    ?? importModels.error ?? test.error ?? balance.error ?? query.error ?? catalogQuery.error
 
   const updateModel = (workflowId: string, patch: Partial<CatalogModel>) => {
     setModels((current) => current.map((item) => {
@@ -160,6 +237,34 @@ export default function GrsProviderSettings({ csrfToken }: { csrfToken: string }
       return { ...item, ...patch }
     }))
   }
+
+  const updateDraft = (providerModel: string, patch: Partial<PlatformDraft>) => {
+    setDrafts((current) => ({ ...current, [providerModel]: { ...current[providerModel], ...patch } }))
+  }
+
+  // 拖拽排序：手柄本身可拖，行只作为放置目标，行内输入框因此不受影响。
+  const [draggingRow, setDraggingRow] = useState<string | null>(null)
+  const [dropTargetRow, setDropTargetRow] = useState<string | null>(null)
+
+  const endRowDrag = () => {
+    setDraggingRow(null)
+    setDropTargetRow(null)
+  }
+
+  const reorderModels = (fromId: string, toId: string) => {
+    setModels((current) => reorderCatalogRows(current, fromId, toId))
+  }
+
+  const serverModels = catalogQuery.data?.models ?? []
+  const catalogDirty = models.length !== serverModels.length || models.some((item, index) => {
+    const saved = serverModels[index]
+    return !saved
+      || saved.workflow_id !== item.workflow_id
+      || saved.display_name !== item.display_name
+      || saved.enabled !== item.enabled
+      || saved.is_default !== item.is_default
+      || saved.sort_order !== item.sort_order
+  })
 
   return (
     <main className="mx-auto max-w-[1020px] px-5 py-6 lg:px-8">
@@ -272,21 +377,42 @@ export default function GrsProviderSettings({ csrfToken }: { csrfToken: string }
       <section className="mt-6 rounded-2xl border border-black/[0.06] bg-white p-6 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h3 className="text-sm font-semibold text-[#111827]">生图模型目录</h3>
+            <h3 className="text-sm font-semibold text-[#111827]">
+              生图模型目录
+              {catalogDirty ? <Tag className="ml-2 align-middle" color="purple">有未保存的改动</Tag> : null}
+            </h3>
             <p className="mt-1 text-xs leading-5 text-[#6b7280]">
-              勾选启用后会出现在创作页「选择工作流」。内置目录来自 GRS 文档，不会自动拉取上游列表。
+              勾选启用后会出现在创作页「选择工作流」。点「从平台拉取模型」读取 GRS 上游在售清单，
+              新模型直接勾选导入，不必再手填模型 ID。
+            </p>
+            <p className="mt-1 text-xs leading-5 text-[#6b7280]">
+              拖动行首的手柄可以调整创作页里模型的显示顺序，排在前面的先显示；「默认」开关独立于顺序，
+              只决定创作页预选和导演台自动出图使用的模型。调整完点「保存目录」才会生效。
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button icon={<Plus size={14} />} onClick={() => setAddOpen(true)}>添加模型</Button>
-            <Button icon={<RefreshCw size={14} />} loading={syncCatalog.isPending} onClick={() => syncCatalog.mutate()}>
-              同步内置目录
+            <Button type="primary" icon={<CloudDownload size={14} />} loading={fetchPlatform.isPending} onClick={() => fetchPlatform.mutate()}>
+              从平台拉取模型
             </Button>
-            <Button type="primary" loading={saveModels.isPending} onClick={() => saveModels.mutate(models)}>
+            <Button type={catalogDirty ? "primary" : "default"} loading={saveModels.isPending} onClick={() => saveModels.mutate(models)}>
               保存目录
+            </Button>
+            <Button icon={<Plus size={14} />} onClick={() => setAddOpen(true)}>手动添加</Button>
+            <Button icon={<RefreshCw size={14} />} loading={syncCatalog.isPending} onClick={() => syncCatalog.mutate()}>
+              补充内置目录
             </Button>
           </div>
         </div>
+
+        {offPlatform.length ? (
+          <Alert
+            className="mt-4"
+            type="info"
+            showIcon
+            message={`本次平台清单里没有 ${offPlatform.length} 个目录模型`}
+            description={`${offPlatform.join("、")} 已不在上游 /v1/models 返回中，可能已下架或改名。停用后创作页不再出现该模型。`}
+          />
+        ) : null}
 
         <Table
           className="mt-4"
@@ -294,7 +420,46 @@ export default function GrsProviderSettings({ csrfToken }: { csrfToken: string }
           size="middle"
           pagination={false}
           dataSource={models}
+          onRow={(record) => ({
+            onDragOver: (event) => {
+              if (!draggingRow || draggingRow === record.workflow_id) return
+              event.preventDefault()
+              event.dataTransfer.dropEffect = "move"
+              if (dropTargetRow !== record.workflow_id) setDropTargetRow(record.workflow_id)
+            },
+            onDragLeave: () => {
+              if (dropTargetRow === record.workflow_id) setDropTargetRow(null)
+            },
+            onDrop: (event) => {
+              event.preventDefault()
+              if (draggingRow && draggingRow !== record.workflow_id) reorderModels(draggingRow, record.workflow_id)
+              endRowDrag()
+            },
+            style: {
+              opacity: draggingRow === record.workflow_id ? 0.45 : undefined,
+              backgroundColor: dropTargetRow === record.workflow_id ? "rgba(112, 71, 246, 0.12)" : undefined,
+            },
+          })}
           columns={[
+            {
+              key: "drag",
+              width: 38,
+              render: (_, record) => (
+                <span
+                  title="拖动调整创作页显示顺序"
+                  draggable
+                  onDragStart={(event) => {
+                    setDraggingRow(record.workflow_id)
+                    event.dataTransfer.effectAllowed = "move"
+                    event.dataTransfer.setData("text/plain", record.workflow_id)
+                  }}
+                  onDragEnd={endRowDrag}
+                  className="grid h-6 w-6 cursor-grab place-items-center rounded-md text-[#9ca3af] hover:bg-[#7047f6]/10 active:cursor-grabbing hover:text-[#7047f6]"
+                >
+                  <GripVertical size={15} />
+                </span>
+              ),
+            },
             {
               title: "启用",
               dataIndex: "enabled",
@@ -320,6 +485,7 @@ export default function GrsProviderSettings({ csrfToken }: { csrfToken: string }
                 <span className="font-mono text-xs text-[#1f2937]">
                   {value}
                   {record.builtin ? <Tag className="ml-2" color="default">内置</Tag> : <Tag className="ml-2">自定义</Tag>}
+                  {offPlatform.includes(value) ? <Tag className="ml-1" color="orange">平台未上架</Tag> : null}
                 </span>
               ),
             },
@@ -331,6 +497,14 @@ export default function GrsProviderSettings({ csrfToken }: { csrfToken: string }
                   {profileLabel(value)}
                   {record.resolutions?.length ? ` · ${record.resolutions.join("/")}` : ""}
                 </span>
+              ),
+            },
+            {
+              title: "消耗积分",
+              dataIndex: "credit_cost",
+              width: 104,
+              render: (value: number | null) => (
+                <span className="font-mono text-xs text-[#4b5563]">{typeof value === "number" ? `${value} / 张` : "未取到"}</span>
               ),
             },
             {
@@ -349,7 +523,7 @@ export default function GrsProviderSettings({ csrfToken }: { csrfToken: string }
       </section>
 
       <Modal
-        title="添加生图模型"
+        title="手动添加生图模型"
         open={addOpen}
         onCancel={() => setAddOpen(false)}
         onOk={() => addModel.mutate()}
@@ -358,6 +532,9 @@ export default function GrsProviderSettings({ csrfToken }: { csrfToken: string }
         destroyOnHidden
       >
         <div className="space-y-3 pt-1">
+          <p className="text-xs leading-5 text-[#6b7280]">
+            仅用于添加平台清单之外的模型（例如刚下线但仍在用的历史模型）。常规情况请用「从平台拉取模型」。
+          </p>
           <div>
             <label className="block text-xs font-medium text-[#4b5563]">上游模型 ID</label>
             <Input className="mt-1.5" value={newModelId} onChange={(event) => setNewModelId(event.target.value)} placeholder="nano-banana-2" />
@@ -375,6 +552,104 @@ export default function GrsProviderSettings({ csrfToken }: { csrfToken: string }
               options={catalogQuery.data?.profiles ?? []}
             />
           </div>
+        </div>
+      </Modal>
+
+      <Modal
+        title="GRS 平台在售生图模型"
+        open={platformOpen}
+        width={880}
+        onCancel={() => setPlatformOpen(false)}
+        onOk={() => importModels.mutate()}
+        okText={selected.length ? `导入选中的 ${selected.length} 个模型` : "导入模型"}
+        okButtonProps={{ disabled: selected.length === 0 }}
+        confirmLoading={importModels.isPending}
+        destroyOnHidden
+      >
+        <div className="space-y-3 pt-1">
+          {platformNotice ? <Alert type="warning" showIcon message={platformNotice} /> : null}
+          <p className="text-xs leading-5 text-[#6b7280]">
+            清单来自上游 <code>GET /v1/models</code>（本次返回 {platformTotal} 个模型，其中生图 {platform.length} 个）。
+            平台接口不含分辨率与画质参数，标记「需确认能力档」的新模型按名称家族推断，导入前请核对；已在目录中的模型不会被覆盖。
+          </p>
+          <Table
+            rowKey="provider_model"
+            size="small"
+            pagination={false}
+            scroll={{ y: 340 }}
+            dataSource={platform}
+            rowSelection={{
+              selectedRowKeys: selected,
+              onChange: (keys) => setSelected(keys as string[]),
+              getCheckboxProps: (record) => ({ disabled: record.in_catalog }),
+            }}
+            columns={[
+              {
+                title: "上游模型 ID",
+                dataIndex: "provider_model",
+                width: 230,
+                render: (value: string, record) => (
+                  <div className="font-mono text-xs text-[#1f2937]">
+                    {value}
+                    {record.in_catalog ? <Tag className="ml-1">已在目录</Tag> : null}
+                    {!record.in_catalog && record.profile_source === "guess" ? (
+                      <Tag className="ml-1" color="orange">需确认能力档</Tag>
+                    ) : null}
+                  </div>
+                ),
+              },
+              {
+                title: "显示名称",
+                width: 200,
+                render: (_, record) => (record.in_catalog ? (
+                  <span className="text-xs text-[#4b5563]">{record.display_name}</span>
+                ) : (
+                  <Input
+                    size="small"
+                    maxLength={80}
+                    value={drafts[record.provider_model]?.display_name}
+                    onChange={(event) => updateDraft(record.provider_model, { display_name: event.target.value })}
+                  />
+                )),
+              },
+              {
+                title: "能力档",
+                dataIndex: "profile",
+                render: (value: string, record) => (record.in_catalog ? (
+                  <span className="text-xs text-[#4b5563]">{profileLabel(value)}</span>
+                ) : (
+                  <Select
+                    size="small"
+                    className="w-full"
+                    value={drafts[record.provider_model]?.profile}
+                    onChange={(next) => updateDraft(record.provider_model, { profile: next })}
+                    options={catalogQuery.data?.profiles ?? []}
+                  />
+                )),
+              },
+              {
+                title: "消耗积分",
+                dataIndex: "credit_cost",
+                width: 96,
+                render: (value: number | null) => (
+                  <span className="font-mono text-xs text-[#4b5563]">{typeof value === "number" ? `${value} / 张` : "未标价"}</span>
+                ),
+              },
+              {
+                title: "启用",
+                width: 72,
+                render: (_, record) => (record.in_catalog ? (
+                  <span className="text-xs text-[#6b7280]">{record.enabled ? "已启用" : "已停用"}</span>
+                ) : (
+                  <Switch
+                    size="small"
+                    checked={drafts[record.provider_model]?.enabled}
+                    onChange={(checked) => updateDraft(record.provider_model, { enabled: checked })}
+                  />
+                )),
+              },
+            ]}
+          />
         </div>
       </Modal>
     </main>

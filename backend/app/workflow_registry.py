@@ -10,10 +10,12 @@ from typing import Any, Callable
 from .grs_catalog import (
     GRS_PROFILE_GPT_IMAGE_2,
     GRS_PROFILE_GPT_IMAGE_2_VIP,
+    GRS_PROFILE_GPT_IMAGE_2_5,
+    GRS_PROFILE_GPT_IMAGE_2_5_VIP,
     GRS_PROFILE_NANO_BANANA,
     GRS_PROFILE_NANO_BANANA_2,
-    PROFILE_DESCRIPTIONS,
     builtin_entry,
+    effective_description,
 )
 from .models import JobMode
 from .h3_depth_workflow import DEPTH_DEFAULT_PROMPT, DEPTH_LENGTHS
@@ -73,6 +75,10 @@ class WorkflowDefinition:
     default_prompt: str | None = None
     # 显式槽位声明（如口型同步的 ("video", "audio")）；优先于 accepts_* 布尔推断。
     reference_slots: tuple[str, ...] = ()
+    # GRS 生图目录的「默认模型」标记：决定创作页预选与导演台自动出图使用的模型，与显示顺序无关。
+    is_default: bool = False
+    # GRS 平台标价积分（每张），来自上游价格接口，只用于创作页与管理页展示，不参与提交参数。
+    credit_cost: int | None = None
 
     def reference_kind(self, index: int) -> str:
         if self.reference_slots and 1 <= index <= len(self.reference_slots):
@@ -161,6 +167,10 @@ GRS_ASPECT_RATIOS = [
 
 GRS_VIP_ASPECT_RATIOS = [*GRS_ASPECT_RATIOS, "1:3", "3:1"]
 
+# GPT Image 2.5 高画质档（flare/sunburst）的画质档位：影响计费，走 advanced 组。
+GPT_IMAGE_25_FLARE_QUALITY = ["low", "medium", "high"]
+GPT_IMAGE_25_FLARE_DEFAULT_QUALITY = "medium"
+
 GRS_ASPECT_RATIO_UI_OPTIONS = [
     {"value": "auto", "label": "自动"},
     {"value": "1:1", "label": "1:1 方形"},
@@ -220,6 +230,7 @@ NANO_BANANA_2_ASPECT_RATIO_UI_OPTIONS = [
 
 def grs_option_schema(
     profile: str, provider_model: str, resolutions: list[str] | None = None,
+    quality_options: list[str] | None = None, default_quality: str | None = None,
 ) -> dict[str, Any]:
     if profile == GRS_PROFILE_GPT_IMAGE_2:
         ratio_enum, ratio_ui = GRS_ASPECT_RATIOS, GRS_ASPECT_RATIO_UI_OPTIONS
@@ -229,6 +240,16 @@ def grs_option_schema(
         ratio_enum, ratio_ui = GRS_VIP_ASPECT_RATIOS, GRS_VIP_ASPECT_RATIO_UI_OPTIONS
         resolution_enum = list(resolutions or ["1K", "2K", "4K", "CUSTOM"])
         include_custom = "CUSTOM" in resolution_enum
+    elif profile == GRS_PROFILE_GPT_IMAGE_2_5:
+        # GPT Image 2.5 系列不接受 "1:1" 等比例字符串，线上协议必须传像素值，
+        # 因此比例枚举与 VIP 档保持一致（含 auto），由 grs_request_size 统一映射。
+        ratio_enum, ratio_ui = GRS_VIP_ASPECT_RATIOS, GRS_VIP_ASPECT_RATIO_UI_OPTIONS
+        resolution_enum = list(resolutions or ["1K"])
+        include_custom = False
+    elif profile == GRS_PROFILE_GPT_IMAGE_2_5_VIP:
+        ratio_enum, ratio_ui = GRS_VIP_ASPECT_RATIOS, GRS_VIP_ASPECT_RATIO_UI_OPTIONS
+        resolution_enum = list(resolutions or ["1K", "2K", "4K"])
+        include_custom = False
     elif profile == GRS_PROFILE_NANO_BANANA:
         ratio_enum, ratio_ui = NANO_BANANA_ASPECT_RATIOS, NANO_BANANA_ASPECT_RATIO_UI_OPTIONS
         resolution_enum = list(resolutions or ["1K", "2K", "4K"])
@@ -269,23 +290,35 @@ def grs_option_schema(
             "自定义高度", "integer", 1024, group="advanced", minimum=16, maximum=3840, step=16,
             unit="px", ui_control="input-number", ui_visible_when={"resolution": "CUSTOM"},
         )
+    if profile == GRS_PROFILE_GPT_IMAGE_2_5_VIP:
+        quality_enum = [item for item in (quality_options or GPT_IMAGE_25_FLARE_QUALITY) if item]
+        properties["quality"] = option(
+            "画质", "string", default_quality or GPT_IMAGE_25_FLARE_DEFAULT_QUALITY, group="advanced",
+            enum=quality_enum, ui_control="select",
+        )
     return {"type": "object", "properties": properties}
 
 
 def image_workflow_from_catalog(entry: dict[str, Any]) -> WorkflowDefinition:
     profile = entry["profile"]
+    credit_cost = entry.get("credit_cost")
     return WorkflowDefinition(
         entry["workflow_id"],
         entry["display_name"],
-        entry.get("description") or PROFILE_DESCRIPTIONS.get(profile, "使用 GRS 生成图片。"),
+        effective_description(entry),
         "collection",
         0,
         10,
-        option_schema=grs_option_schema(profile, entry["provider_model"], entry.get("resolutions")),
+        option_schema=grs_option_schema(
+            profile, entry["provider_model"], entry.get("resolutions"),
+            entry.get("quality_options"), entry.get("default_quality"),
+        ),
         media_type="image",
         executor="grs",
         grs_profile=profile,
         catalog_group=CATALOG_GROUP_IMAGE,
+        is_default=bool(entry.get("is_default")),
+        credit_cost=int(credit_cost) if credit_cost else None,
     )
 
 
@@ -2605,7 +2638,10 @@ def normalize_options(mode: JobMode | str, raw: dict[str, Any] | None) -> dict[s
                 raise ValueError("VIP 自定义尺寸的长宽比不能超过 3:1。")
             if not 655_360 <= pixels <= 8_294_400:
                 raise ValueError("VIP 自定义尺寸总像素必须在 655360 到 8294400 之间。")
-        elif definition.grs_profile == GRS_PROFILE_GPT_IMAGE_2_VIP and normalized["aspect_ratio"] != "auto":
+        elif (
+            definition.grs_profile in {GRS_PROFILE_GPT_IMAGE_2_VIP, GRS_PROFILE_GPT_IMAGE_2_5, GRS_PROFILE_GPT_IMAGE_2_5_VIP}
+            and normalized["aspect_ratio"] != "auto"
+        ):
             if normalized["resolution"] not in GRS_VIP_SIZES.get(normalized["aspect_ratio"], {}):
                 raise ValueError("当前画面比例不支持所选分辨率。")
         return normalized
@@ -2757,8 +2793,11 @@ def _normalize_schema_options(
         normalized[name] = value
     quality_definition = definitions.get("quality")
     if quality_definition:
+        # H3 系列的画质联动（quality -> megapixels）；其他工作流的 quality 无此映射。
         quality_map = quality_definition.get("megapixels_by_quality", {})
-        if "quality" in raw:
+        if quality_map and "quality" in raw:
+            if normalized["quality"] not in quality_map:
+                raise ValueError(f"{quality_definition.get('label') or '画质'} 不是有效选项。")
             normalized["megapixels"] = quality_map[normalized["quality"]]
     if apply_speed and "speed" in definitions:
         normalized.update(auto_h3_runtime_options(raw, default_speed=auto_default_speed))
@@ -2801,13 +2840,14 @@ def grs_request_size(mode: JobMode | str, options: dict[str, Any]) -> tuple[str,
     definition = workflow_for(mode)
     aspect_ratio = options["aspect_ratio"]
     resolution = options["resolution"]
-    if definition.grs_profile != GRS_PROFILE_GPT_IMAGE_2_VIP:
-        return aspect_ratio, resolution
-    if resolution == "CUSTOM":
+    if definition.grs_profile == GRS_PROFILE_GPT_IMAGE_2_VIP and resolution == "CUSTOM":
         return f"{options['custom_width']}x{options['custom_height']}", None
-    if aspect_ratio == "auto":
-        return aspect_ratio, resolution
-    return GRS_VIP_SIZES[aspect_ratio][resolution], resolution
+    # GPT Image 2.5 系列只接受像素值或 auto（实测 1:1 会被上游拒绝）。
+    if definition.grs_profile in {GRS_PROFILE_GPT_IMAGE_2_VIP, GRS_PROFILE_GPT_IMAGE_2_5, GRS_PROFILE_GPT_IMAGE_2_5_VIP}:
+        if aspect_ratio == "auto":
+            return aspect_ratio, resolution
+        return GRS_VIP_SIZES[aspect_ratio][resolution], resolution
+    return aspect_ratio, resolution
 
 
 def h3_dimensions(options: dict[str, Any]) -> tuple[int, int]:

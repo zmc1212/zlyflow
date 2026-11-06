@@ -262,6 +262,7 @@ CREATE TABLE IF NOT EXISTS grs_image_models (
     description TEXT NOT NULL,
     profile VARCHAR(64) NOT NULL,
     resolutions_json TEXT NULL,
+    quality_json TEXT NULL,
     enabled TINYINT(1) NOT NULL DEFAULT 0,
     sort_order INTEGER NOT NULL DEFAULT 100,
     is_default TINYINT(1) NOT NULL DEFAULT 0,

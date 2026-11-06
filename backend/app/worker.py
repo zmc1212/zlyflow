@@ -516,6 +516,7 @@ class JobWorker:
                                 client.submit,
                                 model=context["options"]["provider_model"], prompt=context["prompt"], images=images,
                                 aspect_ratio=aspect_ratio, image_size=image_size,
+                                quality=context["options"].get("quality"),
                             )
                         except GrsConnectionError as error:
                             if self._generation_cancelled(generation_item_id):

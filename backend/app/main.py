@@ -99,6 +99,7 @@ from .models import (
     ComfyProviderTestRequest, ComfyProviderUpdateRequest, CreateUserRequest, HealthResponse, JobResponse,
     DesktopDeliveryTicketResponse, GrsBalanceResponse, GrsBalanceSnapshotResponse, GrsImageModelCreateRequest,
     GrsImageModelsResponse, GrsImageModelsUpdateRequest, GrsProviderResponse, GrsProviderTestRequest, GrsProviderUpdateRequest,
+    GrsPlatformModelImportRequest, GrsPlatformModelImportResponse, GrsPlatformModelsResponse,
     LibraryItemResponse, LibraryQueryResponse, LoginRequest, ModeResponse, ModesResponse, ResetPasswordRequest,
     SetupAdminRequest, UpscaleJobRequest, JobMode, JobStatus,
     QiniuProviderResponse, QiniuProviderUpdateRequest, StorageCapabilityResponse, UpdateProfileRequest, UpdateUserRequest, UserResponse, UserRole,
@@ -1407,6 +1408,47 @@ def sync_grs_image_models(
         detail="synced builtin image model catalog", ip_address=client_ip(request),
     )
     return app.state.grs_provider.catalog_payload()
+
+
+@app.post("/api/admin/providers/grs/models/fetch", response_model=GrsPlatformModelsResponse, tags=["管理后台"], summary="动态拉取 GRS 平台在售生图模型")
+async def fetch_grs_platform_models(
+    request: Request,
+    user: Annotated[dict, Depends(mutating_super_admin_user)],
+    payload: GrsProviderTestRequest | None = None,
+) -> dict:
+    try:
+        arguments = {} if payload is None else {"base_url": payload.base_url, "api_key": payload.api_key}
+        result = await asyncio.to_thread(app.state.grs_provider.fetch_platform_models, **arguments)
+    except Exception as error:
+        app.state.auth_store.audit(
+            "fetch_grs_platform_models_failed", "provider", actor_user_id=user["id"], target_id="grs",
+            detail=type(error).__name__, ip_address=client_ip(request),
+        )
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "fetch_grs_platform_models", "provider", actor_user_id=user["id"], target_id="grs",
+        detail=f"image={len(result['models'])} total={result['total']}", ip_address=client_ip(request),
+    )
+    return result
+
+
+@app.post("/api/admin/providers/grs/models/import", response_model=GrsPlatformModelImportResponse, tags=["管理后台"], summary="把 GRS 平台模型导入生图目录")
+async def import_grs_platform_models(
+    payload: GrsPlatformModelImportRequest, request: Request,
+    user: Annotated[dict, Depends(mutating_super_admin_user)],
+) -> dict:
+    try:
+        result = await asyncio.to_thread(
+            app.state.grs_provider.import_platform_models,
+            [item.model_dump() for item in payload.models],
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "import_grs_platform_models", "provider", actor_user_id=user["id"], target_id="grs",
+        detail=f"created={len(result['created'])} skipped={len(result['skipped'])}", ip_address=client_ip(request),
+    )
+    return result
 
 
 @app.get("/api/admin/providers/model-presets", response_model=ModelProviderPresetsResponse, tags=["管理后台"], summary="获取文本与视觉模型官方服务预设及费用标记")

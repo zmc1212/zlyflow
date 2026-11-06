@@ -290,8 +290,11 @@ class ModeResponse(BaseModel):
     catalog_group: str = ""
     catalog_group_label: str = ""
     catalog_group_order: int = 100
+    is_default: bool = False
     supports_timeline: bool = False
     supports_multi_segment: bool = False
+    # GRS 生图模型的平台标价积分（每张）；非 GRS 工作流为 null。
+    credit_cost: int | None = None
 
 
 class ComfyHealthResponse(BaseModel):
@@ -398,6 +401,7 @@ class GrsImageModelResponse(BaseModel):
     sort_order: int
     is_default: bool
     builtin: bool
+    credit_cost: int | None = None
 
 
 class GrsImageModelUpdateItem(BaseModel):
@@ -412,12 +416,63 @@ class GrsImageModelsUpdateRequest(BaseModel):
     models: list[GrsImageModelUpdateItem] = Field(min_length=1)
 
 
+GrsProfileLiteral = Literal[
+    "gpt_image_2", "gpt_image_2_vip", "gpt_image_2_5", "gpt_image_2_5_vip",
+    "nano_banana", "nano_banana_2",
+]
+
+
 class GrsImageModelCreateRequest(BaseModel):
     provider_model: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._-]+$")
     display_name: str = Field(min_length=1, max_length=80)
-    profile: Literal["gpt_image_2", "gpt_image_2_vip", "nano_banana", "nano_banana_2"]
+    profile: GrsProfileLiteral
     resolutions: list[str] | None = None
     enabled: bool = True
+
+
+class GrsPlatformModelItem(BaseModel):
+    provider_model: str
+    workflow_id: str
+    display_name: str
+    profile: str
+    resolutions: list[str] | None = None
+    profile_source: Literal["builtin", "guess"]
+    in_catalog: bool
+    enabled: bool
+    is_default: bool
+    description: str = Field(default="", description="能力档说明，导入时写入目录。")
+    credit_cost: int | None = Field(default=None, description="平台标价积分（每张）；价格接口失败为 null。")
+
+
+class GrsPlatformModelsResponse(BaseModel):
+    models: list[GrsPlatformModelItem] = Field(description="平台在售生图模型（对话模型已过滤）。")
+    off_platform: list[dict[str, Any]] = Field(
+        default_factory=list, description="本地目录里有、但本次平台列表未返回的模型。"
+    )
+    total: int = Field(description="平台 /v1/models 返回的模型总数（含对话模型）。")
+    fetched_at: str
+    message: str | None = None
+
+
+class GrsPlatformModelImportItem(BaseModel):
+    provider_model: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._-]+$")
+    display_name: str | None = Field(default=None, max_length=80)
+    profile: GrsProfileLiteral | None = None
+    resolutions: list[str] | None = None
+    enabled: bool = True
+    description: str | None = Field(default=None, max_length=200)
+    credit_cost: int | None = Field(default=None, ge=1, le=100000)
+
+
+class GrsPlatformModelImportRequest(BaseModel):
+    models: list[GrsPlatformModelImportItem] = Field(min_length=1, max_length=60)
+
+
+class GrsPlatformModelImportResponse(BaseModel):
+    created: list[str]
+    skipped: list[str]
+    models: list[GrsImageModelResponse]
+    profiles: list[dict[str, str]]
 
 
 class GrsImageModelsResponse(BaseModel):

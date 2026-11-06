@@ -57,7 +57,7 @@ class ProjectActions:
         definition = workflow_for(EpisodeVideoService.DEFAULTS["workflow"])
         main_script = primary_document(docs)
         with self.repo.store.connection() as conn:
-            image_models = conn.execute("SELECT provider_model AS id,display_name AS name FROM grs_image_models WHERE enabled=1 ORDER BY is_default DESC,sort_order LIMIT 100").fetchall()
+            image_models = conn.execute("SELECT provider_model AS id,display_name AS name FROM grs_image_models WHERE enabled=1 ORDER BY sort_order,provider_model LIMIT 100").fetchall()
         return {"project": {"id": project["id"], "name": project["name"], "description": project.get("description"), "settings": json.loads(project.get("settings_json") or "{}")},
                 "documents": [{"id": d["id"], "filename": d["filename"], "raw_text": str(d.get("raw_text") or "")[:24000],
                                "is_primary": d["id"] == (main_script or {}).get("id"),

@@ -27,6 +27,8 @@ GRS_READ_TIMEOUT_SECONDS = 60.0
 GRS_SUBMIT_TIMEOUT = (GRS_CONNECT_TIMEOUT_SECONDS, GRS_READ_TIMEOUT_SECONDS)
 GRS_RESULT_TIMEOUT = (GRS_CONNECT_TIMEOUT_SECONDS, GRS_READ_TIMEOUT_SECONDS)
 GRS_BALANCE_TIMEOUT = (10.0, 30.0)
+GRS_MODELS_TIMEOUT = (10.0, 20.0)
+GRS_MODEL_LIST_TIMEOUT = (10.0, 20.0)
 GRS_DOWNLOAD_TIMEOUT = (10.0, 120.0)
 GRS_CONNECT_RETRIES = 1
 GRS_CONNECT_RETRY_DELAY_SECONDS = 0.5
@@ -37,10 +39,12 @@ GRS_INTERNATIONAL_BASE_URL = "https://grsaiapi.com"
 # other result URLs cannot be used to reach non-public addresses.
 GRS_BENCHMARK_RESULT_DOMAIN = "aitohumanize.com"
 RFC2544_BENCHMARK_NETWORK = ipaddress.ip_network("198.18.0.0/15")
-# The local fake-IP proxy DNS also answers that domain with a reserved IPv6
-# range; accept it the same way as the benchmark range.
+# The local proxy resolves GRS file hosts to these reserved ranges.
 GRS_RESULT_PROXY_IPV6_NETWORK = ipaddress.ip_network("fdfe:dcba:9876::/48")
-GRS_BENCHMARK_RESULT_NETWORKS = (RFC2544_BENCHMARK_NETWORK, GRS_RESULT_PROXY_IPV6_NETWORK)
+GRS_RESULT_TRANSLATED_IPV6_NETWORK = ipaddress.ip_network("2001:2::/48")
+GRS_BENCHMARK_RESULT_NETWORKS = (
+    RFC2544_BENCHMARK_NETWORK, GRS_RESULT_PROXY_IPV6_NETWORK, GRS_RESULT_TRANSLATED_IPV6_NETWORK,
+)
 
 
 def is_grs_benchmark_result_host(hostname: str) -> bool:
@@ -159,7 +163,7 @@ class GrsClient:
 
     def submit(
         self, *, model: str, prompt: str, images: list[str], aspect_ratio: str,
-        image_size: str | None = None,
+        image_size: str | None = None, quality: str | None = None,
     ) -> str:
         body: dict[str, Any] = {
             "model": model,
@@ -170,6 +174,8 @@ class GrsClient:
         }
         if image_size:
             body["imageSize"] = image_size
+        if quality:
+            body["quality"] = quality
         response = self._request(
             "post", f"{self.base_url}/v1/api/generate", action="提交", timeout=GRS_SUBMIT_TIMEOUT,
             uncertain_on_read=True, headers=self.headers, json=body,
@@ -222,6 +228,54 @@ class GrsClient:
             return float(data["credits"])
         except (KeyError, TypeError, ValueError) as error:
             raise GrsError("GRS 余额响应缺少 credits") from error
+
+    def list_models(self) -> list[str]:
+        """OpenAI 兼容的 GET /v1/models：返回平台在售的全部模型 ID（含对话模型）。"""
+        response = self._request(
+            "get", f"{self.base_url}/v1/models", action="模型目录", timeout=GRS_MODELS_TIMEOUT,
+            headers={**self.headers, "Accept": "application/json"},
+        )
+        payload = self._json(response, "模型目录")
+        rows = payload.get("data")
+        if not isinstance(rows, list):
+            raise GrsError("GRS 模型目录缺少 data 列表")
+        return [
+            str(item["id"]).strip()
+            for item in rows
+            if isinstance(item, dict) and item.get("id") and str(item["id"]).strip()
+        ]
+
+    def model_costs(self) -> dict[str, int]:
+        """POST /client/openapi/getModelList：平台每个模型的标价积分（生图按张计费）。
+
+        与余额查询同族接口；上游只保证 `cost` 对生图模型有意义，视频按分辨率另存
+        在 `video` 价格表，这里只取 `type == "image"` 的单次消耗积分。
+        """
+        response = self._request(
+            "post", f"{self.base_url}/client/openapi/getModelList", action="模型价格",
+            timeout=GRS_MODEL_LIST_TIMEOUT,
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            json={"apiKey": self.api_key},
+        )
+        payload = self._json(response, "模型价格")
+        if payload.get("code") not in {None, 0, "0"}:
+            raise GrsError(str(payload.get("msg") or payload.get("message") or "GRS 模型价格查询失败"))
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        rows = data.get("list")
+        if not isinstance(rows, list):
+            raise GrsError("GRS 模型价格响应缺少 list")
+        costs: dict[str, int] = {}
+        for row in rows:
+            if not isinstance(row, dict) or str(row.get("type") or "").lower() != "image":
+                continue
+            name = str(row.get("name") or "").strip()
+            try:
+                cost = int(float(row.get("cost")))
+            except (TypeError, ValueError):
+                continue
+            if name and cost > 0:
+                costs[name] = cost
+        return costs
 
     @staticmethod
     def _first(payload: dict[str, Any], *names: str) -> Any:

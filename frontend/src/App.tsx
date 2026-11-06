@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Button, DatePicker, Drawer, Dropdown, Empty, Input, InputNumber, message, Modal, Pagination, Popover, Select, Slider, Switch, Tabs, Tooltip } from "antd"
 import type { TextAreaRef } from "antd/es/input/TextArea"
 import {
-  ArrowUpDown, Check, CheckCircle2, CircleAlert, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Clock3, FileVideo, Frame,
+  ArrowUpDown, Check, CheckCircle2, CircleAlert, Coins, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Clock3, FileVideo, Frame,
   Download, ExternalLink, Filter, FolderOpen, Gauge, HardDrive, History, ImagePlus, LayoutGrid, Link2, ListChecks, LoaderCircle, Maximize2, Mic,
   Languages, LockKeyhole, Minus, MoreHorizontal, MoveLeft, MoveRight, PanelLeftClose, PanelLeftOpen, Pencil, Pin, Plus, RotateCw, Search, Send, Settings2, SlidersHorizontal, Sparkles, CircleStop, Trash2, UserRound, Video, WalletCards, WandSparkles, X,
 } from "lucide-react"
@@ -100,6 +100,8 @@ type AssetEntry = {
   id: string; job: Job; output: Output; outputIndex: number; generationItemId: string | null
 }
 type Workflow = {
+  is_default?: boolean
+  credit_cost?: number | null
   id: string; name: string; description: string; reference_mode: "none" | "keyframes" | "collection" | "fixed"
   min_references: number; max_references: number; reference_labels: string[]
   accepts_negative_prompt: boolean; accepts_image_size: boolean; supports_h3_options: boolean
@@ -245,6 +247,10 @@ function jobDisplayPrompt(job: Job): string {
 }
 
 const FALLBACK_WORKFLOW = "minimax-h3-i2v"
+
+function preferredDefaultWorkflow(workflows: Workflow[]): Workflow | undefined {
+  return workflows.find((item) => item.is_default) ?? workflows[0]
+}
 const PROMPT_OPTIMIZE_STORAGE_KEY = "zly-ai-video-studio.prompt-optimize"
 
 function readPromptOptimizePreference() {
@@ -460,11 +466,24 @@ const IMAGE_PROMPT_IDEAS = [
   { label: "平面插画", icon: Clapperboard, prompt: "扁平风格插画，夏日海边小镇，明亮配色，干净构图，海报比例" },
 ]
 
+type WorkflowSelectOption = {
+  value: string; label: string; title?: string; disabled?: boolean
+  description?: string; creditCost?: number | null; isDefault?: boolean
+}
+
 function groupedWorkflowOptions(workflows: Workflow[]) {
-  const groups = new Map<string, { label: string; order: number; options: { value: string; label: string; title?: string; disabled?: boolean }[] }>()
-  const ungrouped: { value: string; label: string; title?: string; disabled?: boolean }[] = []
+  const groups = new Map<string, { label: string; order: number; options: WorkflowSelectOption[] }>()
+  const ungrouped: WorkflowSelectOption[] = []
   for (const item of workflows) {
-    const option = { value: item.id, label: item.name, title: item.description, disabled: !item.available }
+    const option: WorkflowSelectOption = {
+      value: item.id,
+      label: item.name,
+      title: item.description,
+      disabled: !item.available,
+      description: item.description,
+      creditCost: item.credit_cost ?? null,
+      isDefault: Boolean(item.is_default),
+    }
     if (!item.catalog_group) {
       ungrouped.push(option)
       continue
@@ -484,6 +503,24 @@ function groupedWorkflowOptions(workflows: Workflow[]) {
     .sort((left, right) => left.order - right.order || left.label.localeCompare(right.label, "zh-CN"))
     .map((group) => ({ label: group.label, options: group.options }))
   return ungrouped.length ? [...grouped, ...ungrouped] : grouped
+}
+
+function WorkflowOptionRow({ item }: { item: WorkflowSelectOption }) {
+  return (
+    <span className="studio-workflow-option">
+      <ImagePlus className="studio-workflow-option-icon" size={16} aria-hidden />
+      <span className="studio-workflow-option-main">
+        <span className="studio-workflow-option-title">
+          {item.label}
+          {item.isDefault ? <em className="studio-workflow-option-flag">默认</em> : null}
+        </span>
+        {item.description ? <span className="studio-workflow-option-desc">{item.description}</span> : null}
+      </span>
+      {typeof item.creditCost === "number" ? (
+        <span className="studio-workflow-option-cost">{item.creditCost} 积分/张</span>
+      ) : null}
+    </span>
+  )
 }
 
 function outputPreviewSrc(item: Output, allowSameOriginVideo = true): string | undefined {
@@ -885,7 +922,7 @@ export default function App({
   })
   const healthQuery = useQuery({ queryKey: ["health"], enabled: Boolean(user), queryFn: () => api<{ comfy: { reachable: boolean }; grs: { available: boolean; message?: string | null } }>("/api/health"), refetchInterval: user ? 30000 : false })
   const workflows = (modesQuery.data?.modes ?? []).filter((item) => item.media_type === mediaType)
-  const workflow = workflows.find((item) => item.id === workflowId) ?? workflows[0]
+  const workflow = workflows.find((item) => item.id === workflowId) ?? workflows.find((item) => item.is_default) ?? workflows[0]
   const promptIdeas = mediaType === "image" ? IMAGE_PROMPT_IDEAS : VIDEO_PROMPT_IDEAS
   const allJobs = user ? jobsQuery.data ?? [] : []
   const jobs = allJobs.filter((job) => job.media_type === mediaType)
@@ -1241,7 +1278,7 @@ export default function App({
   }
 
   useEffect(() => {
-    if (workflows.length && !workflows.some((item) => item.id === workflowId)) setWorkflowId(workflows[0].id)
+    if (workflows.length && !workflows.some((item) => item.id === workflowId)) setWorkflowId(preferredDefaultWorkflow(workflows)?.id ?? FALLBACK_WORKFLOW)
   }, [workflowId, workflows])
   useEffect(() => {
     setTaskRailCollapsed(workspaceView !== "generate")
@@ -1519,7 +1556,7 @@ export default function App({
     if (!chinese) return
     if (target !== mediaType) {
       const targetWorkflows = (modesQuery.data?.modes ?? []).filter((item) => item.media_type === target)
-      const fallbackWorkflow = targetWorkflows[0]
+      const fallbackWorkflow = preferredDefaultWorkflow(targetWorkflows)
       draftsRef.current[mediaType] = currentDraft()
       pendingMediaDraftRef.current = {
         workflowId: fallbackWorkflow?.id ?? FALLBACK_WORKFLOW,
@@ -2890,7 +2927,7 @@ export default function App({
                 </div>
                 <div className="studio-control-shell flex h-9 min-w-0 items-center gap-2 rounded-lg border border-[#37373b] bg-[#222226] px-3 shadow-[0_6px_16px_rgba(0,0,0,0.12)] sm:w-[280px]">
                   <Settings2 size={16} className="shrink-0 text-[#947dff]" />
-                  <Select aria-label="选择工作流" value={workflowId} onChange={(value) => selectWorkflow(String(value))} showSearch optionFilterProp="label" className="studio-select min-w-0 flex-1" popupClassName="studio-select-popup studio-workflow-select-popup" options={groupedWorkflowOptions(workflows)} />
+                  <Select aria-label="选择工作流" value={workflowId} onChange={(value) => selectWorkflow(String(value))} showSearch optionFilterProp="label" className="studio-select min-w-0 flex-1" popupClassName="studio-select-popup studio-workflow-select-popup" options={groupedWorkflowOptions(workflows)} optionRender={(option) => <WorkflowOptionRow item={option.data as WorkflowSelectOption} />} />
                 </div>
                 {primaryValueOptionDefinitions.map(([name, definition]) => <OptionControl
                   key={name}
@@ -2916,6 +2953,14 @@ export default function App({
                   compact
                   onChange={(optionName, value) => setOptionValues((current) => ({ ...current, [optionName]: value }))}
                 />)}
+                {mediaType === "image" && typeof workflow?.credit_cost === "number" ? (
+                  <Tooltip title={`GRS 平台标价：本模型每张消耗 ${workflow.credit_cost} 积分，实际扣费以上游结算为准。`}>
+                    <span aria-label="本次生图消耗积分" className="studio-submit-cost flex shrink-0 items-center gap-1 text-xs">
+                      <Coins size={13} aria-hidden />
+                      {workflow.credit_cost} 积分/张
+                    </span>
+                  </Tooltip>
+                ) : null}
                 <Tooltip title={!workflow?.available ? workflow?.unavailable_reason : undefined}>
                   <Button htmlType="submit" type="primary" disabled={Boolean(user) && !canSubmit} className="studio-generate-submit flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl px-5 text-sm lg:w-[154px]">{(createMutation.isPending || autoOptimizing) ? <LoaderCircle className="animate-spin" size={17} /> : <Sparkles size={17} />}{autoOptimizing ? "正在润色…" : mediaType === "image" ? "开始生图" : "开始生成"}</Button>
                 </Tooltip>

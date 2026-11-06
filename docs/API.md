@@ -1,5 +1,42 @@
 # ZLY AI Video Studio API 文档
 
+## 2026-11-06 GRS 生图模型消耗积分与能力描述
+
+- 变更原因：GRS 只在价目接口里给出每个模型的单次消耗积分，创作页此前既不显示价格，下拉也只有一行模型名；同时目录里历史入库的描述长句（「使用 GRS GPT Image 2.5 生成图片…」）会把平台已有的 `gpt-image-2.6` 写成 2.5，描述与实际能力（直出 GIF）对不上。
+- 上游接口（非本工作台 API）：`POST {base_url}/client/openapi/getModelList`，请求体 `{"apiKey": "..."}`，响应 `data.list[]` 每项 `{ name, type, cost, costType, group, ... }`；`GrsClient.model_costs()` 只取 `type == "image"` 的行，返回 `{ provider_model: 单次积分 }`，`code != 0`、缺 `data.list` 或非正整数 `cost` 分别按 `GrsError` / 跳过处理。
+- `GET /api/modes`：生图条目新增 `credit_cost`（`ModeResponse` 显式声明，整数 = 平台标价积分/张；价格接口失败或该模型未标价时为 `null`）。**纯展示字段，不进入 `POST /api/jobs` 的提交参数**。
+- `GET /api/admin/providers/grs/models`：`models[]` 每项新增 `credit_cost`（同上，可为 `null`）；`description` 改为「当前能力文案」——库里存的是历史自动长句或空串时由后端按能力档现算，管理员自己写过的描述原样返回。
+- `POST /api/admin/providers/grs/models/fetch`：`models[]` 每项新增 `credit_cost`（本次价目快照，取不到时回落库里旧值）与 `description`（同上口径）。
+- `POST /api/admin/providers/grs/models/import`：请求体每项可选 `description`（≤200 字）与 `credit_cost`（1–100000）；省略时分别取平台条目文案与本次价目快照。入库后强制刷新一次价目（`refresh_model_costs(force=True)`），保证新行立刻带上标价。
+- `PUT /api/admin/providers/grs/models`：不变，仍只更新 `display_name`/`enabled`/`sort_order`/`is_default`，因此保存顺序不会冲掉 `credit_cost`。
+- 数据：`grs_image_models` 新增 `credit_cost INTEGER NULL`，走 `storage.ensure_column`（共享库，不写一次性 ALTER）。积分刷新随余额快照限频 6 小时（`GRS_COSTS_REFRESH_SECONDS`），上游失败静默保留旧值，绝不阻塞出图。
+- 兼容性：`credit_cost` 为增量只读字段，旧客户端忽略即可；未配置 GRS Key、离线部署或价目接口下线时字段为 `null`，界面显示「未取到」而不是 0。能力文案的唯一来源改为 `grs_catalog.PROFILE_CAPABILITIES` / `MODEL_CAPABILITY_NOTES`，`PROFILE_DESCRIPTIONS` 已删除，其历史文本保留在 `LEGACY_AUTO_DESCRIPTIONS` 中仅用于识别「这不是管理员自己写的」。
+- 受影响文件：`backend/app/{grs_client,grs_catalog,grs_provider,storage,workflow_registry,models,api_documentation}.py`、`frontend/src/{App.tsx,index.css,admin/GrsProviderSettings.tsx}`、`backend/tests/test_grs_model_costs.py`。
+- 验证与回滚见 `docs/ARCHITECTURE.md` 与《功能说明与扩展指南》同日章节。
+
+## 2026-11-06 GRS 生图目录排序与「默认模型」解耦
+
+- 变更原因：`sort_order` 与 `is_default` 此前共同决定创作页生图列表顺序（默认模型被钉在首位），管理员无法自定义显示顺序。现在 `sort_order` 是唯一显示键，`is_default` 只是标记。
+- `GET /api/modes`：生图条目新增布尔字段 `is_default`（`ModeResponse` 显式声明，未标记为 `false`）。列表顺序 = 目录中 `enabled` 行按 `(sort_order, display_name)` 的顺序，**不再保证默认模型在首位**；需要「默认模型」的消费方必须读 `is_default`。响应其余字段与视频工作流不变。
+- `GET /api/admin/providers/grs/models`：`models` 数组改为严格按 `sort_order ASC, display_name ASC` 返回（此前默认行会被排到最前）。每项字段不变，含 `sort_order`、`is_default`、`builtin`。
+- `PUT /api/admin/providers/grs/models`：请求体与语义不变（整份目录 `{ models: [...] }`，只更新 `display_name`/`enabled`/`sort_order`/`is_default`，未知 `workflow_id` **409**），审计仍为 `update_grs_image_models`。管理后台拖动行首手柄即重写密集 `sort_order`（10、20、30…）后调用本接口保存；若请求里没有任何 `is_default=true`，服务端仍把第一个启用行设为默认（原兜底逻辑保留）。
+- `POST /api/admin/providers/grs/models`（手填）与 `POST …/models/import`（平台导入）：新增行在未显式传 `sort_order` 时取 `MAX(sort_order)+10` 追加到目录末尾，不再固定为 300，避免与已有行同序号后按显示名乱序。其余校验与响应不变。
+- 导演台侧行为：`default_image_workflow_id()` 与助手可见模型清单按 `is_default`/`sort_order` 取值，复合工作流回落（`resolve_composite_model`）行为不变。
+- 兼容性：无表结构与新增接口；`grs_image_models` 列不变。历史任务按 `workflow_id` 记录，顺序调整不影响复现。
+- 受影响文件：`backend/app/grs_provider.py`、`backend/app/storage.py`、`backend/app/workflow_registry.py`、`backend/app/models.py`、`backend/app/director_jobs.py`、`backend/app/director_assistant/actions.py`、`frontend/src/admin/GrsProviderSettings.tsx`。
+- 验证：`python -m unittest backend.tests.test_ai_studio`（46 项，含排序与默认互不影响、新模型追加在末尾两项新增用例）；项目根 `python -m unittest discover -s backend/tests -t .`（1721 项 OK，1 skipped）；5173 桌面端无头 Chrome 实测拖动保存后 `/api/modes` 顺序同步、默认标记不变。
+- 回滚：还原上述文件即恢复「默认模型钉在首位」的旧排序；已写入的 `sort_order` 数值可保留，无需迁移。界面与实现基线见 `docs/ARCHITECTURE.md`、《功能说明与扩展指南》同日章节。
+
+## 2026-11-06 GRS 生图模型改为从平台动态拉取（fetch / import）
+
+- 变更原因：生图模型目录此前只有内置硬编码常量与管理员手填模型 ID 两条来源，上游新增模型界面完全感知不到，内置表里还留着平台已不返回的模型。现在以平台 `GET /v1/models` 为在售清单来源。
+- `POST /api/admin/providers/grs/models/fetch`（新增，**只读**）：超级管理员 + `X-CSRF-Token`。请求体可省略，或复用测试连接的 `{ base_url, api_key }`（允许用未保存的输入探测上游）。响应 `{ models, off_platform, total, fetched_at, message }`：`models` 为过滤掉对话模型后的生图清单，每项 `{ provider_model, workflow_id, display_name, profile, resolutions, profile_source, in_catalog, enabled, is_default }`，`profile_source` 取 `builtin`（沿用内置能力档与分辨率/画质）或 `guess`（按命名家族推断，需管理员确认）；`off_platform` 是本地目录里有、但本次平台清单没有的模型；`total` 为上游返回的模型总数（含对话模型）；清单为空时 `message` 给出原因。上游异常统一 502，失败另写 `fetch_grs_platform_models_failed` 审计。
+- `POST /api/admin/providers/grs/models/import`（新增）：超级管理员 + `X-CSRF-Token`，请求体 `{ models: [{ provider_model, display_name?, profile?, resolutions?, enabled }] }`（1–60 项）。`display_name`/`profile`/`resolutions` 省略时按平台条目回退；`profile` 不在六个能力档内 **409**。响应 `{ created, skipped, models, profiles }`，`created` 为新增 `workflow_id`，已在目录中的模型进 `skipped` 且不覆盖既有显示名、启用与默认配置。审计 `import_grs_platform_models`。
+- 兼容性：`GET/PUT/POST /api/admin/providers/grs/models` 与 `POST …/models/sync` 行为不变，手填与内置补种保留为备用路径；`grs_image_models` 表结构不变，导入行 `builtin=0`；创作页工作流列表仍只来自目录中 `enabled` 的行。目录没有删除接口，误导入需管理员停用。
+- 受影响文件：`backend/app/grs_client.py`、`backend/app/grs_catalog.py`、`backend/app/grs_provider.py`、`backend/app/models.py`、`backend/app/main.py`、`frontend/src/admin/GrsProviderSettings.tsx`、`backend/tests/test_grs_platform_models.py`。
+- 验证：`python -m unittest tests.test_grs_platform_models`（12 项通过）；项目根 `python -m unittest discover -s backend/tests -t .`（1719 项 OK，1 skipped）；`pnpm --dir frontend build` 通过；真实上游 `https://grsai.dakka.com.cn/v1/models` 实测返回 32 个模型、识别 17 个生图模型、3 个需确认能力档；5173 桌面端无头 Chrome 实拍弹窗与导入回执。
+- 回滚：还原上述文件即可退回手填/内置补种路径；已导入的 `builtin=0` 目录行保留并停用不影响内置种子与历史任务。
+
 ## 2026-11-02 动作迁移混合参考素材
 
 - `GET /api/modes` 的动作迁移条目声明 `accepts_video_reference=true`、`default_prompt` 及 references 的 `content_type=image/*,video/*`。所有字段来自工作流注册表；其它工作流的能力边界不变。
@@ -424,6 +461,8 @@ MCP 服务地址为 `<对外 origin>/api/mcp`，使用无状态 Streamable HTTP�
 | `minimax-h3-t8-dual-clock` | 0-1 张 | H3 双时钟采样工作流；无图文生，单图为首帧 I2VA，默认 8 步。 |
 
 每个 mode 还包含 `catalog_group`、`catalog_group_label`、`catalog_group_order`。视频工作流分组为 `lightx2v`（LightX2V）、`dual_accel`（八步双加速）、`official_h3`（官方 MiniMax H3）、`custom`（自定义 T8）。前端按下拉分组展示，不硬编码组名。
+
+生图条目（`media_type=image` 且 `id` 以 `grs-` 开头）另含 `is_default`：列表顺序完全等于管理员在「GRS 图片供应商」目录里的排序，`is_default=true` 的那一项才是创作页预选与导演台自动出图使用的模型，消费方不得把首位当默认。同批条目还含 `credit_cost`（GRS 平台标价的单次消耗积分，整数；未取到价格时为 `null`），只用于展示，不属于 `POST /api/jobs` 的提交参数。
 
 ### `GET /api/modes/{mode_id}`
 

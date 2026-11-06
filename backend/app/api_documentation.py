@@ -11,6 +11,11 @@ from typing import Any
 
 
 FIELD_DOCUMENTATION: dict[str, tuple[str, str]] = {
+    "credit_cost": (
+        "消耗积分",
+        "GRS 生图模型在平台价目表上的单次生成消耗积分，来自上游 /client/openapi/getModelList；"
+        "价格接口失败或该模型未标价时为 null，仅用于展示，不参与提交参数。",
+    ),
     "access_key": ("七牛 Access Key", "七牛云对象存储的 Access Key；仅提交时使用，读取配置时不会返回原文。"),
     "accepts_image_size": ("支持画布尺寸", "该工作流是否接受 image_size 字段。"),
     "accepts_negative_prompt": ("支持负面提示词", "该工作流是否接受 negative_prompt 字段。"),
@@ -81,7 +86,7 @@ FIELD_DOCUMENTATION: dict[str, tuple[str, str]] = {
     "index": ("序号", "从 1 开始的业务序号；参考图序号同时决定其在提示词中的对应顺序。"),
     "input": ("收到的值", "未通过校验的原始输入值。"),
     "builtin": ("内置模型", "是否来自工作台内置 GRS 文档目录；同步内置目录时不会覆盖已有项。"),
-    "is_default": ("默认模型", "创作页生图工作流下拉的默认项；同一时间只有一个默认模型。"),
+    "is_default": ("默认模型", "创作页生图工作流的预选项，也是导演台自动出图使用的模型；同一时间只有一个默认模型，与列表显示顺序互不影响。"),
     "job_id": ("任务 ID", "生成任务的唯一标识。"),
     "kind": ("媒体类型", "输出媒体类型，例如 image 或 video。"),
     "label": ("显示名称", "面向界面或调用方展示的字段或媒体名称。"),
@@ -103,7 +108,7 @@ FIELD_DOCUMENTATION: dict[str, tuple[str, str]] = {
     "profiles": ("能力档列表", "管理后台可选择的 GRS 生图能力档及其显示名。"),
     "provider_model": ("上游模型 ID", "提交给 GRS /v1/api/generate 的 model 字段。"),
     "resolutions": ("分辨率列表", "该模型允许的分辨率档；为空时使用能力档默认值。"),
-    "sort_order": ("排序", "管理目录和创作页工作流列表中的显示顺序，数值越小越靠前。"),
+    "sort_order": ("排序", "管理目录和创作页工作流列表中的显示顺序，数值越小越靠前；管理后台拖动目录行即可调整，不改变默认模型。"),
     "model": ("模型标识", "上游大模型服务使用的模型名称。"),
     "modes": ("工作流列表", "当前账号可见的生成工作流及其能力摘要。"),
     "msg": ("错误消息", "校验失败的人类可读原因。"),

@@ -52,11 +52,22 @@ def new_job_id() -> str:
     return secrets.token_urlsafe(9).replace("-", "").replace("_", "")
 
 
+def _workflow_image_entry(workflow: Any) -> tuple[str, bool]:
+    if isinstance(workflow, dict):
+        return str(workflow.get("id") or ""), bool(workflow.get("is_default"))
+    return str(getattr(workflow, "id", "") or ""), bool(getattr(workflow, "is_default", False))
+
+
 def default_image_workflow_id(grs_provider: Any) -> str:
-    workflows = list(grs_provider.enabled_image_workflows() or [])
-    if not workflows:
+    """导演台自动出图使用的生图模型。
+
+    创作页的显示顺序由管理员自由排序，因此这里必须显式认「默认模型」标记，
+    不能取列表首位；只有目录未标记默认时才回落到首位。
+    """
+    entries = [_workflow_image_entry(item) for item in (grs_provider.enabled_image_workflows() or [])]
+    if not entries:
         raise ValueError("没有可用的 GRS 生图工作流，请在管理设置中启用图片模型。")
-    return getattr(workflows[0], "id", None) or workflows[0]["id"]
+    return next((item[0] for item in entries if item[1] and item[0]), entries[0][0])
 
 
 def job_first_output_file(job: dict[str, Any] | None) -> Path | None:

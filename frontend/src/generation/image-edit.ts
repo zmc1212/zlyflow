@@ -27,15 +27,16 @@ export function imageToolSourceError(
 export type PhotoEditWorkflowChoice = {
   id: string
   name: string
+  isDefault: boolean
 }
 
 /** 从 /api/modes 里挑出可用的 GRS 图片工作流（图片编辑 = 参考图 + 指令改图）。 */
 export function photoEditWorkflowChoices(
-  modes: Array<{ id: string; name?: string; media_type?: string; available?: boolean; executor?: string }>,
+  modes: Array<{ id: string; name?: string; media_type?: string; available?: boolean; executor?: string; is_default?: boolean }>,
 ): PhotoEditWorkflowChoice[] {
   return modes
     .filter((mode) => mode.media_type === "image" && mode.available !== false && mode.id.startsWith("grs-"))
-    .map((mode) => ({ id: mode.id, name: mode.name || mode.id }))
+    .map((mode) => ({ id: mode.id, name: mode.name || mode.id, isDefault: Boolean(mode.is_default) }))
 }
 
 /** 智能改图区域标记：原图自然像素坐标下的矩形。 */
@@ -118,6 +119,7 @@ export type PhotoEditModeDetail = {
   name?: string
   media_type?: string
   available?: boolean
+  is_default?: boolean
   parameters?: Array<{
     name: string
     schema?: { properties?: Record<string, PhotoEditOptionField> }

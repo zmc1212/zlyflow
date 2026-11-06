@@ -49,6 +49,10 @@ ACTIVE_STATUSES = {
     JobStatus.RUNNING.value,
 }
 
+# GPT Image 2.5 系列（默认启用并作为默认生图模型，见 GRS_GPT_IMAGE_25_MIGRATION）。
+GPT_IMAGE_25_PROVIDER_MODELS = ("gpt-image-2.5", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst")
+GPT_IMAGE_25_DEFAULT_PROVIDER_MODEL = "gpt-image-2.5"
+
 
 class DirectorProjectConflictError(RuntimeError):
     """Raised when a creative update targets an obsolete content revision."""
@@ -79,6 +83,9 @@ class JobStore:
 
     MIGRATION_NAME = "2026-08-13-ai-studio-rounds-v1"
     GRS_CATALOG_MIGRATION = "2026-08-25-grs-image-models-v1"
+    # v2：首次上线期间一个热重载进程加载了中间态代码，把 v1 标记写入但未插入模型行，
+    # v2 让所有库完整重放一次（补插、启用、切默认），并修复 is_default 被清空的状态。
+    GRS_GPT_IMAGE_25_MIGRATION = "2026-11-04-grs-gpt-image-25-default-v2"
     DIRECTOR_PROJECTS_MIGRATION = "2026-08-26-director-projects-v1"
     DIRECTOR_LIBRARY_MIGRATION = "2026-08-28-director-library-assets-v1"
     DIRECTOR_CONCURRENCY_MIGRATION = "2026-08-30-director-concurrency-v2"
@@ -532,6 +539,7 @@ class JobStore:
                     description TEXT NOT NULL DEFAULT '',
                     profile TEXT NOT NULL,
                     resolutions_json TEXT,
+                    quality_json TEXT,
                     enabled INTEGER NOT NULL DEFAULT 0,
                     sort_order INTEGER NOT NULL DEFAULT 100,
                     is_default INTEGER NOT NULL DEFAULT 0,
@@ -541,10 +549,14 @@ class JobStore:
                 )
                 """
             )
+        self._ensure_column(connection, "grs_image_models", "quality_json", "TEXT")
+        self._ensure_column(connection, "grs_image_models", "credit_cost", "INTEGER NULL")
         applied = connection.execute(
             "SELECT 1 FROM schema_migrations WHERE name = ?", (self.GRS_CATALOG_MIGRATION,),
         ).fetchone()
         if applied:
+            # 既有库不再重新种子，但新增内置模型与默认模型迁移仍要生效。
+            self._apply_gpt_image_25_default_migration(connection, now())
             return
         settings_row = connection.execute("SELECT * FROM grs_provider_settings WHERE id = 1").fetchone()
         settings = dict(settings_row) if settings_row else {}
@@ -594,8 +606,10 @@ class JobStore:
                 enabled=vip_enabled,
                 builtin=False,
             )
-        default_id = "gpt-image-2" if gpt_enabled else next(
-            (item["provider_model"] for item in seeded.values() if item["enabled"]), None,
+        default_id = (
+            "gpt-image-2.5" if seeded.get("gpt-image-2.5", {}).get("enabled")
+            else "gpt-image-2" if gpt_enabled
+            else next((item["provider_model"] for item in seeded.values() if item["enabled"]), None)
         )
         for record in seeded.values():
             record["is_default"] = record["provider_model"] == default_id
@@ -609,17 +623,27 @@ class JobStore:
         self, connection: DbConnection, record: dict[str, Any], timestamp: str,
     ) -> None:
         resolutions = record.get("resolutions")
+        quality_options = record.get("quality_options")
+        quality_json = (
+            json.dumps(
+                {"options": quality_options, "default": record.get("default_quality")},
+                ensure_ascii=False,
+            )
+            if quality_options else None
+        )
         connection.execute(
             """INSERT OR IGNORE INTO grs_image_models
             (workflow_id, provider_model, display_name, description, profile, resolutions_json,
-             enabled, sort_order, is_default, builtin, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+             quality_json, enabled, sort_order, is_default, builtin, credit_cost, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 record["workflow_id"], record["provider_model"], record["display_name"],
                 record.get("description") or "", record["profile"],
                 json.dumps(resolutions, ensure_ascii=False) if resolutions else None,
+                quality_json,
                 int(bool(record.get("enabled"))), int(record.get("sort_order", 100)),
                 int(bool(record.get("is_default"))), int(bool(record.get("builtin", True))),
+                (int(record["credit_cost"]) if record.get("credit_cost") is not None else None),
                 timestamp, timestamp,
             ),
         )
@@ -1631,12 +1655,29 @@ class JobStore:
             data["resolutions"] = parsed if isinstance(parsed, list) else None
         else:
             data["resolutions"] = None
+        raw_quality = data.pop("quality_json", None)
+        quality_options: list[str] | None = None
+        default_quality: str | None = None
+        if raw_quality:
+            try:
+                parsed_quality = json.loads(raw_quality)
+            except json.JSONDecodeError:
+                parsed_quality = None
+            if isinstance(parsed_quality, dict):
+                quality_options = parsed_quality.get("options") if isinstance(parsed_quality.get("options"), list) else None
+                default_quality = parsed_quality.get("default")
+        data["quality_options"] = quality_options
+        data["default_quality"] = default_quality
+        try:
+            data["credit_cost"] = int(data["credit_cost"]) if data.get("credit_cost") is not None else None
+        except (TypeError, ValueError):
+            data["credit_cost"] = None
         return data
 
     def list_grs_image_models(self) -> list[dict[str, Any]]:
         with self.connection() as connection:
             rows = connection.execute(
-                "SELECT * FROM grs_image_models ORDER BY is_default DESC, sort_order ASC, display_name ASC"
+                "SELECT * FROM grs_image_models ORDER BY sort_order ASC, display_name ASC"
             ).fetchall()
         return [self._grs_image_model_from_row(row) for row in rows]
 
@@ -1682,6 +1723,36 @@ class JobStore:
         self._grs_model_cache.clear()
         return self.list_grs_image_models()
 
+    def set_grs_image_model_costs(self, costs: dict[str, Any]) -> int:
+        """写入平台标价积分（按 provider_model 匹配），只动目录里已有的行。
+
+        积分是平台侧数据，不属于管理员可编辑项，因此不刷新 updated_at。
+        """
+        cleaned: dict[str, int] = {}
+        for provider_model, cost in costs.items():
+            try:
+                value = int(cost)
+            except (TypeError, ValueError):
+                continue
+            name = str(provider_model).strip()
+            if name and value > 0:
+                cleaned[name] = value
+        if not cleaned:
+            return 0
+        with self.connection() as connection:
+            known = {
+                row["provider_model"]
+                for row in connection.execute("SELECT provider_model FROM grs_image_models").fetchall()
+            }
+            matched = [(name, value) for name, value in cleaned.items() if name in known]
+            for name, value in matched:
+                connection.execute(
+                    "UPDATE grs_image_models SET credit_cost = ? WHERE provider_model = ?",
+                    (value, name),
+                )
+        self._grs_model_cache.clear()
+        return len(matched)
+
     def add_grs_image_model(self, payload: dict[str, Any]) -> dict[str, Any]:
         provider_model = validate_provider_model(payload["provider_model"])
         workflow_id = workflow_id_for(provider_model)
@@ -1694,9 +1765,10 @@ class JobStore:
             "profile": payload["profile"],
             "resolutions": payload.get("resolutions"),
             "enabled": payload.get("enabled", True),
-            "sort_order": payload.get("sort_order", 300),
+            "sort_order": payload.get("sort_order"),
             "is_default": bool(payload.get("is_default")),
             "builtin": False,
+            "credit_cost": payload.get("credit_cost"),
         }
         with self.connection() as connection:
             exists = connection.execute(
@@ -1705,6 +1777,10 @@ class JobStore:
             ).fetchone()
             if exists:
                 raise ValueError("该生图模型已存在")
+            if record["sort_order"] is None:
+                # 新模型一律排在管理员现有顺序之后，避免插进自定义排序的中间。
+                last = connection.execute("SELECT MAX(sort_order) AS last_order FROM grs_image_models").fetchone()
+                record["sort_order"] = int(last["last_order"] or 0) + 10
             if record["is_default"]:
                 connection.execute("UPDATE grs_image_models SET is_default = 0")
             self._insert_grs_image_model(connection, record, timestamp)
@@ -1725,8 +1801,44 @@ class JobStore:
                 if spec["provider_model"] in existing:
                     continue
                 self._insert_grs_image_model(connection, {**spec, "enabled": False, "is_default": False}, timestamp)
+            self._apply_gpt_image_25_default_migration(connection, timestamp)
         self._grs_model_cache.clear()
         return self.list_grs_image_models()
+
+    def _apply_gpt_image_25_default_migration(self, connection: DbConnection, timestamp: str) -> None:
+        """补插 GPT Image 2.5 系列内置行；一次性迁移负责启用并切换默认生图模型。
+
+        补插在迁移标记检查之前无条件执行（幂等），保证标记提前写入的半成品
+        状态（如热重载加载中间态代码）也能在下次启动自愈；管理员事后的
+        停用与默认调整不受影响。
+        """
+        existing = {
+            row["provider_model"]
+            for row in connection.execute("SELECT provider_model FROM grs_image_models").fetchall()
+        }
+        for spec in builtin_catalog_records():
+            if spec["provider_model"] in GPT_IMAGE_25_PROVIDER_MODELS and spec["provider_model"] not in existing:
+                self._insert_grs_image_model(connection, {**spec}, timestamp)
+        applied = connection.execute(
+            "SELECT 1 FROM schema_migrations WHERE name = ?", (self.GRS_GPT_IMAGE_25_MIGRATION,),
+        ).fetchone()
+        if applied:
+            return
+        placeholders = ", ".join("?" for _ in GPT_IMAGE_25_PROVIDER_MODELS)
+        connection.execute(
+            f"""UPDATE grs_image_models SET enabled = 1, updated_at = ?
+            WHERE provider_model IN ({placeholders})""",
+            (timestamp, *GPT_IMAGE_25_PROVIDER_MODELS),
+        )
+        connection.execute("UPDATE grs_image_models SET is_default = 0")
+        connection.execute(
+            "UPDATE grs_image_models SET is_default = 1, updated_at = ? WHERE provider_model = ?",
+            (timestamp, GPT_IMAGE_25_DEFAULT_PROVIDER_MODEL),
+        )
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations(name, applied_at) VALUES (?, ?)",
+            (self.GRS_GPT_IMAGE_25_MIGRATION, timestamp),
+        )
 
     @staticmethod
     def _new_director_project_id() -> str:

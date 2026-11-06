@@ -1642,7 +1642,64 @@
 }
 .studio-workflow-select-popup .ant-select-item-option-content { overflow: visible; text-overflow: clip; }
 .studio-select-option { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
-.studio-workflow-select-popup.ant-select-dropdown { min-width: 280px !important; }
+.studio-workflow-select-popup.ant-select-dropdown { min-width: 340px !important; }
+.studio-workflow-select-popup .ant-select-item-option { padding: 8px 10px; height: auto; }
+/* 即梦式模型行：图标 + 名称/描述 + 右侧消耗积分 */
+.studio-workflow-option { display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; }
+.studio-workflow-option-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(148, 125, 255, 0.16);
+  color: #b7a6ff;
+}
+.studio-workflow-option-main { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
+.studio-workflow-option-title { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; line-height: 18px; white-space: nowrap; }
+.studio-workflow-option-flag {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: rgba(148, 125, 255, 0.22);
+  color: #b7a6ff;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 500;
+  line-height: 15px;
+}
+.studio-workflow-option-desc {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+  word-break: break-word;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 15px;
+  color: var(--studio-text-muted);
+}
+.studio-workflow-option-cost {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: 11px;
+  white-space: nowrap;
+  color: #a893ff;
+}
+.studio-submit-cost { color: #a893ff; }
+[data-theme="light"] .studio-workflow-option-icon {
+  border-color: rgba(23, 26, 31, 0.10);
+  background: rgba(77, 107, 254, 0.10);
+  color: #4d6bfe;
+}
+[data-theme="light"] .studio-workflow-option-flag { background: rgba(77, 107, 254, 0.14); color: #314bc7; }
+[data-theme="light"] .studio-workflow-option-desc { color: #6b7280; }
+[data-theme="light"] .studio-workflow-option-cost,
+[data-theme="light"] .studio-submit-cost { color: #314bc7; }
 .studio-select-popup .ant-select-item-group {
   padding: 8px 10px 4px;
   color: #6b7280;
