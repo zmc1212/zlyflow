@@ -55,11 +55,16 @@ def build_vace_depth_workflow(
     scheduler: str = "simple",
     seed: int,
     weight_dtype: str = "default",
+    unet_name: str | None = None,
+    clip_name: str | None = None,
+    vae_name: str | None = None,
 ) -> dict[str, dict[str, Any]]:
     """构建"深度视频 + 参考图 + 提示词 → 复刻镜头"工作流。
 
     control_video_filename / references 均为已上传到 ComfyUI input 的文件名；
     width/height 需 16 对齐；length 自动对齐 4n+1。
+    unet_name / clip_name / vae_name 缺省时使用内置文件名；远端实例模型文件
+    名不同时应由调用方按远端 /object_info 实际清单解析后传入。
     """
     safe_width = max(16, int(width) // 16 * 16)
     safe_height = max(16, int(height) // 16 * 16)
@@ -69,7 +74,7 @@ def build_vace_depth_workflow(
 
     workflow: dict[str, dict[str, Any]] = {
         "1": {
-            "inputs": {"unet_name": VACE_UNET_FILENAME, "weight_dtype": weight_dtype},
+            "inputs": {"unet_name": unet_name or VACE_UNET_FILENAME, "weight_dtype": weight_dtype},
             "class_type": "UNETLoader",
             "_meta": {"title": "加载 Wan VACE 模型"},
         },
@@ -79,7 +84,7 @@ def build_vace_depth_workflow(
             "_meta": {"title": "Wan 采样配置"},
         },
         "3": {
-            "inputs": {"clip_name": VACE_CLIP_FILENAME, "type": "wan", "device": "cpu"},
+            "inputs": {"clip_name": clip_name or VACE_CLIP_FILENAME, "type": "wan", "device": "cpu"},
             "class_type": "CLIPLoader",
             "_meta": {"title": "加载 UMT5 文本编码器"},
         },
@@ -94,7 +99,7 @@ def build_vace_depth_workflow(
             "_meta": {"title": "负向提示词"},
         },
         "6": {
-            "inputs": {"vae_name": VACE_VAE_FILENAME},
+            "inputs": {"vae_name": vae_name or VACE_VAE_FILENAME},
             "class_type": "VAELoader",
             "_meta": {"title": "加载 Wan VAE"},
         },

@@ -7,8 +7,10 @@ import type { CanvasJobOutput, CanvasWorkflowMode } from "../canvas/canvas-gener
 export const UNIVERSAL_ASSET_NODE_KINDS = ["generator", "image", "video", "text", "audio", "editor"] as const
 export type UniversalAssetNodeKind = typeof UNIVERSAL_ASSET_NODE_KINDS[number]
 export type CharacterDesign = Record<string, string>
-export type AssetCreativeSettings = { style?: CreativeStyle; design?: CharacterDesign; aspectRatio?: string }
+export type AssetCreativeSettings = { style?: CreativeStyle; design?: CharacterDesign; aspectRatio?: string; model?: string }
 export const EMPTY_CREATIVE_STYLE: CreativeStyle = { presetId: "none", custom: "" }
+/** 槽位比例 Select 在模型没有声明 aspect_ratio 枚举时的回退选项。 */
+export const FALLBACK_SLOT_ASPECT_RATIOS = ["16:9", "9:16", "1:1", "4:3", "3:4"]
 
 export function isUniversalAssetNodeKind(value: unknown): value is UniversalAssetNodeKind {
   return UNIVERSAL_ASSET_NODE_KINDS.includes(value as UniversalAssetNodeKind)
@@ -22,6 +24,25 @@ export function compileAssetCreativePrompt(prompt: string, settings: AssetCreati
   const design = Object.entries(settings.design || {}).filter(([, value]) => typeof value === "string" && value.trim()).map(([key, value]) => `${key}：${value.trim()}`)
   const style = settings.style ? creativeStyleText(settings.style) : ""
   return [prompt.trim(), design.length ? `角色设计：${design.join("；")}` : "", style ? `视觉风格：${style}` : ""].filter(Boolean).join("\n\n")
+}
+
+/** 资产槽位可选的比例选项：与生成页同源，读取所选模型 /api/modes schema 里的 aspect_ratio 枚举。 */
+export function slotAspectRatioOptions(mode: CanvasWorkflowMode | null | undefined): { value: string; label: string }[] {
+  const definition = mode?.parameters?.find(parameter => parameter.name === "options")?.schema?.properties?.aspect_ratio
+  if (!definition) return FALLBACK_SLOT_ASPECT_RATIOS.map(value => ({ value, label: value }))
+  const labels = new Map((definition.ui_options || []).map(item => [String(item.value), item.label]))
+  const values = (definition.enum || []).map(value => String(value)).filter(value => value && value !== "auto")
+  return (values.length ? values : FALLBACK_SLOT_ASPECT_RATIOS).map(value => ({ value, label: labels.get(value) || value }))
+}
+
+/** 切换槽位模型后校准比例：当前比例仍被新模型支持则保留，否则回到新模型默认或 16:9。 */
+export function normalizeSlotAspect(mode: CanvasWorkflowMode | null | undefined, aspect: string | undefined): string | undefined {
+  if (!aspect) return aspect
+  const options = slotAspectRatioOptions(mode)
+  if (options.some(option => option.value === aspect)) return aspect
+  const definition = mode?.parameters?.find(parameter => parameter.name === "options")?.schema?.properties?.aspect_ratio
+  const fallback = definition && typeof definition.default === "string" && definition.default !== "auto" ? definition.default : undefined
+  return fallback || "16:9"
 }
 
 export function assetCanvasNodeKind(node: Node | undefined): string {

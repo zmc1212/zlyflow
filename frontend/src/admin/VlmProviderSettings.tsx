@@ -385,6 +385,7 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
             <Input.Password
               className="mt-1.5"
               aria-label="API Key / Access Token"
+              autoComplete="new-password"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               prefix={<KeyRound size={15} className="text-[#9ca3af]" />}

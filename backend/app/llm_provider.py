@@ -288,6 +288,28 @@ class LlmProviderService:
                 timeout=(15, 300),
             )
 
+    def chat_json(self, system_prompt: str, user_content: str, *, temperature: float = 0.7, max_tokens: int = 4096) -> dict[str, Any]:
+        """One-shot JSON chat with the default chat model, for domain flows that need structured output."""
+        from .director_agents import parse_json_object
+        from .llm_client import LlmError
+
+        client, model = self._chat_client()
+        raw = client.chat_completion(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=(15, 300),
+            stream=False,
+        )
+        parsed = parse_json_object(raw)
+        if not isinstance(parsed, dict):
+            raise LlmError("大模型未返回有效的 JSON，请重试")
+        return parsed
+
     def assistant_chat_with_meta(
         self,
         messages: list[dict],

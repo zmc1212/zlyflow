@@ -1,0 +1,45 @@
+{
+  "date": "2026-11-07",
+  "scope": "音乐创作室桌面端暗色设计稿，播放中且歌词侧栏展开",
+  "logical_viewport": {
+    "height": 1200,
+    "width": 1920
+  },
+  "prompt_version": "v001",
+  "prompt_file": "music-lyrics-dark-v001.prompt.txt",
+  "reference": {
+    "file": "../suno-20261107/implementation-20261107/dark-desktop.jpg",
+    "use": "现有音乐页壳、封面、曲库和底部播放器的实拍基线，传入 API 前遮盖账号区域"
+  },
+  "behavior": {
+    "panel": "底部歌词按钮展开或收起停靠侧栏，跟随播放器当前歌曲",
+    "playback": "用逐句时间点定位当前行并滚动；点击有时间点的歌词定位播放；手动滚动后可回到当前行",
+    "data": "当前曲库只存歌词文本；示例文案和时间用于表现播放态。实现时需要成品音频的逐句时间点，未对齐时显示静态全文",
+    "theme": "实作用工作台根主题，当前设计展示暗色"
+  },
+  "review": "已打开 1920×1200 原图，检查歌词焦点、邻句可读性、播放器入口及创作区。静态设计稿供确认",
+  "api_result": {
+    "endpoint": "https://api.openai.com/v1/images/edits",
+    "model": "gpt-image-2.5-sunburst",
+    "quality": "high",
+    "size": "1920x1200",
+    "reference_count": 1,
+    "n": 1,
+    "image": "music-lyrics-dark-v001.png",
+    "sha256": "8e09b0c7c9dc6c09b27cb6542a3574dd5e51940ddcd4611dd11ca134f0372965",
+    "request_id": "req_011e091ad8e449e59882868854b29397",
+    "usage": {
+      "input_tokens": 2537,
+      "input_tokens_details": {
+        "image_tokens": 1440,
+        "text_tokens": 1097
+      },
+      "output_tokens": 1550,
+      "output_tokens_details": {
+        "image_tokens": 1550,
+        "text_tokens": 0
+      },
+      "total_tokens": 4087
+    }
+  }
+}

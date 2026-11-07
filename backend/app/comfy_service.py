@@ -125,8 +125,8 @@ from .image_edit_workflow import (
     build_image_edit_workflow,
 )
 from .h3_depth_workflow import (
-    DEPTH_OUTPUT_NODE,
-    DEPTH_PREVIEW_NODE,
+    DEPTH_OUTPUT_NODE as H3_DEPTH_OUTPUT_NODE,
+    DEPTH_PREVIEW_NODE as H3_DEPTH_PREVIEW_NODE,
     DEPTH_DEFAULT_PROMPT,
     DEPTH_LENGTHS,
     build_h3_depth_workflow,
@@ -946,10 +946,25 @@ class ComfyService:
             return StoredResource(stored.key, stored.local_path, source_info)
         response = self.open_output_stream(source_info)
         try:
-            stored = self.resource_storage.store_bytes(prefix, filename, response.content)
+            content = response.content
+            stored = self.resource_storage.store_bytes(prefix, filename, content)
+            if require_local and stored.local_path is None:
+                # 云端存储（如七牛）不保留本地文件，但调用方需要真实路径做本地处理
+                #（拉片切分、首帧提取等），这里把手上的字节流落到 staging。
+                stored = StoredResource(
+                    stored.key, self._materialize_local(prefix, filename, content), source_info,
+                )
         finally:
             response.close()
         return StoredResource(stored.key, stored.local_path, source_info)
+
+    def _materialize_local(self, prefix: str, source_filename: str, content: bytes) -> Path:
+        local_root = self.settings.staging_dir / "comfy-local"
+        local_root.mkdir(parents=True, exist_ok=True)
+        suffix = Path(source_filename).suffix or ".bin"
+        destination = local_root / f"{prefix}_{time.strftime('%Y%m%d_%H%M%S')}_{secrets.token_hex(4)}{suffix}"
+        destination.write_bytes(content)
+        return destination
 
     def output_payload(self, resource: StoredResource, kind: str, label: str) -> dict:
         payload = {
@@ -1008,6 +1023,52 @@ class ComfyService:
             if connection is not None:
                 connection.close()
 
+    _VACE_MODEL_INFO_TTL_SEC = 300
+
+    def _resolve_vace_model_names(self) -> dict[str, str]:
+        """按远端 ComfyUI /object_info 实际清单解析 VACE 所需模型文件名。
+
+        远端节点与模型路径以远端实例实际配置为准：优先精确匹配内置文件名，
+        其次按特征匹配（vace unet / wan vae / umt5 clip），都找不到时给出
+        可执行的放置指引而不是让远端校验报一堆 value_not_in_list。
+        """
+        cached = getattr(self, "_vace_model_names_cache", None)
+        now = time.monotonic()
+        if cached and now - cached[0] < self._VACE_MODEL_INFO_TTL_SEC:
+            return cached[1]
+
+        def filenames(class_type: str, field: str) -> list[str]:
+            payload = self.object_info(class_type)
+            spec = (payload.get(class_type) or {}).get("input", {}).get("required", {}).get(field, [])
+            return [str(item) for item in (spec[0] if spec else []) if isinstance(item, str)]
+
+        unets = filenames("UNETLoader", "unet_name")
+        unet = next((n for n in unets if n == "wan2.1_vace_1.3B.safetensors"), None)
+        unet = unet or next((n for n in unets if "vace" in n.lower()), None)
+        if not unet:
+            raise legacy.ComfyError(
+                "远端 ComfyUI 缺少 Wan VACE 模型：请在其实例的 diffusion_models（unet）目录放置 "
+                f"wan2.1_vace_1.3B.safetensors 后重试。当前可选 unet：{unets}。"
+            )
+        vaes = filenames("VAELoader", "vae_name")
+        vae = next((n for n in vaes if n == "wan_2.1_vae.safetensors"), None)
+        vae = vae or next((n for n in vaes if re.search(r"wan.?2.?1.*vae", n, re.IGNORECASE)), None)
+        if not vae:
+            raise legacy.ComfyError(
+                f"远端 ComfyUI 缺少 Wan 2.1 VAE：请在其实例 vae 目录放置 wan_2.1_vae.safetensors。当前可选：{vaes}。"
+            )
+        clips = filenames("CLIPLoader", "clip_name")
+        clip = next((n for n in clips if n == "umt5_xxl_fp8_e4m3fn_scaled.safetensors"), None)
+        clip = clip or next((n for n in clips if "umt5" in n.lower()), None)
+        if not clip:
+            raise legacy.ComfyError(
+                f"远端 ComfyUI 缺少 UMT5 文本编码器：请在其实例 text_encoders（clip）目录放置 "
+                f"umt5_xxl_fp8_e4m3fn_scaled.safetensors。当前可选：{clips}。"
+            )
+        resolved = {"unet": unet, "vae": vae, "clip": clip}
+        self._vace_model_names_cache = (now, resolved)
+        return resolved
+
     def _run_vace_depth_replication(
         self, references: list[str], prompt: str, negative_prompt: str, options: dict | None,
         update_stage: Callable[[str, int | None], None],
@@ -1032,6 +1093,7 @@ class ComfyService:
         requested_seed = int((options or {}).get("seed") or 0)
         seed = requested_seed if requested_seed > 0 else int(normalized.get("seed") or 0) or secrets.randbits(31)
         normalized["seed"] = seed
+        model_names = self._resolve_vace_model_names()
         workflow = build_vace_depth_workflow(
             control_video,
             uploaded_refs,
@@ -1048,6 +1110,9 @@ class ComfyService:
             scheduler=str(normalized.get("scheduler") or "simple"),
             seed=seed,
             weight_dtype=str(normalized.get("weight_dtype") or "default"),
+            unet_name=model_names["unet"],
+            clip_name=model_names["clip"],
+            vae_name=model_names["vae"],
         )
         record = self.run_workflow(
             workflow, "Wan VACE 正在复刻镜头", update_stage, on_submitted=on_submitted, is_cancelled=is_cancelled,
@@ -1725,13 +1790,13 @@ class ComfyService:
     def _depth_capture_outputs(self, record: dict) -> list[dict]:
         """成片为主产物；深度预览视频为辅助产物，缺失时不阻塞成片交付。"""
         output = self.download(
-            legacy.output_file(record, DEPTH_OUTPUT_NODE, ("videos", "gifs", "images")),
+            legacy.output_file(record, H3_DEPTH_OUTPUT_NODE, ("videos", "gifs", "images")),
             "h3_depth_capture",
         )
         outputs = [self.output_payload(output, "video", "H3 深度捕捉视频")]
         try:
             depth_output = self.download(
-                legacy.output_file(record, DEPTH_PREVIEW_NODE, ("videos", "gifs", "images")),
+                legacy.output_file(record, H3_DEPTH_PREVIEW_NODE, ("videos", "gifs", "images")),
                 "h3_depth_capture_depth",
             )
             outputs.append(self.output_payload(depth_output, "video", "深度预览"))

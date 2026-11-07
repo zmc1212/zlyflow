@@ -1290,6 +1290,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
         images: context.images || [],
         prompt: compileAssetCreativePrompt(context.prompt ?? assetSlotPrompt(asset, target), creative),
         aspect_ratio: target.type === "scene_pano" ? "2:1" : creative.aspectRatio || "16:9",
+        ...(creative.model ? { model: creative.model } : {}),
         ...(creative.style ? { visual_style: creativeStyleText(creative.style) } : {}),
         ...(design["性别表达"] ? { gender: design["性别表达"] } : {}),
         ...(design["体型"] ? { body_type: design["体型"] } : {}),

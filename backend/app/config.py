@@ -19,6 +19,7 @@ LEGACY_DATABASE_FILENAME = "".join(("toon", "flow.db"))
 class Settings:
     workspace_dir: Path = WORKSPACE_DIR
     comfy_url: str = os.getenv("ZLY_AI_VIDEO_STUDIO_COMFY_URL", "http://127.0.0.1:8188").rstrip("/")
+    music_url: str = os.getenv("ZLY_AI_VIDEO_STUDIO_MUSIC_URL", "http://192.168.10.54:8791").rstrip("/")
     public_api_prefix: str = os.getenv("ZLY_AI_VIDEO_STUDIO_PUBLIC_API_PREFIX", "/api").rstrip("/") or "/api"
     resource_provider: str = os.getenv("ZLY_AI_VIDEO_STUDIO_RESOURCE_PROVIDER", "browser-stream")
     secure_cookies: bool = os.getenv("ZLY_AI_VIDEO_STUDIO_SECURE_COOKIES", "false").lower() in {"1", "true", "yes"}

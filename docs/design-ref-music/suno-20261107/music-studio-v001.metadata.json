@@ -1,0 +1,63 @@
+{
+  "date": "2026-11-07",
+  "scope": "音乐生成页桌面端暗色设计稿；未修改业务代码",
+  "concept": "延续导演台全局壳与居中创作入口，以唱片封面、氛围模板和试听细节建立音乐感",
+  "logical_viewport": { "width": 1920, "height": 1200 },
+  "prompt_version": "v001",
+  "prompt_file": "music-studio-v001.prompt.txt",
+  "requested_model": "gpt-image-2.5-sunburst",
+  "requested_quality": "high",
+  "requested_count": 1,
+  "requested_output": "music-studio-dark-v001.png",
+  "references": [
+    {
+      "file": "references/director-home-wide-baseline.jpg",
+      "source": "docs/design-ref-director/home-agent-20261103/four-modes/dark-home.jpg",
+      "purpose": "导演台桌面全局导航、页头与创作入口比例；已用2026-11-07实页核对当前风格"
+    },
+    {
+      "file": "references/suno-discover.jpg",
+      "source": "https://suno.com/discover",
+      "captured_date": "2026-11-07",
+      "purpose": "用户指定且已打开的 Suno 首页：输入器、音乐封面与播放器视觉参考"
+    },
+    {
+      "file": "references/music-current.jpg",
+      "source": "http://127.0.0.1:5173/music",
+      "captured_date": "2026-11-07",
+      "purpose": "当前功能与文案基线；不以当前封面照片作为设计风格"
+    },
+    {
+      "file": "references/director-home-current.jpg",
+      "source": "http://127.0.0.1:5173/director",
+      "captured_date": "2026-11-07",
+      "purpose": "当前导演台首页现场核对；未作为API附件"
+    }
+  ],
+  "sample_content": "曲库数量3及标题取自现有音乐页；专辑封面为生成的视觉示意。氛围模板、搜索和选中歌曲详情是拟议界面设计，尚未实现。",
+  "implementation_boundary": "控件使用Ant Design；布局、文案、图标和播放器由代码实现；封面单独作为素材；主题继承根Provider。",
+  "verification": {
+    "image_review": "2026-11-07 已打开1920×1200原图检查：导航、中文、创作入口、4张氛围图卡、3首歌曲、选中歌曲详情及播放器完整可见，无裁切或文字重叠；当前仅为设计图",
+    "interaction_test": "not_applicable_design_only",
+    "mobile_test": "not_in_scope"
+  },
+  "generation_status": "succeeded",
+  "api_result": {
+    "endpoint": "https://api.openai.com/v1/images/edits",
+    "model": "gpt-image-2.5-sunburst",
+    "size": "1920x1200",
+    "quality": "high",
+    "reference_count": 3,
+    "n": 1,
+    "image": "music-studio-dark-v001.png",
+    "sha256": "2bbc634e5e4043dc7fe445c4351f08123ebb64cca823fca8604a5c6a8b3d4d9d",
+    "request_id": "req_d554f4d08bca4ca9b3d19c3b361bad8b",
+    "usage": {
+      "input_tokens": 6333,
+      "input_tokens_details": { "image_tokens": 3670, "text_tokens": 2663 },
+      "output_tokens": 1550,
+      "output_tokens_details": { "image_tokens": 1550, "text_tokens": 0 },
+      "total_tokens": 7883
+    }
+  }
+}

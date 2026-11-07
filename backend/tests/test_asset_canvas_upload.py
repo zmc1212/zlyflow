@@ -103,3 +103,47 @@ class AssetCanvasImageUploadTests(unittest.TestCase):
             self.assertEqual("新的提示词", saved["environment_prompt"])
             self.assertEqual({"x": 400, "y": 300}, saved["creation_canvas"]["positions"]["group"])
             self.assertEqual("https://cdn/new.png", saved["master_url"])
+
+
+class AssetGenerateModelAndAspectTests(unittest.TestCase):
+    def _run_generate(self, payload, asset_row, model_row):
+        prefix = "backend.app.media_studio.services.project_detail_service."
+        with patch(prefix + "query_one", side_effect=[asset_row, model_row, asset_row, asset_row]) as query, patch(prefix + "execute_sql") as execute, patch(prefix + "grs_row", return_value={"base_url": "https://provider.test", "api_key_encrypted": "fixture"}), patch(prefix + "credential_manager") as credentials, patch(prefix + "GrsClient") as client, patch(prefix + "QiniuService.store_bytes", return_value=("object", "https://cdn/new.png")):
+            credentials.return_value.decrypt.return_value = "test-key"
+            client.return_value.generate_sync.return_value = "https://provider.test/image.png"
+            client.return_value.download_image.return_value = ("image.png", b"image")
+            ProjectDetailService.generate_asset_image("project", "asset", payload)
+        return query, execute, client
+
+    def _job_payload(self, execute):
+        insert = next(call for call in execute.call_args_list if "INSERT INTO ai_project_jobs" in call.args[0])
+        return json.loads(insert.args[1][3])
+
+    def test_slot_model_is_resolved_by_workflow_id_from_the_catalog(self):
+        model_row = {"provider_model": "gpt-image-2.6", "display_name": "GPT Image 2.6", "profile": "gpt_image_2_5"}
+        query, execute, client = self._run_generate({"target_type": "scene_master", "prompt": "雨夜巷口", "model": "grs-gpt-image-2.6"}, row(), model_row)
+        self.assertIn("grs-gpt-image-2.6", query.call_args_list[1].args[1])
+        client.return_value.generate_sync.assert_called_once()
+        self.assertEqual("gpt-image-2.6", client.return_value.generate_sync.call_args.kwargs["model"])
+        payload = self._job_payload(execute)
+        self.assertEqual("gpt-image-2.6", payload["model"])
+        self.assertEqual("gpt-image-2.6", payload["request_body"]["model"])
+
+    def test_identity_aspect_follows_the_canvas_request(self):
+        asset = row("character", {"identities": [{"id": "look-1", "name": "日常", "description": "白色连衣裙"}]})
+        model_row = {"provider_model": "gpt-image-2.5", "display_name": "GPT Image 2.5", "profile": "gpt_image_2_5"}
+        _, execute, client = self._run_generate({"target_type": "identity", "identity_id": "look-1", "aspect_ratio": "9:16", "prompt": "白色连衣裙"}, asset, model_row)
+        payload = self._job_payload(execute)
+        self.assertEqual("9:16", payload["aspect_ratio"])
+        self.assertEqual((1152, 2048), (payload["width"], payload["height"]))
+        self.assertEqual("1152x2048", payload["request_body"]["aspectRatio"])
+        self.assertIn("9:16", payload["clean_prompt"])
+
+    def test_identity_aspect_falls_back_to_16_9_when_unsupported(self):
+        asset = row("character", {"identities": [{"id": "look-1", "name": "日常", "description": "白色连衣裙"}]})
+        model_row = {"provider_model": "gpt-image-2.5", "display_name": "GPT Image 2.5", "profile": "gpt_image_2_5"}
+        _, execute, client = self._run_generate({"target_type": "identity", "identity_id": "look-1", "aspect_ratio": "1:8", "prompt": "白色连衣裙"}, asset, model_row)
+        payload = self._job_payload(execute)
+        self.assertEqual("16:9", payload["aspect_ratio"])
+        self.assertEqual((2048, 1152), (payload["width"], payload["height"]))
+        self.assertNotIn("1:8", payload["clean_prompt"])

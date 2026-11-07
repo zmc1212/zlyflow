@@ -15,6 +15,7 @@ const QiniuStorageSettings = lazy(() => import("./QiniuStorageSettings"))
 const LlmProviderSettings = lazy(() => import("./LlmProviderSettings"))
 const VlmProviderSettings = lazy(() => import("./VlmProviderSettings"))
 const TtsProviderSettings = lazy(() => import("./TtsProviderSettings"))
+const MusicProviderSettings = lazy(() => import("./MusicProviderSettings"))
 
 const roleLabel: Record<UserRole, string> = {
   super_admin: "超级管理员",
@@ -256,6 +257,7 @@ export default function AdminSettings({ user, csrfToken }: { user: User; csrfTok
           <>
             <ComfyProviderSettings csrfToken={csrfToken} />
             <GrsProviderSettings csrfToken={csrfToken} />
+            <MusicProviderSettings csrfToken={csrfToken} />
           </>
         ) : tab === "llm" ? (
           <LlmProviderSettings csrfToken={csrfToken} />

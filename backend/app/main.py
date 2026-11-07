@@ -120,6 +120,8 @@ from .models import (
     DirectorLibraryAssetCreateRequest, DirectorLibraryAssetUpdateRequest, DirectorLibraryAssetResponse,
     DirectorLibraryFromRecipeRequest, DirectorLibraryFromRecipeResponse, DirectorInsertLibraryAssetsRequest,
     TtsProviderResponse, TtsProviderUpdateRequest, TtsProviderTestRequest,
+    MusicAdapterUse, MusicJobCreateRequest, MusicJobResponse, MusicLyricsResponse,
+    MusicProviderResponse, MusicProviderTestRequest, MusicProviderUpdateRequest, MusicVibeRequest,
     DirectorTtsRequest, DirectorMuxRequest, DirectorExportCapabilitiesResponse,
     DirectorTranslatePromptRequest,
     CanvasProjectCreateRequest, CanvasProjectUpdateRequest, CanvasDraftSaveRequest,
@@ -162,6 +164,9 @@ from .media_studio.services.project_detail_service import ProjectDetailService
 from .media_studio.services.project_service import ProjectService
 from .media_studio.services.shot_plan_job_service import ShotPlanJobService
 from .media_studio.services.tts_generation_job_service import TtsGenerationJobService
+from .music_job_service import MusicJobService, MusicServiceError
+from .music_lyrics import MusicLyricsBusy, music_lyrics_status, start_music_lyrics
+from .music_yue2_client import YuE2Error
 from .qiniu_provider import QiniuProviderService
 from .request_log import RequestLogMiddleware, write_request_log
 from .mcp_gateway.routes import register_mcp_routes
@@ -833,6 +838,8 @@ async def lifespan(app: FastAPI):
     app.state.vlm_provider = vlm_provider
     app.state.tts_provider = tts_provider
     app.state.comfy_provider = comfy_provider
+    MusicJobService.configure(store, settings.credential_key, resource_storage)
+    app.state.music_jobs = MusicJobService
     app.state.worker = worker
     director_operations = DirectorOperationService(
         store,
@@ -856,6 +863,7 @@ async def lifespan(app: FastAPI):
         ShotPlanJobService.recover_interrupted_jobs()
         AssetExtractionJobService.recover_interrupted_jobs()
         TtsGenerationJobService.recover_interrupted_jobs()
+        MusicJobService.recover_interrupted_jobs()
         AiGenerationService.recover_orphaned_jobs()
     app.state.director_assistant = AssistantService(store, llm_provider, settings.uploads_dir, vlm_provider)
     app.state.director_assistant.recover()
@@ -899,6 +907,7 @@ app = FastAPI(
         {"name": "复刻台", "description": "参考片拉片复刻：上传成片，自动分镜反推提示词与深度视频，用 Wan VACE 深度控制批量转绘。"},
         {"name": "导演台2", "description": "AI Media Studio：按项目组织的内容库、资产库、剧集工坊与全部任务（复刻自 dev0914）。"},
         {"name": "灵感示例", "description": "示例库：管理员把真实出片冻结成可复现配方，所有用户浏览并一键回填创作台。"},
+        {"name": "音乐", "description": "远端 YuE2 Studio 音乐生成：任务提交、状态轮询与成品曲库。"},
     ],
     lifespan=lifespan,
 )
@@ -1642,6 +1651,173 @@ async def test_tts_provider(
         ip_address=client_ip(request),
     )
     return result
+
+
+# ------------------------------ 音乐生成（远端 YuE2 Studio） ------------------------------
+
+
+def _music_job_response(record: dict) -> dict:
+    return MusicJobResponse(**record).model_dump()
+
+
+@app.get("/api/admin/providers/music", response_model=MusicProviderResponse, tags=["管理后台"], summary="获取音乐生成服务配置")
+def get_music_provider(_: Annotated[dict, Depends(super_admin_user)]) -> dict:
+    return app.state.music_jobs.public_config()
+
+
+@app.put("/api/admin/providers/music", response_model=MusicProviderResponse, tags=["管理后台"], summary="更新音乐生成服务配置")
+def update_music_provider(
+    payload: MusicProviderUpdateRequest,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_super_admin_user)],
+) -> dict:
+    try:
+        result = app.state.music_jobs.update_provider(payload.base_url, payload.access_key)
+    except (MusicServiceError, ValueError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "update_music_provider", "provider", actor_user_id=user["id"], target_id="music",
+        ip_address=client_ip(request),
+    )
+    return result
+
+
+@app.post("/api/admin/providers/music/test", response_model=MusicProviderResponse, tags=["管理后台"], summary="测试音乐生成服务连接")
+async def test_music_provider(
+    request: Request,
+    user: Annotated[dict, Depends(mutating_super_admin_user)],
+    payload: MusicProviderTestRequest | None = None,
+) -> dict:
+    arguments = payload or MusicProviderTestRequest()
+    try:
+        result = await asyncio.to_thread(app.state.music_jobs.test, arguments.base_url, arguments.access_key)
+    except Exception as error:
+        app.state.auth_store.audit(
+            "test_music_provider_failed", "provider", actor_user_id=user["id"], target_id="music",
+            detail=str(error)[:200], ip_address=client_ip(request),
+        )
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "test_music_provider", "provider", actor_user_id=user["id"], target_id="music",
+        ip_address=client_ip(request),
+    )
+    return result
+
+
+@app.get("/api/music/status", tags=["音乐"], summary="音乐生成服务状态（供音乐页提示条）")
+def music_status(user: Annotated[dict, Depends(current_user)]) -> dict:
+    config = app.state.music_jobs.public_config()
+    return {"configured": config["configured"], "base_url": config["base_url"], "credential_ready": config["credential_ready"]}
+
+
+@app.get("/api/music/config", tags=["音乐"], summary="音乐创建表单的远端能力快照（LoRA 适配器）")
+async def music_config(user: Annotated[dict, Depends(current_user)]) -> dict:
+    return await asyncio.to_thread(app.state.music_jobs.remote_config)
+
+
+@app.get("/api/music/jobs", response_model=list[MusicJobResponse], tags=["音乐"], summary="我的音乐任务列表")
+def list_music_jobs(
+    user: Annotated[dict, Depends(current_user)],
+    limit: int = Query(default=100, ge=1, le=200),
+) -> list[dict]:
+    rows = app.state.store.list_music_jobs(user["id"], limit=limit)
+    return [_music_job_response(row) for row in rows]
+
+
+@app.post("/api/music/jobs", response_model=MusicJobResponse, tags=["音乐"], summary="提交音乐生成任务")
+async def create_music_job(
+    payload: MusicJobCreateRequest,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    try:
+        record = await asyncio.to_thread(
+            app.state.music_jobs.enqueue,
+            user["id"],
+            title=payload.title,
+            style=payload.style,
+            lyrics=payload.lyrics,
+            duration_seconds=payload.duration_seconds,
+            output_format=payload.output_format,
+            steps=payload.steps,
+            seed=payload.seed,
+            lm_seed=payload.lm_seed,
+            cot=payload.cot,
+            adapters=[item.model_dump() for item in (payload.adapters or [])] or None,
+        )
+    except MusicServiceError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except YuE2Error as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    return _music_job_response(record)
+
+
+@app.post("/api/music/vibe", response_model=MusicJobResponse, tags=["音乐"], summary="一句话描述生成音乐（大模型扩写风格与歌词后提交）")
+async def create_music_from_vibe(
+    payload: MusicVibeRequest,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    try:
+        record = await asyncio.to_thread(
+            app.state.music_jobs.create_from_vibe,
+            user["id"],
+            description=payload.description,
+            duration_seconds=payload.duration_seconds,
+            instrumental=payload.instrumental,
+            llm_provider=app.state.llm_provider,
+        )
+    except MusicServiceError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except LlmError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except YuE2Error as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    return _music_job_response(record)
+
+
+@app.get("/api/music/jobs/{job_id}", response_model=MusicJobResponse, tags=["音乐"], summary="音乐任务详情")
+def get_music_job(job_id: str, user: Annotated[dict, Depends(current_user)]) -> dict:
+    record = app.state.store.get_music_job(job_id, owner_user_id=user["id"])
+    if not record:
+        raise HTTPException(status_code=404, detail="音乐任务不存在")
+    return _music_job_response(record)
+
+
+@app.get("/api/music/jobs/{job_id}/lyrics", response_model=MusicLyricsResponse, tags=["音乐"], summary="获取歌曲歌词时间轴")
+def get_music_lyrics(job_id: str, user: Annotated[dict, Depends(current_user)]) -> MusicLyricsResponse:
+    if not app.state.store.get_music_job(job_id, owner_user_id=user["id"]):
+        raise HTTPException(status_code=404, detail="音乐任务不存在")
+    return music_lyrics_status(app.state.store, job_id)
+
+
+@app.post("/api/music/jobs/{job_id}/lyrics", response_model=MusicLyricsResponse, tags=["音乐"], summary="对齐歌曲歌词")
+def align_music_lyrics(job_id: str, user: Annotated[dict, Depends(mutating_user)]) -> MusicLyricsResponse:
+    record = app.state.store.get_music_job(job_id, owner_user_id=user["id"])
+    if not record:
+        raise HTTPException(status_code=404, detail="音乐任务不存在")
+    if record["status"] != "succeeded" or not record["result_url"]:
+        raise HTTPException(status_code=409, detail="歌曲生成完成后可对齐歌词")
+    try:
+        return start_music_lyrics(app.state.store, record)
+    except MusicLyricsBusy as error:
+        raise HTTPException(status_code=429, detail=str(error)) from error
+
+
+@app.delete("/api/music/jobs/{job_id}", tags=["音乐"], summary="删除音乐任务记录")
+async def delete_music_job(
+    job_id: str,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    record = app.state.store.get_music_job(job_id, owner_user_id=user["id"])
+    if not record:
+        raise HTTPException(status_code=404, detail="音乐任务不存在")
+    if record.get("status") in ("queued", "running"):
+        raise HTTPException(status_code=409, detail="任务进行中，暂不能删除")
+    await asyncio.to_thread(app.state.store.delete_music_job, job_id, user["id"])
+    return {"ok": True}
 
 
 @app.post(

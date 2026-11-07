@@ -1,0 +1,337 @@
+{
+  "date": "2026-11-07",
+  "url": "http://127.0.0.1:5173/music",
+  "reference": "../music-studio-dark-v001.png",
+  "viewport": {
+    "height": 1200,
+    "width": 1920
+  },
+  "device_pixel_ratio": 1.159999966621399,
+  "screenshot_scale": "css",
+  "capture_scroll": {
+    "x": 0,
+    "y": 0
+  },
+  "screenshots": {
+    "dark": "dark-desktop.jpg",
+    "light": "light-desktop.jpg"
+  },
+  "fonts_loaded": true,
+  "images_loaded": true,
+  "geometry_check": {
+    "measurement_sha256": "edcd424950582bcc48aa0d7f2eba9424e3a76d7acb8124b382238666981df9ef",
+    "complete": true,
+    "unavailable_regions": [],
+    "regions": [
+      {
+        "name": "title",
+        "selector": ".studio-music-hero-title",
+        "status": "visual_only",
+        "box_type": "ink",
+        "actual_css_box": [
+          834.2942504882812,
+          79.98384094238281,
+          318.6018371582031,
+          51.99353790283203
+        ],
+        "computed": {
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "color": "rgb(243, 245, 247)",
+          "display": "block",
+          "fontFamily": "ui-sans-serif, system-ui, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+          "fontSize": "36px",
+          "fontWeight": "600",
+          "lineHeight": "52px",
+          "opacity": "1",
+          "visibility": "visible"
+        },
+        "reason": "字形框或采样区不与 DOM 元素外框比较"
+      },
+      {
+        "name": "composer",
+        "selector": ".studio-music-panel",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          385.6007690429687,
+          183.9574432373047,
+          1215.98876953125,
+          233.6745758056641
+        ],
+        "computed": {
+          "backgroundColor": "rgb(23, 26, 32)",
+          "color": "rgb(243, 245, 247)",
+          "display": "block",
+          "fontFamily": "ui-sans-serif, system-ui, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+          "fontSize": "16px",
+          "fontWeight": "400",
+          "lineHeight": "24px",
+          "opacity": "1",
+          "visibility": "visible"
+        },
+        "reference_css_box": [
+          393.0,
+          187.0,
+          1215.0,
+          232.0
+        ],
+        "delta_css": [
+          -7.399,
+          -3.043,
+          0.989,
+          1.675
+        ],
+        "max_abs_delta_css": 7.399
+      },
+      {
+        "name": "mood-a",
+        "selector": ".studio-music-mood:nth-child(1)",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          193.60183715820312,
+          487.6077880859375,
+          386.5032653808594,
+          135.99139404296875
+        ],
+        "computed": {
+          "backgroundColor": "rgb(9, 11, 15)",
+          "color": "rgb(255, 255, 255)",
+          "display": "flex",
+          "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+          "fontSize": "14px",
+          "fontWeight": "400",
+          "lineHeight": "21px",
+          "opacity": "1",
+          "visibility": "visible"
+        },
+        "reference_css_box": [
+          201.0,
+          487.0,
+          385.0,
+          135.0
+        ],
+        "delta_css": [
+          -7.398,
+          0.608,
+          1.503,
+          0.991
+        ],
+        "max_abs_delta_css": 7.398
+      },
+      {
+        "name": "mood-b",
+        "selector": ".studio-music-mood:nth-child(2)",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          598.1007690429688,
+          487.6077880859375,
+          386.5032653808594,
+          135.99139404296875
+        ],
+        "computed": {
+          "backgroundColor": "rgb(9, 11, 15)",
+          "color": "rgb(255, 255, 255)",
+          "display": "flex",
+          "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, \"Noto Sans\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+          "fontSize": "14px",
+          "fontWeight": "400",
+          "lineHeight": "21px",
+          "opacity": "1",
+          "visibility": "visible"
+        },
+        "reference_css_box": [
+          605.0,
+          487.0,
+          386.0,
+          135.0
+        ],
+        "delta_css": [
+          -6.899,
+          0.608,
+          0.503,
+          0.991
+        ],
+        "max_abs_delta_css": 6.899
+      },
+      {
+        "name": "library-toolbar",
+        "selector": ".studio-music-list-head",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          193.60183715820312,
+          659.590576171875,
+          1600.0001220703125,
+          43.99245834350586
+        ],
+        "computed": {
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "color": "rgb(243, 245, 247)",
+          "display": "flex",
+          "fontFamily": "ui-sans-serif, system-ui, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+          "fontSize": "16px",
+          "fontWeight": "400",
+          "lineHeight": "24px",
+          "opacity": "1",
+          "visibility": "visible"
+        },
+        "reference_css_box": [
+          200.0,
+          660.0,
+          1600.0,
+          44.0
+        ],
+        "delta_css": [
+          -6.398,
+          -0.409,
+          0.0,
+          -0.008
+        ],
+        "max_abs_delta_css": 6.398
+      },
+      {
+        "name": "song-cover",
+        "selector": ".studio-music-card:first-child .studio-music-card-cover-box",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          193.60183715820312,
+          725.5792236328125,
+          293.9924621582031,
+          261.3146667480469
+        ],
+        "computed": {
+          "backgroundColor": "rgb(30, 34, 41)",
+          "color": "rgb(243, 245, 247)",
+          "display": "block",
+          "fontFamily": "ui-sans-serif, system-ui, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+          "fontSize": "16px",
+          "fontWeight": "400",
+          "lineHeight": "24px",
+          "opacity": "1",
+          "visibility": "visible"
+        },
+        "reference_css_box": [
+          201.0,
+          724.0,
+          294.0,
+          260.0
+        ],
+        "delta_css": [
+          -7.398,
+          1.579,
+          -0.008,
+          1.315
+        ],
+        "max_abs_delta_css": 7.398
+      },
+      {
+        "name": "listening",
+        "selector": ".studio-music-listening",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          1429.6068115234375,
+          725.5792236328125,
+          363.99517822265625,
+          336.9881591796875
+        ],
+        "computed": {
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "color": "rgb(243, 245, 247)",
+          "display": "block",
+          "fontFamily": "ui-sans-serif, system-ui, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+          "fontSize": "16px",
+          "fontWeight": "400",
+          "lineHeight": "24px",
+          "opacity": "1",
+          "visibility": "visible"
+        },
+        "reference_css_box": [
+          1437.0,
+          726.0,
+          363.0,
+          337.0
+        ],
+        "delta_css": [
+          -7.393,
+          -0.421,
+          0.995,
+          -0.012
+        ],
+        "max_abs_delta_css": 7.393
+      },
+      {
+        "name": "player",
+        "selector": ".studio-music-player-bar",
+        "status": "measured",
+        "box_type": "element",
+        "actual_css_box": [
+          75.99677276611328,
+          1094.0059814453125,
+          1835.210205078125,
+          105.99407958984376
+        ],
+        "computed": {
+          "backgroundColor": "rgb(23, 26, 32)",
+          "color": "rgb(243, 245, 247)",
+          "display": "grid",
+          "fontFamily": "ui-sans-serif, system-ui, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+          "fontSize": "16px",
+          "fontWeight": "400",
+          "lineHeight": "24px",
+          "opacity": "1",
+          "visibility": "visible"
+        },
+        "reference_css_box": [
+          76.0,
+          1094.0,
+          1844.0,
+          106.0
+        ],
+        "delta_css": [
+          -0.003,
+          0.006,
+          -8.79,
+          -0.006
+        ],
+        "max_abs_delta_css": 8.79
+      },
+      {
+        "name": "canvas-color",
+        "status": "reference_only",
+        "reason": "仅测量参考图，没有 DOM 选择器"
+      },
+      {
+        "name": "panel-color",
+        "status": "reference_only",
+        "reason": "仅测量参考图，没有 DOM 选择器"
+      }
+    ],
+    "note": "偏差是 CSS 像素，不是还原率；布局可测量不证明未遮挡、字体正确或交互可用。"
+  },
+  "desktop_interactions": [
+    "氛围模板填入及换组",
+    "人声/纯音乐切换、预设时长及45秒自定义时长",
+    "两种模式切换保留草稿及歌词段落插入",
+    "关键词搜索、生成中筛选、网格/列表切换",
+    "歌词与纯音乐详情、原封面入口",
+    "歌曲菜单与取消删除",
+    "现有FLAC实际播放、暂停后键盘定位、上一首/下一首和静音",
+    "浅暗弹层颜色、刷新保留主题及不自动播放"
+  ],
+  "frontend_build": {
+    "command": "pnpm --dir frontend build",
+    "test_files_passed": 130,
+    "tests_passed": 877,
+    "typescript_passed": true,
+    "vite_build_passed": true
+  },
+  "backend_music_tests": {
+    "command": "python -X utf8 -B -m pytest backend/tests/test_music_provider.py -q",
+    "tests_passed": 21
+  },
+  "validation_scope": "桌面端实页。试听使用已有歌曲；未创建额外远端音乐任务。"
+}

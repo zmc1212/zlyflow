@@ -15,11 +15,10 @@ from .job_payload import (
 )
 from .asset_image_prompts import (
     IDENTITY_SHEET_ASPECT_RATIO,
-    IDENTITY_SHEET_HEIGHT,
     IDENTITY_SHEET_IMAGE_SIZE,
-    IDENTITY_SHEET_WIDTH,
     build_identity_generation,
     character_portrait_prompt,
+    identity_sheet_dimensions,
     prop_view_prompt,
     safe_scene_master_prompt,
     scene_view_prompt,
@@ -1257,6 +1256,10 @@ class ProjectDetailService:
             ident_item = next((it for it in extra.get("identities", []) if it.get("id") == identity_id), None)
             if ident_item is None:
                 raise ValueError("找不到该造型")
+            # 设定板默认 16:9；画布 Prompt Bar 可传其他比例，注册表不支持的值回退 16:9。
+            requested_aspect = str(payload.get("aspect_ratio") or IDENTITY_SHEET_ASPECT_RATIO)
+            if requested_aspect not in GRS_VIP_SIZES:
+                requested_aspect = IDENTITY_SHEET_ASPECT_RATIO
             spec = build_identity_generation(
                 row,
                 ident_item,
@@ -1266,6 +1269,7 @@ class ProjectDetailService:
                 style=art_style_id,
                 visual_style=visual_style,
                 ethnicity=char_ethnicity,
+                aspect_ratio=requested_aspect,
             )
             aspect_ratio = spec["aspect_ratio"]
             reference_urls = list(spec["reference_urls"])
@@ -1382,9 +1386,12 @@ class ProjectDetailService:
             "4:3": (1152, 896),
         }
         if target_type == "identity":
-            aspect_ratio = IDENTITY_SHEET_ASPECT_RATIO
+            # 设定板默认 16:9 / 2K；画布 Prompt Bar 可传其他比例，非法值回退 16:9。
+            supported_ratios = set(GRS_VIP_SIZES) | set(dim_map)
+            if aspect_ratio not in supported_ratios:
+                aspect_ratio = IDENTITY_SHEET_ASPECT_RATIO
             image_size = IDENTITY_SHEET_IMAGE_SIZE
-            w, h = IDENTITY_SHEET_WIDTH, IDENTITY_SHEET_HEIGHT
+            w, h = identity_sheet_dimensions(aspect_ratio)
         else:
             image_size = "1K"
             w, h = dim_map.get(aspect_ratio, (1024, 1024))

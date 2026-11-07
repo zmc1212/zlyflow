@@ -1,0 +1,10 @@
+[Unit]
+Description=ZLY GitBlit -> Gitea repo sync (keeps old git address, triggers CI)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# 与 ops/gitea 安装目录一致;改动路径时同步修改 ExecStart 与 timer 说明
+WorkingDirectory=/opt/zly-ci
+ExecStart=/usr/bin/env bash /opt/zly-ci/gitblit-sync.sh

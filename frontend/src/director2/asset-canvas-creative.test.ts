@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Node, Edge } from "@xyflow/react"
-import { assetCanvasConnectionIssue, assetCanvasMedia, assetCanvasOutputKinds, assetCanvasPollingKey, canvasEditingCloudUrl, canvasWorkflowReferenceKind, compileAssetCreativePrompt, moveAssetCanvasReference } from "./asset-canvas-creative"
+import { assetCanvasConnectionIssue, assetCanvasMedia, assetCanvasOutputKinds, assetCanvasPollingKey, canvasEditingCloudUrl, canvasWorkflowReferenceKind, compileAssetCreativePrompt, FALLBACK_SLOT_ASPECT_RATIOS, moveAssetCanvasReference, normalizeSlotAspect, slotAspectRatioOptions } from "./asset-canvas-creative"
 import { mergeProjection, parseAssetCanvasDraft, serializeAssetCanvasDraft } from "../canvas/asset-canvas-sync"
 import { buildAssetCanvas } from "./asset-canvas-model"
 import type { Director2Asset } from "./api"
@@ -98,5 +98,42 @@ describe("universal director asset canvas", () => {
     expect(assetCanvasPollingKey([{ ...running, data: { ...running.data, jobStatus: "awaiting_refine" } }])).toBe(key)
     expect(assetCanvasPollingKey([{ ...running, data: { ...running.data, jobStatus: "succeeded" } }])).toBe("")
     expect(assetCanvasPollingKey([{ ...running, data: { ...running.data, jobId: "next-job" } }])).not.toBe(key)
+  })
+})
+
+describe("asset slot model and aspect options", () => {
+  const modeWithSchema = (properties: Record<string, unknown>, parameters: { name: string }[] = [{ name: "options" }]) =>
+    ({ id: "grs-gpt-image-2.5", name: "GPT Image 2.5", media_type: "image", parameters: parameters.map(parameter => ({ ...parameter, schema: { properties } })) }) as CanvasWorkflowMode
+
+  it("derives aspect options from the selected model schema with ui labels, dropping auto", () => {
+    const mode = modeWithSchema({
+      aspect_ratio: { label: "比例", type: "string", default: "1:1", enum: ["auto", "1:1", "16:9", "9:16", "21:9"], ui_options: [{ value: "1:1", label: "1:1 方图" }, { value: "16:9", label: "16:9 横屏" }] },
+    })
+    expect(slotAspectRatioOptions(mode)).toEqual([
+      { value: "1:1", label: "1:1 方图" },
+      { value: "16:9", label: "16:9 横屏" },
+      { value: "9:16", label: "9:16" },
+      { value: "21:9", label: "21:9" },
+    ])
+  })
+
+  it("falls back to the builtin list when the model has no aspect schema", () => {
+    expect(slotAspectRatioOptions(null)).toEqual(FALLBACK_SLOT_ASPECT_RATIOS.map(value => ({ value, label: value })))
+    expect(slotAspectRatioOptions(modeWithSchema({ count: { label: "数量", type: "number", default: 1 } }))).toEqual(FALLBACK_SLOT_ASPECT_RATIOS.map(value => ({ value, label: value })))
+  })
+
+  it("keeps the current aspect when the new model still supports it, otherwise resets", () => {
+    const wide = modeWithSchema({
+      aspect_ratio: { label: "比例", type: "string", default: "16:9", enum: ["16:9", "21:9", "4:3"], ui_options: [] },
+    })
+    const anyRatio = modeWithSchema({
+      aspect_ratio: { label: "比例", type: "string", default: "1:1", enum: ["1:1", "9:16", "16:9", "4:3", "3:4"] },
+    })
+    expect(normalizeSlotAspect(anyRatio, "9:16")).toBe("9:16")
+    expect(normalizeSlotAspect(wide, "9:16")).toBe("16:9")
+    // 无 schema 时走内置回退列表，9:16 仍在其中，保留原值
+    expect(normalizeSlotAspect(null, "9:16")).toBe("9:16")
+    expect(normalizeSlotAspect(wide, "1:3")).toBe("16:9")
+    expect(normalizeSlotAspect(anyRatio, undefined)).toBeUndefined()
   })
 })

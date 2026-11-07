@@ -13,6 +13,7 @@ export const PATHS = {
   generateVideo: "/generate/video",
   tools: "/tools",
   inspiration: "/inspiration",
+  music: "/music",
   toolPromptReverse: "/tools/prompt-reverse",
   toolMotionTransfer: "/tools/motion-transfer",
   toolCharacterReplace: "/tools/character-replace",
@@ -83,6 +84,7 @@ export const STUDIO_ROUTE_PATHS = [
   ROUTE_PATTERNS.generateVideoJob,
   PATHS.tools,
   PATHS.inspiration,
+  PATHS.music,
   PATHS.toolPromptReverse,
   PATHS.toolMotionTransfer,
   PATHS.toolCharacterReplace,
@@ -130,7 +132,7 @@ export type LoginRedirectState = {
   from?: Pick<Location, "pathname" | "search" | "hash">
 }
 
-export type StudioWorkspace = "generate" | "inspiration" | "tools" | "director" | "canvas" | "assets"
+export type StudioWorkspace = "generate" | "inspiration" | "music" | "tools" | "director" | "canvas" | "assets"
 export type GenerateMediaType = "image" | "video"
 
 const DIRECTOR_LEGACY_STUDIO_SEGMENTS = new Set(["batch", "replication"])
@@ -143,6 +145,7 @@ export function generateJobPath(mediaType: GenerateMediaType, jobId?: string) {
 export function studioWorkspaceFromPath(pathname: string): StudioWorkspace {
   if (pathname === PATHS.assets) return "assets"
   if (pathname === PATHS.inspiration) return "inspiration"
+  if (pathname === PATHS.music || pathname.startsWith(`${PATHS.music}/`)) return "music"
   if (pathname === PATHS.tools || pathname.startsWith(`${PATHS.tools}/`)) return "tools"
   if (pathname === PATHS.canvas || pathname.startsWith(`${PATHS.canvas}/`)) return "canvas"
   if (pathname === PATHS.director || pathname.startsWith(`${PATHS.director}/`)) return "director"

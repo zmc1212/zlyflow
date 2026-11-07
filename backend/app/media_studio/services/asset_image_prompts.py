@@ -121,6 +121,19 @@ IDENTITY_SHEET_WIDTH = 2048
 IDENTITY_SHEET_HEIGHT = 1152
 
 
+def identity_sheet_dimensions(aspect_ratio: str) -> tuple[int, int]:
+    """设定板 2K 档像素尺寸：默认 16:9 用历史常量，其余比例走注册表 GRS_VIP_SIZES，未知比例回退 16:9。"""
+    if aspect_ratio == IDENTITY_SHEET_ASPECT_RATIO:
+        return IDENTITY_SHEET_WIDTH, IDENTITY_SHEET_HEIGHT
+    from backend.app.workflow_registry import GRS_VIP_SIZES
+
+    pixel = (GRS_VIP_SIZES.get(aspect_ratio) or {}).get(IDENTITY_SHEET_IMAGE_SIZE)
+    if not pixel:
+        return IDENTITY_SHEET_WIDTH, IDENTITY_SHEET_HEIGHT
+    width, height = pixel.split("x")
+    return int(width), int(height)
+
+
 def look_costume_text(look: dict[str, Any]) -> str:
     return str(look.get("appearance_details") or look.get("description") or "").strip()
 
@@ -161,9 +174,15 @@ def identity_lock_reference_urls(
     return [avatar] if avatar else []
 
 
-def _character_design_sheet_layout() -> str:
-    return """
-LAYOUT (16:9 character design sheet / 角色设定板, Chinese production layout, NO text on image):
+def _character_design_sheet_layout(aspect_ratio: str = IDENTITY_SHEET_ASPECT_RATIO) -> str:
+    adapt = (
+        ""
+        if aspect_ratio == IDENTITY_SHEET_ASPECT_RATIO
+        else f"\nCANVAS ADAPTATION ({aspect_ratio}): the sheet canvas is {aspect_ratio}, not 16:9 — recompose the panels below to fit this canvas "
+        "(portrait ratios stack the three full-body views vertically or use narrower columns); every panel stays complete and legible."
+    )
+    return f"""
+LAYOUT ({aspect_ratio} character design sheet / 角色设定板, Chinese production layout, NO text on image):
 This is ONE complete unlabeled design sheet, not a headshot, not a 4-panel turnaround, not a UI mockup.
 
 LEFT COLUMN (main visual, roughly half the width): three full-body standing views of the SAME person in the SAME outfit
@@ -190,16 +209,16 @@ BOTTOM RIGHT (six costume detail crops matching the ACTUAL clothes; do NOT inven
 PRESENTATION:
 - One person, one outfit only
 - Plain solid white seamless background throughout
-- No readable text, numbers, arrows, captions, panel titles, watermarks, or UI chrome
+- No readable text, numbers, arrows, captions, panel titles, watermarks, or UI chrome{adapt}
 """.strip()
 
 
-def _identity_reference_role(*, follow_source_photos: bool, has_identity_reference: bool) -> str:
+def _identity_reference_role(*, follow_source_photos: bool, has_identity_reference: bool, aspect_ratio: str = IDENTITY_SHEET_ASPECT_RATIO) -> str:
     if follow_source_photos:
-        return """
+        return f"""
 REFERENCE ROLE (CRITICAL):
 Attached original-footage screenshots lock this character's face, age, hair, body, AND visible clothing.
-This output is a COMPLETE 16:9 production design sheet, not another headshot or identity portrait.
+This output is a COMPLETE {aspect_ratio} production design sheet, not another headshot or identity portrait.
 Copy identity from the photos into every cell. Do not invent a different person.
 If an older design sheet is also attached, photos still win for wardrobe; the older sheet only helps lock the face.
 """.strip()
@@ -224,13 +243,19 @@ def _text_only_identity_sheet_prompt(
     visual: str,
     character_details: str,
     visual_id: str,
+    aspect_ratio: str = IDENTITY_SHEET_ASPECT_RATIO,
 ) -> str:
     """GRS 会把长英文 layout 当作编辑请求并索要参考图；纯文生图用短中文指令更稳定。"""
     animated = is_animation_visual_style(visual_id) or visual_id in {"anime", "guoman_fantasy"}
     medium = _animation_medium_phrase(visual_id) if animated else "写实电影质感"
     style_line = f"\n风格：{visual}" if visual else ""
     details = character_details.strip() or "按角色名称与项目设定保持同一人物。"
-    return f"""纯文生图。没有任何输入图片，也不需要参考图。请直接生成并输出一张 16:9 的角色设定板图片，不要索要参考图，不要回复文字。
+    adapt = (
+        ""
+        if aspect_ratio == IDENTITY_SHEET_ASPECT_RATIO
+        else f"- 画布比例为 {aspect_ratio}（非 16:9）：保持下列全部内容，按画布方向重新排布（竖版将三张全身图纵向堆叠），每格完整清晰。\n"
+    )
+    return f"""纯文生图。没有任何输入图片，也不需要参考图。请直接生成并输出一张 {aspect_ratio} 的角色设定板图片，不要索要参考图，不要回复文字。
 角色：{name}{style_line}
 外观与服装：{details}
 画面要求：
@@ -239,7 +264,7 @@ def _text_only_identity_sheet_prompt(
 - 右上为同一人物的六张头部 / 发型细节：正脸、俯视发缝、后脑、侧脸、高位 3/4、3/4 脸。
 - 右下为六张与实际服装一致的服装细节：上衣面料、下装腰部、下摆 / 裤脚、腰饰、手或标志配饰、鞋履。
 - 同一人物、同一套服装、同一发型，三个全身视角与细节图必须一致。
-- {medium}，画面无文字、无标签、无水印、无 UI、无分栏标题。
+{adapt}- {medium}，画面无文字、无标签、无水印、无 UI、无分栏标题。
 - 不要输出单张头像、不要拼贴、不要多个角色。"""
 
 
@@ -254,6 +279,7 @@ def character_look_prompt(
     has_costume_reference: bool = False,
     follow_source_photos: bool = False,
     has_identity_reference: bool = False,
+    aspect_ratio: str = IDENTITY_SHEET_ASPECT_RATIO,
 ) -> str:
     extra = extra if isinstance(extra, dict) else {}
     visual_id = normalize_visual_style(
@@ -300,11 +326,13 @@ A second reference image is provided showing the target costume/clothing.
             visual=visual,
             character_details=character_details,
             visual_id=visual_id,
+            aspect_ratio=aspect_ratio,
         )
-    layout = _character_design_sheet_layout()
+    layout = _character_design_sheet_layout(aspect_ratio)
     ref_block = _identity_reference_role(
         follow_source_photos=follow_source_photos,
         has_identity_reference=lock_from_image,
+        aspect_ratio=aspect_ratio,
     )
     identity_lock = (
         f"""IDENTITY LOCKING (CRITICAL):
@@ -380,6 +408,7 @@ def build_identity_generation(
     visual_style: str = "",
     ethnicity: str = "",
     has_costume_reference: bool = False,
+    aspect_ratio: str = IDENTITY_SHEET_ASPECT_RATIO,
 ) -> dict[str, Any]:
     extra = extra if isinstance(extra, dict) else {}
     # Explicit canvas context/design applies to this request; it must not be
@@ -404,15 +433,17 @@ def build_identity_generation(
         has_costume_reference=has_costume_reference,
         follow_source_photos=follow_source_photos,
         has_identity_reference=bool(reference_urls) or follow_source_photos,
+        aspect_ratio=aspect_ratio,
     )
+    width, height = identity_sheet_dimensions(aspect_ratio)
     return {
         "costume": costume,
         "reference_urls": reference_urls,
         "clean_prompt": clean_prompt,
-        "aspect_ratio": IDENTITY_SHEET_ASPECT_RATIO,
+        "aspect_ratio": aspect_ratio,
         "image_size": IDENTITY_SHEET_IMAGE_SIZE,
-        "width": IDENTITY_SHEET_WIDTH,
-        "height": IDENTITY_SHEET_HEIGHT,
+        "width": width,
+        "height": height,
         "ident_name": str(look.get("name") or "").strip() or "角色造型",
     }
 

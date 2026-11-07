@@ -1135,6 +1135,88 @@ class TtsProviderResponse(BaseModel):
     supports_clone: bool = False
 
 
+class MusicAdapterUse(BaseModel):
+    id: str = Field(min_length=1, max_length=160)
+    scales: dict[str, float] | None = None
+
+
+class MusicProviderUpdateRequest(BaseModel):
+    base_url: str = Field(default="", max_length=500)
+    access_key: str | None = Field(default=None, max_length=512, description="留空表示保持现有密钥不变")
+
+
+class MusicProviderTestRequest(BaseModel):
+    base_url: str | None = Field(default=None, max_length=500)
+    access_key: str | None = Field(default=None, max_length=512, description="留空则使用已保存密钥")
+
+
+class MusicProviderResponse(BaseModel):
+    base_url: str = ""
+    has_access_key: bool = False
+    credential_ready: bool = False
+    configured: bool = False
+    # 「测试连接」结果字段：必须随 /api/admin/providers/music/test 回传，
+    # 否则前端拿不到 available 会把成功误判为「连接失败：未知原因」。
+    available: bool = False
+    unavailable_reason: str | None = None
+    last_test_status: str | None = None
+    last_test_message: str | None = None
+    last_test_at: str | None = None
+
+
+class MusicVibeRequest(BaseModel):
+    description: str = Field(min_length=1, max_length=1000, description="一句话描述想要的歌")
+    duration_seconds: int = Field(default=210, ge=10, le=600)
+    instrumental: bool = False
+
+
+class MusicJobCreateRequest(BaseModel):
+    title: str = Field(default="", max_length=120)
+    style: str = Field(min_length=1, max_length=2000)
+    lyrics: str = Field(default="", max_length=8000)
+    duration_seconds: int = Field(default=210, ge=10, le=600)
+    output_format: str = Field(default="flac", pattern="^(flac|mp3|wav)$")
+    steps: int | None = Field(default=None, ge=1, le=200)
+    seed: int | None = None
+    lm_seed: int | None = None
+    cot: str = Field(default="full", pattern="^(full|melody|off)$")
+    adapters: list[MusicAdapterUse] | None = None
+
+
+class MusicJobResponse(BaseModel):
+    id: str
+    owner_user_id: str
+    title: str = ""
+    style: str = ""
+    lyrics: str = ""
+    status: str
+    progress: int = 0
+    params: dict = Field(default_factory=dict)
+    result_url: str | None = None
+    result_format: str | None = None
+    cover_url: str | None = None
+    duration_seconds: int | None = None
+    remote_job_id: str | None = None
+    remote_song_id: str | None = None
+    error_message: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    completed_at: str | None = None
+
+
+class MusicLyricLine(BaseModel):
+    text: str
+    start_seconds: float | None = None
+    end_seconds: float | None = None
+
+
+class MusicLyricsResponse(BaseModel):
+    status: Literal["idle", "aligning", "ready", "unavailable", "failed"] = "idle"
+    lines: list[MusicLyricLine] = Field(default_factory=list)
+    source: Literal["yue2", "local"] | None = None
+    message: str | None = None
+
+
 class DirectorTtsRequest(BaseModel):
     shot_ids: list[str] = Field(default_factory=list)
     character_id: str | None = Field(default=None, max_length=80)

@@ -1,0 +1,10 @@
+[Unit]
+Description=Run gitblit-sync every minute (old git address stays unchanged)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

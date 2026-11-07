@@ -1,0 +1,116 @@
+# ZLY AI Video Studio:推送 master / 打 v* 标签 / 手动触发 时,
+# 自动 构建 Docker 镜像 → 推送 Gitea 镜像仓库 → SSH 到部署服务器滚动更新 → 健康检查(失败自动回滚)。
+#
+# 使用前在 Gitea 仓库或组织「设置 → Actions → Secrets」配置(详见 docs/CI-CD-Gitea部署指南.md):
+#   CI_USER        Gitea 机器人账号用户名(需 read:repository + write:package 权限)
+#   CI_TOKEN       该账号的访问令牌(PAT)
+#   DEPLOY_HOST    部署服务器 IP/域名
+#   DEPLOY_USER    SSH 用户(需能操作 docker)
+#   DEPLOY_SSH_KEY SSH 私钥全文(对应公钥已加入服务器 authorized_keys)
+#   DEPLOY_PORT    SSH 端口(可选,默认 22)
+#
+# 工作流零第三方 action(仅 apk/git/docker/ssh),不依赖 gitea.com/github.com 的 action 市场。
+name: build-and-deploy
+
+on:
+  push:
+    branches: [master, main]
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  # —— 与 ops/gitea/.env 保持一致 ——
+  REGISTRY: 124.70.90.30:3080
+  # —— 每个接入的项目需要修改下面 4 行 ——
+  DEPLOY_DIR: /opt/zly-ai-video-studio   # 服务器上项目目录(含 compose.yaml 与 .env)
+  LOCAL_IMAGE: zly-ai-video-studio:latest
+  SERVICE_NAME: zly-ai-video-studio
+  HEALTH_URL: http://127.0.0.1:18189/api/health
+
+jobs:
+  build-push:
+    name: 构建并推送镜像
+    runs-on: ubuntu-latest
+    container:
+      image: docker:27-cli
+      # 依赖 runner 配置的 valid_volumes 白名单(ops/gitea/runner-config.default.yaml)
+      volumes:
+        - /var/run/docker.sock:/var/run/docker.sock
+    outputs:
+      image_ref: ${{ steps.image.outputs.image_ref }}
+    steps:
+      - name: 安装基础工具
+        run: apk add --no-cache git bash
+
+      - name: 检出代码
+        run: |
+          set -eu
+          git init src
+          cd src
+          git remote add origin "http://oauth2:${{ secrets.CI_TOKEN }}@${GITHUB_SERVER_URL#*://}/${GITHUB_REPOSITORY}.git"
+          git fetch --depth 1 origin "$GITHUB_SHA"
+          git checkout FETCH_HEAD
+
+      - name: 登录镜像仓库
+        run: echo "${{ secrets.CI_TOKEN }}" | docker login "$REGISTRY" --username "${{ secrets.CI_USER }}" --password-stdin
+
+      - name: 构建并推送镜像
+        id: image
+        run: |
+          set -eu
+          TAG="${GITHUB_SHA:0:8}"
+          IMAGE="${REGISTRY}/$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          echo "构建 ${IMAGE}:${TAG}"
+          docker build -t "${IMAGE}:${TAG}" -t "${IMAGE}:latest" src
+          docker push "${IMAGE}:${TAG}"
+          docker push "${IMAGE}:latest"
+          echo "image_ref=${IMAGE}:${TAG}" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    name: 部署到服务器
+    needs: build-push
+    runs-on: ubuntu-latest
+    container:
+      image: docker:27-cli
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+    steps:
+      - name: 安装基础工具
+        run: apk add --no-cache git bash openssh-client
+
+      - name: 检出代码
+        run: |
+          set -eu
+          git init src
+          cd src
+          git remote add origin "http://oauth2:${{ secrets.CI_TOKEN }}@${GITHUB_SERVER_URL#*://}/${GITHUB_REPOSITORY}.git"
+          git fetch --depth 1 origin "$GITHUB_SHA"
+          git checkout FETCH_HEAD
+
+      - name: 配置 SSH 密钥
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          set -eu
+          [[ -n "$DEPLOY_HOST" ]] || { echo "缺少 Secret DEPLOY_HOST" >&2; exit 1; }
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/deploy_key"
+          chmod 600 "$HOME/.ssh/deploy_key"
+
+      # 先把与提交版本一致的部署脚本放上服务器,再执行部署(脚本内容与仓库始终同步)
+      - name: 上传部署脚本并执行
+        run: |
+          set -eu
+          PORT="${DEPLOY_PORT:-22}"
+          ssh_opts=(-i "$HOME/.ssh/deploy_key" -p "$PORT" -o StrictHostKeyChecking=accept-new)
+          TARGET="${DEPLOY_USER}@${DEPLOY_HOST}"
+          ssh "${ssh_opts[@]}" "$TARGET" "mkdir -p '${DEPLOY_DIR}/ops'"
+          scp "${ssh_opts[@]}" src/ops/deploy/deploy.sh src/ops/deploy/rollback.sh "$TARGET:${DEPLOY_DIR}/ops/"
+          ssh "${ssh_opts[@]}" "$TARGET" \
+            "cd '${DEPLOY_DIR}' && REGISTRY_USER='${{ secrets.CI_USER }}' REGISTRY_PASSWORD='${{ secrets.CI_TOKEN }}' LOCAL_IMAGE='${LOCAL_IMAGE}' SERVICE='${SERVICE_NAME}' HEALTH_URL='${HEALTH_URL}' DEPLOY_IMAGE='${{ needs.build-push.outputs.image_ref }}' bash ops/deploy.sh"

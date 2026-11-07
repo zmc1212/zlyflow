@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 from typing import Any
 
@@ -23,13 +24,32 @@ from .director_replication import (
     save_replication_depth,
 )
 from .director_stream import DirectorOperationEventBus, terminal_event_for_status
-from .llm_client import LlmError
+from .llm_client import LlmError, LlmTemporaryError
 from .llm_minimax_skills import STAGE_CLARIFY_AGENT_IDS
 from .storage import DirectorProjectConflictError, JobStore
 
 
 class DirectorOperationCancelled(RuntimeError):
     pass
+
+
+_SHOT_RETRY_DELAYS_SEC = (20, 40, 60)
+
+
+def _analyze_shot_with_retry(vlm_provider: Any, *, frames: list[str], shot_number: int, duration_sec: float, art_style: str) -> dict[str, Any]:
+    """逐镜反推提示词；免费/限流视觉模型返回 429 等临时错误时按退避重试。"""
+    for delay in _SHOT_RETRY_DELAYS_SEC:
+        try:
+            return vlm_provider.analyze_video_shot(
+                frames=frames, shot_number=shot_number,
+                duration_sec=duration_sec, art_style=art_style,
+            )
+        except LlmTemporaryError:
+            time.sleep(delay)
+    return vlm_provider.analyze_video_shot(
+        frames=frames, shot_number=shot_number,
+        duration_sec=duration_sec, art_style=art_style,
+    )
 
 
 class DirectorOperationService:
@@ -582,7 +602,8 @@ class DirectorOperationService:
                         raw = Path(path).read_bytes()
                         frames.append("data:image/jpeg;base64," + base64.b64encode(raw).decode("ascii"))
                     try:
-                        analysis_result = self.vlm_provider.analyze_video_shot(
+                        analysis_result = _analyze_shot_with_retry(
+                            self.vlm_provider,
                             frames=frames, shot_number=index,
                             duration_sec=segment.duration, art_style=art_style,
                         )
@@ -662,7 +683,11 @@ class DirectorOperationService:
         return {"shot_count": len(shots), "subject_count": len(payload["subjects"]), "depth_url": depth_url}
 
     async def _run_replicate(self, operation: dict[str, Any]) -> dict[str, Any]:
-        return await asyncio.to_thread(self._replicate_thread, operation)
+        result = await asyncio.to_thread(self._replicate_thread, operation)
+        for job_id in result.get("job_ids") or []:
+            self._check_cancelled(operation["id"])
+            await self.worker.enqueue(job_id)
+        return result
 
     def _replicate_thread(self, operation: dict[str, Any]) -> dict[str, Any]:
         """按镜头提交 Wan VACE 深度复刻任务（走既有排队/串行执行链路）。"""

@@ -376,6 +376,7 @@ export default function TtsProviderSettings({ csrfToken }: { csrfToken: string }
                 <label className="block text-xs font-medium text-[#4b5563]">API Key</label>
                 <Input.Password
                   className="mt-1.5"
+                  autoComplete="new-password"
                   value={apiKey}
                   onChange={(event) => setApiKey(event.target.value)}
                   prefix={<KeyRound size={15} className="text-[#9ca3af]" />}

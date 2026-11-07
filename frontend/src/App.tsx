@@ -4,7 +4,7 @@ import type { TextAreaRef } from "antd/es/input/TextArea"
 import {
   ArrowUp, ArrowUpDown, AudioLines, Check, CheckCircle2, CircleAlert, Coins, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Clock3, FileVideo, Frame,
   Download, ExternalLink, Filter, FolderOpen, Gauge, HardDrive, History, ImagePlus, LayoutGrid, Link2, ListChecks, LoaderCircle, Maximize2, Mic,
-  Languages, Lightbulb, LockKeyhole, Minus, MoreHorizontal, MoveLeft, MoveRight, PanelLeftClose, PanelLeftOpen, Pencil, Pin, Plus, RotateCw, Search, Send, Settings2, SlidersHorizontal, Sparkles, CircleStop, Trash2, UserRound, Video, WalletCards, WandSparkles, X,
+  Languages, Lightbulb, LockKeyhole, Minus, MoreHorizontal, MoveLeft, MoveRight, Music, PanelLeftClose, PanelLeftOpen, Pencil, Pin, Plus, RotateCw, Search, Send, Settings2, SlidersHorizontal, Sparkles, CircleStop, Trash2, UserRound, Video, WalletCards, WandSparkles, X,
 } from "lucide-react"
 import { Fragment, FormEvent, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { NavLink, useLocation, useNavigate } from "react-router-dom"
@@ -38,6 +38,7 @@ import RenameUserModal from "./components/RenameUserModal"
 import type { PromptReverseResult } from "./prompt-reverse"
 import type { ShowcaseItem } from "./inspiration/InspirationWorkspace"
 import StudioHeader from "./components/StudioHeader"
+import { fetchMusicStatus } from "./music/api"
 import { parseDirector2Path } from "./director2/paths"
 import { StudioNavigationSymbol } from "./components/StudioSymbols"
 import GenerationHomeSections from "./generation/GenerationHomeSections"
@@ -63,6 +64,7 @@ const DirectorAssetLibrary = lazy(() => import("./director/DirectorAssetLibrary"
 const CanvasWorkspace = lazy(() => import("./canvas/CanvasWorkspace"))
 const ToolsWorkspace = lazy(() => import("./tools/ToolsWorkspace"))
 const InspirationWorkspace = lazy(() => import("./inspiration/InspirationWorkspace"))
+const MusicWorkspace = lazy(() => import("./music/MusicWorkspace"))
 
 type Status = "queued" | "running" | "awaiting_refine" | "succeeded" | "failed" | "interrupted" | "cancelled" | "partial"
 type Output = {
@@ -485,63 +487,6 @@ const IMAGE_PROMPT_IDEAS = [
   { label: "平面插画", icon: Clapperboard, prompt: "扁平风格插画，夏日海边小镇，明亮配色，干净构图，海报比例" },
 ]
 
-type WorkflowSelectOption = {
-  value: string; label: string; title?: string; disabled?: boolean
-  description?: string; creditCost?: number | null; isDefault?: boolean
-}
-
-function groupedWorkflowOptions(workflows: Workflow[]) {
-  const groups = new Map<string, { label: string; order: number; options: WorkflowSelectOption[] }>()
-  const ungrouped: WorkflowSelectOption[] = []
-  for (const item of workflows) {
-    const option: WorkflowSelectOption = {
-      value: item.id,
-      label: item.name,
-      title: item.description,
-      disabled: !item.available,
-      description: item.description,
-      creditCost: item.credit_cost ?? null,
-      isDefault: Boolean(item.is_default),
-    }
-    if (!item.catalog_group) {
-      ungrouped.push(option)
-      continue
-    }
-    const existing = groups.get(item.catalog_group)
-    if (existing) {
-      existing.options.push(option)
-      continue
-    }
-    groups.set(item.catalog_group, {
-      label: item.catalog_group_label || item.catalog_group,
-      order: item.catalog_group_order ?? 100,
-      options: [option],
-    })
-  }
-  const grouped = [...groups.values()]
-    .sort((left, right) => left.order - right.order || left.label.localeCompare(right.label, "zh-CN"))
-    .map((group) => ({ label: group.label, options: group.options }))
-  return ungrouped.length ? [...grouped, ...ungrouped] : grouped
-}
-
-function WorkflowOptionRow({ item }: { item: WorkflowSelectOption }) {
-  return (
-    <span className="studio-workflow-option">
-      <ImagePlus className="studio-workflow-option-icon" size={16} aria-hidden />
-      <span className="studio-workflow-option-main">
-        <span className="studio-workflow-option-title">
-          {item.label}
-          {item.isDefault ? <em className="studio-workflow-option-flag">默认</em> : null}
-        </span>
-        {item.description ? <span className="studio-workflow-option-desc">{item.description}</span> : null}
-      </span>
-      {typeof item.creditCost === "number" ? (
-        <span className="studio-workflow-option-cost">{item.creditCost} 积分/张</span>
-      ) : null}
-    </span>
-  )
-}
-
 function outputPreviewSrc(item: Output, allowSameOriginVideo = true): string | undefined {
   if (item.cloud_url) return item.cloud_url
   if (item.kind === "video" && !allowSameOriginVideo) return undefined
@@ -925,6 +870,7 @@ export default function App({
     },
   })
   const healthQuery = useQuery({ queryKey: ["health"], enabled: Boolean(user), queryFn: () => api<{ comfy: { reachable: boolean }; grs: { available: boolean; message?: string | null } }>("/api/health"), refetchInterval: user ? 30000 : false })
+  const musicStatusQuery = useQuery({ queryKey: ["music-status"], enabled: Boolean(user) && workspaceView === "music", queryFn: fetchMusicStatus, staleTime: 60_000, retry: false })
   const workflows = (modesQuery.data?.modes ?? []).filter((item) => item.media_type === mediaType)
   const workflow = workflows.find((item) => item.id === workflowId) ?? workflows.find((item) => item.is_default) ?? workflows[0]
   const promptIdeas = mediaType === "image" ? IMAGE_PROMPT_IDEAS : VIDEO_PROMPT_IDEAS
@@ -2451,9 +2397,12 @@ export default function App({
         compact={false}
         user={user}
         onRequestLogin={() => onRequestLogin()}
-        provider={headerUsesGrs ? "GRS" : "ComfyUI"}
-        providerStatus={healthQuery.isPending ? "checking" : (headerUsesGrs ? healthQuery.data?.grs?.available : healthQuery.data?.comfy?.reachable) ? "online" : "offline"}
-        providerMessage={headerUsesGrs ? healthQuery.data?.grs?.message : undefined}
+        provider={workspaceView === "music" ? "音乐服务" : headerUsesGrs ? "GRS" : "ComfyUI"}
+        providerStatus={workspaceView === "music"
+          ? musicStatusQuery.isPending ? "checking" : !musicStatusQuery.isError && musicStatusQuery.data?.configured ? "online" : "offline"
+          : healthQuery.isPending ? "checking" : (headerUsesGrs ? healthQuery.data?.grs?.available : healthQuery.data?.comfy?.reachable) ? "online" : "offline"}
+        providerStatusLabel={workspaceView === "music" ? musicStatusQuery.isPending ? "检查中" : musicStatusQuery.isError ? "状态未知" : musicStatusQuery.data?.configured ? "已配置" : "未配置" : undefined}
+        providerMessage={workspaceView !== "music" && headerUsesGrs ? healthQuery.data?.grs?.message : undefined}
         onOpenMcp={() => navigate(PATHS.mcp)}
         onOpenAdmin={onOpenAdmin}
         onOpenProfile={() => { setProfileOpen(true) }}
@@ -2465,6 +2414,7 @@ export default function App({
         <nav className="studio-mobile-nav" aria-label="工作区导航">
           <NavLink to={lastGeneratePathRef.current} className={() => workspaceView === "generate" ? "is-active" : ""}><Sparkles size={16} />生成</NavLink>
           <NavLink onClick={(event) => guardGuestNavigation(event, PATHS.inspiration)} to={PATHS.inspiration} className={() => workspaceView === "inspiration" ? "is-active" : ""}><Lightbulb size={16} />灵感</NavLink>
+          <NavLink onClick={(event) => guardGuestNavigation(event, PATHS.music)} to={PATHS.music} className={() => workspaceView === "music" ? "is-active" : ""}><Music size={16} />音乐</NavLink>
           <NavLink onClick={(event) => guardGuestNavigation(event, lastDirectorPathRef.current)} to={lastDirectorPathRef.current} className={() => workspaceView === "director" ? "is-active" : ""}><Clapperboard size={16} />导演台</NavLink>
           <NavLink onClick={(event) => guardGuestNavigation(event, PATHS.canvas)} to={PATHS.canvas} className={() => workspaceView === "canvas" ? "is-active" : ""}><Frame size={16} />画布</NavLink>
           <NavLink onClick={(event) => guardGuestNavigation(event, PATHS.tools)} to={PATHS.tools} className={() => workspaceView === "tools" ? "is-active" : ""}><LayoutGrid size={16} />工具</NavLink>
@@ -2474,6 +2424,7 @@ export default function App({
           <div className="studio-global-nav-items flex flex-col items-center gap-2" role="navigation" aria-label="主菜单">
             <NavLink to={lastGeneratePathRef.current} title="生成" aria-label="生成" className={() => `studio-global-nav-item ${workspaceView === "generate" ? "studio-global-nav-item-active" : ""}`}><StudioNavigationSymbol name="generate" className="studio-global-nav-symbol" /><span>生成</span></NavLink>
             <NavLink onClick={(event) => guardGuestNavigation(event, PATHS.inspiration)} to={PATHS.inspiration} title="灵感" aria-label="灵感" className={() => `studio-global-nav-item ${workspaceView === "inspiration" ? "studio-global-nav-item-active" : ""}`}><StudioNavigationSymbol name="inspiration" className="studio-global-nav-symbol" /><span>灵感</span></NavLink>
+            <NavLink onClick={(event) => guardGuestNavigation(event, PATHS.music)} to={PATHS.music} title="音乐" aria-label="音乐" className={() => `studio-global-nav-item ${workspaceView === "music" ? "studio-global-nav-item-active" : ""}`}><StudioNavigationSymbol name="music" className="studio-global-nav-symbol" /><span>音乐</span></NavLink>
             <NavLink onClick={(event) => guardGuestNavigation(event, lastDirectorPathRef.current)} to={lastDirectorPathRef.current} title="导演台" aria-label="导演台" className={() => `studio-global-nav-item ${workspaceView === "director" ? "studio-global-nav-item-active" : ""}`}><StudioNavigationSymbol name="director" className="studio-global-nav-symbol" /><span>导演台</span></NavLink>
           <NavLink onClick={(event) => guardGuestNavigation(event, PATHS.canvas)} to={PATHS.canvas} title="无限画布" aria-label="画布" className={() => `studio-global-nav-item ${workspaceView === "canvas" ? "studio-global-nav-item-active" : ""}`}><StudioNavigationSymbol name="canvas" className="studio-global-nav-symbol" /><span>画布</span></NavLink>
           <NavLink onClick={(event) => guardGuestNavigation(event, PATHS.tools)} to={PATHS.tools} title="AI 工具" aria-label="工具" className={() => `studio-global-nav-item ${workspaceView === "tools" ? "studio-global-nav-item-active" : ""}`}><StudioNavigationSymbol name="tools" className="studio-global-nav-symbol" /><span>工具</span></NavLink>
@@ -2524,7 +2475,7 @@ export default function App({
           ? "director2-workspace-main relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-0"
           : workspaceView === "canvas"
           ? "canvas-workspace-main relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-0"
-          : `relative mx-auto min-h-[calc(100vh-56px)] w-full min-w-0 ${workspaceView === "tools" && location.pathname === PATHS.tools ? "max-w-[1680px]" : "max-w-[1180px]"} px-4 pb-10 pt-[112px] sm:px-8 lg:pt-12 ${workspaceView === "assets" ? "studio-asset-main" : ""} ${workspaceView === "inspiration" ? "studio-inspiration-main" : ""} ${workspaceView === "tools" ? "studio-tools-main" : ""} ${workspaceView === "generate" ? "studio-generate-main" : ""} ${workspaceView === "generate" && !selectedJob ? "studio-generate-empty" : ""} ${isGenerationHome ? "studio-generation-home" : ""}`
+          : `relative mx-auto min-h-[calc(100vh-56px)] w-full min-w-0 ${workspaceView === "tools" && location.pathname === PATHS.tools ? "max-w-[1680px]" : "max-w-[1180px]"} px-4 pb-10 pt-[112px] sm:px-8 lg:pt-12 ${workspaceView === "assets" ? "studio-asset-main" : ""} ${workspaceView === "inspiration" ? "studio-inspiration-main" : ""} ${workspaceView === "tools" ? "studio-tools-main" : ""} ${workspaceView === "music" ? "studio-music-main" : ""} ${workspaceView === "generate" ? "studio-generate-main" : ""} ${workspaceView === "generate" && !selectedJob ? "studio-generate-empty" : ""} ${isGenerationHome ? "studio-generation-home" : ""}`
         }>
           {directorLegacyStudio ? (
             <Suspense fallback={<div className="py-24 text-center text-sm text-[#6b7280]"><LoaderCircle className="mx-auto mb-3 animate-spin text-[#7047f6]" size={24} />正在加载 AI 导演台...</div>}>
@@ -2549,6 +2500,10 @@ export default function App({
           ) : workspaceView === "tools" ? (
             <Suspense fallback={<div className="py-24 text-center text-sm text-[#6b7280]"><LoaderCircle className="mx-auto mb-3 animate-spin text-[#7047f6]" size={24} />正在加载 AI 工具...</div>}>
               <ToolsWorkspace csrfToken={csrfToken} onSendToComposer={sendPromptToComposer} />
+            </Suspense>
+          ) : workspaceView === "music" ? (
+            <Suspense fallback={<div className="py-24 text-center text-sm text-[#6b7280]"><LoaderCircle className="mx-auto mb-3 animate-spin text-[#7047f6]" size={24} />正在加载音乐工作台...</div>}>
+              <MusicWorkspace csrfToken={csrfToken} />
             </Suspense>
           ) : workspaceView === "assets" ? <section className="studio-asset-library" aria-label="资产">
 

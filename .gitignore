@@ -156,6 +156,7 @@ backend/tests/test_*.py
 !backend/tests/test_h3_motion_transfer.py
 !backend/tests/test_scail2_replacement.py
 !backend/tests/test_tts_mimo.py
+!backend/tests/test_music_provider.py
 !backend/tests/test_motion_transfer_media.py
 !backend/tests/test_motion_transfer_browser.py
 !backend/tests/test_h3_confirmation_probe.py
@@ -225,3 +226,18 @@ docs/design-ref-director/live-flow-20261103/workshop-queued.png
 docs/design-ref-director/jimeng-asset-canvas-20261105/*
 !docs/design-ref-director/jimeng-asset-canvas-20261105/DESIGN.md
 !docs/design-ref-director/jimeng-asset-canvas-20261105/implementation-20261105/
+
+# ==========================================
+# 5. CI/CD 运行时产物(ops/ 目录;服务器侧生成,严禁提交)
+# ==========================================
+# ops/gitea/.env 已被上方全局 .env 规则覆盖
+ops/gitea/runner-config.yaml
+ops/gitea/*.bak
+ops/gitea/.sync-cache/
+.deploy-history
+
+# ==========================================
+# 10. 本地临时杂物(不入库)
+# ==========================================
+.loomy-attachments/
+/s[0-9]*.mp4

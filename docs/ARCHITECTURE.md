@@ -1,5 +1,62 @@
 # ZLY AI Video Studio 架构快照
 
+## 2026-11-07：修复音乐「测试连接」响应模型漏字段（把成功误报成「未知原因」）
+
+- 变更原因：`/api/admin/providers/music/test` 声明 `response_model=MusicProviderResponse`，而该模型缺 `available` / `unavailable_reason`，FastAPI 会按模型裁剪响应体；前端 `MusicProviderSettings.tsx` 依赖 `data.available` 判定成败，拿不到就永远走 `else`，弹「连接失败：未知原因」。线上工作台因此把探活成功误报为失败，用户误以为 FRP/地址配错。
+- 当前基线：`MusicProviderResponse`（`backend/app/models.py`）新增 `available: bool = False` 与 `unavailable_reason: str | None = None`，与 `TtsProviderResponse` 对齐；`MusicJobService.test()` 原本就返回这两个字段（并写回 `last_test_*`），现在能原样透出。前端逻辑不变。
+- 受影响文件：`backend/app/models.py`、`backend/tests/test_music_provider.py`（新增 `test_test_endpoint_reports_available_flag`）。
+- 兼容性：仅新增两个带默认值的响应字段；不改路由、请求体、数据库、任务队列与既有字段语义。`GET/PUT /api/admin/providers/music` 新增字段默认 `available=false`，前端配置回显不读取它。
+- 验证命令：`python -m unittest backend.tests.test_music_provider`（28 项通过）；本地与线上各实测一次 `测试连接`，响应含 `available` 且成功时为 `true`。
+- 回滚方式：移除模型中的两个字段与新增测试；本地重启后端、线上重新部署镜像生效。
+
+## 2026-11-07：新增 Gitea CI/CD 部署基线（构建 → 镜像仓库 → SSH 部署/回滚）
+
+- 原因：替代人工 tar 上传部署，建立可复用到其他项目的持续集成基线；目标服务器可出网，走 Gitea 自带镜像仓库而非每次打包 GB 级 tar。
+- 设计要点：`.gitea/workflows/deploy.yml` 在 push master / `v*` 标签 / 手动触发时运行；job 使用 `container: docker:27-cli` 并挂载宿主机 `/var/run/docker.sock`（runner 配置 `valid_volumes` 白名单放行）直接 `docker build/push`，零第三方 action（仅 apk/git/ssh），兼容国内网络。镜像 tag `<sha8>` + `latest` 推到 Gitea Registry（`124.70.90.30:3080/<org>/zly-ai-video-studio`）。部署侧 `ops/deploy/deploy.sh` 与项目无关：登录 registry → `docker pull` 指定 tag → `docker tag` 回 compose 固定的 `zly-ai-video-studio:latest` → `compose up -d --no-build --force-recreate` → `/api/health` 60 秒检查，失败自动回滚 `.deploy-history` 上一版；`rollback.sh --list/--to N` 手动回滚。CI 每次部署先把仓库内 `ops/deploy/*.sh` scp 覆盖到服务器，保证脚本与提交版本一致。
+- GitBlit 无感接入:开发机继续 push 老 GitBlit 地址,`ops/gitea/gitblit-sync.sh` + systemd timer(`ops/gitea/systemd/`)每分钟把增量以真实 `git push --mirror` 同步到 Gitea(仓库名配在 `.env` 的 `SYNC_REPOS`,缺仓自动创建),真实 push 事件确保 Actions 必触发;刻意不用 Gitea 自带 pull 镜像(镜像同步不触发 push 钩子/Actions)。CI 触发延迟 ≤ 同步周期(默认 1 分钟)。
+- 受影响文件：新增 `.gitea/workflows/deploy.yml`、`ops/gitea/{docker-compose.yml,.env.example,runner-config.default.yaml,setup.sh,gitblit-sync.sh,systemd/gitblit-sync.{service,timer}}`、`ops/deploy/{deploy.sh,rollback.sh}`、`docs/CI-CD-Gitea部署指南.md`；`.gitignore` 追加 `ops/gitea/runner-config.yaml`、`.deploy-history`。未改动 `Dockerfile`、`compose.yaml`、`deploy-server-image.sh`。
+- 兼容性：不动现有手工部署链路（`导出服务器部署镜像.bat` / `deploy-server-image.sh`）与任何运行时行为；Gitea 侧要求 CI 机与部署服务器 Docker 配置 `insecure-registries: ["124.70.90.30:3080"]`。
+- 验证命令：CI 服务器 `bash ops/gitea/setup.sh`；推送 master 后在 Gitea Actions 观察两阶段日志；服务器 `bash ops/deploy/rollback.sh --list`。
+- 回滚方式：删除 `.gitea/` 与 `ops/` 即回到纯手工部署；已部署服务器用 `ops/deploy/rollback.sh` 回退旧镜像。
+
+## 2026-11-07：音乐播放器同步歌词
+
+- 原因：音乐试听需要逐句跟随和歌词跳播。右侧面板采用 [A 版封面取色](design-ref-music/lyrics-20261107/music-lyrics-dark-ab-v002.png)，复用展示封面与浅暗主题，当前句 24px、邻句 18px，写歌和曲库在左侧继续可用。
+- 播放：用户点播放时默认展开右侧面板，播放条的「歌词」可收起或再次打开。面板跟随当前曲目，直接读取同一个 HTMLAudioElement 的时间与暂停状态。拖进度或点歌词更新播放位置，手动滚动暂停跟随。「回到当前」恢复居中。历史、对齐中和纯音乐均有对应显示，静态歌曲详情仍从曲库菜单进入。
+- 时间轴：`GET/POST /api/music/jobs/{job_id}/lyrics` 按任务所有者隔离，提交需要 CSRF。首次打开有人声歌词的成品时后台准备，优先匹配 YuE2 已保存的 `metadata.lrc`，其余用本机 faster-whisper 从转存后的成品识别带时间的词，再按顺序匹配原歌词。中文识别结果用拼音辅助匹配同音字和繁简字形，展示原词。无法可靠匹配的行保留为静态文本。识别器优先使用 `ZLY_AI_VIDEO_STUDIO_MUSIC_ASR_MODEL_DIR` 指定的本机模型目录，也可复用 Hugging Face 缓存中的 medium 或 small，使用 CPU int8 与本地文件模式。
+- 兼容性：新增 `music_job_lyrics` 缓存表，MySQL 与 SQLite 启动时建表。时间轴与原生成记录分开，歌曲无需重生成。每个后端最多处理一首，数据库用带期限的认领令牌避免重复处理，旧认领无法覆盖新结果。删除歌曲联动清理时间轴。
+- 受影响文件：`backend/app/{music_lyrics,music_yue2_client,main,models,storage}.py`、`backend/requirements.txt`、`sql/024_music_lyrics.sql`、`frontend/src/music/` 与专项测试。
+- 验证命令：`python -X utf8 -B -m pytest backend/tests/test_music_provider.py -q`、`pnpm --dir frontend build`。桌面端使用 5173 检查成品对齐、滚动、高亮、暂停跳播、切歌和双主题。
+- 回滚：撤销上述播放器面板、同步接口和存储改动，按 `pnpm --dir frontend build` 重新构建部署产物。可以保留时间轴缓存表，歌曲与原歌词继续使用原有记录。
+
+## 2026-11-07：音乐创作室双主题还原（当前基线）
+
+- 变更原因：按确认的[音乐页设计稿](design-ref-music/suno-20261107/music-studio-dark-v001.png)还原 `/music`。延续全局导航和页头，创作面板、四列氛围卡、曲库、当前歌曲详情和固定播放器使用同一桌面栅格。
+- 创作状态：默认灵感生成、人声歌曲、3 分钟；氛围模板填入描述及歌曲类型，时长支持预设与 10–600 秒自定义。高级创作首次打开后保留草稿，继续提交风格、歌词、时长、输出格式及可用风格预设。采样步数、种子和推理模式使用现有服务默认值，不放到创作界面。
+- 曲库与播放：筛选、搜索、视图、详情选择与播放器当前歌曲分别管理；筛选不会中断正在试听的歌曲。单个原生音频元素负责播放、上一首/下一首、暂停后定位及音量；已完成曲目可预选但不自动播放。曲风已匹配的歌曲使用 `frontend/public/music-art/` 中的展示封面，其余使用原封面或默认图；原 `cover_url` 保留并在详情中提供入口。歌曲详情和歌词直接读取现有列表数据。
+- 双主题：继承根 `StudioThemeProvider`、Ant Design 主题与 `--studio-*` 语义色。页头在音乐页复用 `/api/music/status` 查询，只显示配置状态。曲库轮询、生成/删除接口、音频及原封面存储均保持原样。
+- 受影响文件：`frontend/src/music/`、`frontend/public/music-art/`、`frontend/src/App.tsx`、`frontend/src/components/StudioHeader.tsx`。兼容性：无路由、API、数据库、任务队列或远端服务配置迁移。
+- 验证：`pnpm --dir frontend build`（877 项前端测试、TypeScript、Vite 构建），`python -X utf8 -B -m pytest backend/tests/test_music_provider.py -q`（21 项）。5173 桌面 1920×1200 实查双主题、草稿、氛围模板、筛选、歌词、实际音频播放、切歌及暂停后定位；[实拍与验收数据](design-ref-music/suno-20261107/implementation-20261107/)。
+- 回滚：撤销本节列出的音乐界面和页头接线，移除本轮的配图及曲库测试；保留现有音乐接口、配置和任务数据。
+
+## 2026-11-07：新增顶层「音乐」模块（远端 YuE2 Studio 音乐生成）
+
+- 变更原因：远端电脑（192.168.10.54，RTX 4080）已部署本地音乐生成程序 YuE2 Studio v3.8.3（Rust 便携版，REST `/v1/music/jobs` 提交 → 轮询 → 曲库 FLAC 48kHz/24bit，全部接口需 `Authorization: Bearer <access_key>`），工作台需要为其提供产品化入口。
+- 机制基线：顶层菜单第 7 项「音乐」（`/music`，位于灵感与导演台之间）→ 新工作区 `frontend/src/music/`，Suno 式创作页布局：左侧粘性创作面板（标题/风格描述 + 「风格灵感」英文曲风胶囊点击追加 + 歌词 + 分节标签速插胶囊 + 时长 Segmented 预设（30秒/1分钟/3分钟/3.5分钟/自定义，`duration_seconds` 字段常驻注册保证提交值正确）+ 输出格式；更多设置收进 steps、seed/lm_seed、CoT、LoRA 适配器；渐变主按钮）；右侧无边框曲库列表（`useQuery` 轮询活跃 4s/空闲 15s）：播放行封面即播放键（悬停浮现播放/暂停圆钮，播放中卡片主色描边 + 标题前均衡器动效）、单例 `Audio` 串播放态、antd Slider 迷你进度条 + 时间码、生成中封面微光 shimmer + Progress、失败原因块、下载/删除。后端 `/api/music/*`（列表/创建/详情/删除 + `/api/music/status`、`/api/music/config`）由 `MusicJobService`（`backend/app/music_job_service.py`，线程池 max_workers=1 串行，状态机 queued→running→succeeded/failed，完成时写 result_url/duration_seconds，lifespan 恢复中断任务）执行：`YuE2Client`（`backend/app/music_yue2_client.py`，纯 REST，控制面 POST/GET `/v1/music/jobs*`、媒体面 GET `/v1/library/media/{song_id}` 与 `/v1/library/songs/{id}/cover`）→ 音频/封面上传七牛 → `result_url`/`cover_url` 写回 `music_jobs` 表（DDL：`sql/023_music_generation.sql` + storage.py SQLite 分支；`music_provider_settings` 存 base_url 与加密访问密钥，默认值可被 `ZLY_AI_VIDEO_STUDIO_MUSIC_URL` 覆盖）。管理设置「AI 供应商」tab 追加「音乐生成（YuE2 Studio）」卡片（`frontend/src/admin/MusicProviderSettings.tsx`，三端点 `/api/admin/providers/music` GET/PUT/test，密钥 CredentialManager 加密、不回显）。曲库范围只含工作台创建的任务；不与资产库联动（后续再打通）。
+- 受影响文件：新增 `sql/023_music_generation.sql`、`backend/app/music_yue2_client.py`、`backend/app/music_job_service.py`、`backend/tests/test_music_provider.py`、`frontend/src/music/`（api.ts / MusicWorkspace.tsx / MusicCreateForm.tsx / MusicJobList.tsx / music.css）、`frontend/src/admin/MusicProviderSettings.tsx`；修改 `backend/app/storage.py`（建表 + JobStore music 方法 + 播种）、`backend/app/config.py`（`music_url`）、`backend/app/models.py`（Music* 请求/响应模型）、`backend/app/main.py`（导入、lifespan configure/recover、9 个路由）、`frontend/src/paths.ts`（`PATHS.music` + `STUDIO_ROUTE_PATHS` + `StudioWorkspace` + `studioWorkspaceFromPath`）、`frontend/src/App.tsx`（懒加载、双导航 NavLink、workspace 分支）、`frontend/src/components/StudioSymbols.tsx`（music 符号）、`frontend/src/admin/AdminSettings.tsx`（providers tab 追加卡片）。
+- 兼容性：纯新增模块，不改已接入工作流协议、`jobs`/`ai_project_jobs` 表、`JobMode` 枚举与既有路由；`music_*` 两张新表 `CREATE TABLE IF NOT EXISTS`，MySQL 由 `mysql_schema_sql()` 自动合并、SQLite 走 storage.py 同构 DDL，老库启动时自动建表并播种默认行。音乐任务不占用主 worker（独立线程池），不影响现有任务串行队列。未配置服务时 `/music` 页面展示引导横幅、创建接口返回 503。
+- 验证命令：`python -m pytest backend/tests/test_music_provider.py -q`（15 项：存储 CRUD、配置加密、状态机成功/失败/恢复、端点权限与 CSRF、参数校验）；前端 `pnpm exec tsc -b`；桌面端在 5173 用真实远端实例走通「配置 → 测试连接 → 提交 → 轮询 → 试听/下载」。
+- 回滚方式：前端从 `App.tsx` 双导航与 workspace 分支移除音乐项、`paths.ts` 移除 `PATHS.music` 即隐藏入口（`music_jobs` 数据保留无副作用）；后端删除 9 个 `/api/music*` 路由与 `music_job_service`/`music_yue2_client` 两个文件；两张表无需回滚（`DROP TABLE music_jobs, music_provider_settings` 可选）。
+
+## 2026-11-07：音乐模块升级为 Suno 式 vibe 生成（一句话描述 → 大模型扩写 → 出片）
+
+- 变更原因：参考 Suno 首页与导演台首页创作面板，把「音乐」从表单式创作升级为 vibe 体验：用户用一句自然语言描述想要的歌，大模型自动扩写成 YuE2 引擎所需的英文风格标签串与分节歌词后直接入队，无需理解引擎参数。
+- 机制基线：`POST /api/music/vibe`（`MusicVibeRequest`：description ≤1000 字 + duration_seconds 10-600 + instrumental）→ `MusicJobService.create_from_vibe()` 用 `LlmProviderService.chat_json()`（新增的通用一次性 JSON 对话方法，走默认大模型端点）按「YuE2 写作指南」扩写为 `{title, style, lyrics}`：style 为英文标签串（语言→曲风→人声→乐器→情绪→BPM），lyrics 为分节标签结构（纯音乐为空），校验后走既有 `enqueue()` 入队；LLM 失败透传 `LlmError` 由路由映射 502（区别于服务未配置的 503）。前端 `/music` 重构为 Suno 首页式：居中 hero「来写首歌吧」+ 双模式创作面板（Segmented「灵感生成 / 高级创作」，对齐导演台首页 `dh-create-*` 视觉：无边框输入器 + 底部工具条 + 圆形发送键，灵感工具条含「纯音乐」开关与「时长」预设 Popover，Ctrl+Enter 提交）+ 曲库卡片网格（封面即播放键、悬停浮现播放/下载/删除、生成中微光+进度、播放中主色描边）+ 底部粘性迷你播放条（单例 Audio，进度 Slider + 时间码）；原「高级创作」表单（风格胶囊/段落速插/时长预设/LoRA）整体内嵌进高级模式面板。
+- 受影响文件：`backend/app/llm_provider.py`（新增 `chat_json`）、`backend/app/music_job_service.py`（`MUSIC_VIBE_SYSTEM_PROMPT` + `create_from_vibe`）、`backend/app/models.py`（`MusicVibeRequest`）、`backend/app/main.py`（`/api/music/vibe` 路由）、`frontend/src/music/`（api.ts / MusicWorkspace.tsx / MusicJobList.tsx 重构 + music.css 重写）、`backend/tests/test_music_provider.py`（新增 6 个 vibe 用例）。
+- 兼容性：`POST /api/music/jobs` 高级创作接口与既有任务链路不变；`chat_json` 为新增公开方法不改既有 LLM 调用；前端仅音乐模块内部重构，不影响其它工作区。灵感生成依赖大模型服务已启用（未启用时报 502 并提示）。
+- 验证命令：`python -m pytest backend/tests/test_music_provider.py -q`（21 项全过）；`pnpm exec tsc -b` 与 `pnpm build`；桌面端真实链路：5173 输入「写给海子的一首民谣，男声，木吉他，忧伤但温暖，提到德令哈和麦地」→ 大模型扩写出《德令哈的麦地》（Mandarin folk + 口琴/弦乐、82 BPM、分节歌词）→ 远端出片 3:02 FLAC → 播放条试听正常，双主题已截图核对。
+- 回滚方式：前端还原 MusicWorkspace/MusicJobList/music.css，后端移除 `/api/music/vibe` 路由与 `create_from_vibe`/`chat_json` 即回到高级创作单模式；music_jobs 数据与既有播放链路不受影响。
+
 ## 2026-11-07：导演台 Skill Pack 新增「电影感Vlog双轨导演」配方（cinematic-vlog-ab-director）
 
 - 变更原因：`vlog-ab-director`（MiniMax Hub 社区 Skill）已用真实 MiniMax H3 R2V 跑通一条电影感 Vlog 单片（任务 `l4YXI85nCme`，16:9、15s、960×544、succeeded），用户确认效果良好并要求沉淀为导演台可选「制作配方」。
@@ -4869,3 +4926,12 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 验证：`npx vitest run src/generation/action-shot.test.ts src/tools.test.ts`（16 项通过）；`npx tsc --noEmit` 无错误；5173 桌面端实测工具中心「镜头与动态」出现「打斗镜头」卡片（封面与图标正常），进入页面后参考图空态、画面比例（16:9 横屏）、时长滑块（默认 10）、「更多设置」展开后分辨率 0.8 MP 与动作强度「打击感强（作者推荐）」、模板填入与「引用」插入均正常；真实提交任务 `YnGuFKrzu06` 的参数快照为 `mode=minimax-h3-action-r2v`、2 张参考图、`aspect_ratio=16:9`、`duration=10`、`quality=0.8`、`action_intensity=intense`，后端补全 `receptive_field_scale=2`/`temporal_weight=3`/`cfg 0.9-1.1`/`extra_steps=1`；该单 428 秒 succeeded，成片 1216×672 / 10.125 秒 / h264 + AAC（七牛 `zly-ai-video-studio/minimax_h3/20261107/015652_1d33d7bdf2ad7262.mp4`）；浅色与暗色主题均实测：「画面比例 / 分辨率 / 动作强度」`Select` 与提示词 `Input.TextArea` 在浅色下为白底深字、暗色下为深底浅字（实测 `background` 分别 `rgb(255,255,255)` / `rgb(30,34,41)`，`color` 分别 `rgb(23,26,31)` / `rgb(243,245,247)`），下拉弹层随根级 `data-theme` 切换、无串色。未做移动端检查。
 - 回滚方式：删除 `ActionShotTool.tsx`、`action-shot-tool.css`、`generation/action-shot.ts` 及其测试、`tool-covers/action-shot.jpg`，移除 `tool-registry.ts` 的 `action-shot` 条目与 `action-shot` 图标键、`tool-icons.ts` 的 `Swords` 映射、`ToolsWorkspace.tsx` 的 import 与分支、`paths.ts` 的 `toolActionShot` 两处登记、`tools.test.ts` 的新增用例，即回到只有生成页与导演台入口的状态；打斗工作流本身不受影响。
 
+
+## 2026-11-07 资产生图：槽位模型与 identity 比例放开
+
+- 变更原因：画布创作面板开始为资产槽位发送 `model` 与 identity 的 `aspect_ratio`（此前后端已支持 `payload.model`，但 identity 比例被 `IDENTITY_SHEET_ASPECT_RATIO` 强制 16:9）。
+- 当前基线：`generate_asset_image` 的 identity 分支按 `GRS_VIP_SIZES` 校验请求比例（非法回退 16:9），2K 尺寸由 `asset_image_prompts.identity_sheet_dimensions()` 推导（16:9 仍为 2048×1152，其余取注册表 `GRS_VIP_SIZES[aspect]["2K"]`）；`build_identity_generation(..., aspect_ratio="16:9")` 把比例贯通到角色设定板提示词模板（英文 LAYOUT / REFERENCE ROLE、中文纯文生图指令参数化 + 非 16:9 版面适配指令）。`project_detail_service` 不再在 identity 分支覆盖 payload 比例；`grs_wire_aspect_ratio` 与 GRS 请求协议不变。
+- 受影响文件：`backend/app/media_studio/services/asset_image_prompts.py`、`backend/app/media_studio/services/project_detail_service.py`、`backend/tests/test_asset_canvas_upload.py`（新增 model 按 workflow_id 解析、identity 9:16 生效、非法比例回退 3 项）。
+- 兼容性：不传 `aspect_ratio` 的 identity 请求行为不变（16:9 / 2K / 2048×1152）；非 identity 槽位的 `payload.model` / `aspect_ratio` 逻辑无改动。无端口、数据库、任务队列与节点变更。
+- 验证命令：`python -m pytest backend/tests/test_asset_canvas_upload.py backend/tests/test_asset_source_references.py backend/tests/test_canvas_character_design.py`。
+- 回滚方式：还原 `asset_image_prompts.py` 与 `project_detail_service.py` 中 identity 分支的对应改动并移除新增测试即可，无数据迁移。

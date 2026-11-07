@@ -65,6 +65,8 @@ export type CanvasWorkflowMode = {
   catalog_group?: string
   catalog_group_label?: string
   catalog_group_order?: number
+  is_default?: boolean
+  credit_cost?: number | null
   parameters?: CanvasWorkflowParameter[]
 }
 

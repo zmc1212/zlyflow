@@ -113,6 +113,7 @@ export default function QiniuStorageSettings({ csrfToken }: { csrfToken: string 
               <label className="block text-xs font-medium text-[#4b5563]">Access Key</label>
               <Input.Password
                 className="mt-1.5"
+                autoComplete="new-password"
                 value={accessKey}
                 onChange={(event) => setAccessKey(event.target.value)}
                 prefix={<KeyRound size={15} className="text-[#9ca3af]" />}
@@ -124,6 +125,7 @@ export default function QiniuStorageSettings({ csrfToken }: { csrfToken: string 
               <label className="block text-xs font-medium text-[#4b5563]">Secret Key</label>
               <Input.Password
                 className="mt-1.5"
+                autoComplete="new-password"
                 value={secretKey}
                 onChange={(event) => setSecretKey(event.target.value)}
                 prefix={<KeyRound size={15} className="text-[#9ca3af]" />}

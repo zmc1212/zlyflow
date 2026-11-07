@@ -333,7 +333,45 @@ class JobStore:
                     updated_at TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS music_provider_settings (
+                    id INTEGER PRIMARY KEY CHECK(id = 1),
+                    base_url TEXT NOT NULL DEFAULT 'http://192.168.10.54:8791',
+                    access_key_encrypted TEXT,
+                    last_test_status TEXT,
+                    last_test_message TEXT,
+                    last_test_at TEXT,
+                    updated_at TEXT NOT NULL
+                );
 
+                CREATE TABLE IF NOT EXISTS music_jobs (
+                    id TEXT PRIMARY KEY,
+                    owner_user_id TEXT NOT NULL,
+                    title TEXT NOT NULL DEFAULT '',
+                    style TEXT NOT NULL,
+                    lyrics TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'queued',
+                    progress INTEGER NOT NULL DEFAULT 0,
+                    params_json TEXT,
+                    result_url TEXT,
+                    result_format TEXT,
+                    cover_url TEXT,
+                    duration_seconds INTEGER,
+                    remote_job_id TEXT,
+                    remote_song_id TEXT,
+                    error_message TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    completed_at TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_music_jobs_owner_created ON music_jobs(owner_user_id, created_at DESC);
+
+                CREATE TABLE IF NOT EXISTS music_job_lyrics (
+                    job_id TEXT PRIMARY KEY REFERENCES music_jobs(id) ON DELETE CASCADE,
+                    status TEXT NOT NULL,
+                    claim_token TEXT,
+                    lease_until INTEGER NOT NULL DEFAULT 0,
+                    payload_json TEXT
+                );
 
                 CREATE TABLE IF NOT EXISTS director_projects (
                     id TEXT PRIMARY KEY,
@@ -547,6 +585,12 @@ class JobStore:
             (id, enabled, use_llm_credentials, base_url, model, voice, updated_at)
             VALUES (1, 0, 1, '', 'tts-1', 'alloy', ?)""",
             (now(),),
+        )
+        connection.execute(
+            """INSERT OR IGNORE INTO music_provider_settings
+            (id, base_url, updated_at)
+            VALUES (1, ?, ?)""",
+            (settings.music_url, now()),
         )
         if migrate_legacy:
             self._migrate_legacy_jobs(connection)
@@ -1752,6 +1796,156 @@ class JobStore:
         with self.connection() as connection:
             connection.execute(f"UPDATE tts_provider_settings SET {assignment} WHERE id = 1", tuple(updates.values()))
         return self.get_tts_settings()
+
+    def get_music_settings(self) -> dict:
+        with self.connection() as connection:
+            row = connection.execute("SELECT * FROM music_provider_settings WHERE id = 1").fetchone()
+        if not row:
+            return {
+                "id": 1,
+                "base_url": "http://192.168.10.54:8791",
+                "access_key_encrypted": None,
+                "last_test_status": None,
+                "last_test_message": None,
+                "last_test_at": None,
+                "updated_at": now(),
+            }
+        return dict(row)
+
+    def update_music_settings(self, values: dict | None = None, **kwargs: Any) -> dict:
+        allowed = {
+            "base_url", "access_key_encrypted",
+            "last_test_status", "last_test_message", "last_test_at",
+        }
+        merged = dict(values) if isinstance(values, dict) else {}
+        merged.update(kwargs)
+        updates = {key: value for key, value in merged.items() if key in allowed}
+        updates["updated_at"] = now()
+        assignment = ", ".join(f"{key} = ?" for key in updates)
+        with self.connection() as connection:
+            connection.execute(f"UPDATE music_provider_settings SET {assignment} WHERE id = 1", tuple(updates.values()))
+        return self.get_music_settings()
+
+    @staticmethod
+    def _music_job_from_row(row: Row | dict) -> dict[str, Any]:
+        data = dict(row)
+        raw_params = data.pop("params_json", None)
+        if raw_params:
+            try:
+                parsed = json.loads(raw_params)
+            except json.JSONDecodeError:
+                parsed = None
+            data["params"] = parsed if isinstance(parsed, dict) else {}
+        else:
+            data["params"] = {}
+        return data
+
+    def create_music_job(self, record: dict[str, Any]) -> dict[str, Any]:
+        columns = {
+            "id": record["id"],
+            "owner_user_id": record["owner_user_id"],
+            "title": record.get("title") or "",
+            "style": record.get("style") or "",
+            "lyrics": record.get("lyrics") or "",
+            "status": record.get("status") or "queued",
+            "progress": int(record.get("progress") or 0),
+            "params_json": json.dumps(record.get("params") or {}, ensure_ascii=False),
+            "result_url": record.get("result_url"),
+            "result_format": record.get("result_format"),
+            "cover_url": record.get("cover_url"),
+            "duration_seconds": record.get("duration_seconds"),
+            "remote_job_id": record.get("remote_job_id"),
+            "remote_song_id": record.get("remote_song_id"),
+            "error_message": record.get("error_message"),
+            "created_at": record["created_at"],
+            "updated_at": record["updated_at"],
+            "completed_at": record.get("completed_at"),
+        }
+        assignment = ", ".join(columns)
+        placeholders = ", ".join("?" for _ in columns)
+        with self.connection() as connection:
+            connection.execute(
+                f"INSERT INTO music_jobs ({assignment}) VALUES ({placeholders})",
+                tuple(columns.values()),
+            )
+        return self.get_music_job(record["id"])  # type: ignore[return-value]
+
+    def get_music_job(self, job_id: str, owner_user_id: str | None = None) -> dict[str, Any] | None:
+        query = "SELECT * FROM music_jobs WHERE id = ?"
+        args: list[Any] = [job_id]
+        if owner_user_id is not None:
+            query += " AND owner_user_id = ?"
+            args.append(owner_user_id)
+        with self.connection() as connection:
+            row = connection.execute(query, tuple(args)).fetchone()
+        return self._music_job_from_row(row) if row else None
+
+    def list_music_jobs(self, owner_user_id: str, limit: int = 100) -> list[dict[str, Any]]:
+        with self.connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM music_jobs WHERE owner_user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
+                (owner_user_id, int(limit)),
+            ).fetchall()
+        return [self._music_job_from_row(row) for row in rows]
+
+    def list_active_music_jobs(self) -> list[dict[str, Any]]:
+        with self.connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM music_jobs WHERE status IN ('queued', 'running')"
+            ).fetchall()
+        return [self._music_job_from_row(row) for row in rows]
+
+    def update_music_job(self, job_id: str, **values: Any) -> dict[str, Any] | None:
+        allowed = {
+            "status", "progress", "result_url", "result_format", "cover_url", "duration_seconds",
+            "remote_job_id", "remote_song_id", "error_message", "completed_at",
+        }
+        updates = {key: value for key, value in values.items() if key in allowed}
+        if not updates:
+            return self.get_music_job(job_id)
+        if "progress" in updates:
+            updates["progress"] = int(updates["progress"] or 0)
+        updates["updated_at"] = now()
+        assignment = ", ".join(f"{key} = ?" for key in updates)
+        with self.connection() as connection:
+            connection.execute(f"UPDATE music_jobs SET {assignment} WHERE id = ?", tuple(updates.values()) + (job_id,))
+        return self.get_music_job(job_id)
+
+    def delete_music_job(self, job_id: str, owner_user_id: str) -> bool:
+        with self.connection() as connection:
+            cursor = connection.execute(
+                "DELETE FROM music_jobs WHERE id = ? AND owner_user_id = ?", (job_id, owner_user_id),
+            )
+        return bool(cursor.rowcount)
+
+    def get_music_lyrics(self, job_id: str) -> dict[str, Any] | None:
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT status, lease_until, payload_json FROM music_job_lyrics WHERE job_id = ?", (job_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def claim_music_lyrics(self, job_id: str, token: str, timestamp: int, deadline: int) -> bool:
+        with self.connection() as connection:
+            connection.execute(
+                """INSERT OR IGNORE INTO music_job_lyrics (job_id, status)
+                   SELECT id, 'idle' FROM music_jobs WHERE id = ? AND status = 'succeeded'""", (job_id,),
+            )
+            cursor = connection.execute(
+                """UPDATE music_job_lyrics
+                   SET status = 'aligning', claim_token = ?, lease_until = ?, payload_json = NULL
+                   WHERE job_id = ? AND status <> 'ready' AND (status <> 'aligning' OR lease_until <= ?)""",
+                (token, deadline, job_id, timestamp),
+            )
+        return bool(cursor.rowcount)
+
+    def finish_music_lyrics(self, job_id: str, token: str, status: str, payload: dict[str, Any]) -> None:
+        with self.connection() as connection:
+            connection.execute(
+                """UPDATE music_job_lyrics SET status = ?, payload_json = ?, claim_token = NULL, lease_until = 0
+                   WHERE job_id = ? AND status = 'aligning' AND claim_token = ?""",
+                (status, json.dumps(payload, ensure_ascii=False), job_id, token),
+            )
 
     def get_comfy_settings(self) -> dict:
         if self._comfy_settings_cache is not None:

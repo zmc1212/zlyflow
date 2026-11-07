@@ -2663,6 +2663,7 @@ def is_local_comfy_job(mode: JobMode | str) -> bool:
         or is_keyframe_workflow(mode)
         or is_stem_split_workflow(mode)
         or is_comfy_image_workflow(mode)
+        or mode_key(mode) == JobMode.WAN_VACE_DEPTH_V2V.value
     )
 
 

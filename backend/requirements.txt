@@ -14,3 +14,4 @@ pymysql==1.1.1
 python-dotenv>=1.0.0
 Pillow>=10.2.0
 pypdf==6.21.1
+pypinyin==0.55.0

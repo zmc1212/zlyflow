@@ -1,0 +1,53 @@
+{
+  "date": "2026-11-07",
+  "model": "gpt-image-2.5-flare",
+  "quality": "high",
+  "size": [
+    1536,
+    1024
+  ],
+  "prompt_file": "music-album-art-v001.prompt.txt",
+  "reference": "music-studio-dark-v001.png",
+  "atlas": "music-album-art-v001.png",
+  "atlas_sha256": "e505c59bf92cf6cf13c0fd37371f1ead8dcd7c1c33cc39451199760d297a59d6",
+  "request_id": "req_72f80174e44d496c86b936179bf6c9e4",
+  "usage": {
+    "input_tokens": 1717,
+    "image_input_tokens": 1440,
+    "text_input_tokens": 277,
+    "output_tokens": 1372,
+    "total_tokens": 3089
+  },
+  "assets": [
+    {
+      "file": "frontend/public/music-art/flow.webp",
+      "crop": [
+        0,
+        128,
+        768,
+        896
+      ],
+      "size": [
+        768,
+        768
+      ],
+      "bytes": 112456,
+      "sha256": "5485c4024eaded0e4e75694b5aff6f2e69245250cea28e5ef6e21edf035e6356"
+    },
+    {
+      "file": "frontend/public/music-art/morning.webp",
+      "crop": [
+        768,
+        162,
+        1536,
+        930
+      ],
+      "size": [
+        768,
+        768
+      ],
+      "bytes": 70634,
+      "sha256": "2c96daa7d186d01b5318969a6aa20dec6ce2f0a51775545cc06dcbbffa29b942"
+    }
+  ]
+}

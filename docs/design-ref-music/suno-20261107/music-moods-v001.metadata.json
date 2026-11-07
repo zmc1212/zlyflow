@@ -1,0 +1,59 @@
+{
+  "date": "2026-11-07",
+  "model": "gpt-image-2.5-flare",
+  "quality": "high",
+  "size": [
+    1536,
+    1024
+  ],
+  "prompt_file": "music-moods-v001.prompt.txt",
+  "reference": "music-studio-dark-v001.png",
+  "atlas": "music-moods-atlas-v001.png",
+  "atlas_sha256": "2a1d28cde0586748add370e735bc75695f79dbdcccf69e21d5f50abfa9bc8ba7",
+  "request_id": "req_ca75aed84b9e4735914de346159d5321",
+  "usage": {
+    "input_tokens": 1760,
+    "image_input_tokens": 1440,
+    "text_input_tokens": 320,
+    "output_tokens": 1372,
+    "total_tokens": 3132
+  },
+  "assets": [
+    {
+      "file": "frontend/public/music-art/wheat.webp",
+      "size": [
+        768,
+        512
+      ],
+      "bytes": 75082,
+      "sha256": "37a3de839f0b042c52f8999ba5e6ad82afaa45005725fbd2b8dba679143cba19"
+    },
+    {
+      "file": "frontend/public/music-art/rain.webp",
+      "size": [
+        768,
+        512
+      ],
+      "bytes": 111568,
+      "sha256": "c0b90796efb12e8f01f16c7b72f117bdf60c7e5e38dd8e95c2ac1480788bc106"
+    },
+    {
+      "file": "frontend/public/music-art/mist.webp",
+      "size": [
+        768,
+        512
+      ],
+      "bytes": 39008,
+      "sha256": "5c91042de7f34bb9e68ea7d2da9389d240bde2c8e738c492cb536896d696fa8b"
+    },
+    {
+      "file": "frontend/public/music-art/daylight.webp",
+      "size": [
+        768,
+        512
+      ],
+      "bytes": 50704,
+      "sha256": "dd4a349f2d674842946c948cfcf021c88ebb276daef7a63202424357efb49e39"
+    }
+  ]
+}

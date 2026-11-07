@@ -1,0 +1,70 @@
+{
+  "date": "2026-11-07",
+  "scope": "音乐创作室桌面端暗色，当前歌词面板两种视觉方案并排评审",
+  "prompt_version": "v002",
+  "prompt_file": "music-lyrics-dark-ab-v002.prompt.txt",
+  "references": [
+    {
+      "file": "music-lyrics-dark-v001.png",
+      "use": "现有工作台的侧栏、曲目信息和封面",
+      "image_input": true
+    },
+    {
+      "page": "https://support.apple.com/guide/music/view-and-enter-lyrics-musf438ffc97/mac",
+      "image": "https://ipcdn-web.apple.com/assets/v2/web/94018faf-b716-488d-9f57-73c4c0b76c6b",
+      "use": "全屏歌词封面取色与当前句焦点，另目视检查同页的并排歌词侧栏",
+      "image_input": true
+    },
+    {
+      "page": "https://github.com/jayfunc/BetterLyrics#screenshots",
+      "image": "https://raw.githubusercontent.com/jayfunc/BetterLyrics/dev/docs/assets/screenshots/narrow.png",
+      "use": "窄栏内封面、歌词及上下边缘的层次",
+      "image_input": true
+    },
+    {
+      "page": "https://newsroom.spotify.com/2021-11-18/you-can-now-find-the-lyrics-to-your-favorite-songs-in-spotify-heres-how/",
+      "use": "底栏歌词入口和播放同步",
+      "image_input": false
+    }
+  ],
+  "proposed_panel_width_css_px": 480,
+  "variants": {
+    "A": {
+      "label": "封面取色",
+      "active_css_px": 24,
+      "adjacent_css_px": 18,
+      "focus": "低饱和封面取色底、暖白当前句与音柱指示"
+    },
+    "B": {
+      "label": "封套阅读",
+      "active_css_px": 22,
+      "adjacent_css_px": 16,
+      "focus": "横幅封套、深石墨阅读区与淡紫细标记"
+    }
+  },
+  "review": "已打开 1440×1120 原图检查两案封面、字号层级和七句对照。像素图是静态视觉稿，CSS 字号为后续实现目标。",
+  "api_result": {
+    "endpoint": "https://api.openai.com/v1/images/edits",
+    "model": "gpt-image-2.5-sunburst",
+    "quality": "high",
+    "size": "1440x1120",
+    "reference_count": 3,
+    "n": 1,
+    "image": "music-lyrics-dark-ab-v002.png",
+    "sha256": "485097e94c19e10680493f301dde4c261cd2f35a4929cfdc24421cc34fa6fde2",
+    "request_id": "req_db116d3a63e7442fa7413656d2f58275",
+    "usage": {
+      "input_tokens": 5138,
+      "input_tokens_details": {
+        "image_tokens": 3776,
+        "text_tokens": 1362
+      },
+      "output_tokens": 1605,
+      "output_tokens_details": {
+        "image_tokens": 1605,
+        "text_tokens": 0
+      },
+      "total_tokens": 6743
+    }
+  }
+}

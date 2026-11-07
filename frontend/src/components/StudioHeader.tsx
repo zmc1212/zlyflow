@@ -13,8 +13,9 @@ type StudioHeaderProps = {
   compact?: boolean
   user: User | null
   onRequestLogin?: () => void
-  provider: "ComfyUI" | "GRS"
+  provider: "ComfyUI" | "GRS" | "音乐服务"
   providerStatus: "checking" | "online" | "offline"
+  providerStatusLabel?: string
   providerMessage?: string | null
   onOpenMcp: () => void
   onOpenAdmin?: () => void
@@ -24,11 +25,11 @@ type StudioHeaderProps = {
 }
 
 export default function StudioHeader({
-  user, provider, providerStatus, providerMessage, onOpenMcp, onOpenAdmin, onOpenProfile, onLogout, logoutPending, onRequestLogin, compact = false,
+  user, provider, providerStatus, providerStatusLabel, providerMessage, onOpenMcp, onOpenAdmin, onOpenProfile, onLogout, logoutPending, onRequestLogin, compact = false,
 }: StudioHeaderProps) {
   const { mode, toggleMode } = useStudioTheme()
   const [accountOpen, setAccountOpen] = useState(false)
-  const statusLabel = { checking: "连接中", online: "已连接", offline: "未连接" }[providerStatus]
+  const statusLabel = providerStatusLabel ?? { checking: "连接中", online: "已连接", offline: "未连接" }[providerStatus]
   const displayName = user?.display_name || user?.username || ""
   const items: MenuProps["items"] = [
     { key: "theme", icon: mode === "dark" ? <Sun size={16} /> : <Moon size={16} />, label: mode === "dark" ? "浅色外观" : "暗色外观" },

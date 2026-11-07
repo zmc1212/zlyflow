@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -245,7 +246,7 @@ def cut_segment(
     ffmpeg = _find_binary("ffmpeg")
     dest.parent.mkdir(parents=True, exist_ok=True)
     duration = max(0.2, float(end) - float(start))
-    pending = dest.with_name(f".{dest.stem}.{dest.suffix}.tmp")
+    pending = dest.with_name(f".{dest.name}.{secrets.token_hex(4)}.part{dest.suffix}")
     try:
         _run([
             ffmpeg, "-y", "-ss", f"{max(0.0, float(start)):.3f}", "-i", str(path),
