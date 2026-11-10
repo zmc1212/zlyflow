@@ -14,7 +14,7 @@ import {
 import { FACE_RESTORE_WORKFLOW } from "../generation/face-restore"
 import { INPAINT_WORKFLOW } from "../generation/inpaint"
 import { LIP_SYNC_WORKFLOW } from "../generation/lip-sync"
-import { UPSCALE_ENGINE_RTX, UPSCALE_ENGINE_SEEDVR2 } from "../generation/upscale"
+import { UPSCALE_ENGINE_RELAYVSR, UPSCALE_ENGINE_RTX, UPSCALE_ENGINE_SEEDVR2 } from "../generation/upscale"
 import { PATHS } from "../paths"
 import { mediaHandoffPath, type MediaHandoffSource, type MediaKind } from "../media-handoff"
 
@@ -79,7 +79,7 @@ type Definition = {
  * 这几个工作流在后端注册表里对创作目录隐藏（hidden_from_catalog），`/api/modes` 不返回它们，
  * 但工具首页一直按「已上线」展示；卡片动作沿用同一判定，引擎真正不可用时由工具页给出原因。
  */
-const HIDDEN_TOOL_WORKFLOWS = new Set<string>([UPSCALE_ENGINE_RTX, UPSCALE_ENGINE_SEEDVR2, FACE_RESTORE_WORKFLOW, LIP_SYNC_WORKFLOW])
+const HIDDEN_TOOL_WORKFLOWS = new Set<string>([UPSCALE_ENGINE_RTX, UPSCALE_ENGINE_SEEDVR2, UPSCALE_ENGINE_RELAYVSR, FACE_RESTORE_WORKFLOW, LIP_SYNC_WORKFLOW])
 
 const toolWorkflow = (...ids: string[]) => (modes: MediaActionMode[]) => ids.some((id) => {
   const mode = modes.find((entry) => entry.id === id)
@@ -100,7 +100,7 @@ const DEFINITIONS: Definition[] = [
   { id: "canvas", kind: "image", label: "加入画布", icon: Boxes, slot: "more", native: "canvas" },
 
   { id: "reference", kind: "video", label: "用作参考视频", icon: Video, slot: "bar", native: "reference" },
-  { id: "upscale", kind: "video", label: "视频超清", icon: Sparkles, slot: "bar", toolPath: PATHS.toolVideoUpscale, available: toolWorkflow(UPSCALE_ENGINE_RTX, UPSCALE_ENGINE_SEEDVR2) },
+  { id: "upscale", kind: "video", label: "视频超清", icon: Sparkles, slot: "bar", toolPath: PATHS.toolVideoUpscale, available: toolWorkflow(UPSCALE_ENGINE_RTX, UPSCALE_ENGINE_SEEDVR2, UPSCALE_ENGINE_RELAYVSR) },
   { id: "retake", kind: "video", label: "局部重拍", icon: Eraser, slot: "bar", toolPath: PATHS.toolPartialRetake, available: toolWorkflow(INPAINT_WORKFLOW) },
   { id: "face-restore", kind: "video", label: "人脸高清修复", icon: ScanFace, slot: "bar", toolPath: PATHS.toolFaceRestore, available: toolWorkflow(FACE_RESTORE_WORKFLOW), ownerOnly: true },
   { id: "lip-sync", kind: "video", label: "口型同步", icon: Mic, slot: "bar", toolPath: PATHS.toolLipSync, available: toolWorkflow(LIP_SYNC_WORKFLOW) },

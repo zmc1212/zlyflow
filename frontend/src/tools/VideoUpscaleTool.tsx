@@ -5,6 +5,7 @@ import { useNavigate, useSearchParams } from "react-router-dom"
 import { apiErrorMessage, notifyUnauthorized, requestJson as api } from "../api"
 import {
   UPSCALE_ENGINE_LABEL,
+  UPSCALE_ENGINE_RELAYVSR,
   UPSCALE_ENGINE_RTX,
   UPSCALE_ENGINE_SEEDVR2,
   upscaleSourceError,
@@ -26,6 +27,7 @@ type SavedRound = { id: string; mode: string; prompt: string; options: Record<st
 const ENGINE_PROMPT: Record<UpscaleEngine, string> = {
   [UPSCALE_ENGINE_RTX]: "2x 超分",
   [UPSCALE_ENGINE_SEEDVR2]: "SeedVR2 高清增强",
+  [UPSCALE_ENGINE_RELAYVSR]: "RelayVSR 2x 细节超分",
 }
 
 export default function VideoUpscaleTool({ csrfToken }: { csrfToken: string }) {
@@ -43,13 +45,15 @@ export default function VideoUpscaleTool({ csrfToken }: { csrfToken: string }) {
   const restoreRoundId = searchParams.get("round")
   useEffect(() => {
     if (!restoreJobId) return
-    const mode = restoreRoundId?.startsWith("seedvr2") ? UPSCALE_ENGINE_SEEDVR2 : undefined
+    const mode = restoreRoundId?.startsWith("seedvr2")
+      ? UPSCALE_ENGINE_SEEDVR2
+      : restoreRoundId?.startsWith("relayvsr") ? UPSCALE_ENGINE_RELAYVSR : undefined
     if (mode) setEngine(mode)
     let active = true
     setRestoring(true)
 void api<{ id: string; references: ReferenceSource[]; rounds: SavedRound[] }>(`/api/jobs/${encodeURIComponent(restoreJobId)}`).then(async (job) => {
       const round = restoreRoundId ? job.rounds.find((item: SavedRound) => item.id === restoreRoundId) : job.rounds.at(-1)
-      if (!round || (round.mode !== UPSCALE_ENGINE_RTX && round.mode !== UPSCALE_ENGINE_SEEDVR2)) throw new Error("此任务不是当前视频超分工作流")
+      if (!round || ![UPSCALE_ENGINE_RTX, UPSCALE_ENGINE_SEEDVR2, UPSCALE_ENGINE_RELAYVSR].includes(round.mode as UpscaleEngine)) throw new Error("此任务不是当前视频超分工作流")
       const sources = roundReferenceSources(job, round).map((source) => ({ ...source, kind: "video" as const }))
       const files = await restoreReferenceFiles(sources)
       if (!active) return
@@ -114,7 +118,7 @@ void api<{ id: string; references: ReferenceSource[]; rounds: SavedRound[] }>(`/
         <Button type="text" className="studio-tool-back" icon={<ArrowLeft size={14} />} onClick={() => navigate("/tools")}>返回 AI 工具</Button>
         <div className="studio-motion-hero-copy">
           <h1>视频超分</h1>
-          <p>低清视频一键放大 2 倍，RTX 快速增强或 SeedVR2 补回细节</p>
+          <p>低清视频一键放大 2 倍，RTX 快速增强、RelayVSR 细节重建或 SeedVR2 补回细节</p>
         </div>
       </header>
 
@@ -163,6 +167,7 @@ void api<{ id: string; references: ReferenceSource[]; rounds: SavedRound[] }>(`/
                     onChange={(event) => setEngine(event.target.value as UpscaleEngine)}
                     options={[
                       { value: UPSCALE_ENGINE_RTX, label: UPSCALE_ENGINE_LABEL[UPSCALE_ENGINE_RTX] },
+                      { value: UPSCALE_ENGINE_RELAYVSR, label: UPSCALE_ENGINE_LABEL[UPSCALE_ENGINE_RELAYVSR] },
                       { value: UPSCALE_ENGINE_SEEDVR2, label: UPSCALE_ENGINE_LABEL[UPSCALE_ENGINE_SEEDVR2] },
                     ]}
                   />
@@ -173,8 +178,8 @@ void api<{ id: string; references: ReferenceSource[]; rounds: SavedRound[] }>(`/
               <Button icon={<Upload size={14} />} onClick={() => videoInputRef.current?.click()}>上传原片视频</Button>
             </div>
             <p className="studio-motion-selection-help">
-              RTX 引擎秒级完成固定 2x 放大；SeedVR2 生成式增强较慢但能补回细节。
-              输出分辨率跟随原片 2 倍，音轨保持不变。{restoring ? "正在恢复素材…" : ""}
+              RTX 引擎秒级完成固定 2x 放大；RelayVSR 用分块重建细节，480p 约一分钟、1080p 可能因显存不足被拒；
+              SeedVR2 生成式增强较慢但能补回细节。输出分辨率跟随原片 2 倍，音轨保持不变。{restoring ? "正在恢复素材…" : ""}
             </p>
           </div>
 

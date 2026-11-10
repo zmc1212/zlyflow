@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
+  RELAYVSR_MODE,
+  RELAYVSR_OUTPUT_LABEL,
   SEEDVR2_MODE,
   SEEDVR2_OUTPUT_LABEL,
   UPSCALE_OUTPUT_LABEL,
@@ -32,7 +34,7 @@ describe("source video upscale eligibility", () => {
     expect(canUpscaleRound(source, "latest", true)).toBe(false)
     expect(canUpscaleRound(source, "latest", false, { label: SEEDVR2_OUTPUT_LABEL })).toBe(false)
     expect(canUpscaleRound(source, "latest", false, { label: "H3 视频编辑试片" })).toBe(true)
-    for (const mode of [SEEDVR2_MODE, "nvidia-rtx-vsr"]) {
+    for (const mode of [SEEDVR2_MODE, RELAYVSR_MODE, "nvidia-rtx-vsr"]) {
       expect(canUpscaleRound({ ...source, mode }, "latest")).toBe(false)
     }
   })
@@ -98,6 +100,9 @@ describe("legacy 2x upscale result readers", () => {
     expect(isUpscaleOutput({ label: SEEDVR2_OUTPUT_LABEL })).toBe(true)
     expect(isUpscaleOutput({ label: "MiniMax H3 视频" })).toBe(false)
     expect(upscaleOutputLabel({ label: SEEDVR2_OUTPUT_LABEL })).toBe("2× 高清增强")
+    expect(upscaleOutputLabel({ label: RELAYVSR_OUTPUT_LABEL })).toBe("2× 细节超分")
+    expect(isUpscaleOutput({ label: RELAYVSR_OUTPUT_LABEL })).toBe(true)
+    expect(isUpscaleJob({ mode: RELAYVSR_MODE })).toBe(true)
     expect(upscaleOutputLabel({ label: UPSCALE_OUTPUT_LABEL })).toBe("2× 超分")
     expect(upscaleOutputLabel({ label: "MiniMax H3 视频" })).toBe("")
     expect(extraUpscaleResults(source, [source, enhanced])).toEqual([{

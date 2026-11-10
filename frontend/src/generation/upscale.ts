@@ -1,7 +1,8 @@
 export const UPSCALE_ENGINE_RTX = "nvidia-rtx-vsr"
 export const UPSCALE_ENGINE_SEEDVR2 = "seedvr2-upscale"
+export const UPSCALE_ENGINE_RELAYVSR = "relayvsr-upscale"
 
-export type UpscaleEngine = typeof UPSCALE_ENGINE_RTX | typeof UPSCALE_ENGINE_SEEDVR2
+export type UpscaleEngine = typeof UPSCALE_ENGINE_RTX | typeof UPSCALE_ENGINE_SEEDVR2 | typeof UPSCALE_ENGINE_RELAYVSR
 
 export const UPSCALE_SOURCE_MAX_BYTES = 500 * 1024 * 1024
 
@@ -22,5 +23,6 @@ export function upscaleSourceError(file: Pick<File, "type" | "name" | "size">): 
 
 export const UPSCALE_ENGINE_LABEL: Record<UpscaleEngine, string> = {
   [UPSCALE_ENGINE_RTX]: "RTX 2x 超分（快）",
+  [UPSCALE_ENGINE_RELAYVSR]: "RelayVSR 细节超分（中）",
   [UPSCALE_ENGINE_SEEDVR2]: "SeedVR2 高清增强（慢）",
 }

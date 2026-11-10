@@ -1,9 +1,11 @@
 export const RTX_VSR_MODE = "nvidia-rtx-vsr"
 export const SEEDVR2_MODE = "seedvr2-upscale"
-export const UPSCALE_MODES = [RTX_VSR_MODE, SEEDVR2_MODE] as const
+export const RELAYVSR_MODE = "relayvsr-upscale"
+export const UPSCALE_MODES = [RTX_VSR_MODE, SEEDVR2_MODE, RELAYVSR_MODE] as const
 export const UPSCALE_OUTPUT_LABEL = "2x 超分"
 export const SEEDVR2_OUTPUT_LABEL = "2x 高清增强"
-export const UPSCALE_OUTPUT_LABELS = [UPSCALE_OUTPUT_LABEL, SEEDVR2_OUTPUT_LABEL] as const
+export const RELAYVSR_OUTPUT_LABEL = "2x 细节超分"
+export const UPSCALE_OUTPUT_LABELS = [UPSCALE_OUTPUT_LABEL, SEEDVR2_OUTPUT_LABEL, RELAYVSR_OUTPUT_LABEL] as const
 
 export type UpscaleOutputLike = {
   kind: "image" | "video" | "audio"
@@ -58,6 +60,7 @@ export function isUpscaleOutput(output: Pick<UpscaleOutputLike, "label"> | null 
 
 export function upscaleOutputLabel(output: Pick<UpscaleOutputLike, "label"> | null | undefined): string {
   if (output?.label === SEEDVR2_OUTPUT_LABEL) return "2× 高清增强"
+  if (output?.label === RELAYVSR_OUTPUT_LABEL) return "2× 细节超分"
   if (output?.label === UPSCALE_OUTPUT_LABEL) return "2× 超分"
   return ""
 }
