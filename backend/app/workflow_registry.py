@@ -2266,11 +2266,12 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
     WorkflowDefinition(
         JobMode.NVIDIA_RTX_VSR.value,
         "RTX 2x 超分",
-        "把已成功的成片交给当前连接 ComfyUI 的 RTXVideoSuperResolution（固定 2x / ULTRA）。该实例必须已安装 Nvidia_RTX_Nodes_ComfyUI。不出现在创作页模型列表，只给出片后续和超分按钮使用。",
+        "把已成功的成片交给当前连接视频服务的 RTXVideoSuperResolution（固定 2x / ULTRA）。该实例必须已安装 Nvidia_RTX_Nodes_ComfyUI。不出现在创作页模型列表，只给出片后续和超分按钮使用。",
         "collection",
         1,
         1,
         ("原片",),
+        reference_slots=("video",),
         option_schema={
             "type": "object",
             "properties": {
@@ -2316,11 +2317,35 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
     WorkflowDefinition(
         JobMode.SEEDVR2_UPSCALE.value,
         "SeedVR2 高清增强",
-        "用当前连接 ComfyUI 的原生 SeedVR2 3B Int8 节点做生成式 2x 重建，比 RTX 超分慢很多，但能补回细节。该实例必须已安装 SeedVR2 节点与模型。不出现在创作页模型列表，只给出片后续和超分按钮使用。",
+        "用当前连接视频服务的原生 SeedVR2 3B Int8 节点做生成式 2x 重建，比 RTX 超分慢很多，但能补回细节。该实例必须已安装 SeedVR2 节点与模型。不出现在创作页模型列表，只给出片后续和超分按钮使用。",
         "collection",
         1,
         1,
         ("原片",),
+        reference_slots=("video",),
+        option_schema={
+            "type": "object",
+            "properties": {
+                "width": option("原片宽", "integer", 864, group="internal", minimum=8, maximum=8192, step=1),
+                "height": option("原片高", "integer", 480, group="internal", minimum=8, maximum=8192, step=1),
+                "frames": option("原片帧数", "integer", 120, group="internal", minimum=1, maximum=16384, step=1),
+            },
+        },
+        catalog_group=CATALOG_GROUP_CUSTOM,
+        hidden_from_catalog=True,
+    ),
+    WorkflowDefinition(
+        JobMode.RELAYVSR_UPSCALE.value,
+        "RelayVSR 细节超分",
+        "用当前连接视频服务的 Comfyui-Relay-VSR 社区节点做 2x 细节重建：比 RTX 超分慢、比 SeedVR2 快，"
+        "适合 480p / 720p 成片放大约一倍。该实例必须已安装 RelayVSR 节点与 RelayVSR_X2 权重；"
+        "16 GB 显存只能整段处理到 720p 左右，1080p 长片请改用其它引擎。"
+        "不出现在创作页模型列表，只给出片后续和超分按钮使用。",
+        "collection",
+        1,
+        1,
+        ("原片",),
+        reference_slots=("video",),
         option_schema={
             "type": "object",
             "properties": {
@@ -2587,7 +2612,8 @@ def resolve_director_workflow(family: str | None, route: str) -> str:
 H3_WORKFLOW_IDS = {item.value for item in H3_WORKFLOWS}
 RTX_VSR_WORKFLOW_IDS = {JobMode.NVIDIA_RTX_VSR.value}
 SEEDVR2_UPSCALE_WORKFLOW_IDS = {JobMode.SEEDVR2_UPSCALE.value}
-UPSCALE_WORKFLOW_IDS = RTX_VSR_WORKFLOW_IDS | SEEDVR2_UPSCALE_WORKFLOW_IDS
+RELAYVSR_UPSCALE_WORKFLOW_IDS = {JobMode.RELAYVSR_UPSCALE.value}
+UPSCALE_WORKFLOW_IDS = RTX_VSR_WORKFLOW_IDS | SEEDVR2_UPSCALE_WORKFLOW_IDS | RELAYVSR_UPSCALE_WORKFLOW_IDS
 STEM_SPLIT_WORKFLOW_IDS = {JobMode.STEM_SPLIT.value}
 _catalog_lookup: Callable[[str], dict[str, Any] | None] | None = None
 
@@ -2607,6 +2633,10 @@ def is_rtx_vsr_workflow(mode: JobMode | str) -> bool:
 
 def is_seedvr2_upscale_workflow(mode: JobMode | str) -> bool:
     return mode_key(mode) in SEEDVR2_UPSCALE_WORKFLOW_IDS
+
+
+def is_relayvsr_upscale_workflow(mode: JobMode | str) -> bool:
+    return mode_key(mode) in RELAYVSR_UPSCALE_WORKFLOW_IDS
 
 
 def is_upscale_workflow(mode: JobMode | str) -> bool:

@@ -1,5 +1,11 @@
 # ZLY AI Studio｜创作工作台
 
+## 2026-11-10：视频超分新增 RelayVSR 细节超分引擎
+
+「AI 工具 → 视频超分」的增强引擎从两选一变为三选一：RTX 2x 超分（秒级）、**RelayVSR 细节超分**（480p 约一分钟）、SeedVR2 高清增强（分钟级）。RelayVSR 走当前连接视频服务的 Comfyui-Relay-VSR 节点与 `RelayVSR_X2` 权重，输出版本标为「2× 细节超分」并保留原音轨。16 GB 显存的实例会在提交前按帧数与分辨率做显存预检：864×486 / 4 秒实测约 75 秒完成，1080p 长片会被拒绝并提示改用其他引擎或更短片段。未安装节点或 2x 权重的实例只禁用该档并给出安装说明，RTX / SeedVR2 不受影响。详见[架构记录](docs/ARCHITECTURE.md#2026-11-10新增-relayvsr-细节超分引擎2x社区节点)。
+
+2026-11-10 同日修复：此前「AI 工具 → 视频超分」上传原片会被后端报 422（旧拦截只允许从已成功成片接跑），三个引擎都无法提交。现在上传一条原片即可选择任一引擎开跑，入队前会读取原片的宽高与帧数再做显存预检，任务详情里的原片显示为「原片」视频。导演台镜头成片也可下载后从这里上传，实测 864×480、12.25 秒镜头约 3.5 分钟出 1728×960 并保留原音轨。
+
 ## 2026-11-07：新增 Gitea CI/CD 自动部署（推代码即构建部署，替代手工导 tar 上传）
 
 新增自建 CI/CD 基线：推送 master、打 `v*` 标签或在 Actions 页手动触发时，自动构建 Docker 镜像（tag 为提交号 8 位 + latest）→ 推送到 Gitea 自带镜像仓库 → SSH 到部署服务器执行部署脚本（拉取镜像、`compose up -d`、健康检查），失败自动回滚上一版；服务器端可用 `ops/deploy/rollback.sh --list / --to N` 手动回滚。GitBlit 老地址无感接入：团队继续 push 老 GitBlit 地址，CI 机上的 `gitblit-sync` 定时器每分钟把增量提交同步到 Gitea 触发 CI。新增 `.gitea/workflows/deploy.yml`（工作流，零第三方 action）、`ops/gitea/`（Gitea + act_runner 一键安装包 + 老地址同步定时器）、`ops/deploy/`（项目无关部署/回滚脚本）与 `docs/CI-CD-Gitea部署指南.md`（含无感接入、Secrets 配置与多项目接入步骤）。原有「导出服务器部署镜像.bat + deploy-server-image.sh」手工链路保留不动。

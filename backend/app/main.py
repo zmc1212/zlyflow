@@ -178,16 +178,18 @@ from .worker import JobWorker
 from .rtx_vsr_workflow import comfy_vram_device_name, comfy_vram_total_bytes, original_video_locator, source_video_shape, vsr_memory_rejection
 from .seedvr2_upscale_workflow import (
     SEEDVR2_OUTPUT_LABEL,
+    UPSCALE_ENGINE_RELAYVSR,
     UPSCALE_ENGINE_RTX,
     UPSCALE_ENGINE_SEEDVR2,
     UPSCALE_ENGINES,
     normalize_upscale_engine,
 )
+from .relay_vsr_workflow import relay_vsr_memory_rejection
 from .workflow_registry import (
     AVATAR_MAX_SCENE_SECONDS, LIPSYNC_SOURCE_MAX_SECONDS, LIPSYNC_SOURCE_MIN_SECONDS, WORKFLOWS,
     comfy_ram_total_bytes, is_composite_image_workflow, is_depth_workflow, is_grs_image_workflow,
     is_h3_workflow, is_image_workflow, is_lip_sync_workflow, is_local_comfy_job,
-    is_motion_ref_video_workflow, is_rtx_vsr_workflow, is_seedvr2_upscale_workflow,
+    is_motion_ref_video_workflow, is_relayvsr_upscale_workflow, is_rtx_vsr_workflow, is_seedvr2_upscale_workflow,
     is_upscale_workflow, normalize_options, option_visible, quality_for_megapixels, set_catalog_lookup,
     set_hardware_profile_resolver, validate_option_relationships, validate_references, workflow_for,
 )
@@ -596,7 +598,7 @@ def public_reference(mode: str, index: int, url: str, count: int | None = None) 
         definition = workflow_for(mode)
     except KeyError:
         return data
-    if not (definition.accepts_video_reference or definition.accepts_audio_reference):
+    if not (definition.accepts_video_reference or definition.accepts_audio_reference or definition.reference_slots):
         return data
     labels = definition.reference_labels
     return {
@@ -4566,6 +4568,51 @@ async def create_job(
     )
 
 
+async def _prepare_uploaded_upscale(mode: str, generation_options: dict, source_path: str) -> None:
+    """给「AI 工具 → 视频超分」上传的原片补齐宽高/帧数，并在入队前做能力与显存预检。"""
+    relay = is_relayvsr_upscale_workflow(mode)
+    seedvr2 = is_seedvr2_upscale_workflow(mode)
+    try:
+        probe = await asyncio.to_thread(probe_source_video, Path(source_path))
+    except Exception as error:
+        raise HTTPException(status_code=422, detail=f"无法读取原片信息：{error}") from error
+    fps = float(getattr(probe, "fps", 0) or 0) or 24.0
+    frames = int(round(float(getattr(probe, "duration", 0) or 0) * fps)) or 1
+    width, height = int(probe.width), int(probe.height)
+    generation_options.update({"width": width, "height": height, "frames": frames})
+
+    comfy = getattr(app.state.worker, "comfy", None)
+    if relay or not seedvr2:
+        if comfy is not None and hasattr(comfy, "reject_relay_vsr_memory"):
+            reason = (
+                comfy.reject_relay_vsr_memory(mode, generation_options)
+                if relay else comfy.reject_vsr_memory(mode, generation_options)
+            )
+        else:
+            stats = comfy.system_stats() if comfy is not None and hasattr(comfy, "system_stats") else None
+            reason = (
+                relay_vsr_memory_rejection(
+                    width, height, frames,
+                    vram_total=comfy_vram_total_bytes(stats),
+                    device_name=comfy_vram_device_name(stats),
+                )
+                if relay else vsr_memory_rejection(width, height, frames)
+            )
+        if reason:
+            raise HTTPException(status_code=422, detail=reason)
+
+    check = (
+        getattr(comfy, "require_relay_vsr", None) if relay
+        else getattr(comfy, "require_seedvr2", None) if seedvr2
+        else getattr(comfy, "require_rtx_vsr_node", None)
+    )
+    if callable(check):
+        try:
+            await asyncio.to_thread(check)
+        except Exception as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+
 async def submit_generation(
     *, user: dict, mode: str, prompt: str, negative_prompt: str = "", image_size: str | None = None,
     options: str | None = None, title: str | None = None, display_prompt: str | None = None,
@@ -4583,7 +4630,13 @@ async def submit_generation(
     if not prompt:
         raise HTTPException(status_code=422, detail="请填写创作提示词")
     if is_upscale_workflow(mode):
-        raise HTTPException(status_code=422, detail="请对已成功的视频调用超分接口，不要直接创建超分任务")
+        # 超分必须有原片：要么对已成功的成片调用 /api/jobs/{id}/upscale，
+        # 要么在「AI 工具 → 视频超分」上传一条原片（工作流只接受 1 条参考视频）。
+        if len(references) != 1:
+            raise HTTPException(
+                status_code=422,
+                detail="超分需要上传 1 条原片视频，或对已成功的成片调用超分接口",
+            )
     if mode == JobMode.KEEP_FACE_RESTORE.value:
         check = getattr(getattr(app.state.worker, "comfy", None), "require_keep_face_restore", None)
         if callable(check):
@@ -4640,6 +4693,8 @@ async def submit_generation(
             await save_upload(upload, destination, max_bytes=KEEP_MAX_UPLOAD_BYTES if definition is not None and definition.id == JobMode.KEEP_FACE_RESTORE.value else MAX_UPLOAD_BYTES)
             references_paths.append(str(destination))
         await _validate_saved_references(definition, references_paths, generation_options, upload_dir)
+        if is_upscale_workflow(mode):
+            await _prepare_uploaded_upscale(mode, generation_options, references_paths[0])
     except HTTPException:
         # Never leave partially-saved references behind when a later file
         # fails validation or exceeds the size limit.
@@ -4940,6 +4995,7 @@ async def upscale_job(
         raise HTTPException(status_code=422, detail="该任务已经是超分结果")
     engine = normalize_upscale_engine(payload.engine if payload else None)
     seedvr2 = engine == UPSCALE_ENGINE_SEEDVR2
+    relay = engine == UPSCALE_ENGINE_RELAYVSR
     if source.get("status") != JobStatus.SUCCEEDED.value:
         raise HTTPException(status_code=409, detail="仅已成功出片的视频可以超分")
     located = original_video_locator(source)
@@ -4953,7 +5009,19 @@ async def upscale_job(
     vsr_options = vsr_job_options_from_source(source)
     comfy = getattr(app.state.worker, "comfy", None)
     if vsr_options and not seedvr2:
-        if comfy is not None and hasattr(comfy, "reject_vsr_memory"):
+        if relay:
+            if comfy is not None and hasattr(comfy, "reject_relay_vsr_memory"):
+                reason = comfy.reject_relay_vsr_memory(source["mode"], source.get("options") or vsr_options)
+            else:
+                stats = comfy.system_stats() if comfy is not None and hasattr(comfy, "system_stats") else None
+                reason = relay_vsr_memory_rejection(
+                    vsr_options["width"],
+                    vsr_options["height"],
+                    vsr_options["frames"],
+                    vram_total=comfy_vram_total_bytes(stats),
+                    device_name=comfy_vram_device_name(stats),
+                )
+        elif comfy is not None and hasattr(comfy, "reject_vsr_memory"):
             reason = comfy.reject_vsr_memory(source["mode"], source.get("options") or vsr_options)
         else:
             reason = vsr_memory_rejection(
@@ -4963,14 +5031,22 @@ async def upscale_job(
             )
         if reason:
             raise HTTPException(status_code=422, detail=reason)
-    upscale_mode = JobMode.SEEDVR2_UPSCALE if seedvr2 else JobMode.NVIDIA_RTX_VSR
+    upscale_mode = (
+        JobMode.SEEDVR2_UPSCALE if seedvr2
+        else JobMode.RELAYVSR_UPSCALE if relay
+        else JobMode.NVIDIA_RTX_VSR
+    )
     try:
         generation_options = normalize_options(upscale_mode, vsr_options)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
     if comfy is not None:
-        check = getattr(comfy, "require_seedvr2", None) if seedvr2 else getattr(comfy, "require_rtx_vsr_node", None)
+        check = (
+            getattr(comfy, "require_seedvr2", None) if seedvr2
+            else getattr(comfy, "require_relay_vsr", None) if relay
+            else getattr(comfy, "require_rtx_vsr_node", None)
+        )
         if callable(check):
             try:
                 check()
@@ -4998,8 +5074,9 @@ async def upscale_job(
         raise HTTPException(status_code=422, detail=f"复制原片失败: {error}") from error
 
     source_title = str(source.get("title") or source.get("prompt") or "成片").strip()
-    title = f"{source_title[:80]} · {'高清增强' if seedvr2 else '2x超分'}"
-    default_prompt = "SeedVR2 高清增强" if seedvr2 else "2x 超分"
+    engine_label = "高清增强" if seedvr2 else "细节超分" if relay else "2x超分"
+    title = f"{source_title[:80]} · {engine_label}"
+    default_prompt = "SeedVR2 高清增强" if seedvr2 else "RelayVSR 2x 细节超分" if relay else "2x 超分"
     prompt = str(source.get("prompt") or "").strip() or default_prompt
     store: JobStore = app.state.store
     try:
@@ -5072,6 +5149,8 @@ def upscale_capabilities(user: Annotated[dict, Depends(current_user)]) -> dict:
             try:
                 if engine_id == UPSCALE_ENGINE_SEEDVR2:
                     comfy.require_seedvr2()
+                elif engine_id == UPSCALE_ENGINE_RELAYVSR:
+                    comfy.require_relay_vsr()
                 else:
                     comfy.require_rtx_vsr_node()
             except Exception as error:

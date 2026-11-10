@@ -30,6 +30,7 @@ class JobMode(str, Enum):
     MINIMAX_H3_T8_DUAL_CLOCK = "minimax-h3-t8-dual-clock"
     NVIDIA_RTX_VSR = "nvidia-rtx-vsr"
     SEEDVR2_UPSCALE = "seedvr2-upscale"
+    RELAYVSR_UPSCALE = "relayvsr-upscale"
     KEEP_FACE_RESTORE = "keep-face-restore"
     WAN_VACE_DEPTH_V2V = "wan21-vace-depth-v2v"
     MINIMAX_H3_MOTION_TRANSFER = "minimax-h3-motion-transfer"
@@ -186,7 +187,7 @@ class JobMetadataUpdateRequest(BaseModel):
 
 
 class UpscaleJobRequest(BaseModel):
-    engine: Literal["rtx", "seedvr2"] = "rtx"
+    engine: Literal["rtx", "seedvr2", "relayvsr"] = "rtx"
 
 
 class UserResponse(BaseModel):

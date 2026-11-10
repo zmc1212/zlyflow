@@ -1,5 +1,32 @@
 # ZLY AI Video Studio 架构快照
 
+## 2026-11-10：新增 RelayVSR 细节超分引擎（2x，社区节点）
+
+- 变更原因：希望给「视频超清」补一个介于 RTX（秒级、纯放大）与 SeedVR2（生成式、分钟级）之间的细节重建引擎。先在远端只读探测：`192.168.10.54:8188` 已装 bbaudio 的 Comfyui-Relay-VSR（`RelayVSRModelLoader` / `RelayVSRUpscale` / `RelayVSRUpscaleStreaming`）且 `RelayVSR_X2` 权重就位；`RelayVSR_X4` 与 FL-RelayVSR（要求 Python 3.11+，远端为 3.10.11）不可用。
+- 实测边界（RTX 4080 16 GB，2026-11-10）：864×486 / 121 帧整段超分成功，约 75 秒出 1728×972；64×64 / 1 帧 16 秒成功；1920×1080 / 224 帧在 `RelayVSRUpscale` 处 OOM（帧张量约占 26 GB），`RelayVSRUpscaleStreaming` 同样 OOM。因此接入时必须做提交前显存预检，不能把 1080p 长片直接送进节点。
+- 当前基线：
+  - 新引擎 `relayvsr`：`JobMode.RELAYVSR_UPSCALE = "relayvsr-upscale"`，工作流注册表新增 `RELAYVSR_UPSCALE_WORKFLOW_IDS` 并已并入 `UPSCALE_WORKFLOW_IDS`，`hidden_from_catalog=True`（只出现在超分入口，不进创作页模型列表）。`UpscaleJobRequest.engine` 增 `"relayvsr"`，`UPSCALE_ENGINES` 增「RelayVSR 细节超分」。
+  - Graph（`backend/app/relay_vsr_workflow.py`）：`LoadVideo → GetVideoComponents → RelayVSRModelLoader(RelayVSR_X2 / bf16 / offload=true) → RelayVSRUpscale(sr_ratio=2, chunk_len=16, seed=0) → CreateVideo(images, audio, fps) → SaveVideo`。刻意不用 `RelayVSRUpscaleStreaming`：流式节点只输出无声视频文件，整段路径才能把原音轨交回 `CreateVideo`。节点编号 50–55，避开 H3(14)、RTX VSR(20–24)、SeedVR2(30–44)。
+  - 预检：`relay_vsr_memory_rejection(width, height, frames)` 按 `frames × pixels × (1 + sr_ratio²) × 3 × 4` 估算显存，额度为 `vram_total − 2 GB`；`comfy_service.reject_relay_vsr_memory()` 与 `/api/jobs/{id}/upscale` 都会先拦截（422），`append_upscale_if_requested` 自动接跑时则跳过并提示。读不到显存时不设限（与 RTX VSR 一致）。
+  - 能力探测：`ComfyService.require_relay_vsr()` 校验两个节点存在且 `RelayVSRModelLoader.bundle` 含 `RelayVSR_X2`，失败信息给出安装路径与 Python 版本要求；`/api/upscale/capabilities` 返回三引擎及各自 `reason`。
+  - 前端：`UPSCALE_ENGINE_RELAYVSR = "relayvsr-upscale"`；超分工具三选一（RTX / RelayVSR / SeedVR2），版本标签「2× 细节超分」，`/tools/video-upscale?job=` 恢复时按 `round.mode` 回填引擎；悬浮工具条的「视频超清」入口把新引擎计入可用性判定。
+- 受影响文件：新增 `backend/app/relay_vsr_workflow.py`、`backend/tests/test_relay_vsr.py`；`backend/app/{models,workflow_registry,seedvr2_upscale_workflow,comfy_service,main}.py`、`backend/tests/test_rtx_vsr.py`；`frontend/src/{generation/upscale.ts,video-upscale.ts,media/media-actions.ts,tools/VideoUpscaleTool.tsx}` 及对应测试。
+- 兼容性：纯新增引擎，RTX / SeedVR2 的 graph、端点语义与历史任务不受影响；未装节点或 2x 权重时该引擎在能力接口里为 `available=false` 并带原因，其余引擎照常。输出标签新增「2x 细节超分」，旧标签判定保留。
+- 验证命令：`python -X utf8 -B -m unittest backend.tests.test_relay_vsr backend.tests.test_rtx_vsr`；远端实测脚本见 `tmp/relayvsr-sample/`（验证后清理）；`pnpm --dir frontend exec tsc -b`；`pnpm --dir frontend exec vitest run src/video-upscale.test.ts src/tools/video-upscale-tool.test.tsx src/media`。
+- 回滚方式：删除 `relay_vsr_workflow.py`、注册表与枚举中的 relay 分支、前端三处引擎常量与选项即可；无数据库与任务链路迁移，已生成的「2x 细节超分」输出保留为普通视频。
+
+## 2026-11-10：修复超分上传入口（工具页三引擎恢复可用）
+
+- 变更原因：`AI 工具 → 视频超分` 提交的是 `POST /api/jobs`（multipart，1 条原片视频），但 `submit_generation` 仍保留“只要 `is_upscale_workflow(mode)` 就 422”的旧拦截，导致工具页三个引擎都无法提交；而 `/api/jobs/{id}/upscale` 只能接主任务库的成片，导演台镜头任务在 `ai_project_jobs`（`job-xxxxxxxx`）里，查主库是 404，所以无法用导演台镜头做 RelayVSR 验证。
+- 当前基线：
+  - `main.submit_generation`：超分工作流仅在“参考素材不是恰好 1 条”时返回 422；有 1 条原片时继续走通用创建链路（`references[0]` 即超分源），与 `POST /api/jobs/{id}/upscale` 成片接跑并存。
+  - `main._prepare_uploaded_upscale(mode, options, source_path)`：上传落盘后先 `probe_video` 读宽高/帧率/时长，写入 `options.width/height/frames`，再调用 `reject_relay_vsr_memory` / `reject_vsr_memory` 与 `require_relay_vsr` / `require_seedvr2` / `require_rtx_vsr_node`；不满足直接 422 并带中文原因。
+  - `workflow_registry`：三个超分定义补 `reference_slots=("video",)`；`main.public_reference` 对声明了 `reference_slots` 的工作流不再早退，任务详情里的原片显示 `kind=video`、`label=原片`。
+- 受影响文件：`backend/app/main.py`、`backend/app/workflow_registry.py`、`backend/tests/test_relay_vsr.py`。
+- 兼容性：成片接跑端点、RTX/SeedVR2 graph、历史任务与数据库结构不变；无原片的超分创建仍 422。
+- 验证命令：`python -X utf8 -B -m unittest backend.tests.test_relay_vsr backend.tests.test_rtx_vsr`（29 项通过）；实测导演台镜头（864×480、294 帧、12.25s）经上传入口提交 RelayVSR，208 秒出 1728×960、保留原音轨。
+- 回滚方式：恢复 `submit_generation` 的无条件 422、删除 `_prepare_uploaded_upscale` 与三处 `reference_slots`、还原 `public_reference` 早退条件；已生成任务与产物保留。
+
 ## 2026-11-07：修复音乐「测试连接」响应模型漏字段（把成功误报成「未知原因」）
 
 - 变更原因：`/api/admin/providers/music/test` 声明 `response_model=MusicProviderResponse`，而该模型缺 `available` / `unavailable_reason`，FastAPI 会按模型裁剪响应体；前端 `MusicProviderSettings.tsx` 依赖 `data.available` 判定成败，拿不到就永远走 `else`，弹「连接失败：未知原因」。线上工作台因此把探活成功误报为失败，用户误以为 FRP/地址配错。
