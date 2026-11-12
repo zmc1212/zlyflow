@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { Button, Modal, Spin, Steps, Tooltip, message } from "antd"
 import { ArrowRight, RefreshCw, Route, Video } from "lucide-react"
-import { createAsset, director2ErrorDetail, enqueueDocumentShotPlan, generateAssetImage, generateBeatH3Prompt, generateBeatVideo, getEpisodeDetail, listAssets, listDocuments, listEpisodes, listJobs, listVideoWorkflowModes, transferEpisodesFromDoc, updateAsset, updateEpisodeBeat, type Director2Asset, type Director2Beat } from "../api"
+import { createAsset, director2ErrorDetail, enqueueDocumentShotPlan, generateAssetImage, generateBeatH3Prompt, generateBeatVideo, getEpisodeDetail, listAssets, listDocuments, listEpisodes, listJobs, listVideoWorkflowModes, transferEpisodesFromDoc, updateAsset, updateEpisodeBeat } from "../api"
 import { beatHasVideo, loadSavedVideoSettings, refineForceWarning } from "../director2-video-settings"
 import { projectVideoResolution } from "../project-video-resolution"
 import { beatDurationSec } from "../workshop-beat-duration"

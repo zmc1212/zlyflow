@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { Button, Empty, Image, Input, InputNumber, Modal, Select, Slider, Spin, Switch, Tooltip, message } from "antd"
-import { ArrowLeft, ChevronDown, Clock3, Dices, MessageCircle, Paintbrush, RefreshCw, Settings2, Sparkles, Upload, Video, WandSparkles } from "lucide-react"
+import { ArrowLeft, ChevronDown, Clock3, Dices, MessageCircle, Paintbrush, RefreshCw, Settings2, Sparkles, Video, WandSparkles } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { apiErrorMessage, notifyUnauthorized, requestJson as api } from "../api"
@@ -224,7 +224,7 @@ export default function PartialRetakeTool({ csrfToken }: { csrfToken: string }) 
   const renderUploadCard = (
     kind: "mask" | "video",
     asset: InpaintReferenceAsset | null,
-    onAccept: (file: File | undefined | null) => void,
+    _onAccept: (file: File | undefined | null) => void,
     onRemove: () => void,
     onPreview: () => void,
   ) => (

@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from copy import deepcopy
 from pathlib import Path
-from unittest.mock import ANY, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
@@ -32,7 +32,7 @@ from backend.app.director_recipe import (
     normalize_recipe_payload,
     timeline_to_recipe,
 )
-from backend.app.llm_client import OpenAICompatibleClient, LlmError
+from backend.app.llm_client import OpenAICompatibleClient
 from backend.app.llm_provider import LlmProviderService
 from backend.app.vlm_provider import VlmProviderService
 from backend.app.main import app
@@ -1024,104 +1024,6 @@ class DirectorTranslatePromptEndpointTests(unittest.TestCase):
             "durationSec": 5,
         }
 
-    def test_translate_prompt_endpoint_success_uses_saved_chinese_body(self) -> None:
-        self.llm_provider.update({
-            "enabled": True,
-            "base_url": "https://api.example.com",
-            "model": "deepseek-v3",
-            "api_key": "sk-dummy",
-        })
-        translated = "A medium shot in a rainy night street. At 00:00.000, Xiaoming stands under rain."
-        with patch.object(self.llm_provider, "translate_director_shot_prompt", return_value=translated) as translate:
-            project_id = self._create_recipe_project(self._zh_shot())
-            response = self.client.post(
-                f"/api/director/recipes/{project_id}/shots/shot-zh/translate-prompt",
-                headers=self.headers,
-                json={},
-            )
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json()["promptText"], translated)
-        translate.assert_called_once_with("小明在雨夜的街头站定，掏出手机收到邀请。")
-
-    def test_translate_prompt_endpoint_prefers_request_text(self) -> None:
-        self.llm_provider.update({
-            "enabled": True,
-            "base_url": "https://api.example.com",
-            "model": "deepseek-v3",
-            "api_key": "sk-dummy",
-        })
-        with patch.object(self.llm_provider, "translate_director_shot_prompt", return_value="English body") as translate:
-            project_id = self._create_recipe_project(self._zh_shot())
-            response = self.client.post(
-                f"/api/director/recipes/{project_id}/shots/shot-zh/translate-prompt",
-                headers=self.headers,
-                json={"text": "镜头缓缓推近，主角抬头。"},
-            )
-        self.assertEqual(response.status_code, 200, response.text)
-        translate.assert_called_once_with("镜头缓缓推近，主角抬头。")
-
-    def test_translate_prompt_endpoint_falls_back_to_description(self) -> None:
-        self.llm_provider.update({
-            "enabled": True,
-            "base_url": "https://api.example.com",
-            "model": "deepseek-v3",
-            "api_key": "sk-dummy",
-        })
-        with patch.object(self.llm_provider, "translate_director_shot_prompt", return_value="English body") as translate:
-            project_id = self._create_recipe_project({
-                "id": "shot-desc-only",
-                "title": "开场",
-                "description": "小明在雨夜的街头站定，掏出手机收到邀请。",
-                "durationSec": 5,
-            })
-            response = self.client.post(
-                f"/api/director/recipes/{project_id}/shots/shot-desc-only/translate-prompt",
-                headers=self.headers,
-                json={},
-            )
-        self.assertEqual(response.status_code, 200, response.text)
-        translate.assert_called_once_with("小明在雨夜的街头站定，掏出手机收到邀请。")
-
-    def test_translate_prompt_endpoint_unavailable_when_llm_disabled(self) -> None:
-        project_id = self._create_recipe_project(self._zh_shot())
-        response = self.client.post(
-            f"/api/director/recipes/{project_id}/shots/shot-zh/translate-prompt",
-            headers=self.headers,
-            json={},
-        )
-        self.assertEqual(response.status_code, 503)
-
-    def test_translate_prompt_endpoint_requires_chinese_body(self) -> None:
-        self.llm_provider.update({
-            "enabled": True,
-            "base_url": "https://api.example.com",
-            "model": "deepseek-v3",
-            "api_key": "sk-dummy",
-        })
-        project_id = self._create_recipe_project({"id": "shot-no-zh", "title": "开场", "durationSec": 5})
-        response = self.client.post(
-            f"/api/director/recipes/{project_id}/shots/shot-no-zh/translate-prompt",
-            headers=self.headers,
-            json={},
-        )
-        self.assertEqual(response.status_code, 422)
-
-    def test_translate_prompt_endpoint_returns_404_for_unknown_shot(self) -> None:
-        self.llm_provider.update({
-            "enabled": True,
-            "base_url": "https://api.example.com",
-            "model": "deepseek-v3",
-            "api_key": "sk-dummy",
-        })
-        project_id = self._create_recipe_project(self._zh_shot())
-        response = self.client.post(
-            f"/api/director/recipes/{project_id}/shots/shot-missing/translate-prompt",
-            headers=self.headers,
-            json={},
-        )
-        self.assertEqual(response.status_code, 404)
-
-
 class DirectorCompilerTests(unittest.TestCase):
     def _shot(self, number: int, duration: float = 5, *, prompt: str = "主角走过雨夜街道", first: bool = False, last: bool = False, ref: str | None = None) -> dict:
         shot = {
@@ -1735,110 +1637,6 @@ class DirectorProjectApiTests(unittest.TestCase):
             "manualPromptOverrideText": "",
         }
 
-    def test_crud_list_and_copy(self) -> None:
-        created = self.client.post(
-            "/api/director/projects",
-            headers=self._headers(),
-            json={
-                "title": "雨夜追凶",
-                "summary": "侦探短片",
-                "source_script": "雨夜里侦探穿过暗巷。",
-                "style_vibe": "赛博朋克",
-                "requested_shot_count": 4,
-                "payload": self._empty_payload(),
-            },
-        )
-        self.assertEqual(created.status_code, 201, created.text)
-        body = created.json()
-        self.assertEqual(body["title"], "雨夜追凶")
-        self.assertEqual(body["source_script"], "雨夜里侦探穿过暗巷。")
-        self.assertTrue(body["has_source_script"])
-        self.assertEqual(body["generation_status"], "pending")
-        self.assertIsNone(body["payload"]["shots"][0].get("firstFrameUrl"))
-        self.assertIsNone(body["payload"]["subjectSlots"][0].get("previewUrl"))
-        self.assertNotIn("owner_user_id", body)
-
-        listed = self.client.get("/api/director/projects")
-        self.assertEqual(listed.status_code, 200)
-        self.assertEqual(len(listed.json()), 1)
-        self.assertNotIn("source_script", listed.json()[0])
-        self.assertNotIn("payload", listed.json()[0])
-        self.assertTrue(listed.json()[0]["has_source_script"])
-
-        project_id = body["id"]
-        updated = self.client.put(
-            f"/api/director/projects/{project_id}",
-            headers=self._headers(),
-            json={"title": "雨夜追凶·终", "payload": self._empty_payload(shots=[
-                {**self._empty_payload()["shots"][0], "status": "succeeded", "outputVideoUrl": "/api/media/a.mp4"},
-            ])},
-        )
-        self.assertEqual(updated.status_code, 200)
-        self.assertEqual(updated.json()["title"], "雨夜追凶·终")
-        self.assertEqual(updated.json()["source_script"], "雨夜里侦探穿过暗巷。")
-        self.assertEqual(updated.json()["generation_status"], "complete")
-
-        copied = self.client.post(f"/api/director/projects/{project_id}/copy", headers=self._headers())
-        self.assertEqual(copied.status_code, 201)
-        self.assertEqual(copied.json()["title"], "雨夜追凶·终 副本")
-        self.assertEqual(copied.json()["source_script"], "雨夜里侦探穿过暗巷。")
-        self.assertNotEqual(copied.json()["id"], project_id)
-
-        deleted = self.client.delete(f"/api/director/projects/{project_id}", headers=self._headers())
-        self.assertEqual(deleted.status_code, 204)
-        missing = self.client.get(f"/api/director/projects/{project_id}")
-        self.assertEqual(missing.status_code, 404)
-
-    def test_recipe_cover_upload_read_remove_and_owner_isolation(self) -> None:
-        from types import SimpleNamespace
-        from backend.app import director_jobs as director_jobs_module
-        from backend.app import main as main_module
-
-        created = self.client.post(
-            "/api/director/projects",
-            headers=self._headers(),
-            json={
-                "title": "封面测试",
-                "payload": {"kind": PAYLOAD_KIND_RECIPE, "script": {"title": "雨夜"}},
-            },
-        )
-        self.assertEqual(created.status_code, 201, created.text)
-        project_id = created.json()["id"]
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            fake_settings = SimpleNamespace(staging_dir=root / "staging", uploads_dir=root / "uploads")
-            with patch.object(main_module, "settings", fake_settings), patch.object(director_jobs_module, "settings", fake_settings):
-                uploaded = self.client.post(
-                    f"/api/director/recipes/{project_id}/cover",
-                    headers=self._headers(),
-                    files={"file": ("cover.jpg", b"\xff\xd8fake-cover", "image/jpeg")},
-                )
-                self.assertEqual(uploaded.status_code, 200, uploaded.text)
-                body = uploaded.json()
-                self.assertEqual(body["payload"]["script"]["coverUrl"], f"/api/director/recipes/{project_id}/cover")
-                self.assertEqual(body["cover_url"], f"/api/director/recipes/{project_id}/cover")
-                downloaded = self.client.get(f"/api/director/recipes/{project_id}/cover")
-                self.assertEqual(downloaded.status_code, 200)
-                self.assertEqual(downloaded.content, b"\xff\xd8fake-cover")
-
-                other_client = TestClient(app)
-                other_client.cookies.set("zly_ai_video_studio_session", self.other_token)
-                self.assertEqual(other_client.get(f"/api/director/recipes/{project_id}/cover").status_code, 404)
-
-                copied = self.client.post(f"/api/director/projects/{project_id}/copy", headers=self._headers())
-                self.assertEqual(copied.status_code, 201, copied.text)
-                copied_id = copied.json()["id"]
-                self.assertEqual(copied.json()["payload"]["script"]["coverUrl"], f"/api/director/recipes/{copied_id}/cover")
-                self.assertEqual(self.client.get(f"/api/director/recipes/{copied_id}/cover").content, b"\xff\xd8fake-cover")
-
-                removed = self.client.delete(
-                    f"/api/director/recipes/{project_id}/cover?expected_content_revision={body['content_revision']}",
-                    headers=self._headers(),
-                )
-                self.assertEqual(removed.status_code, 200, removed.text)
-                self.assertIsNone(removed.json()["cover_url"])
-                self.assertEqual(self.client.get(f"/api/director/recipes/{project_id}/cover").status_code, 404)
-
     def test_replication_project_crud_and_kind_roundtrip(self) -> None:
         payload = {
             "kind": "shot_replication",
@@ -1859,10 +1657,6 @@ class DirectorProjectApiTests(unittest.TestCase):
         body = created.json()
         self.assertEqual(body["kind"], "shot_replication")
         self.assertEqual(body["payload"]["renderSettings"]["engine"], "vace_depth")
-
-        listed = self.client.get("/api/director/projects")
-        self.assertEqual(listed.status_code, 200)
-        self.assertEqual(listed.json()[0]["kind"], "shot_replication")
 
         updated = self.client.put(
             f"/api/director/projects/{body['id']}",
@@ -1888,8 +1682,6 @@ class DirectorProjectApiTests(unittest.TestCase):
         project_id = created.json()["id"]
         other_client = TestClient(app)
         other_client.cookies.set("zly_ai_video_studio_session", self.other_token)
-        listed = other_client.get("/api/director/projects")
-        self.assertEqual(listed.json(), [])
         self.assertEqual(other_client.get(f"/api/director/projects/{project_id}").status_code, 404)
         self.assertEqual(
             other_client.put(
@@ -1948,44 +1740,6 @@ class DirectorProjectApiTests(unittest.TestCase):
         self.assertEqual(forced.status_code, 200, forced.text)
         self.assertEqual(forced.json()["title"], "窗口 B")
         self.assertEqual(forced.json()["content_revision"], 3)
-
-    def test_migrate_localstorage_payload_is_idempotent_and_strips_data_urls(self) -> None:
-        local_id = "proj-local-rain-01"
-        first = self.client.post(
-            "/api/director/projects/migrate",
-            headers=self._headers(),
-            json={
-                "projects": [{
-                    "id": local_id,
-                    "title": "浏览器旧工程",
-                    "summary": "迁库",
-                    "source_script": "原文必须留下来",
-                    "style_vibe": "电影级大片",
-                    "requested_shot_count": 3,
-                    "payload": self._empty_payload(),
-                    "created_at": "2026-08-20T00:00:00+00:00",
-                    "updated_at": "2026-08-21T00:00:00+00:00",
-                }],
-            },
-        )
-        self.assertEqual(first.status_code, 200, first.text)
-        self.assertEqual(first.json()["imported"], 1)
-        self.assertEqual(first.json()["skipped"], 0)
-        fetched = self.client.get(f"/api/director/projects/{local_id}")
-        self.assertEqual(fetched.status_code, 200)
-        self.assertEqual(fetched.json()["source_script"], "原文必须留下来")
-        self.assertEqual(fetched.json()["created_at"], "2026-08-20T00:00:00+00:00")
-        self.assertIsNone(fetched.json()["payload"]["shots"][0].get("firstFrameUrl"))
-
-        second = self.client.post(
-            "/api/director/projects/migrate",
-            headers=self._headers(),
-            json={"projects": [{"id": local_id, "title": "浏览器旧工程", "source_script": "不应覆盖", "payload": {}}]},
-        )
-        self.assertEqual(second.json()["imported"], 0)
-        self.assertEqual(second.json()["skipped"], 1)
-        again = self.client.get(f"/api/director/projects/{local_id}")
-        self.assertEqual(again.json()["source_script"], "原文必须留下来")
 
     def test_split_result_put_keeps_source_script(self) -> None:
         created = self.client.post(
@@ -2169,8 +1923,6 @@ class DirectorProjectApiTests(unittest.TestCase):
             "monochrome cinematic style, black and white, sharp contrast, dramatic shadows, tense atmosphere",
         )
         self.assertEqual(body["shot_count"], 1)
-        listed = self.client.get("/api/director/projects")
-        self.assertEqual(listed.json()[0]["kind"], "director_recipe")
 
         rejected = self.client.put(
             f"/api/director/projects/{body['id']}",
@@ -2217,48 +1969,6 @@ class DirectorProjectApiTests(unittest.TestCase):
             persisted["payload"]["characters"][0]["imageUrl"],
             "https://media.example.com/studio/image/ada.png",
         )
-
-    def test_convert_timeline_to_recipe(self) -> None:
-        created = self.client.post(
-            "/api/director/projects",
-            headers=self._headers(),
-            json={
-                "title": "旧时间轴",
-                "summary": "可转换",
-                "source_script": "探险飞船降落在冰封异星。",
-                "payload": self._empty_payload(shots=[{
-                    "id": "shot-1",
-                    "shotNumber": 1,
-                    "title": "降落",
-                    "prompt": "冰封异星降落",
-                    "startSec": 0,
-                    "durationSec": 5,
-                    "status": "idle",
-                    "takes": [],
-                }]),
-            },
-        )
-        self.assertEqual(created.status_code, 201, created.text)
-        self.assertEqual(created.json()["kind"], "timeline")
-        project_id = created.json()["id"]
-        converted = self.client.post(
-            f"/api/director/projects/{project_id}/convert-to-recipe",
-            headers=self._headers(),
-        )
-        self.assertEqual(converted.status_code, 200, converted.text)
-        payload = converted.json()["payload"]
-        self.assertEqual(converted.json()["kind"], "director_recipe")
-        self.assertEqual(payload["kind"], "director_recipe")
-        self.assertEqual(payload["script"]["fullStory"], "探险飞船降落在冰封异星。")
-        self.assertEqual(len(payload["scenes"]), 1)
-        self.assertEqual(payload["scenes"][0]["shots"][0]["title"], "降落")
-        again = self.client.post(
-            f"/api/director/projects/{project_id}/convert-to-recipe",
-            headers=self._headers(),
-        )
-        self.assertEqual(again.status_code, 200)
-        self.assertEqual(again.json()["payload"]["kind"], "director_recipe")
-
 
 class DirectorJobCreateStatusTests(unittest.TestCase):
     def test_create_job_returns_current_status_after_enqueue(self) -> None:
@@ -4015,8 +3725,6 @@ class ResetRecipeFollowingTests(unittest.TestCase):
         )
 
     def _seed_project(self) -> str:
-        from backend.app.director_recipe import empty_recipe_payload
-
         record = self.job_store.create_director_project(
             owner_user_id="user-1",
             title="级联工程",
@@ -4154,433 +3862,6 @@ class DirectorDualEngineApiTests(unittest.TestCase):
     def _headers(self) -> dict[str, str]:
         return {"X-CSRF-Token": csrf_token(self.token)}
 
-    def test_render_shots_can_skip_prompt_polish(self) -> None:
-        from backend.app.director_recipe import empty_recipe_payload
-
-        self.llm_provider.update({
-            "enabled": True,
-            "base_url": "https://api.example.com/v1",
-            "model": "deepseek-chat",
-            "api_key": "sk-dummy",
-        })
-        payload = empty_recipe_payload(title="免润色测试")
-        payload["artStyle"] = {
-            "id": "as_1001",
-            "name": "史诗叙事电影",
-            "name_en": "Epic Narrative Cinema",
-            "promptPrefix": "epic cinematic scene, dramatic lighting, rich atmosphere, film-grade composition",
-        }
-        payload["scenes"] = [{
-            "title": "测试场",
-            "locationName": "测试场景",
-            "shots": [{
-                "id": "skip-polish-shot",
-                "title": "测试镜头",
-                "description": "人物站在场景中",
-                "durationSec": 5,
-                "status": "idle",
-            }],
-        }]
-        created = self.client.post(
-            "/api/director/projects",
-            headers=self._headers(),
-            json={"title": "免润色测试", "payload": payload},
-        )
-        self.assertEqual(created.status_code, 201, created.text)
-        project_id = created.json()["id"]
-        with patch.object(self.llm_provider, "polish_director_h3_prompt") as polish:
-            response = self.client.post(
-                f"/api/director/recipes/{project_id}/render-shots",
-                headers=self._headers(),
-                json={"shot_ids": ["skip-polish-shot"], "render_pass": "preview", "polish_prompt": False},
-            )
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertTrue(response.json()["payload"]["scenes"][0]["shots"][0]["jobId"])
-        polish.assert_not_called()
-
-    def test_recipes_run_and_render_shots_enqueue_t2v(self) -> None:
-        self.llm_provider.update({
-            "enabled": True,
-            "base_url": "https://api.example.com/v1",
-            "model": "deepseek-chat",
-            "api_key": "sk-dummy",
-        })
-        from backend.app.director_recipe import empty_recipe_payload
-
-        def fake_run(recipe, *, goal, art_style_id=None, agents=None, skip_research=None, on_progress=None):
-            payload = normalize_recipe_payload(recipe or empty_recipe_payload())
-            payload["script"] = {"title": "雨夜", "summary": "侦探", "fullStory": goal}
-            payload["artStyle"] = {
-                "id": "as_1001",
-                "name": "史诗叙事电影",
-                "name_en": "Epic Narrative Cinema",
-                "promptPrefix": "epic cinematic scene, dramatic lighting, rich atmosphere, film-grade composition, emotional visual storytelling",
-            }
-            payload["scenes"] = [{
-                "title": "巷口",
-                "locationName": "暗巷",
-                "shots": [{
-                    "title": "跟踪",
-                    "description": "走进雨巷",
-                    "dialogue": "别动。",
-                    "characterNames": [],
-                    "durationSec": 5,
-                    "status": "idle",
-                }],
-            }]
-            if on_progress:
-                on_progress(payload)
-            return payload
-
-        with patch.object(self.llm_provider, "run_director_recipe", side_effect=fake_run):
-            response = self.client.post(
-                "/api/director/recipes/run",
-                headers=self._headers(),
-                json={"goal": "雨夜里侦探穿过暗巷。", "skip_research": True},
-            )
-        self.assertEqual(response.status_code, 200, response.text)
-        project = response.json()
-        self.assertEqual(project["kind"], "director_recipe")
-        self.assertEqual(project["payload"]["script"]["title"], "雨夜")
-        shot_id = project["payload"]["scenes"][0]["shots"][0]["id"]
-        missing = self.client.post(
-            f"/api/director/recipes/{project['id']}/render-shots",
-            headers=self._headers(),
-            json={"shot_ids": ["missing-shot"], "render_pass": "final"},
-        )
-        self.assertEqual(missing.status_code, 422, missing.text)
-        self.assertIn("没有找到", missing.json()["detail"])
-
-        def polish_after_queue(draft, mode):
-            current = self.job_store.get_director_project(project["id"])
-            queued = current["payload"]["scenes"][0]["shots"][0]
-            self.assertEqual(queued.get("status"), "queued")
-            self.assertFalse(queued.get("jobId"))
-            return draft
-
-        with patch.object(self.llm_provider, "polish_director_h3_prompt", side_effect=polish_after_queue) as polish:
-            rendered = self.client.post(
-                f"/api/director/recipes/{project['id']}/render-shots",
-                headers=self._headers(),
-                json={"shot_ids": [shot_id], "render_pass": "final"},
-            )
-        polish.assert_called_once_with(ANY, "T2VA")
-        self.assertEqual(rendered.status_code, 200, rendered.text)
-        body = rendered.json()
-        job_id = body["payload"]["scenes"][0]["shots"][0]["jobId"]
-        self.assertTrue(job_id)
-        self.assertIn(job_id, self.enqueued)
-        job = self.job_store.get(job_id)
-        self.assertEqual(job["mode"], "minimax-h3-t2v")
-        self.assertIn("epic cinematic", job["prompt"])
-
-        with patch.object(self.llm_provider, "polish_director_h3_prompt", side_effect=lambda draft, mode: draft):
-            previewed = self.client.post(
-                f"/api/director/recipes/{project['id']}/render-shots",
-                headers=self._headers(),
-                json={"shot_ids": [shot_id], "render_pass": "preview"},
-            )
-        self.assertEqual(previewed.status_code, 200, previewed.text)
-        preview_shot = previewed.json()["payload"]["scenes"][0]["shots"][0]
-        preview_job = self.job_store.get(preview_shot["jobId"])
-        self.assertEqual(preview_job["options"]["quality"], "0.4")
-        self.assertEqual(preview_job["options"]["speed"], "fast")
-        preview_take = preview_shot["takes"][-1]
-        self.assertEqual(preview_take["renderPass"], "preview")
-        self.assertEqual(preview_take["workflowId"], "minimax-h3-t2v")
-        self.assertEqual(preview_take["options"]["quality"], "0.4")
-        self.assertEqual(preview_take["options"]["speed"], "fast")
-        self.assertEqual(preview_take["options"]["weight_profile"], "full")
-        final_take = rendered.json()["payload"]["scenes"][0]["shots"][0]["takes"][-1]
-        self.assertEqual(final_take["renderPass"], "final")
-        self.assertEqual(final_take["options"]["quality"], "1.0")
-        self.assertEqual(final_take["options"]["speed"], "balanced")
-
-        with patch.object(
-            self.llm_provider,
-            "polish_director_h3_prompt",
-            side_effect=AssertionError("提示词润色已关闭，不应调用大模型"),
-        ) as polish:
-            direct_prompt = self.client.post(
-                f"/api/director/recipes/{project['id']}/render-shots",
-                headers=self._headers(),
-                json={"shot_ids": [shot_id], "render_pass": "preview", "polish_prompt": False},
-            )
-        self.assertEqual(direct_prompt.status_code, 200, direct_prompt.text)
-        polish.assert_not_called()
-
-    def test_recipes_run_accepts_script_and_storyboard_subset(self) -> None:
-        self.llm_provider.update({
-            "enabled": True,
-            "base_url": "https://api.example.com/v1",
-            "model": "deepseek-chat",
-            "api_key": "sk-dummy",
-        })
-        from backend.app.director_recipe import empty_recipe_payload
-
-        captured: dict[str, object] = {}
-
-        def fake_run(recipe, *, goal, art_style_id=None, agents=None, skip_research=None, on_progress=None):
-            captured["agents"] = agents
-            payload = normalize_recipe_payload(recipe or empty_recipe_payload())
-            payload["script"] = {"title": "都市程序员", "summary": "加班", "fullStory": "林舟连夜改代码。"}
-            payload["scenes"] = [{
-                "title": "公司",
-                "shots": [
-                    {"title": "进门", "description": "推开玻璃门", "durationSec": 5, "status": "idle"},
-                    {"title": "工位", "description": "打开终端", "durationSec": 6, "status": "idle"},
-                ],
-            }]
-            if on_progress:
-                on_progress(payload)
-            return payload
-
-        with patch.object(self.llm_provider, "run_director_recipe", side_effect=fake_run):
-            response = self.client.post(
-                "/api/director/recipes/run",
-                headers=self._headers(),
-                json={
-                    "goal": "生成一份都市类型程序员职业的 AI 短剧剧本",
-                    "skip_research": True,
-                    "agents": ["script", "storyboard"],
-                },
-            )
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(captured["agents"], ["script", "storyboard"])
-        shots = response.json()["payload"]["scenes"][0]["shots"]
-        self.assertEqual(len(shots), 2)
-        self.assertEqual(shots[0]["title"], "进门")
-
-        from backend.app.llm_client import LlmBillingError
-
-        def fake_billing(*_args, **_kwargs):
-            raise LlmBillingError(
-                "大模型上游余额不足或欠费（HTTP 403），请到供应商控制台充值后再试。"
-                "上游返回：account balance is insufficient"
-            )
-
-        with patch.object(self.llm_provider, "run_director_recipe", side_effect=fake_billing):
-            billed = self.client.post(
-                "/api/director/recipes/run",
-                headers=self._headers(),
-                json={"goal": "测试余额", "skip_research": True, "agents": ["storyboard"]},
-            )
-        self.assertEqual(billed.status_code, 502, billed.text)
-        self.assertIn("余额不足", billed.json()["detail"])
-        self.assertIn("account balance is insufficient", billed.json()["detail"])
-
-        bad = self.client.post(
-            "/api/director/recipes/run",
-            headers=self._headers(),
-            json={"goal": "测试", "agents": ["not-an-agent"]},
-        )
-        self.assertEqual(bad.status_code, 422)
-
-    def test_durable_operation_create_read_cancel_and_exclusive_guard(self) -> None:
-        from backend.app.director_recipe import empty_recipe_payload
-
-        created = self.client.post(
-            "/api/director/projects",
-            headers=self._headers(),
-            json={"title": "持久化操作", "payload": empty_recipe_payload(title="持久化操作")},
-        )
-        self.assertEqual(created.status_code, 201, created.text)
-        project_id = created.json()["id"]
-        started: list[str] = []
-
-        class OperationStarterStub:
-            @staticmethod
-            def start(operation_id: str) -> None:
-                started.append(operation_id)
-
-        original = getattr(app.state, "director_operations", None)
-        app.state.director_operations = OperationStarterStub()
-        try:
-            response = self.client.post(
-                f"/api/director/recipes/{project_id}/operations",
-                headers=self._headers(),
-                json={
-                    "kind": "shot_render_prepare",
-                    "shot_ids": ["shot-1"],
-                    "render_pass": "preview",
-                    "polish_prompt": False,
-                },
-            )
-            self.assertEqual(response.status_code, 202, response.text)
-            operation = response.json()
-            self.assertEqual(operation["status"], "queued")
-            self.assertEqual(started, [operation["id"]])
-            self.assertNotIn("owner_user_id", operation)
-
-            duplicate = self.client.post(
-                f"/api/director/recipes/{project_id}/operations",
-                headers=self._headers(),
-                json={"kind": "shot_render_prepare"},
-            )
-            self.assertEqual(duplicate.status_code, 409, duplicate.text)
-
-            fetched = self.client.get(f"/api/director/operations/{operation['id']}")
-            self.assertEqual(fetched.status_code, 200, fetched.text)
-            self.assertEqual(fetched.json()["request"]["shot_ids"], ["shot-1"])
-            self.assertFalse(fetched.json()["request"]["polish_prompt"])
-
-            cancelled = self.client.post(
-                f"/api/director/operations/{operation['id']}/cancel",
-                headers=self._headers(),
-            )
-            self.assertEqual(cancelled.status_code, 200, cancelled.text)
-            self.assertTrue(cancelled.json()["cancel_requested"])
-        finally:
-            if original is None:
-                delattr(app.state, "director_operations")
-            else:
-                app.state.director_operations = original
-
-    def test_render_shots_with_first_frame_enqueues_i2v(self) -> None:
-        from backend.app.director_recipe import empty_recipe_payload
-
-        frame = Path(self.temp_dir.name) / "first.png"
-        frame.write_bytes(b"\x89PNG\r\n\x1a\n" + b"frame")
-        created = self.client.post(
-            "/api/director/projects",
-            headers=self._headers(),
-            json={
-                "title": "首帧工程",
-                "payload": {
-                    **empty_recipe_payload(title="首帧工程"),
-                    "artStyle": {"id": "as_1001"},
-                    "scenes": [{"shots": [{
-                        "id": "shot-i2v",
-                        "title": "开场",
-                        "description": "走进雨巷",
-                        "durationSec": 5,
-                        "firstFramePath": str(frame),
-                        "firstFrameUrl": "/api/director/recipes/x/frames/shot-i2v/first",
-                    }]}],
-                },
-            },
-        )
-        self.assertEqual(created.status_code, 201, created.text)
-        project_id = created.json()["id"]
-        rendered = self.client.post(
-            f"/api/director/recipes/{project_id}/render-shots",
-            headers=self._headers(),
-            json={"shot_ids": ["shot-i2v"], "render_pass": "preview"},
-        )
-        self.assertEqual(rendered.status_code, 200, rendered.text)
-        shot = rendered.json()["payload"]["scenes"][0]["shots"][0]
-        job = self.job_store.get(shot["jobId"], include_references=True)
-        self.assertEqual(job["mode"], "minimax-h3-i2v")
-        self.assertEqual(job["options"]["quality"], "0.4")
-        self.assertEqual(job.get("reference_count"), 1)
-
-    def test_generate_stills_enqueues_image_job(self) -> None:
-        from backend.app.director_recipe import empty_recipe_payload
-        from backend.app.models import JobMode
-
-        class FakeGrs:
-            def availability(self, mode=None):
-                return True, None
-
-            def enabled_image_workflows(self):
-                return [{"id": JobMode.GRS_GPT_IMAGE_2.value}]
-
-        created = self.client.post(
-            "/api/director/projects",
-            headers=self._headers(),
-            json={
-                "title": "静帧工程",
-                "payload": {
-                    **empty_recipe_payload(title="静帧工程"),
-                    "artStyle": {"id": "as_1001"},
-                    "scenes": [{"shots": [{
-                        "id": "shot-still",
-                        "title": "开场",
-                        "description": "走进雨巷",
-                        "promptText": "detective walks into a rainy alley",
-                    }]}],
-                },
-            },
-        )
-        self.assertEqual(created.status_code, 201, created.text)
-        project_id = created.json()["id"]
-        app.state.grs_provider = FakeGrs()
-        stills = self.client.post(
-            f"/api/director/recipes/{project_id}/generate-stills",
-            headers=self._headers(),
-            json={"shot_ids": ["shot-still"], "force": True},
-        )
-        self.assertEqual(stills.status_code, 200, stills.text)
-        shot = stills.json()["payload"]["scenes"][0]["shots"][0]
-        self.assertTrue(shot["stillJobId"])
-        self.assertIn(shot["stillJobId"], self.enqueued)
-        job = self.job_store.get(shot["stillJobId"])
-        self.assertEqual(job["mode"], JobMode.GRS_GPT_IMAGE_2.value)
-        self.assertIn("still frame", job["prompt"])
-        self.assertIn("detective walks", job["prompt"])
-
-    def test_generate_stills_skips_in_flight_job(self) -> None:
-        from backend.app.director_recipe import empty_recipe_payload
-        from backend.app.models import JobMode
-
-        class FakeGrs:
-            def availability(self, mode=None):
-                return True, None
-
-            def enabled_image_workflows(self):
-                return [{"id": JobMode.GRS_GPT_IMAGE_2.value}]
-
-        created = self.client.post(
-            "/api/director/projects",
-            headers=self._headers(),
-            json={
-                "title": "静帧在途工程",
-                "payload": {
-                    **empty_recipe_payload(title="静帧在途工程"),
-                    "artStyle": {"id": "as_1001"},
-                    "scenes": [{"shots": [{
-                        "id": "shot-still-inflight",
-                        "title": "开场",
-                        "description": "走进雨巷",
-                        "promptText": "detective walks into a rainy alley",
-                    }]}],
-                },
-            },
-        )
-        self.assertEqual(created.status_code, 201, created.text)
-        project_id = created.json()["id"]
-        app.state.grs_provider = FakeGrs()
-        first = self.client.post(
-            f"/api/director/recipes/{project_id}/generate-stills",
-            headers=self._headers(),
-            json={"shot_ids": ["shot-still-inflight"], "force": False},
-        )
-        self.assertEqual(first.status_code, 200, first.text)
-        shot = first.json()["payload"]["scenes"][0]["shots"][0]
-        first_job_id = shot["stillJobId"]
-        self.assertTrue(first_job_id)
-        self.assertEqual(len(self.enqueued), 1)
-
-        second = self.client.post(
-            f"/api/director/recipes/{project_id}/generate-stills",
-            headers=self._headers(),
-            json={"shot_ids": ["shot-still-inflight"], "force": False},
-        )
-        self.assertEqual(second.status_code, 200, second.text)
-        shot = second.json()["payload"]["scenes"][0]["shots"][0]
-        self.assertEqual(shot["stillJobId"], first_job_id)
-        self.assertEqual(len(self.enqueued), 1)
-
-        forced = self.client.post(
-            f"/api/director/recipes/{project_id}/generate-stills",
-            headers=self._headers(),
-            json={"shot_ids": ["shot-still-inflight"], "force": True},
-        )
-        self.assertEqual(forced.status_code, 200, forced.text)
-        forced_shot = forced.json()["payload"]["scenes"][0]["shots"][0]
-        self.assertNotEqual(forced_shot["stillJobId"], first_job_id)
-        self.assertEqual(len(self.enqueued), 2)
-
     def test_batches_enqueue_two_t2v_jobs(self) -> None:
         self.llm_provider.update({
             "enabled": True,
@@ -4698,36 +3979,6 @@ class DirectorDualEngineApiTests(unittest.TestCase):
         fission.assert_not_called()
         refreshed = self.client.get(f"/api/director/projects/{project_id}", headers=self._headers())
         self.assertEqual(refreshed.json()["kind"], PAYLOAD_KIND_RECIPE)
-
-    def test_recipe_frame_download_resolves_project_owner_directory(self) -> None:
-        from backend.app import main as main_module
-        from backend.app.director_recipe import empty_recipe_payload
-
-        admin = self.auth_store.create_user("boss", "管理员", "password123456", UserRole.ADMIN, must_change_password=False)
-        admin_token, _ = self.auth_store.create_session(admin["id"])
-        created = self.client.post(
-            "/api/director/projects",
-            headers=self._headers(),
-            json={"title": "帧目录测试", "payload": empty_recipe_payload(title="帧目录测试")},
-        )
-        self.assertEqual(created.status_code, 201, created.text)
-        project_id = created.json()["id"]
-        frame_file = Path(self.temp_dir.name) / "shot-1_first.png"
-        frame_file.write_bytes(b"\x89PNG\r\n\x1a\nframe")
-        captured: dict[str, str] = {}
-
-        def fake_find(*, owner_user_id: str, project_id: str, shot_id: str, slot: str):
-            captured["owner_user_id"] = owner_user_id
-            return frame_file
-
-        admin_client = TestClient(app)
-        admin_client.cookies.set("zly_ai_video_studio_session", admin_token)
-        with patch.object(main_module, "find_recipe_frame_file", side_effect=fake_find):
-            response = admin_client.get(f"/api/director/recipes/{project_id}/frames/shot-1/first")
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(captured["owner_user_id"], self.user["id"])
-        self.assertEqual(response.content, b"\x89PNG\r\n\x1a\nframe")
-
 
 class DirectorAssetCloudTests(unittest.TestCase):
     def test_job_asset_image_url_prefers_cloud_url(self) -> None:
@@ -4877,30 +4128,6 @@ class DirectorLibraryApiTests(unittest.TestCase):
     def _headers(self, token: str | None = None) -> dict[str, str]:
         return {"X-CSRF-Token": csrf_token(token or self.token)}
 
-    def _recipe_payload(self) -> dict:
-        from backend.app.director_recipe import empty_recipe_payload
-
-        recipe = empty_recipe_payload(title="雨夜")
-        recipe["characters"] = [{
-            "name": "艾达",
-            "description": "女侦探",
-            "promptText": "a woman detective",
-            "type": "character",
-            "imageUrl": "https://media.example.com/ada.png",
-            "imageJobId": "job-ada",
-        }, {
-            "name": "怀表",
-            "description": "金色怀表",
-            "promptText": "golden pocket watch",
-            "type": "object",
-        }]
-        recipe["locations"] = [{
-            "name": "雨巷",
-            "description": "夜晚巷口",
-            "promptText": "rainy alley at night",
-        }]
-        return recipe
-
     def test_crud_is_owner_scoped_and_inserts_into_recipe(self) -> None:
         created = self.client.post(
             "/api/director/library-assets",
@@ -4930,58 +4157,13 @@ class DirectorLibraryApiTests(unittest.TestCase):
         )
         self.assertEqual(other_delete.status_code, 404)
 
-        project = self.client.post(
-            "/api/director/projects",
-            headers=self._headers(),
-            json={"title": "雨夜", "payload": self._recipe_payload()},
-        )
-        self.assertEqual(project.status_code, 201, project.text)
-        project_id = project.json()["id"]
-
-        saved = self.client.post(
-            "/api/director/library-assets/from-recipe",
-            headers=self._headers(),
-            json={"project_id": project_id},
-        )
-        self.assertEqual(saved.status_code, 200, saved.text)
-        body = saved.json()
-        self.assertEqual(body["imported"], 3)
-        kinds = {item["kind"] for item in body["assets"]}
-        self.assertEqual(kinds, {"character", "scene", "prop"})
-        prop = next(item for item in body["assets"] if item["kind"] == "prop")
-        self.assertEqual(prop["name"], "怀表")
-        scene = next(item for item in body["assets"] if item["kind"] == "scene")
-        self.assertEqual(scene["name"], "雨巷")
-
-        empty = self.client.post(
-            "/api/director/projects",
-            headers=self._headers(),
-            json={"title": "新工程", "payload": {"kind": "director_recipe"}},
-        )
-        self.assertEqual(empty.status_code, 201, empty.text)
-        inserted = self.client.post(
-            f"/api/director/recipes/{empty.json()['id']}/insert-library-assets",
-            headers=self._headers(),
-            json={"asset_ids": [item["id"] for item in body["assets"]]},
-        )
-        self.assertEqual(inserted.status_code, 200, inserted.text)
-        payload = inserted.json()["payload"]
-        self.assertEqual(len(payload["characters"]), 2)
-        self.assertEqual(len(payload["locations"]), 1)
-        names = {item["name"] for item in payload["characters"]}
-        self.assertEqual(names, {"艾达", "怀表"})
-        watch = next(item for item in payload["characters"] if item["name"] == "怀表")
-        self.assertEqual(watch["type"], "object")
-        self.assertEqual(watch["libraryAssetId"], prop["id"])
-        self.assertEqual(payload["locations"][0]["libraryAssetId"], scene["id"])
-
         deleted = self.client.delete(
             f"/api/director/library-assets/{asset['id']}",
             headers=self._headers(),
         )
         self.assertEqual(deleted.status_code, 204)
         after = self.client.get("/api/director/library-assets")
-        self.assertEqual(len(after.json()), 3)
+        self.assertEqual(after.json(), [])
 
     def test_upload_image_and_plate_path_uses_library_file(self) -> None:
         from backend.app.director_jobs import _plate_file_for_slot
@@ -5113,103 +4295,6 @@ class DirectorAvExportTests(unittest.TestCase):
             "label": "分镜视频",
             "delivery_status": "pending",
         }])
-
-    def test_tts_writes_succeeded_status(self) -> None:
-        project_id = self._create_recipe_project([{
-            "title": "跟踪",
-            "description": "走进雨巷",
-            "dialogue": "别动。",
-            "durationSec": 5,
-            "status": "idle",
-        }])
-        fetched = self.client.get(f"/api/director/projects/{project_id}")
-        shot_id = fetched.json()["payload"]["scenes"][0]["shots"][0]["id"]
-
-        class FakeTts:
-            def voice(self) -> str:
-                return "alloy"
-
-            def resolve_voice(self, voice, *, gender: str = "") -> str:
-                return voice or "alloy"
-
-            def synthesize(self, text: str, *, voice: str | None = None) -> bytes:
-                return f"audio:{voice}:{text}".encode("utf-8")
-
-        app.state.tts_provider = FakeTts()
-        response = self.client.post(
-            f"/api/director/recipes/{project_id}/tts",
-            headers=self._headers(),
-            json={"shot_ids": [shot_id]},
-        )
-        self.assertEqual(response.status_code, 200, response.text)
-        shot = response.json()["payload"]["scenes"][0]["shots"][0]
-        self.assertEqual(shot["ttsStatus"], "succeeded")
-        self.assertTrue(shot["ttsUrl"])
-        audio_files = list(self.audio_dir.glob("tts-*.mp3"))
-        self.assertEqual(len(audio_files), 1)
-        self.assertIn("别动".encode("utf-8"), audio_files[0].read_bytes())
-
-    def test_mux_duration_skips_failed_shots(self) -> None:
-        good_a = Path(self.temp_dir.name) / "a.mp4"
-        good_b = Path(self.temp_dir.name) / "b.mp4"
-        good_a.write_bytes(b"video-a")
-        good_b.write_bytes(b"video-b")
-        self._succeed_video_job("job-a", good_a)
-        self._succeed_video_job("job-b", good_b)
-        project_id = self._create_recipe_project([
-            {
-                "title": "第一镜",
-                "dialogue": "走。",
-                "durationSec": 5,
-                "status": "succeeded",
-                "jobId": "job-a",
-                "outputVideoUrl": "/api/jobs/job-a/outputs/0/download",
-                "approvedTakeId": "take-a",
-                "takes": [{"id": "take-a", "jobId": "job-a", "status": "succeeded", "videoUrl": "/api/jobs/job-a/outputs/0/download", "outputPath": str(good_a)}],
-            },
-            {
-                "title": "失败镜",
-                "dialogue": "啊。",
-                "durationSec": 8,
-                "status": "failed",
-                "jobId": "job-fail",
-                "error": "OOM",
-            },
-            {
-                "title": "第三镜",
-                "dialogue": "停。",
-                "durationSec": 5,
-                "status": "succeeded",
-                "jobId": "job-b",
-                "outputVideoUrl": "/api/jobs/job-b/outputs/0/download",
-                "approvedTakeId": "take-b",
-                "takes": [{"id": "take-b", "jobId": "job-b", "status": "succeeded", "videoUrl": "/api/jobs/job-b/outputs/0/download", "outputPath": str(good_b)}],
-            },
-        ])
-        app.state.ffmpeg_runner = self.FakeFfmpeg(duration=10.0)
-        muxed = self.client.post(
-            f"/api/director/recipes/{project_id}/mux",
-            headers=self._headers(),
-            json={"burn_subtitles": False},
-        )
-        self.assertEqual(muxed.status_code, 200, muxed.text)
-        export = muxed.json()["payload"]["export"]
-        self.assertEqual(export["muxStatus"], "succeeded")
-        self.assertEqual(export["muxDurationSec"], 10.0)
-        self.assertTrue((self.mux_dir / "film.mp4").is_file())
-
-        xml = self.client.get(f"/api/director/recipes/{project_id}/export.fcpxml")
-        self.assertEqual(xml.status_code, 200, xml.text)
-        body = xml.text
-        self.assertEqual(body.count("<asset-clip ref="), 2)
-        self.assertNotIn("失败镜", body)
-        self.assertIn("第一镜", body)
-        self.assertIn("第三镜", body)
-
-        edl = self.client.get(f"/api/director/recipes/{project_id}/export.edl")
-        self.assertEqual(edl.status_code, 200, edl.text)
-        self.assertIn("TITLE:", edl.text)
-        self.assertIn("FROM CLIP NAME:", edl.text)
 
     def test_fcpxml_shot_count_matches_muxable_clips(self) -> None:
         from backend.app.director_export import MuxClip, build_fcpxml, timeline_duration_sec

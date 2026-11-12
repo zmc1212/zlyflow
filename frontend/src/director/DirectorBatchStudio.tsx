@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react"
 import JobErrorNotice from "./components/JobErrorNotice"
 import DirectorPromptBar from "./components/DirectorPromptBar"
 import { searchFilterOption } from "../search-match"
-import { DirectorMobileBottomBar, DirectorMobileHeader } from "./DirectorMobileChrome"
+import { DirectorMobileHeader } from "./DirectorMobileChrome"
 import { BATCH_PROMPT_PLACEHOLDER } from "./action-copy"
 import {
   batchPayloadFromApi, createDirectorBatch, getDirectorProject, listDirectorArtStyles, listWorkflowModes,

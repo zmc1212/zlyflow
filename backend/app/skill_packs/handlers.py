@@ -1213,21 +1213,6 @@ def _extract_official_block(text: str, title: str) -> str:
     return match.group(1).strip() if match else ""
 
 
-def _speech_atoms_from_turns(turns: list[dict[str, Any]]) -> list[str]:
-    from ..media_studio.services.h3_prompt_builder import H3PromptBuilder
-
-    atoms: list[str] = []
-    seen: set[str] = set()
-    for item in turns:
-        for atom in H3PromptBuilder.split_speech_atoms(str(item.get("text") or "")):
-            key = _han_only(atom) or atom
-            if not key or key in seen:
-                continue
-            seen.add(key)
-            atoms.append(atom)
-    return atoms
-
-
 def _speech_channel_errors(text: str, beat: dict[str, Any]) -> list[str]:
     spoken_atoms = [
         str(item.get("text") or "").strip()
@@ -1380,16 +1365,3 @@ def _speech_split_errors(text: str, required: list[str]) -> list[str]:
     return []
 
 
-def _fallback_zh_template() -> str:
-    return """【画幅与时长】{{aspect_ratio}}，{{duration}} 秒。成片必须是单一{{orientation}}，不许分栏。
-【参考图合同】
-{{pictures}}
-【空间建立】{{heading}}。{{start_range}} 锁定起幅站位与景深。
-【分秒动作】
-{{mid_range}} {{action}}
-{{end_range}} 落到本镜结果并稳住。
-【运镜】{{camera}}
-【对白与旁白】{{dialogue}}
-内心/旁白闭嘴画外音，英文用 says in an off-screen voiceover，不要口型同步 says:。
-【声音】环境声与动作同步，不要抢台词。
-【禁止】不要引用没有上传的参考图；不要姓名牌、字幕、水印。技能包：{{pack_name}}。"""

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import type { WorkshopPromptLiveState } from "./workshop-prompt-stream"
 import "./workshop-prompt-live.css"
 
-function Chevron({ open }: { open: boolean }) {
+function Chevron(_: { open: boolean }) {
   return (
     <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden>
       <path d="M2.2 3.6 5 6.4 7.8 3.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />

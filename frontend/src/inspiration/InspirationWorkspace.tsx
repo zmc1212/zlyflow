@@ -173,7 +173,7 @@ export default function InspirationWorkspace({ onUseInComposer }: {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [promptExpanded, setPromptExpanded] = useState(false)
   const [referencePreviewOpen, setReferencePreviewOpen] = useState(false)
-  const [playing, setPlaying] = useState(false)
+  const [, setPlaying] = useState(false)
   const [messageApi, contextHolder] = message.useMessage()
   const videoRef = useRef<HTMLVideoElement>(null)
   const autoPlayedRef = useRef<string | null>(null)

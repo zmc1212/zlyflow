@@ -248,13 +248,6 @@ def find_replication_shot(payload: dict[str, Any], shot_id: str) -> dict[str, An
     return None
 
 
-def find_replication_subject(payload: dict[str, Any], subject_id: str) -> dict[str, Any] | None:
-    for subject in _as_list(_as_dict(payload).get("subjects")):
-        if isinstance(subject, dict) and _text(subject.get("id")) == subject_id:
-            return subject
-    return None
-
-
 def validate_source_video(filename: str, size: int | None) -> str:
     """校验上传的参考片文件名与大小，返回安全后缀。"""
     suffix = Path(filename or "").suffix.lower()

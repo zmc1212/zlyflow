@@ -1,5 +1,5 @@
 import {
-  Handle, NodeResizer, NodeToolbar, Position, useReactFlow, type NodeProps,
+  NodeResizer, NodeToolbar, Position, useReactFlow, type NodeProps,
 } from "@xyflow/react"
 import { Button, Input, Tooltip } from "antd"
 import {

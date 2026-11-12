@@ -2969,14 +2969,6 @@ def is_cloud_video_workflow(mode: JobMode | str) -> bool:
     return mode_key(mode) in CLOUD_VIDEO_WORKFLOW_IDS
 
 
-def cloud_provider_for(mode: JobMode | str) -> str | None:
-    try:
-        definition = workflow_for(mode)
-    except KeyError:
-        return None
-    return definition.cloud_provider if is_cloud_video_workflow(definition.id) else None
-
-
 def cloud_model_for(mode: JobMode | str, options: dict[str, Any] | None = None) -> str | None:
     """云端视频工作流的厂商模型名：options.model（advanced 选项）优先，回落注册表默认。"""
     try:

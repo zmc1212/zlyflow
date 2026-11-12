@@ -209,9 +209,6 @@ def load_shot_continuity_excerpt() -> str:
     ])
 
 
-# Backward-compatible alias used by older tests/imports.
-SEEDANCE_CONTINUITY_EXCERPT = load_shot_continuity_excerpt()
-
 
 def build_shot_timing_polish_prompt() -> str:
     return "\n\n".join([

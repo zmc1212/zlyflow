@@ -87,10 +87,6 @@ class ProductionTakePlan:
     speaker: str
 
 
-def load_coverage_contract_excerpt() -> str:
-    return COVERAGE_CONTRACT_EXCERPT
-
-
 def english_who(name: str) -> str:
     text = str(name or "").strip()
     if not text:

@@ -11,7 +11,6 @@ import {
   canvasImageReferenceUrl,
   canvasJobStatusLabel,
   canvasJobStatusTone,
-  canvasModeOptionDefinitions,
   canvasPictureToken,
   canvasReferenceLabel,
   canvasResultHistory,
@@ -63,7 +62,6 @@ export function CanvasGeneratorInspector({
 }) {
   const { updateNodeData } = useReactFlow()
   const workflow = modes.find((item) => item.id === node.data.workflowId) ?? null
-  const definitions = canvasModeOptionDefinitions(workflow)
   const values = generatorOptionValues(workflow, node.data.optionValues)
   const fields = generatorParameterFields(workflow, values)
   const promptSource = resolveGeneratorPrompt(promptNodes, node.data.prompt ?? "")

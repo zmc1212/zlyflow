@@ -16,10 +16,6 @@ _OWNER = ""
 T = TypeVar("T")
 
 
-def gpu_owner() -> str:
-    return _OWNER
-
-
 def free_comfy() -> bool:
     try:
         from .media_studio.services.comfy_service import ComfyService

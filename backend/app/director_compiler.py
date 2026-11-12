@@ -21,10 +21,6 @@ REF2VA_SECTION_NAMES = (
     "non_diegetic_music",
 )
 
-WORKFLOW_T2V = "minimax-h3-t2v"
-WORKFLOW_I2V = "minimax-h3-i2v"
-WORKFLOW_R2V = "minimax-h3-r2v"
-
 H3_SCALE_PHRASES = {
     "ELS": "an extreme long shot",
     "WS": "a wide shot",
@@ -87,7 +83,6 @@ DIRECTOR_SPEEDS = {"fast", "balanced", "quality"}
 DIRECTOR_WEIGHT_PROFILES = {"full", "pruned"}
 DIRECTOR_PREVIEW_QUALITY = "0.4"
 DIRECTOR_PREVIEW_SPEED = "fast"
-DIRECTOR_FINAL_QUALITY = "1.0"
 DIRECTOR_FINAL_SPEED = "balanced"
 DIRECTOR_WEIGHT_PROFILE = "full"
 
@@ -271,10 +266,6 @@ def build_h3_shot_body(shot: dict[str, Any]) -> str:
     return visual.strip()
 
 
-def build_formatted_shot_prompt(shot: dict[str, Any]) -> str:
-    return build_h3_shot_body(shot)
-
-
 def _slot_has_image(slot: dict[str, Any]) -> bool:
     return bool(
         _get(slot, "file", "hasImage", "previewUrl", "preview_url")
@@ -328,10 +319,6 @@ def _route_kind(subject_count: int, has_first: bool, has_last: bool) -> str:
 
 def _project_workflow_family(project: dict[str, Any] | None) -> str:
     return str(_get(project, "videoWorkflowFamily", "video_workflow_family", default="") or DEFAULT_DIRECTOR_WORKFLOW_FAMILY)
-
-
-def _route_workflow(subject_count: int, has_first: bool, has_last: bool, family: str | None = None) -> str:
-    return resolve_director_workflow(family, _route_kind(subject_count, has_first, has_last))
 
 
 def build_reference_plan(project: dict[str, Any], shot: dict[str, Any]) -> dict[str, Any]:

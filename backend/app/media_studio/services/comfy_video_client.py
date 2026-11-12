@@ -32,14 +32,12 @@ from ...rtx_vsr_workflow import (
     build_rtx_vsr_workflow,
     comfy_has_rtx_vsr_node,
     comfy_vram_device_name,
-    comfy_vram_total_bytes,
     explain_comfy_prompt_rejection,
     RTX_VSR_NODE_TYPE,
     rtx_vsr_node_missing_message,
 )
 from ...seedvr2_upscale_workflow import (
     SEEDVR2_OBJECT_INFO_TYPES,
-    build_seedvr2_upscale_workflow,
     seedvr2_missing_message,
 )
 from ...workflow_registry import (
@@ -95,14 +93,6 @@ class ComfyVideoClient:
             raise ValueError(f"无法连接视频服务{self.base_url}: {err}") from err
         except ValueError:
             self._system_stats = {}
-
-    def vram_total_bytes(self) -> int | None:
-        if self._system_stats is None:
-            try:
-                self.ping()
-            except ValueError:
-                return None
-        return comfy_vram_total_bytes(self._system_stats or {})
 
     def vram_device_name(self) -> str:
         if self._system_stats is None:
@@ -860,26 +850,3 @@ class ComfyVideoClient:
         )
         return output
 
-    def run_seedvr2(
-        self,
-        content: bytes,
-        *,
-        preferred_name: str,
-        progress: Callable[[int], None] | None = None,
-        on_submitted: Callable[[dict[str, Any]], None] | None = None,
-        filename_prefix: str | None = None,
-    ) -> dict[str, str]:
-        self.require_seedvr2()
-        self.free_resources(force=True)
-        uploaded = self.upload_video_bytes(
-            content, preferred_name=preferred_name, subfolder="seedvr2-upscale",
-        )
-        workflow = build_seedvr2_upscale_workflow(uploaded)
-        if filename_prefix:
-            self._set_output_prefix(workflow, filename_prefix)
-        _submitted, _history, output = self.submit_and_wait(
-            workflow,
-            progress=progress,
-            on_submitted=on_submitted,
-        )
-        return output

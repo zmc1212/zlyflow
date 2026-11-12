@@ -17,10 +17,9 @@ import { musicReadOnlyScope } from "./music/music-library"
 import { elapsedCaption, executionCaption, isLiveStatus, jobElapsedMs, useNow } from "./job-elapsed"
 import type { ImageResult } from "./media/ImageStudioModule"
 import { mediaActions, type MediaActionHost, type MediaActionItem } from "./media/media-actions"
-import type { VideoResult } from "./media/VideoStudioModule"
 import VideoRoundHeader from "./media/VideoRoundHeader"
 import ImageRoundHeader from "./media/ImageRoundHeader"
-import { jobUpscaleSourceKey, selectVideoResult, videoResultKey } from "./media/video-result-model"
+import { selectVideoResult, videoResultKey } from "./media/video-result-model"
 import {
   activeUpscaleJob,
   canUpscaleRound,
@@ -35,7 +34,7 @@ import { restoreReferenceFiles, roundReferenceSources, type ReferenceSource } fr
 import { fetchHandoffFile, type MediaHandoffSource, type MediaKind } from "./media-handoff"
 import { FACE_RESTORE_WORKFLOW } from "./generation/face-restore"
 import { cloudThumbnailSrc } from "./media-thumbnails"
-import MediaPreviewModal, { type MediaPreviewAction, type MediaPreviewNavigation, type PreviewMediaKind } from "./components/MediaPreviewModal"
+import MediaPreviewModal, { type MediaPreviewAction, type PreviewMediaKind } from "./components/MediaPreviewModal"
 import { groupedWorkflowOptions, WorkflowOptionRow, type WorkflowSelectOption } from "./components/WorkflowOptions"
 import { resolveCompareSource, type CompareSource } from "./media/image-compare"
 import RenameUserModal from "./components/RenameUserModal"
@@ -298,10 +297,6 @@ const parameterValue = (parameter: RequestParameter) => {
   return String(parameter.value)
 }
 const statusText: Record<Status, string> = { queued: "等待队列", running: "生成中", awaiting_refine: "一采预览待确认", succeeded: "已完成", partial: "部分完成", failed: "失败", interrupted: "已中断", cancelled: "已停止" }
-const statusColor: Record<Status, string> = {
-  queued: "text-amber-600", running: "text-[#4d6bfe]", awaiting_refine: "text-amber-600", succeeded: "text-emerald-600", partial: "text-amber-600", failed: "text-red-600", interrupted: "text-[#6b7280]", cancelled: "text-[#6b7280]",
-}
-
 function formatTime(value: string) {
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleString("zh-CN", { hour12: false, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })

@@ -5,7 +5,7 @@
 // updateBeatById（同步维护 ref 供轮询与异步续体读取，等价 Vue 的 .value 语义）；
 // 路由联动：openEpisodeDetail/handleBackToOverview → navigate(director2ProjectPath(...))；
 // 父组件可经 ref 调用 fetchEpisodes()。
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react"
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { activeBeatAfterDelete } from "../workshop-batch"
 import {
@@ -120,7 +120,6 @@ import {
 import { projectVideoPreferences, projectVideoResolution } from "../project-video-resolution"
 import { ensureWorkshopShootReady, workshopShootPrepConfirmLines } from "../assistant/workshop-shoot-guard"
 import { useMediaPreview } from "../media-preview"
-import { type MediaAspectSize } from "../../lib/utils"
 import { firstCharacterLookImageUrl } from "./assets/shared"
 import { renderH3PromptHtml } from "../h3-prompt-display"
 import {
@@ -150,7 +149,7 @@ import {
   type WorkshopShotVideoProgress
 } from "../workshop-video-progress"
 import WorkshopWorkspace from "./WorkshopWorkspace"
-import WorkshopOverview, { workshopEpisodeSummary } from "./WorkshopOverview"
+import WorkshopOverview from "./WorkshopOverview"
 import WorkshopHistory from "./WorkshopHistory"
 import WorkshopPlayer from "./WorkshopPlayer"
 import "./workshop-focus.css"

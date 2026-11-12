@@ -17,7 +17,6 @@ import {
   type EdgeTypes,
   type FinalConnectionState,
   type MiniMapNodeProps,
-  type NodeTypes,
   type NodeChange,
   type OnConnectStartParams,
 } from "@xyflow/react"
@@ -29,7 +28,7 @@ import {
 import {
   AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalSpaceAround,
   AlignHorizontalSpaceBetween, AlignStartHorizontal, AlignStartVertical, AlignVerticalSpaceBetween,
-  Check, ChevronDown, ChevronLeft, CircleOff, ClipboardPaste, CopyPlus, Download, Frame, GitBranch, Hand, History, Image as ImageIcon, ImagePlus, Images, Keyboard,
+  Check, ChevronDown, ChevronLeft, CircleOff, ClipboardPaste, CopyPlus, Download, GitBranch, Hand, History, Image as ImageIcon, ImagePlus, Images, Keyboard,
   Focus, Link2, LoaderCircle, Map as MapIcon, Minus, MoreHorizontal, MousePointer2, MoveDown, MoveRight, Pencil, Plus, Redo2, RefreshCw,
   PanelRight, Search, Settings, SlidersHorizontal, Sparkles, Square, Trash2, Type, Undo2, Upload, Video, Waypoints,
 } from "lucide-react"
@@ -179,15 +178,9 @@ import {
 } from "./canvas-save"
 import { CanvasSidePanel, type CanvasPanelTab } from "./CanvasSidePanel"
 import {
-  ArtboardCanvasNode,
   CanvasGeneratorContext,
   CanvasMediaPreviewContext,
   CanvasNodeActionsContext,
-  GeneratorCanvasNode,
-  ImageCanvasNode,
-  TextCanvasNode,
-  UnknownCanvasNode,
-  VideoCanvasNode,
   type CanvasMediaPreview,
   type CanvasNodeActions,
 } from "./CanvasNodes"
@@ -598,7 +591,6 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
   )
   const selectedNode = selectedNodes.length === 1 ? selectedNodes[0] : null
   const selectedNodeId = selectedNode?.id ?? null
-  const selectionCount = selectedNodeIds.length + selectedEdgeIds.length
   const assetTargetNode = useMemo(
     () => assetTargetNodeId ? nodes.find((node) => node.id === assetTargetNodeId) ?? null : null,
     [assetTargetNodeId, nodes],

@@ -5,7 +5,7 @@ import uuid
 from typing import Any
 
 from ...dialogue_timing import resolve_shot_duration_sec
-from ...director_craft.coverage import TAKE_ROLE_LABELS, fidelity_conflict, plan_production_takes
+from ...director_craft.coverage import fidelity_conflict, plan_production_takes
 from .h3_prompt_builder import H3PromptBuilder
 
 
@@ -45,10 +45,6 @@ def story_shot_number(beat: dict[str, Any]) -> int:
     except (TypeError, ValueError):
         value = 1
     return value if value > 0 else 1
-
-
-def take_role_label(role: str) -> str:
-    return TAKE_ROLE_LABELS.get(str(role or "").strip(), "")
 
 
 def beat_has_split_takes(beat: dict[str, Any], beats: list[dict[str, Any]] | None = None) -> bool:

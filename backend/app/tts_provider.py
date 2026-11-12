@@ -76,9 +76,6 @@ MIMO_TTS_VOICES: tuple[dict[str, str], ...] = (
 
 MIMO_TTS_VOICE_IDS = frozenset(item["id"] for item in MIMO_TTS_VOICES)
 
-# 兼容旧常量名
-TTS_VOICES = OPENAI_TTS_VOICES
-
 
 def is_mimo_tts_model(model: str) -> bool:
     lowered = (model or "").strip().lower()
@@ -501,11 +498,6 @@ class TtsProviderService:
             self.model(),
             self.voice(),
         )
-
-    def free_sidecar(self) -> bool:
-        if not self.supports_clone():
-            return False
-        return free_indextts_sidecar(self.base_url())
 
     def clone(
         self,

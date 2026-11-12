@@ -1,5 +1,5 @@
 import { Button, Modal, Radio, Spin, message } from "antd"
-import { ArrowLeft, MonitorUp, Sparkles, Upload, Video } from "lucide-react"
+import { ArrowLeft, MonitorUp, Sparkles, Upload } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { apiErrorMessage, notifyUnauthorized, requestJson as api } from "../api"

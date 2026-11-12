@@ -18,9 +18,7 @@ import requests
 
 from .internai_catalog import internai_model_free
 from .qiniu_catalog import (
-    QINIU_CONATUS_MODEL,
     is_qiniu_conatus_model,
-    is_qiniu_official_base_url,
     qiniu_model_free,
 )
 from .zhipu_catalog import (
@@ -175,11 +173,6 @@ class LlmError(RuntimeError):
     def __init__(self, *args: object, raw: str | None = None) -> None:
         super().__init__(*args)
         self.raw = raw
-
-
-def llm_error_raw(error: Exception | None) -> str:
-    raw = getattr(error, "raw", None) if error is not None else None
-    return str(raw or "").strip()
 
 
 class LlmTemporaryError(LlmError):
@@ -1558,11 +1551,6 @@ class OpenAICompatibleClient:
             if not content:
                 content = cls._coerce_stream_text(first.get("text"))
         return reasoning, content
-
-    @classmethod
-    def _stream_delta_text(cls, data: dict[str, Any]) -> str:
-        _reasoning, content = cls._stream_delta_parts(data)
-        return content
 
     @staticmethod
     def _thinking_control_fields(model: str, base_url: str = "") -> dict[str, Any]:

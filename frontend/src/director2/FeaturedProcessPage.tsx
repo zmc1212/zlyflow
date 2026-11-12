@@ -271,7 +271,6 @@ export function synthesizeProcessGraph(snapshot: Director2FeaturedSnapshot): { n
     })
   })
 
-  const usedAssetIds = new Set<string>()
   let rowY = assets.length ? 300 : 60
   snapshot.episodes.forEach((episode, epIndex) => {
     nodes.push({

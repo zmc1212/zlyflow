@@ -47,7 +47,7 @@ export function buildJianyingDraftMetaInfo(options: JianyingDraftOptions, draftI
 export function buildJianyingDraftContent(
   items: JianyingMediaItem[],
   options: JianyingDraftOptions,
-  draftId: string,
+  _draftId: string,
 ) {
   const resolution = ASPECT_RATIO_RESOLUTIONS[options.aspectRatio] ?? ASPECT_RATIO_RESOLUTIONS["16:9"]
   const fps = options.fps ?? 30.0

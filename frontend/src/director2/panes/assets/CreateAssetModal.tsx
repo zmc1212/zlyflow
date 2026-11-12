@@ -4,7 +4,7 @@
 import { useState } from "react"
 import { Button, Form, Input, message, Modal, Radio } from "antd"
 import { Sparkles } from "lucide-react"
-import { createAsset, generateCharacterContent, director2ErrorDetail } from "../../api"
+import { generateCharacterContent, director2ErrorDetail } from "../../api"
 import { kindLabel } from "./shared"
 
 export type CreateFormState = {

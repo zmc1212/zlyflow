@@ -6,7 +6,7 @@ import { ArrowLeft, Clapperboard, Copy, GitBranch, Play, ScrollText, Users } fro
 import { copyFeaturedWork, director2ErrorDetail, getFeaturedWork, type Director2FeaturedEpisode } from "./api"
 import { formatHomeProjectDate } from "./home-project-cards"
 import FeaturedWorkPreview from "./FeaturedWorkPreview"
-import { director2FeaturedPath, director2FeaturedProcessPath, director2HomePath, director2ProjectPath } from "./paths"
+import { director2FeaturedProcessPath, director2HomePath, director2ProjectPath } from "./paths"
 import "./director-featured.css"
 
 const KIND_LABELS: Record<string, string> = { character: "角色", scene: "场景", prop: "道具" }

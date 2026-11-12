@@ -223,11 +223,6 @@ class AuthStore:
             params.append(exclude_user_id)
         return connection.execute(sql, tuple(params)).fetchone() is not None
 
-    def email_taken(self, email: str, *, exclude_user_id: str | None = None) -> bool:
-        normalized = validate_email(email)
-        with self.connection() as connection:
-            return self._email_taken(connection, normalized, exclude_user_id=exclude_user_id)
-
     def get_user_by_email(self, email: str) -> dict | None:
         try:
             normalized = validate_email(email)

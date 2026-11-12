@@ -173,10 +173,6 @@ export function applyLiveBeatStatus(
   })
 }
 
-function beatRefIds(beat: WorkbenchBeat): Set<string> {
-  return new Set([...(beat.character_ids || []), ...(beat.prop_ids || []), ...(beat.scene_id ? [beat.scene_id] : [])])
-}
-
 export function buildWorkbenchGraph(
   payload: WorkbenchPayload,
   savedPositions: Record<string, WorkbenchPosition> = {},

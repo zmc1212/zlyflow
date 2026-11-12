@@ -2327,42 +2327,6 @@ class ProjectDetailService:
             return beats
 
     @classmethod
-    def _project_visual_settings(cls, project_id: str, payload: dict[str, Any]) -> dict[str, str]:
-        visual_style = str(payload.get("visual_style") or "").strip()
-        ethnicity = str(payload.get("ethnicity") or "").strip()
-        art_style_id = str(payload.get("art_style_id") or "").strip()
-        if not visual_style:
-            doc = query_one(
-                "SELECT visual_style FROM ai_project_documents WHERE project_id = %s ORDER BY updated_at DESC LIMIT 1",
-                (project_id,),
-            )
-            visual_style = str((doc or {}).get("visual_style") or "").strip()
-        return {
-            "visual_style": visual_style or "chinese_period_drama",
-            "ethnicity": ethnicity or "Chinese",
-            "art_style_id": art_style_id,
-        }
-
-    @classmethod
-    def _resolve_grs_model(cls, requested_model: str) -> tuple[str, str]:
-        requested = (requested_model or "").strip() or ASSET_IMAGE_DEFAULT_MODEL
-        model_row = query_one(
-            """
-            SELECT provider_model, display_name FROM grs_image_models
-            WHERE (provider_model = %s OR display_name = %s OR workflow_id = %s) AND enabled = 1
-            ORDER BY is_default DESC LIMIT 1
-            """,
-            (requested, requested, requested),
-        )
-        if not model_row:
-            model_row = query_one(
-                "SELECT provider_model, display_name FROM grs_image_models WHERE is_default = 1 AND enabled = 1 LIMIT 1"
-            )
-        grs_model = (model_row["provider_model"] if model_row else None) or ASSET_IMAGE_DEFAULT_MODEL
-        model_display = (model_row["display_name"] if model_row else None) or grs_model
-        return grs_model, model_display
-
-    @classmethod
     def generate_beat_h3_prompt(cls, project_id: str, episode_id: str, beat_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         from .h3_prompt_job_service import H3PromptJobService
         from .h3_take_split import merge_episode_beats

@@ -43,7 +43,6 @@ import {
 import { loadProgramPreview, buildVideoJobOptions, withVideoPromptMode, DIRECTOR2_DEFAULT_VIDEO_WORKFLOW } from "../director2-video-settings"
 import { beatDurationSec } from "../workshop-beat-duration"
 import {
-  WORKSHOP_VIDEO_TERMINAL_STATUSES,
   mapWorkshopVideoProgress,
   isActiveWorkshopJobStatus,
 } from "../workshop-video-progress"
@@ -60,7 +59,7 @@ import {
   stageChipLabel,
   workbenchLayoutKey,
 } from "../workbench-graph"
-import type { WorkbenchBeat, WorkbenchGraphNode, WorkbenchPosition } from "../workbench-graph"
+import type { WorkbenchBeat, WorkbenchPosition } from "../workbench-graph"
 import { WbAssetNodeView, WbBeatNodeView, WbEpisodeNodeView, WbScriptNodeView } from "./workbench-nodes"
 import { director2ProjectPath, director2WorkshopEpisodePath } from "../paths"
 import "../workbench.css"

@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Alert, Button, ConfigProvider, Input, InputNumber, Modal, Segmented, Tag, message } from "antd"
-import { ArrowUpRight, EyeOff, LayoutGrid, List, MessagesSquare, RefreshCw, Search, Sparkles } from "lucide-react"
+import { ArrowUpRight, LayoutGrid, List, MessagesSquare, RefreshCw, Search } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom"
 import { useStudioTheme } from "../ThemeProvider"

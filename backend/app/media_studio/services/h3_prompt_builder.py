@@ -5,8 +5,6 @@ import re
 from typing import Any, Callable
 from urllib.parse import urlparse
 
-import requests
-
 from ..provider_bridge import credential_manager, llm_row
 from ...director_craft.coverage import (
     CLAUSE_ALREADY_INSIDE,
@@ -791,17 +789,6 @@ class H3PromptBuilder:
             who = " ".join(item for item in (identity, speaker) if item)
             lines.append(f"D{index}: {who} {kind}")
         return lines
-
-    @classmethod
-    def _placeholder_contract(cls, shot: dict[str, Any], speaker_map: dict[str, str]) -> str:
-        required = cls._required_contract(shot, speaker_map)
-        events = [item for item in cls.ordered_speech_events(shot) if str(item.get("text") or "").strip()]
-        if not events:
-            return required
-        shell, _, tail = required.partition("detailed_description:\n")
-        detail, sep, rest = tail.partition("\noverall_soundscape:")
-        tokens = "\n".join(f"{{{{D{index}}}}}" for index, _ in enumerate(events, start=1))
-        return f"{shell}detailed_description:\n[Shot 1]\n{tokens}{sep}{rest}"
 
     @classmethod
     def _protect_spans(cls, text: str, spans: list[str]) -> tuple[str, dict[str, str]]:
@@ -2039,10 +2026,6 @@ class H3PromptBuilder:
         return re.sub(r"[ \t]{2,}", " ", cleaned)
 
     @classmethod
-    def count_verbatim_line(cls, prompt: str, line: str) -> int:
-        return cls.count_han_line(prompt, line)
-
-    @classmethod
     def speech_uniqueness_errors(cls, prompt: str, shot: dict[str, Any]) -> list[str]:
         errors: list[str] = []
         spoken = cls._dialogue_turns(shot)
@@ -3161,76 +3144,6 @@ class H3PromptBuilder:
         return prompts
 
     @classmethod
-    def _shot_source(cls, shot: dict[str, Any], speaker_map: dict[str, str]) -> dict[str, Any]:
-        character_references = shot.get("character_references") or [{
-            "character_name": shot.get("character_name") or "protagonist",
-            "description": shot.get("character_description") or "",
-        }]
-        reference_map = [
-            {
-                "picture": f"<Picture {index}>",
-                "subject": f"<Subject {index}>",
-                "type": "character",
-                "character_name": reference.get("character_name") or "",
-            }
-            for index, reference in enumerate(character_references, start=1)
-        ]
-        scene_picture_index = len(reference_map) + 1
-        reference_map.append({
-            "picture": f"<Picture {scene_picture_index}>",
-            "subject": f"<Subject {scene_picture_index}>",
-            "type": "scene",
-            "scene": shot.get("scene") or "",
-        })
-        return {
-            "beat_id": shot["beat_id"],
-            "sequence": shot["sequence"],
-            "heading": shot.get("heading") or "",
-            "action": shot.get("action") or "",
-            "camera": shot.get("camera") or "",
-            "dialogue": "" if shot.get("dialogue_turns") else (shot.get("dialogue") or ""),
-            "dialogue_turns": [
-                {
-                    **turn,
-                    "speaker_id": speaker_map.get(str(turn.get("speaker") or "").strip()),
-                }
-                for turn in cls._dialogue_turns(shot)
-            ],
-            "visible_text": shot.get("visible_text") or "",
-            "narration": shot.get("narration") or "",
-            "speaker": shot.get("speaker") or "",
-            "speaker_id": speaker_map.get(str(shot.get("speaker") or "").strip()),
-            "characters": shot.get("characters") or [],
-            "props": shot.get("props") or [],
-            "scene": shot.get("scene") or "",
-            "character_reference_description": shot.get("character_description") or "",
-            "scene_reference_description": shot.get("scene_description") or "",
-            "reference_map": reference_map,
-            "visual_prompt": shot.get("visual_prompt") or shot.get("promptText") or "",
-            "audio": shot.get("audio") or shot.get("soundscape") or "",
-            "video_prompt_zh": shot.get("video_prompt_zh") or "",
-            "aspect_ratio": shot.get("aspect_ratio") or "",
-            "duration_seconds": int(
-                shot.get("duration_seconds")
-                or shot.get("duration_sec")
-                or shot.get("video_duration")
-                or 8
-            ),
-        }
-
-    @staticmethod
-    def _prompt_from_response(parsed: dict[str, Any], beat_id: str) -> str:
-        if "prompt" in parsed:
-            returned_id = str(parsed.get("beat_id") or beat_id)
-            return str(parsed.get("prompt") or "").strip() if returned_id == beat_id else ""
-        items = parsed.get("prompts")
-        if isinstance(items, list):
-            for item in items:
-                if isinstance(item, dict) and str(item.get("beat_id")) == beat_id:
-                    return str(item.get("prompt") or "").strip()
-        return ""
-
-    @classmethod
     def _required_contract(cls, shot: dict[str, Any], speaker_map: dict[str, str]) -> str:
         definitions = cls._subject_definition_lines(shot)
         speech_lines: list[str] = []
@@ -3401,20 +3314,6 @@ class H3PromptBuilder:
                     detail += "\n" + line
             text = text[:detail_start] + detail + text[sound_start:]
         return text.strip()
-
-    @staticmethod
-    def _parse_json(content: str) -> dict[str, Any]:
-        text = str(content or "").strip()
-        if text.startswith("```"):
-            text = re.sub(r"^```(?:json)?\s*", "", text)
-            text = re.sub(r"\s*```$", "", text)
-        try:
-            value = json.loads(text)
-        except json.JSONDecodeError as err:
-            raise ValueError(f"大模型未返回有效 JSON: {err}") from err
-        if not isinstance(value, dict):
-            raise ValueError("大模型提示词响应必须是 JSON 对象")
-        return value
 
     @classmethod
     def validate_prompts(

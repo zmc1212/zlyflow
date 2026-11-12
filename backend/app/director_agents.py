@@ -531,19 +531,6 @@ def coerce_storyboard_data(value: Any, *, depth: int = 0) -> dict[str, Any]:
     return value
 
 
-def _storyboard_shot_count(data: dict[str, Any] | None) -> int:
-    if not isinstance(data, dict):
-        return 0
-    count = 0
-    for scene in _collect_storyboard_scenes(data):
-        scene_item = scene if isinstance(scene, dict) else {}
-        shots_raw = scene_item.get("shots")
-        if not isinstance(shots_raw, list) or not shots_raw:
-            shots_raw = [scene_item] if scene_item else []
-        count += sum(1 for item in shots_raw if isinstance(item, dict))
-    return count
-
-
 def _is_collapsed_storyboard(data: dict[str, Any] | None, goal: str) -> bool:
     if not isinstance(data, dict):
         return True

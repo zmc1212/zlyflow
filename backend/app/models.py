@@ -918,74 +918,6 @@ class DirectorProjectResponse(DirectorProjectListItem):
     )
 
 
-class DirectorProjectMigrateRequest(BaseModel):
-    projects: list[DirectorProjectCreateRequest] = Field(default_factory=list, max_length=200)
-
-
-class DirectorProjectMigrateResponse(BaseModel):
-    imported: int
-    skipped: int
-    projects: list[DirectorProjectListItem] = Field(default_factory=list)
-
-
-class DirectorRecipeRunRequest(BaseModel):
-    goal: str = Field(min_length=1, max_length=8000, description="一句话创意或故事")
-    project_id: str | None = Field(default=None, max_length=80)
-    title: str | None = Field(default=None, max_length=120)
-    art_style_id: str | None = Field(default=None, max_length=32, description="画风目录 id，例如 as_1001")
-    skip_research: bool | None = Field(default=None, description="为 true 时跳过研究 Agent")
-    agents: list[str] | None = Field(
-        default=None,
-        description="可选。只跑指定 Agent，例如 [\"script\",\"storyboard\"] 按剧本一次生成全部分镜；缺省跑完整 9 步。",
-    )
-
-
-class DirectorRecipeStepRequest(BaseModel):
-    agent_id: Literal[
-        "research", "script", "art_style", "storyboard", "characters",
-        "locations", "voice", "music", "media",
-    ]
-    goal: str | None = Field(default=None, max_length=8000)
-    art_style_id: str | None = Field(default=None, max_length=32)
-    skip_research: bool | None = None
-
-
-class DirectorAssetGenerationTarget(BaseModel):
-    kind: Literal["character_portrait", "character_sheet", "location", "prop"]
-    asset_id: str = Field(min_length=1, max_length=80)
-    look_id: str | None = Field(default=None, max_length=80)
-
-
-class DirectorGenerateAssetsRequest(BaseModel):
-    character_ids: list[str] = Field(default_factory=list)
-    location_ids: list[str] = Field(default_factory=list)
-    prop_ids: list[str] = Field(default_factory=list)
-    targets: list[DirectorAssetGenerationTarget] = Field(default_factory=list, max_length=40)
-    force: bool = False
-
-
-class DirectorApproveAssetVersionRequest(BaseModel):
-    kind: Literal["character_portrait", "character_sheet", "location", "prop"]
-    asset_id: str = Field(min_length=1, max_length=80)
-    version_id: str = Field(min_length=1, max_length=120)
-    look_id: str | None = Field(default=None, max_length=80)
-    content_revision: int | None = Field(default=None, ge=0)
-
-
-class DirectorGenerateStillsRequest(BaseModel):
-    shot_ids: list[str] = Field(default_factory=list)
-    force: bool = True
-
-
-class DirectorRenderShotsRequest(BaseModel):
-    shot_ids: list[str] = Field(default_factory=list)
-    render_pass: Literal["preview", "final"] = "final"
-    polish_prompt: bool = Field(
-        default=True,
-        description="提交视频前是否调用大模型润色 H3 提示词；关闭后直接使用当前镜头提示词。",
-    )
-
-
 class DirectorClarificationItem(BaseModel):
     """One user-confirmed creative answer injected into the matching agent."""
 
@@ -1129,23 +1061,6 @@ class DirectorLibraryAssetResponse(BaseModel):
     sourceProjectId: str | None = None
     created_at: str
     updated_at: str
-
-
-class DirectorLibraryFromRecipeRequest(BaseModel):
-    project_id: str = Field(min_length=1, max_length=80)
-    character_ids: list[str] = Field(default_factory=list)
-    location_ids: list[str] = Field(default_factory=list)
-    prop_ids: list[str] = Field(default_factory=list)
-
-
-class DirectorLibraryFromRecipeResponse(BaseModel):
-    imported: int
-    assets: list[DirectorLibraryAssetResponse] = Field(default_factory=list)
-
-
-class DirectorInsertLibraryAssetsRequest(BaseModel):
-    asset_ids: list[str] = Field(default_factory=list, max_length=40)
-    expected_content_revision: int | None = Field(default=None, ge=1)
 
 
 class TtsVoiceItem(BaseModel):
@@ -1390,33 +1305,6 @@ class MusicLyricsResponse(BaseModel):
     lines: list[MusicLyricLine] = Field(default_factory=list)
     source: Literal["yue2", "local"] | None = None
     message: str | None = None
-
-
-class DirectorTtsRequest(BaseModel):
-    shot_ids: list[str] = Field(default_factory=list)
-    character_id: str | None = Field(default=None, max_length=80)
-    text: str | None = Field(default=None, max_length=200, description="角色试听文案；缺省用角色名")
-
-
-class DirectorTranslatePromptRequest(BaseModel):
-    text: str | None = Field(
-        default=None,
-        max_length=8000,
-        description="要翻译的镜头正文；缺省读镜头上已保存的中文正文 promptTextZh",
-    )
-
-
-class DirectorMuxRequest(BaseModel):
-    burn_subtitles: bool = False
-
-
-class DirectorExportCapabilitiesResponse(BaseModel):
-    ffmpeg: bool
-    ffmpeg_path: str | None = None
-    ffprobe_path: str | None = None
-    tts_available: bool
-    tts_reason: str | None = None
-    voices: list[TtsVoiceItem] = Field(default_factory=list)
 
 
 class CanvasProjectCreateRequest(BaseModel):

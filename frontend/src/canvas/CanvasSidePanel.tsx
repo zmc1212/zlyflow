@@ -1,9 +1,9 @@
 import { useReactFlow } from "@xyflow/react"
 import {
-  Button, Collapse, Empty, Input, InputNumber, List, Popconfirm, Segmented, Spin, Switch, Tabs, Tag, Tooltip, Typography,
+  Button, Collapse, Empty, Input, InputNumber, List, Popconfirm, Segmented, Spin, Switch, Tabs, Tooltip, Typography,
 } from "antd"
 import {
-  ChevronRight, CircleHelp, CopyPlus, Crosshair, FolderOpen, Frame, History, Image as ImageIcon, Images, Layers, Redo2, RefreshCw,
+  ChevronRight, CircleHelp, CopyPlus, Crosshair, FolderOpen, Frame, History, Image as ImageIcon, Layers, Redo2, RefreshCw,
   Scan, Search, Sparkles, Trash2, Type, Undo2, Video, X,
 } from "lucide-react"
 import { memo, useMemo, useState, type ReactNode } from "react"

@@ -1,4 +1,4 @@
-import { Button, Input, Modal, Select, Tag, Tooltip, message } from "antd"
+import { Button, Input, Modal, Select, message } from "antd"
 import {
   Archive,
   Check,
@@ -7,11 +7,8 @@ import {
   Download,
   ExternalLink,
   FileCode,
-  FolderOpen,
-  Image as ImageIcon,
   Play,
   Trash2,
-  Video,
 } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import {

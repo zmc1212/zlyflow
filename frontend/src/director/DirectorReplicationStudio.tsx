@@ -64,7 +64,7 @@ export default function DirectorReplicationStudio({
 }: DirectorReplicationStudioProps) {
   const queryClient = useQueryClient()
   const [payload, setPayload] = useState<ReplicationPayload>(() => normalizeReplicationPayload(null))
-  const [revision, setRevision] = useState(1)
+  const [, setRevision] = useState(1)
   const [operationId, setOperationId] = useState<string | null>(null)
   const [statusLine, setStatusLine] = useState<{ progress: number; message?: string } | null>(null)
   const [starting, setStarting] = useState(false)

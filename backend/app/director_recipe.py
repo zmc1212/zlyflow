@@ -15,12 +15,6 @@ PAYLOAD_KIND_TIMELINE = "timeline"
 PAYLOAD_KIND_RECIPE = "director_recipe"
 PAYLOAD_KIND_BATCH = "batch_run"
 PAYLOAD_KIND_REPLICATION = "shot_replication"
-PAYLOAD_KINDS = (
-    PAYLOAD_KIND_TIMELINE,
-    PAYLOAD_KIND_RECIPE,
-    PAYLOAD_KIND_BATCH,
-    PAYLOAD_KIND_REPLICATION,
-)
 
 AGENT_IDS = (
     "research",
@@ -638,15 +632,6 @@ def character_look(character: Any, look_id: Any = None) -> dict[str, Any] | None
         if matched is not None:
             return matched
     return looks[0] if looks else None
-
-
-def character_approved_look_version(character: Any, look_id: Any = None) -> dict[str, Any] | None:
-    look = character_look(character, look_id)
-    return approved_rendition_version(_as_dict(look).get("sheet")) if look else None
-
-
-def character_approved_portrait_version(character: Any) -> dict[str, Any] | None:
-    return approved_rendition_version(_as_dict(character).get("portrait"))
 
 
 def _normalize_prop(raw: Any, index: int) -> dict[str, Any]:
@@ -1636,15 +1621,4 @@ def reset_recipe_following(recipe: dict[str, Any], agent_id: str) -> dict[str, A
             set_agent_status(recipe, str(item.get("id")), "pending")
     return recipe
 
-
-def find_recipe_shot(recipe: dict[str, Any], shot_id: str) -> dict[str, Any] | None:
-    needle = str(shot_id or "").strip()
-    if not needle:
-        return None
-    for scene in _as_list(recipe.get("scenes")):
-        if not isinstance(scene, dict):
-            continue
-        for shot in _as_list(scene.get("shots")):
-            if isinstance(shot, dict) and str(shot.get("id") or "") == needle:
-                return shot
     return None

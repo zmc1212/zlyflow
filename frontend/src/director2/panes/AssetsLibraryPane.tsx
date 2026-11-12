@@ -59,7 +59,6 @@ import {
   getSubRoleDisplay,
   getAssetDisplayAvatar,
   getAssetGradient,
-  copyText,
   identityLookEnqueueBlocker,
   type AssetIdentity,
   type GenerateImageResult,
@@ -128,7 +127,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
   const [assets, setAssets] = useState<Director2Asset[]>([])
   const [selectedAsset, setSelectedAsset] = useState<Director2Asset | null>(null)
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
+  const [, setSaving] = useState(false)
   const [autoSaveState, setAutoSaveState] = useState<AutoSaveState>("idle")
 
   // 与 Vue 实例级可变量（let autoSaveTimer / autoSaveQueuedSnapshot / autoSaveRunner / suppressAutoSave）对应的 ref

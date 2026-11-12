@@ -1050,10 +1050,6 @@ class LlmProviderService:
             on_chunk=on_chunk,
         ).strip()
 
-    def polish_director_ref2va_prompt(self, draft_prompt: str) -> str:
-        """Backward-compatible entry point for callers that explicitly request Ref2VA."""
-        return self.polish_director_h3_prompt(draft_prompt, "REF2VA")
-
     def translate_director_shot_prompt(self, text: str) -> str:
         """Translate a Chinese shot body into an official-format English H3 shot body."""
         from .llm_minimax_skills import build_h3_prompt_translate_prompt

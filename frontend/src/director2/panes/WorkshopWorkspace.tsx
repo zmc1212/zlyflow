@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Alert, Button, Checkbox, Collapse, Dropdown, Empty, Input, Modal, Popover, Progress, Segmented, Select, Skeleton, Tooltip, message } from "antd"
-import { Check, ChevronDown, FolderClosed, History, LayoutGrid, List, Mic, MoreHorizontal, PanelLeftClose, PanelLeftOpen, RefreshCw, Scissors, Search, UserRound, Video, X } from "lucide-react"
+import { Check, ChevronDown, FolderClosed, History, LayoutGrid, List, Mic, MoreHorizontal, PanelLeftClose, PanelLeftOpen, RefreshCw, Scissors, Search, Video, X } from "lucide-react"
 import { director2ErrorDetail, updateEpisodeBeat, type Director2Asset, type Director2Beat, type Director2EpisodeDetail } from "../api"
 import { beatDurationSec } from "../workshop-beat-duration"
 import { beatHasUpscaled, beatPlaybackUrl, beatUpscaleDisabledReason } from "../director2-video-settings"

@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import shutil
 import threading
-import time
 import uuid
 from copy import deepcopy
 from collections.abc import Callable
@@ -21,7 +20,7 @@ from .grs_catalog import (
     validate_provider_model,
     workflow_id_for,
 )
-from .cloud_video.base import cloud_video_provider_defaults, cloud_video_provider_keys
+from .cloud_video.base import cloud_video_provider_defaults
 from .config import settings
 from .db import Database, DbConnection, IntegrityError, Row, open_database
 from .models import JobMode, JobStatus
@@ -1932,12 +1931,6 @@ class JobStore:
                 ).fetchone()
         settings = dict(row) if row else {}
         return {**defaults, **settings}
-
-    def list_cloud_video_settings(self) -> list[dict]:
-        rows: list[dict] = []
-        for provider_key in cloud_video_provider_keys():
-            rows.append(self.get_cloud_video_settings(provider_key))
-        return rows
 
     def update_cloud_video_settings(self, provider_key: str, values: dict | None = None, **kwargs: Any) -> dict:
         allowed = {

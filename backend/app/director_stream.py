@@ -481,9 +481,6 @@ class DirectorOperationEventBus:
         else:
             self._subscribers.pop(operation_id, None)
 
-    def is_closed(self, operation_id: str) -> bool:
-        return operation_id in self._closed
-
     def close(self) -> None:
         for queues in self._subscribers.values():
             for queue in queues:

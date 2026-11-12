@@ -8,7 +8,6 @@ import {
   type DirectorArtStyle,
   type RecipeAgentId,
   type RecipeAgentStatus,
-  type RecipeArtStyle,
   type RecipeCharacter,
   type RecipePipelineRun,
   type RecipeProject,

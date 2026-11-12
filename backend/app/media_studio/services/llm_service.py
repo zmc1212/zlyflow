@@ -302,8 +302,6 @@ class LlmService:
         on_phase: Callable[[str, bool], None] | None = None,
     ) -> dict[str, list[dict[str, Any]]]:
         from .asset_extraction_skills import (
-            ASSET_SKILLS,
-            asset_describe_prompt,
             asset_name_prompt,
             deterministic_asset_hints,
         )
@@ -311,8 +309,6 @@ class LlmService:
             ASSET_GROUPS,
             ExtractedAssets,
             check_asset_coverage,
-            collect_name_context,
-            normalize_group_items,
             normalize_name_candidates,
         )
 
@@ -415,19 +411,6 @@ class LlmService:
         if not shots:
             raise ValueError("大模型未返回可出片镜头。")
         return shots
-
-    @classmethod
-    def chat_vision(
-        cls,
-        system_prompt: str,
-        user_prompt: str,
-        image_urls: list[str],
-        *,
-        max_tokens: int = 4000,
-        temperature: float = 0.3,
-    ) -> str:
-        text, _meta = cls._complete_zh_author(system_prompt, user_prompt, image_urls, max_tokens=max_tokens, temperature=temperature)
-        return text
 
     @classmethod
     def author_timestamped_zh_prompt(
@@ -638,10 +621,6 @@ class LlmService:
         if {"first", "first_frame"} & roles:
             return "I2VA"
         return "T2VA"
-
-    @classmethod
-    def _h3_rule_text(cls, mode: str, duration_seconds: str = "8") -> str:
-        return H3PromptBuilder.packing_rule_text(mode, duration_seconds)
 
     @classmethod
     def _h3_system_prompt(

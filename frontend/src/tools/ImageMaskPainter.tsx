@@ -153,8 +153,6 @@ export default function ImageMaskPainter({
     return () => element.removeEventListener("wheel", onWheel)
   }, [zoomAt])
 
-  const cssToNatural = plane.width ? naturalSize.width / plane.width : 1
-
   const redrawWithPending = useCallback((pending: Stroke | null) => {
     const canvas = canvasRef.current
     const context = canvas?.getContext("2d")

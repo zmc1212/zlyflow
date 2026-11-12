@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { Button, Empty, Image, Spin, message } from "antd"
+import { Button, Empty, Spin, message } from "antd"
 import { ArrowLeft, ImageUp, RefreshCw, Sparkles } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
@@ -37,7 +37,7 @@ export default function ImageOutpaintTool({ csrfToken }: { csrfToken: string }) 
   const [params] = useSearchParams()
   const inputRef = useRef<HTMLInputElement>(null)
   const [source, setSource] = useState<SourceAsset | null>(null)
-  const [editorOpen, setEditorOpen] = useState(false)
+  const [, setEditorOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const submissionPending = useRef(false)
 

@@ -134,11 +134,6 @@ def wants_upscale(options: dict[str, Any] | None) -> bool:
     return bool((options or {}).get("upscale_after"))
 
 
-def should_auto_upscale(render_scope: str | None, options: dict[str, Any] | None) -> bool:
-    """整集直出和拼接片不自动超分；只对逐镜 / 选中镜接跑。"""
-    return str(render_scope or "") in AUTO_UPSCALE_SCOPES and wants_upscale(options)
-
-
 def is_upscale_output(output: dict | None) -> bool:
     return str((output or {}).get("label") or "") in UPSCALE_OUTPUT_LABELS
 

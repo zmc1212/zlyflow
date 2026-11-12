@@ -52,7 +52,6 @@ import {
   assetCanvasDraftContent,
   isAssetCanvasDraftEmpty,
   type AssetCanvasDraft,
-  type AssetCanvasDraftEdge,
 } from "../../canvas/asset-canvas-sync"
 import "@xyflow/react/dist/style.css"
 import "./asset-creation-canvas.css"
