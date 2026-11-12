@@ -10,7 +10,15 @@ import {
   Tabs
 } from "antd"
 import { Film, Music2, RotateCcw, SlidersHorizontal, Type, X } from "lucide-react"
-import { EFFECTS, type EditClip, type EditDocument } from "./model"
+import {
+  DEFAULT_TRANSITION_DURATION,
+  EFFECTS,
+  TRANSITIONS,
+  canTransition,
+  type EditClip,
+  type EditDocument,
+  type EditTransition
+} from "./model"
 
 export default function Inspector({
   doc,
@@ -26,6 +34,41 @@ export default function Inspector({
   onClose: () => void
 }) {
   const asset = doc.assets.find((a) => a.id === clip?.asset_id)
+  const transitionable = clip ? canTransition(doc, clip) : false
+  const transition = clip && (
+    <>
+      <div className="se-property">
+        <label>入转场</label>
+        <Select
+          aria-label="转场类型"
+          value={clip.transition ?? "none"}
+          disabled={!transitionable && (clip.transition ?? "none") === "none"}
+          options={TRANSITIONS.map((t) => ({ value: t.id, label: t.name }))}
+          onChange={(value) => onPatch({ transition: value as EditTransition })}
+        />
+        <p className="se-help">
+          {transitionable
+            ? "叠化与上一画面交叉过渡；黑场/白场经纯色过渡，时长一半落在上一片段结尾。"
+            : "转场需要该片段紧贴上一个画面片段。"}
+        </p>
+      </div>
+      {(clip.transition ?? "none") !== "none" && (
+        <div className="se-property">
+          <label>转场时长 / 秒</label>
+          <InputNumber
+            aria-label="转场时长"
+            min={0.2}
+            max={2}
+            step={0.1}
+            value={clip.transition_duration ?? DEFAULT_TRANSITION_DURATION}
+            onChange={(value) =>
+              value !== null && onPatch({ transition_duration: value })
+            }
+          />
+        </div>
+      )}
+    </>
+  )
   const range = (
     key: "scale" | "rotation" | "opacity" | "volume",
     label: string,
@@ -131,6 +174,7 @@ export default function Inspector({
   const visual = clip && (
     <>
       {range("scale", "缩放", 25, 300, 100)}
+      {transition}
       <div className="se-property se-position-property">
         <label>位置</label>
         <div className="se-position-inputs">
@@ -310,9 +354,11 @@ export default function Inspector({
                 ? "文字"
                 : asset?.kind === "image"
                   ? "图片"
-                  : clip.track === "audio"
-                    ? "音频"
-                    : "视频"}
+                  : clip.track === "music"
+                    ? "音乐"
+                    : clip.track === "audio"
+                      ? "配音"
+                      : "视频"}
                 {` · ${clip.duration.toFixed(2)} 秒`}
               </span>
             </div>

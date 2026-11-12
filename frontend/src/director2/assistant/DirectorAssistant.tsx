@@ -1,5 +1,5 @@
 import { Fragment, createContext, useCallback, useContext, useEffect, useRef, useState, type ComponentRef, type ReactNode } from "react"
-import { Alert, Button, Collapse, Drawer, Dropdown, Empty, Input, Modal, Popconfirm, Popover, Progress, Select, Space, Spin, Tag, Tooltip, message } from "antd"
+import { Alert, Button, Collapse, Drawer, Dropdown, Input, Modal, Popconfirm, Popover, Progress, Select, Space, Spin, Tag, Tooltip, message } from "antd"
 import { ArrowDown, ArrowLeft, ArrowUp, AudioLines, BookOpen, Check, ChevronDown, Eye, FileText, Globe, History, Maximize2, Minimize2, Plus, RefreshCw, Sparkles, Square, Wand2, X, Zap } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import Markdown from "react-markdown"
@@ -37,7 +37,8 @@ const OPERATION_TITLES: Record<EditingOperation, string> = {
   dialogue_cut: "对白精剪",
   quick_cut: "成片速剪",
   highlight_cut: "高光合集",
-  hook_cut: "引流剪辑"
+  hook_cut: "引流剪辑",
+  remove_waste: "废片清理"
 }
 const ACTION_BUTTONS: Record<EditingOperation, string> = {
   video_arrange: "查看并确认铺轨",
@@ -47,7 +48,8 @@ const ACTION_BUTTONS: Record<EditingOperation, string> = {
   dialogue_cut: "查看并确认精剪",
   quick_cut: "查看并确认速剪",
   highlight_cut: "查看并确认高光合集",
-  hook_cut: "查看并确认引流剪辑"
+  hook_cut: "查看并确认引流剪辑",
+  remove_waste: "查看并确认清理"
 }
 const CONFIRM_LABELS: Record<EditingOperation, string> = {
   video_arrange: "确认铺轨",
@@ -57,10 +59,12 @@ const CONFIRM_LABELS: Record<EditingOperation, string> = {
   dialogue_cut: "确认精剪",
   quick_cut: "确认速剪",
   highlight_cut: "确认高光合集",
-  hook_cut: "确认引流剪辑"
+  hook_cut: "确认引流剪辑",
+  remove_waste: "确认清理"
 }
 const isCutOperation = (operation: EditingOperation) =>
   operation === "dialogue_cut" || operation === "quick_cut" || operation === "highlight_cut" || operation === "hook_cut"
+const isWasteOperation = (operation: EditingOperation) => operation === "remove_waste"
 const isCaptionOperation = (operation: EditingOperation) => operation === "subtitle_arrange" || operation === "audio_subtitle" || operation === "subtitle_translate"
 function emptyHint(operation: EditingOperation, reapplied = false) {
   if (operation === "subtitle_translate" && reapplied) return "时间线上没有匹配到该记录的原文，字幕可能已是中文或已修改，无需重新应用。"
@@ -68,12 +72,14 @@ function emptyHint(operation: EditingOperation, reapplied = false) {
   if (operation === "subtitle_translate") return "文字轨没有需要翻译成中文的字幕。"
   if (operation === "audio_subtitle") return "还没有可用的音轨转写结果，请先点击「转写音频」并等待完成。"
   if (operation === "video_arrange") return "没有尚未铺轨的视频，请先导入视频或完成本集视频。"
+  if (operation === "remove_waste") return "画面理解没有发现明确的废片证据；只有黑场、纯色、静止、彩条等明确废片镜头会被清理。"
   return "没有可剪辑的镜头视频，请先完成本集视频。"
 }
 function actionSummary(action: EditingAction) {
-  const unit = isCaptionOperation(action.operation) ? "条字幕" : isCutOperation(action.operation) ? "个镜头" : "段视频"
+  const unit = isCaptionOperation(action.operation) ? "条字幕" : isCutOperation(action.operation) || isWasteOperation(action.operation) ? "个镜头" : "段视频"
   let text = `${action.strategy_title ? `${action.strategy_title} · ` : ""}${action.count} ${unit} · ${action.total_duration.toFixed(2)} 秒`
   if (action.operation === "video_arrange" && action.skipped_count) text += ` · 跳过 ${action.skipped_count} 项已用或重复视频`
+  if (isWasteOperation(action.operation) && action.considered_count != null) text += ` · 依据画面理解检查 ${action.considered_count} 个镜头`
   if (action.operation === "audio_subtitle") {
     if (action.transcript?.segment_count) text += ` · 音轨转写 ${action.transcript.segment_count} 段 / ${(action.transcript.audio_seconds ?? 0).toFixed(1)} 秒`
     if (action.replaced_count) text += ` · 替换 ${action.replaced_count} 条自动字幕`
@@ -94,6 +100,7 @@ function successText(action: EditingAction) {
   if (action.operation === "audio_subtitle") return `已按真实音轨生成 ${action.count} 条字幕，剪辑已保存`
   if (action.operation === "subtitle_translate") return action.reapplied_from ? `已重新应用 ${action.count} 条中文字幕，剪辑已保存` : `已把 ${action.count} 条字幕翻译成中文，剪辑已保存`
   if (isCutOperation(action.operation)) return `${action.title}完成，共 ${action.count} 个镜头，剪辑已保存`
+  if (isWasteOperation(action.operation)) return `已清理 ${action.count} 个废片镜头，剪辑已保存`
   return `已铺轨 ${action.count} 段视频，剪辑已保存`
 }
 function feedbackDetail(action: EditingAction) {
@@ -108,6 +115,8 @@ function feedbackDetail(action: EditingAction) {
     return `${action.replaced_count ? `替换 ${action.replaced_count} 条自动字幕` : "已写入文字轨"}${action.skipped_count ? `，跳过 ${action.skipped_count} 处已有文字占用` : ""}${action.inaudible_count ? `，${action.inaudible_count} 段语音不在有声镜头内` : ""}，${undo}`
   if (isCutOperation(action.operation))
     return `共 ${action.total_duration.toFixed(2)} 秒${action.dropped_count ? `，略过 ${action.dropped_count} 个镜头` : ""}${action.trimmed_count ? `，截短 ${action.trimmed_count} 个镜头` : ""}，${undo}`
+  if (isWasteOperation(action.operation))
+    return `共移除 ${action.total_duration.toFixed(2)} 秒${action.considered_count != null ? `，画面理解检查了 ${action.considered_count} 个镜头` : ""}，${undo}`
   return `追加 ${action.total_duration.toFixed(2)} 秒，${undo}`
 }
 const UNDERSTANDING_LABELS: Record<UnderstandingStatus, string> = {
@@ -827,7 +836,7 @@ export default function DirectorAssistantProvider({ children, csrfToken, project
         {!!legacy && <Alert className="assistant-legacy-notice" type="info" title="此工程有待继续的旧版 AI 任务" action={<Button size="small" onClick={() => setLegacyOpen(true)}>继续旧任务</Button>} />}
         <div ref={feed} className="assistant-feed" onScroll={() => { const node = feed.current; if (node) followTail.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80 }} aria-live="polite">
           {loading && <Spin className="assistant-loading" />}
-          {!isHome && !loading && !detail?.messages.length && (isEditing ? <div className="assistant-welcome assistant-edit-welcome"><div className="assistant-welcome-symbol"><Sparkles size={25} /></div><h2>Hi，我是您的智能剪辑助手</h2><p>铺轨、精剪、速剪、高光合集、引流剪辑、自动字幕、音轨字幕与字幕翻译，<br />先读取画面理解或音轨转写依据，再预览清单，确认后写入时间线。</p>{understandingCard()}{transcriptCard()}{editingTools()}<p className="assistant-welcome-example">也可以直接说：“按分镜帮我铺轨”、“做一版3秒进冲突的引流剪辑”或“转写音频后按真实声音上字幕”。</p></div> : <div className="assistant-welcome"><div className="assistant-welcome-symbol"><Sparkles size={25} /></div><h2>{isProject ? "继续完善你的故事" : "从一个想法开始"}</h2><p>{isProject ? "告诉我想调整的情节或人物，我会先给出草稿，采纳后写入当前剧本。" : <>选一个 Skill，带上专家和参考资料，<br />我们一步步把故事做出来。</>}</p>{!isProject && <div className="assistant-welcome-skills">{catalog?.resources.filter(r => r.resource_type === "skill" && r.builtin).map(r => <Button key={r.id} className="assistant-welcome-skill" disabled={busy} onClick={() => selectResource(r)}><ResourceCover resource={r} variant="picker" /><span><strong>{r.name}</strong><small>{r.category}</small></span></Button>)}</div>}<p className="assistant-welcome-example">也可以直接说：“我想做一个西游悬疑故事，帮我找方向。”</p></div>)}
+          {!isHome && !loading && !detail?.messages.length && (isEditing ? <div className="assistant-welcome assistant-edit-welcome"><div className="assistant-welcome-symbol"><Sparkles size={25} /></div><h2>Hi，我是您的智能剪辑助手</h2><p>铺轨、废片清理、精剪、速剪、高光合集、引流剪辑、自动字幕、音轨字幕与字幕翻译，<br />先读取画面理解或音轨转写依据，再预览清单，确认后写入时间线。</p>{understandingCard()}{transcriptCard()}{editingTools()}<p className="assistant-welcome-example">也可以直接说：“按分镜帮我铺轨”、“做一版3秒进冲突的引流剪辑”或“转写音频后按真实声音上字幕”。</p></div> : <div className="assistant-welcome"><div className="assistant-welcome-symbol"><Sparkles size={25} /></div><h2>{isProject ? "继续完善你的故事" : "从一个想法开始"}</h2><p>{isProject ? "告诉我想调整的情节或人物，我会先给出草稿，采纳后写入当前剧本。" : <>选一个 Skill，带上专家和参考资料，<br />我们一步步把故事做出来。</>}</p>{!isProject && <div className="assistant-welcome-skills">{catalog?.resources.filter(r => r.resource_type === "skill" && r.builtin).map(r => <Button key={r.id} className="assistant-welcome-skill" disabled={busy} onClick={() => selectResource(r)}><ResourceCover resource={r} variant="picker" /><span><strong>{r.name}</strong><small>{r.category}</small></span></Button>)}</div>}<p className="assistant-welcome-example">也可以直接说：“我想做一个西游悬疑故事，帮我找方向。”</p></div>)}
           {isEditing && !!detail?.messages.length && <Collapse className="assistant-edit-toolbox" ghost size="small" items={[{ key: "tools", label: "剪辑工具", children: editingTools() }]} />}
           {isEditing && !!detail?.messages.length && understandingCard()}
           {isEditing && !!detail?.messages.length && transcriptCard()}
@@ -911,7 +920,7 @@ export default function DirectorAssistantProvider({ children, csrfToken, project
       {workspace}
     </Drawer>}
     <Modal title={editingAction ? `${editingAction.title} · 需要你的授权` : "需要你的授权"} open={!!editingAction} onCancel={() => { if (!confirmingAction) { setEditingAction(null); setEditingOrder([]) } }} onOk={() => void confirmEditing()} confirmLoading={confirmingAction} okText={editingAction ? CONFIRM_LABELS[editingAction.operation] : "确认"} cancelText="关闭" width={480} centered zIndex={1200} maskClosable={!confirmingAction} keyboard={!confirmingAction} closable={!confirmingAction} cancelButtonProps={{ disabled: confirmingAction }} rootClassName="director-assistant-drawer assistant-edit-approval">
-      {editingAction && <><p className="assistant-edit-approval-intro">{editingAction.operation === "video_arrange" ? `将按以下顺序把 ${editingAction.count} 条视频铺到画面主轨：` : editingAction.operation === "subtitle_arrange" ? `将从分集对白生成 ${editingAction.count} 条字幕，放入时间线文字轨：` : editingAction.operation === "audio_subtitle" ? `将从音轨转写的 ${editingAction.transcript?.segment_count ?? 0} 段真实语音生成 ${editingAction.count} 条字幕，放入时间线文字轨：` : editingAction.operation === "subtitle_translate" ? `将把文字轨 ${editingAction.count} 条字幕翻译成简体中文，只改文本、不动时间：` : editingAction.operation === "hook_cut" ? `将按「${editingAction.strategy_title || "引流剪辑"}」重建画面与配音，保留 ${editingAction.count} 个镜头：` : `将按策略重建画面与配音，保留 ${editingAction.count} 个镜头：`}</p>{isCutOperation(editingAction.operation) && <p className="assistant-edit-approval-evidence">理解依据：{understandingEvidence(editingAction)}</p>}{editingAction.operation === "audio_subtitle" && <p className="assistant-edit-approval-evidence">语音依据：{transcriptEvidence(editingAction)}</p>}<ol className="assistant-edit-approval-list">{orderedEditingItems.map((item, i) => <li key={`${item.asset_id || item.beat_id || item.name}-${i}`}><span title={item.name}>{item.name}</span>{editingAction.operation === "video_arrange" ? <span className="assistant-edit-approval-order"><small>{item.duration?.toFixed(2)} 秒</small><Button size="small" type="text" aria-label="上移" disabled={i === 0 || confirmingAction} icon={<ArrowUp size={12} />} onClick={() => moveEditingItem(i, -1)} /><Button size="small" type="text" aria-label="下移" disabled={i === orderedEditingItems.length - 1 || confirmingAction} icon={<ArrowDown size={12} />} onClick={() => moveEditingItem(i, 1)} /></span> : <span className="assistant-edit-approval-meta"><small>{editingAction.operation === "audio_subtitle" ? `${item.start?.toFixed(2)}–${((item.start ?? 0) + (item.duration ?? 0)).toFixed(2)} 秒` : isCutOperation(editingAction.operation) ? `${item.action === "trim" ? "截取" : "保留"} ${item.duration?.toFixed(2)} 秒` : `${item.duration?.toFixed(2)} 秒`}</small>{item.reason && <small className="assistant-edit-approval-reason" title={item.reason}>{item.reason}</small>}</span>}</li>)}</ol>{editingAction.operation === "hook_cut" && editingAction.principle && <p className="assistant-secondary">策略原则：{editingAction.principle}</p>}{editingAction.operation === "video_arrange" ? <p className="assistant-secondary">从 {(editingAction.append_at || 0).toFixed(2)} 秒处追加，共 {editingAction.total_duration.toFixed(2)} 秒。已有剪辑、文字和独立音频保留。</p> : editingAction.operation === "subtitle_arrange" ? <p className="assistant-secondary">共 {editingAction.total_duration.toFixed(2)} 秒。会替换上次自动生成的字幕，手动文字保留。</p> : editingAction.operation === "audio_subtitle" ? <p className="assistant-secondary">共 {editingAction.total_duration.toFixed(2)} 秒字幕时长。只替换上次自动生成的字幕，手动文字与画面剪辑保持不变。{editingAction.inaudible_count ? `${editingAction.inaudible_count} 段语音落在镜头外，本次未使用。` : ""}{editingAction.skipped_count ? `${editingAction.skipped_count} 处位置已有文字，已跳过。` : ""}</p> : <p className="assistant-secondary">共 {editingAction.total_duration.toFixed(2)} 秒{editingAction.dropped_count ? `，略过 ${editingAction.dropped_count} 个镜头` : ""}{editingAction.trimmed_count ? `，截短 ${editingAction.trimmed_count} 个镜头` : ""}。手动文字保留，执行后可在工具栏一次撤销。</p>}{editingAction.operation === "video_arrange" && (editingAction.skipped_count || 0) > 0 && <p className="assistant-secondary">跳过 {editingAction.skipped_count} 项已铺轨或重复视频。</p>}{editingAction.operation === "video_arrange" && (editingAction.missing_video_count || 0) > 0 && <p className="assistant-secondary">{editingAction.missing_video_count} 个分镜尚无视频，未用分镜图替代。</p>}{isCaptionOperation(editingAction.operation) && !!editingAction.replaced_count && <p className="assistant-secondary">替换 {editingAction.replaced_count} 条上次自动字幕{editingAction.skipped_count ? `，跳过 ${editingAction.skipped_count} 处无对白或占用位置` : ""}。</p>}{actionError && <Alert showIcon type="error" title={actionError} />}</>}
+      {editingAction && <><p className="assistant-edit-approval-intro">{editingAction.operation === "video_arrange" ? `将按以下顺序把 ${editingAction.count} 条视频铺到画面主轨：` : editingAction.operation === "subtitle_arrange" ? `将从分集对白生成 ${editingAction.count} 条字幕，放入时间线文字轨：` : editingAction.operation === "audio_subtitle" ? `将从音轨转写的 ${editingAction.transcript?.segment_count ?? 0} 段真实语音生成 ${editingAction.count} 条字幕，放入时间线文字轨：` : editingAction.operation === "subtitle_translate" ? `将把文字轨 ${editingAction.count} 条字幕翻译成简体中文，只改文本、不动时间：` : editingAction.operation === "hook_cut" ? `将按「${editingAction.strategy_title || "引流剪辑"}」重建画面与配音，保留 ${editingAction.count} 个镜头：` : editingAction.operation === "remove_waste" ? `将依据画面理解从画面轨移除 ${editingAction.count} 个废片镜头：` : `将按策略重建画面与配音，保留 ${editingAction.count} 个镜头：`}</p>{(isCutOperation(editingAction.operation) || isWasteOperation(editingAction.operation)) && <p className="assistant-edit-approval-evidence">理解依据：{understandingEvidence(editingAction)}</p>}{editingAction.operation === "audio_subtitle" && <p className="assistant-edit-approval-evidence">语音依据：{transcriptEvidence(editingAction)}</p>}{isCutOperation(editingAction.operation) && editingAction.transcript && <p className="assistant-edit-approval-evidence">语音依据：{transcriptEvidence(editingAction)}</p>}<ol className="assistant-edit-approval-list">{orderedEditingItems.map((item, i) => <li key={`${item.asset_id || item.beat_id || item.name}-${i}`}><span title={item.name}>{item.name}</span>{editingAction.operation === "video_arrange" ? <span className="assistant-edit-approval-order"><small>{item.duration?.toFixed(2)} 秒</small><Button size="small" type="text" aria-label="上移" disabled={i === 0 || confirmingAction} icon={<ArrowUp size={12} />} onClick={() => moveEditingItem(i, -1)} /><Button size="small" type="text" aria-label="下移" disabled={i === orderedEditingItems.length - 1 || confirmingAction} icon={<ArrowDown size={12} />} onClick={() => moveEditingItem(i, 1)} /></span> : <span className="assistant-edit-approval-meta"><small>{editingAction.operation === "audio_subtitle" ? `${item.start?.toFixed(2)}–${((item.start ?? 0) + (item.duration ?? 0)).toFixed(2)} 秒` : isCutOperation(editingAction.operation) ? `${item.action === "trim" ? "截取" : "保留"} ${item.duration?.toFixed(2)} 秒` : isWasteOperation(editingAction.operation) ? `移除 ${item.duration?.toFixed(2)} 秒` : `${item.duration?.toFixed(2)} 秒`}</small>{item.reason && <small className="assistant-edit-approval-reason" title={item.reason}>{item.reason}</small>}</span>}</li>)}</ol>{editingAction.operation === "hook_cut" && editingAction.principle && <p className="assistant-secondary">策略原则：{editingAction.principle}</p>}{editingAction.operation === "video_arrange" ? <p className="assistant-secondary">从 {(editingAction.append_at || 0).toFixed(2)} 秒处追加，共 {editingAction.total_duration.toFixed(2)} 秒。已有剪辑、文字和独立音频保留。</p> : editingAction.operation === "subtitle_arrange" ? <p className="assistant-secondary">共 {editingAction.total_duration.toFixed(2)} 秒。会替换上次自动生成的字幕，手动文字保留。</p> : editingAction.operation === "audio_subtitle" ? <p className="assistant-secondary">共 {editingAction.total_duration.toFixed(2)} 秒字幕时长。只替换上次自动生成的字幕，手动文字与画面剪辑保持不变。{editingAction.inaudible_count ? `${editingAction.inaudible_count} 段语音落在镜头外，本次未使用。` : ""}{editingAction.skipped_count ? `${editingAction.skipped_count} 处位置已有文字，已跳过。` : ""}</p> : editingAction.operation === "remove_waste" ? <p className="assistant-secondary">共移除 {editingAction.total_duration.toFixed(2)} 秒。只有画面理解给出明确废片证据的镜头会被清理；被移除镜头的配音一并移除，文字与音乐轨保留，执行后可在工具栏一次撤销。</p> : <p className="assistant-secondary">共 {editingAction.total_duration.toFixed(2)} 秒{editingAction.dropped_count ? `，略过 ${editingAction.dropped_count} 个镜头` : ""}{editingAction.trimmed_count ? `，截短 ${editingAction.trimmed_count} 个镜头` : ""}。手动文字与音乐轨保留，执行后可在工具栏一次撤销。</p>}{editingAction.operation === "video_arrange" && (editingAction.skipped_count || 0) > 0 && <p className="assistant-secondary">跳过 {editingAction.skipped_count} 项已铺轨或重复视频。</p>}{editingAction.operation === "video_arrange" && (editingAction.missing_video_count || 0) > 0 && <p className="assistant-secondary">{editingAction.missing_video_count} 个分镜尚无视频，未用分镜图替代。</p>}{isCaptionOperation(editingAction.operation) && !!editingAction.replaced_count && <p className="assistant-secondary">替换 {editingAction.replaced_count} 条上次自动字幕{editingAction.skipped_count ? `，跳过 ${editingAction.skipped_count} 处无对白或占用位置` : ""}。</p>}{actionError && <Alert showIcon type="error" title={actionError} />}</>}
     </Modal>
     {market && <ResourceMarket key={market} open tab={market} resources={catalog?.resources || []} csrfToken={csrfToken} canManagePlatform={!!catalog?.can_manage_platform} selectedVersions={{ skill: selections.skill_id, expert: selections.expert_id }} onClose={() => setMarket(null)} onRefresh={refreshCatalog} onSelect={selectResource} />}
     <KnowledgeManager open={knowledgeOpen} libraries={catalog?.knowledge || []} csrfToken={csrfToken} onClose={() => setKnowledgeOpen(false)} onRefresh={refreshCatalog} />

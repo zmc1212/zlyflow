@@ -22,7 +22,7 @@ class SaveEditRequest(BaseModel):
 
 
 class EditActionRequest(BaseModel):
-    operation: str = Field(default="video_arrange", description="剪辑动作：video_arrange 智能铺轨、subtitle_arrange 自动字幕（按分集对白）、audio_subtitle 音轨字幕（按已完成的音轨转写）、subtitle_translate 字幕翻译（把文字轨已有字幕翻成简体中文，只改文本）、dialogue_cut 对白精剪、quick_cut 成片速剪、highlight_cut 高光合集、hook_cut 引流剪辑。")
+    operation: str = Field(default="video_arrange", description="剪辑动作：video_arrange 智能铺轨、subtitle_arrange 自动字幕（按分集对白）、audio_subtitle 音轨字幕（按已完成的音轨转写）、subtitle_translate 字幕翻译（把文字轨已有字幕翻成简体中文，只改文本）、dialogue_cut 对白精剪、quick_cut 成片速剪、highlight_cut 高光合集、hook_cut 引流剪辑、remove_waste 废片清理（按画面理解的明确废片证据移除镜头）。")
     revision: int = Field(ge=0, description="已保存的剪辑版本；版本过期需重新预览。")
     session_id: str | None = Field(default=None, max_length=96, description="可选的当前分集剪辑助手会话，用于保存动作消息。")
     asset_ids: list[str] | None = Field(default=None, max_length=200, description="可选：按给定顺序铺轨的视频素材 ID，仅用于 video_arrange。")
@@ -151,9 +151,9 @@ def register_smart_edit_routes(app, *, current_user: Callable, mutating_user: Ca
     def save_edit(project_id: str, sequence_id: str, body: SaveEditRequest, user: dict = Depends(mutating_user)):
         return call(service.save_document, project_id, str(user["id"]), sequence_id, body.revision, body.document)
 
-    @app.get(prefix + "/{sequence_id}/sources", tags=["智能剪辑"], summary="获取分集成片、分镜图、配音与项目图片")
+    @app.get(prefix + "/{sequence_id}/sources", tags=["智能剪辑"], summary="获取分集成片、分镜图、配音、项目图片与已生成音乐")
     def sources(project_id: str, sequence_id: str, user: dict = Depends(current_user)):
-        return call(service.project_sources, project_id, sequence_id)
+        return call(service.project_sources, project_id, sequence_id, str(user["id"]))
 
     @app.get("/api/local-media/{token}", tags=["智能剪辑"], summary="按签名地址播放本机引用的素材")
     def local_media(token: str = ApiPath(description="本机素材签名 token，由「引用本机」导入结果返回；只读且校验签名。"),
@@ -193,7 +193,8 @@ def register_smart_edit_routes(app, *, current_user: Callable, mutating_user: Ca
                 raise HTTPException(400, "素材实际类型与扩展名不符，请重新选择文件")
             if kind == "image":
                 info["duration"] = 5
-            _, url = QiniuService.store_bytes("smart-edit", file.filename or path.name, path.read_bytes())
+            # Stream from the temp file so a 512 MB upload never sits in memory.
+            _, url = QiniuService.store_path("smart-edit", file.filename or path.name, path)
         return {"id": "import-" + service.uuid.uuid4().hex[:20], "name": file.filename or "导入素材", "kind": kind, "url": url, "thumbnail": url if kind == "image" else None, **info}
 
     @app.post(prefix + "/exports/mp4", status_code=202, tags=["智能剪辑"], summary="按当前时间线导出真实 MP4，可指定本机输出目录")

@@ -17,6 +17,7 @@ import {
   ListStart
 } from "lucide-react"
 import {
+  TRANSITIONS,
   endOf,
   frame,
   laneClips,
@@ -68,7 +69,7 @@ export default function Timeline({
   onReorder: (direction: -1 | 1) => void
   onPack: () => void
   onDrag: (id: string, kind: Drag["kind"], delta: number, snap: boolean) => void
-  onDropAsset: (id: string, time: number) => void
+  onDropAsset: (id: string, time: number, track?: EditTrack) => void
 }) {
   const [zoom, setZoom] = useState(39),
     [snap, setSnap] = useState(true),
@@ -212,7 +213,8 @@ export default function Timeline({
             [
               { key: "text", name: "文字", Icon: Type },
               { key: "video", name: "画面", Icon: Film },
-              { key: "audio", name: "配音 / 音乐", Icon: Music2 }
+              { key: "audio", name: "配音", Icon: Music2 },
+              { key: "music", name: "音乐", Icon: Music2 }
             ] as const
           ).map(({ key, name, Icon }) => (
             <div key={key} className={`se-track-label se-track-${key}`}>
@@ -231,6 +233,9 @@ export default function Timeline({
             onDrop={(event) => {
               event.preventDefault()
               const id = event.dataTransfer.getData("application/x-zly-asset")
+              const lane = (event.target as Element)
+                .closest(".se-track")
+                ?.getAttribute("data-track") as EditTrack | undefined
               if (id && canvas.current)
                 onDropAsset(
                   id,
@@ -239,7 +244,8 @@ export default function Timeline({
                       canvas.current.getBoundingClientRect().left) /
                       zoom,
                     doc.settings.fps
-                  )
+                  ),
+                  lane
                 )
             }}
           >
@@ -295,10 +301,11 @@ export default function Timeline({
                 </span>
               ))}
             </div>
-            {(["text", "video", "audio"] as EditTrack[]).map((track) => (
+            {(["text", "video", "audio", "music"] as EditTrack[]).map((track) => (
               <div
                 key={track}
                 className={`se-track se-track-${track}`}
+                data-track={track}
                 onPointerDown={seek}
               >
                 {laneClips(doc, track).map((clip) => {
@@ -373,6 +380,24 @@ export default function Timeline({
                           {clip.muted ? " · 静音" : ""}
                         </span>
                       </div>
+                      {clip.track === "video" &&
+                        clip.transition &&
+                        clip.transition !== "none" && (
+                          <span
+                            className="se-clip-transition"
+                            title={`转场：${
+                              TRANSITIONS.find(
+                                (t) => t.id === clip.transition
+                              )?.name || ""
+                            } ${clip.transition_duration ?? 0.5} 秒`}
+                          >
+                            {
+                              TRANSITIONS.find(
+                                (t) => t.id === clip.transition
+                              )?.name
+                            }
+                          </span>
+                        )}
                       <div
                         role="separator"
                         aria-label="裁切片段起点"

@@ -73,7 +73,8 @@ import {
   timecode,
   type EditAsset,
   type EditClip,
-  type EditDocument
+  type EditDocument,
+  type EditTrack
 } from "./model"
 import Preview from "./Preview"
 import Timeline from "./Timeline"
@@ -458,18 +459,20 @@ function EditWorkspace({
     }))
     setSelected("")
   }
-  function add(asset: EditAsset, at?: number) {
+  function add(asset: EditAsset, at?: number, track?: EditTrack) {
     const current = docRef.current
+    const lane = track || (asset.kind === "audio" ? "audio" : undefined)
     const clip = makeClip(
       current,
       asset,
       at ??
-        (asset.kind === "audio"
+        (lane === "audio" || lane === "music"
           ? time
           : Math.max(
               0,
               ...laneClips(current, "video").map((c) => c.start + c.duration)
-            ))
+            )),
+      lane
     )
     commit({ ...current, clips: [...current.clips, clip] })
     setSelected(clip.id)
@@ -1510,9 +1513,9 @@ function EditWorkspace({
         }
         onPack={() => commit((current) => packLane(current, "video"))}
         onDrag={dragClip}
-        onDropAsset={(id, at) => {
+        onDropAsset={(id, at, track) => {
           const asset = docRef.current.assets.find((a) => a.id === id)
-          if (asset) add(asset, at)
+          if (asset) add(asset, at, track)
         }}
       />
       <Modal

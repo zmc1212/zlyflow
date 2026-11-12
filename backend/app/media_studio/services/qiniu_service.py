@@ -161,8 +161,7 @@ class QiniuService:
         )
 
     @classmethod
-    def store_bytes(cls, prefix: str, source_filename: str, content: bytes) -> tuple[str, str]:
-        """上传二进制到七牛，返回 (object_key, cdn_url)。对齐 source1 QiniuStorage.store_bytes。"""
+    def _prepare_upload(cls, prefix: str, source_filename: str) -> tuple[dict, str, str, list]:
         cfg = cls._runtime_config()
         suffix = Path(source_filename).suffix or ".bin"
         timestamp = time.strftime("%Y%m%d/%H%M%S")
@@ -175,10 +174,59 @@ class QiniuService:
             up_host_backup=QINIU_UPLOAD_BACKUP_HOSTS[region],
             scheme="https",
         )]
+        return cfg, key, token, regions
+
+    @classmethod
+    def store_bytes(cls, prefix: str, source_filename: str, content: bytes) -> tuple[str, str]:
+        """上传二进制到七牛，返回 (object_key, cdn_url)。对齐 source1 QiniuStorage.store_bytes。"""
+        cfg, key, token, regions = cls._prepare_upload(prefix, source_filename)
         last_info: object | None = None
         for attempt in range(UPLOAD_ATTEMPTS):
             try:
                 result, info = cls._upload(token, key, source_filename, content, cfg["bucket"], regions)
+            except Exception as error:
+                last_info = error
+                if attempt + 1 < UPLOAD_ATTEMPTS and cls._retryable_upload(error):
+                    time.sleep(0.5 * (2 ** attempt))
+                    continue
+                raise RuntimeError(f"七牛云上传失败: {error}") from error
+            last_info = info
+            if getattr(info, "ok", lambda: False)() and result and result.get("key") == key:
+                return key, cls.object_url(key, cfg["domain"])
+            if attempt + 1 < UPLOAD_ATTEMPTS and cls._retryable_upload(info):
+                time.sleep(0.5 * (2 ** attempt))
+                continue
+            break
+        raise RuntimeError(f"七牛云上传失败: {getattr(last_info, 'error', None) or last_info}")
+
+    @classmethod
+    def store_path(cls, prefix: str, source_filename: str, path: Path) -> tuple[str, str]:
+        """Upload a local file straight from disk so large media never sits in memory."""
+        cfg, key, token, regions = cls._prepare_upload(prefix, source_filename)
+        mime_type = mimetypes.guess_type(source_filename)[0] or "application/octet-stream"
+        size = path.stat().st_size
+        last_info: object | None = None
+        for attempt in range(UPLOAD_ATTEMPTS):
+            try:
+                with path.open("rb") as stream:
+                    if size > LARGE_UPLOAD_BYTES:
+                        stream_uploader = getattr(qiniu, "put_stream_v2", None)
+                        if stream_uploader is not None:
+                            result, info = stream_uploader(
+                                token, key, stream, source_filename, size,
+                                mime_type=mime_type, bucket_name=cfg["bucket"],
+                                part_size=UPLOAD_PART_BYTES, regions=regions,
+                            )
+                        else:
+                            result, info = qiniu.put_stream(
+                                token, key, stream, source_filename, size,
+                                mime_type=mime_type, bucket_name=cfg["bucket"],
+                                part_size=UPLOAD_PART_BYTES, version="v2", regions=regions,
+                            )
+                    else:
+                        result, info = qiniu.put_data(
+                            token, key, stream.read(), mime_type=mime_type, check_crc=True, regions=regions,
+                        )
             except Exception as error:
                 last_info = error
                 if attempt + 1 < UPLOAD_ATTEMPTS and cls._retryable_upload(error):

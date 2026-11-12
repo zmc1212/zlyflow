@@ -12,6 +12,7 @@ import {
   EFFECTS,
   RATIOS,
   endOf,
+  laneClips,
   timecode,
   wrapText,
   type EditClip,
@@ -30,6 +31,135 @@ export function clipOpacity(clip: EditClip, time: number): number {
         clip.fade_out ? (clip.duration - local) / clip.fade_out : 1
       )
     )
+  )
+}
+
+const transitionLength = (clip: EditClip | undefined) =>
+  clip && clip.transition === "dissolve"
+    ? Math.min(2, Math.max(0.2, clip.transition_duration ?? 0.5))
+    : 0
+
+function MediaLayer({
+  clip,
+  asset,
+  playing,
+  time,
+  volumeScale,
+  onProbe,
+  onFail,
+  style
+}: {
+  clip: EditClip
+  asset: EditDocument["assets"][number]
+  playing: boolean
+  time: number
+  volumeScale?: number
+  onProbe: (id: string, duration: number) => void
+  onFail: (message: string) => void
+  style?: React.CSSProperties
+}) {
+  const video = useRef<HTMLVideoElement | null>(null)
+  useEffect(() => {
+    const element = video.current
+    if (!element) return
+    const target = clip.in_point + Math.max(0, time - clip.start) * clip.speed
+    if (
+      Number.isFinite(target) &&
+      Math.abs(element.currentTime - target) > (playing ? 0.18 : 0.01)
+    )
+      element.currentTime = target
+    element.playbackRate = clip.speed
+    element.muted = clip.muted
+    element.volume = Math.min(
+      1,
+      Math.min(1, clip.volume) *
+        clipOpacity({ ...clip, opacity: 1 }, time) *
+        (volumeScale ?? 1)
+    )
+    if (playing && element.paused)
+      void element.play().catch(() => {
+        onFail("素材暂时无法播放，请检查媒体地址或重新导入。")
+      })
+    else if (!playing && !element.paused) element.pause()
+  }, [time, playing, clip, volumeScale, onFail])
+  if (asset.kind === "image")
+    return (
+      <img
+        key={asset.id}
+        src={asset.url}
+        alt={asset.name}
+        style={style}
+        onError={() => onFail("图片无法加载，请重新导入素材。")}
+      />
+    )
+  return (
+    <video
+      ref={video}
+      key={clip.id}
+      src={asset.url}
+      preload="auto"
+      playsInline
+      style={style}
+      onLoadedMetadata={(event) => {
+        if (Number.isFinite(event.currentTarget.duration))
+          onProbe(asset.id, event.currentTarget.duration)
+      }}
+      onError={() =>
+        onFail("视频无法加载，请检查媒体地址或重新导入。 ")
+      }
+    />
+  )
+}
+
+function AudioLayer({
+  clip,
+  asset,
+  playing,
+  time,
+  onProbe,
+  onFail
+}: {
+  clip: EditClip
+  asset: EditDocument["assets"][number]
+  playing: boolean
+  time: number
+  onProbe: (id: string, duration: number) => void
+  onFail: (message: string) => void
+}) {
+  const audio = useRef<HTMLAudioElement | null>(null)
+  useEffect(() => {
+    const element = audio.current
+    if (!element) return
+    const target = clip.in_point + Math.max(0, time - clip.start) * clip.speed
+    if (
+      Number.isFinite(target) &&
+      Math.abs(element.currentTime - target) > (playing ? 0.18 : 0.01)
+    )
+      element.currentTime = target
+    element.playbackRate = clip.speed
+    element.muted = clip.muted
+    element.volume = Math.min(
+      1,
+      Math.min(1, clip.volume) * clipOpacity({ ...clip, opacity: 1 }, time)
+    )
+    if (playing && element.paused)
+      void element.play().catch(() => {
+        onFail("配音或音乐无法播放，请检查媒体地址或重新导入。")
+      })
+    else if (!playing && !element.paused) element.pause()
+  }, [time, playing, clip, onFail])
+  return (
+    <audio
+      ref={audio}
+      key={clip.id}
+      src={asset.url}
+      preload="auto"
+      onLoadedMetadata={(event) => {
+        if (Number.isFinite(event.currentTarget.duration))
+          onProbe(asset.id, event.currentTarget.duration)
+      }}
+      onError={() => onFail("配音或音乐无法加载，请重新导入。 ")}
+    />
   )
 }
 
@@ -52,8 +182,6 @@ export default function Preview({
   const [failed, setFailed] = useState("")
   const well = useRef<HTMLDivElement>(null),
     stage = useRef<HTMLDivElement>(null)
-  const video = useRef<HTMLVideoElement>(null),
-    audio = useRef<HTMLAudioElement>(null)
   const [w, h] = RATIOS[doc.settings.ratio]
   const stageWidth = Math.max(
     1,
@@ -68,9 +196,49 @@ export default function Preview({
     )
   const picture = active("video"),
     sound = active("audio"),
+    music = active("music"),
     text = active("text")
-  const pictureAsset = doc.assets.find((a) => a.id === picture?.asset_id),
-    audioAsset = doc.assets.find((a) => a.id === sound?.asset_id)
+  const pictureAsset = doc.assets.find((a) => a.id === picture?.asset_id)
+  // Dissolve: the outgoing picture keeps playing underneath while the incoming
+  // one fades in — the same blend the exporter renders.
+  const dissolve = transitionLength(picture)
+  const inDissolve =
+    dissolve > 0 && picture != null && time >= picture.start && time < picture.start + dissolve
+  const dissolveProgress = inDissolve ? (time - (picture?.start ?? 0)) / dissolve : 1
+  const outgoing =
+    inDissolve && picture
+      ? laneClips(doc, "video").find(
+          (c) => Math.abs(c.start + c.duration - picture.start) < 0.001
+        )
+      : undefined
+  const outgoingAsset = doc.assets.find((a) => a.id === outgoing?.asset_id)
+  // Dip to black/white: solid colour covers the seam, split across the tail of
+  // the previous picture and the head of the incoming one.
+  const dip = (() => {
+    if (!picture) return undefined
+    const head = picture.transition ?? "none"
+    if (head === "black" || head === "white") {
+      const f = Math.min(1, Math.max(0.1, (picture.transition_duration ?? 0.5) / 2))
+      if (time < picture.start + f)
+        return {
+          color: head === "white" ? "#ffffff" : "#000000",
+          alpha: 1 - (time - picture.start) / f
+        }
+    }
+    const next = laneClips(doc, "video").find(
+      (c) => Math.abs(c.start - (picture.start + picture.duration)) < 0.001
+    )
+    if (next && (next.transition === "black" || next.transition === "white")) {
+      const f = Math.min(1, Math.max(0.1, (next.transition_duration ?? 0.5) / 2))
+      const windowStart = picture.start + picture.duration - f
+      if (time >= windowStart)
+        return {
+          color: next.transition === "white" ? "#ffffff" : "#000000",
+          alpha: (time - windowStart) / f
+        }
+    }
+    return undefined
+  })()
   useEffect(() => {
     const observer = new ResizeObserver((entries) =>
       setSize({
@@ -83,44 +251,30 @@ export default function Preview({
   }, [])
   useEffect(() => {
     setFailed("")
-  }, [picture?.id, sound?.id])
-  useEffect(() => {
-    for (const [element, clip] of [
-      [video.current, picture],
-      [audio.current, sound]
-    ] as const) {
-      if (!element || !clip) continue
-      const target = clip.in_point + Math.max(0, time - clip.start) * clip.speed
-      if (
-        Number.isFinite(target) &&
-        Math.abs(element.currentTime - target) > (playing ? 0.18 : 0.01)
-      )
-        element.currentTime = target
-      element.playbackRate = clip.speed
-      element.muted = clip.muted
-      element.volume =
-        Math.min(1, clip.volume) * clipOpacity({ ...clip, opacity: 1 }, time)
-      if (playing && element.paused)
-        void element.play().catch(() => {
-          setFailed("素材暂时无法播放，请检查媒体地址或重新导入。")
-        })
-      else if (!playing && !element.paused) element.pause()
-    }
-  }, [time, playing, picture, sound])
+  }, [picture?.id, sound?.id, music?.id])
   useEffect(
     () => () => {
-      video.current?.pause()
-      audio.current?.pause()
+      for (const node of stage.current?.querySelectorAll("video, audio") || [])
+        (node as HTMLMediaElement).pause()
     },
     []
   )
   const pictureStyle = picture
     ? {
-        opacity: clipOpacity(picture, time),
+        opacity: inDissolve ? dissolveProgress : clipOpacity(picture, time),
         transform: `translate(${picture.x}%, ${picture.y}%) scale(${picture.scale}) rotate(${picture.rotation}deg)`,
         filter: EFFECTS.find((e) => e.id === picture.effect)?.css
       }
     : undefined
+  const outgoingStyle =
+    outgoing && outgoingAsset
+      ? {
+          opacity: clipOpacity(outgoing, time),
+          transform: `translate(${outgoing.x}%, ${outgoing.y}%) scale(${outgoing.scale}) rotate(${outgoing.rotation}deg)`,
+          filter: EFFECTS.find((e) => e.id === outgoing.effect)?.css
+        }
+      : undefined
+  const fail = (message: string) => setFailed(message)
   return (
     <section className="se-preview" aria-label="成片预览">
       <div className="se-panel-heading">
@@ -140,6 +294,28 @@ export default function Preview({
             background: doc.settings.background
           }}
         >
+          {outgoing &&
+            outgoingAsset &&
+            (outgoingAsset.kind === "image" ? (
+              <img
+                key={outgoingAsset.id}
+                src={outgoingAsset.url}
+                alt={outgoingAsset.name}
+                style={outgoingStyle}
+                onError={() => setFailed("图片无法加载，请重新导入素材。")}
+              />
+            ) : (
+              <MediaLayer
+                clip={outgoing}
+                asset={outgoingAsset}
+                playing={playing}
+                time={time}
+                volumeScale={1 - dissolveProgress}
+                onProbe={onProbe}
+                onFail={fail}
+                style={outgoingStyle}
+              />
+            ))}
           {picture &&
             pictureAsset &&
             (pictureAsset.kind === "image" ? (
@@ -151,22 +327,23 @@ export default function Preview({
                 onError={() => setFailed("图片无法加载，请重新导入素材。")}
               />
             ) : (
-              <video
-                ref={video}
-                key={picture.id}
-                src={pictureAsset.url}
-                preload="auto"
-                playsInline
+              <MediaLayer
+                clip={picture}
+                asset={pictureAsset}
+                playing={playing}
+                time={time}
+                volumeScale={inDissolve ? dissolveProgress : 1}
+                onProbe={onProbe}
+                onFail={fail}
                 style={pictureStyle}
-                onLoadedMetadata={(event) => {
-                  if (Number.isFinite(event.currentTarget.duration))
-                    onProbe(pictureAsset.id, event.currentTarget.duration)
-                }}
-                onError={() =>
-                  setFailed("视频无法加载，请检查媒体地址或重新导入。 ")
-                }
               />
             ))}
+          {dip && (
+            <div
+              className="se-preview-dip"
+              style={{ background: dip.color, opacity: Math.min(1, Math.max(0, dip.alpha)) }}
+            />
+          )}
           {text && (
             <div
               className="se-preview-text"
@@ -194,17 +371,24 @@ export default function Preview({
             </div>
           )}
         </div>
-        {sound && audioAsset && (
-          <audio
-            key={sound.id}
-            ref={audio}
-            src={audioAsset.url}
-            preload="auto"
-            onLoadedMetadata={(event) => {
-              if (Number.isFinite(event.currentTarget.duration))
-                onProbe(audioAsset.id, event.currentTarget.duration)
-            }}
-            onError={() => setFailed("配音或音乐无法加载，请重新导入。 ")}
+        {sound && doc.assets.find((a) => a.id === sound.asset_id) && (
+          <AudioLayer
+            clip={sound}
+            asset={doc.assets.find((a) => a.id === sound.asset_id)!}
+            playing={playing}
+            time={time}
+            onProbe={onProbe}
+            onFail={fail}
+          />
+        )}
+        {music && doc.assets.find((a) => a.id === music.asset_id) && (
+          <AudioLayer
+            clip={music}
+            asset={doc.assets.find((a) => a.id === music.asset_id)!}
+            playing={playing}
+            time={time}
+            onProbe={onProbe}
+            onFail={fail}
           />
         )}
       </div>

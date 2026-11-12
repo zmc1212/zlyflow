@@ -18,6 +18,7 @@ from backend.app.director_assistant.editing import (
     place_audio_subtitles,
     place_subtitles,
     rebuild_cut,
+    remove_waste_clips,
     subtitle_translation_targets,
     translate_subtitles,
 )
@@ -749,3 +750,113 @@ class EditingAssistantTests(unittest.TestCase):
             def logged_out(): raise HTTPException(401, "请先登录")
             app.dependency_overrides[current] = logged_out
             self.assertEqual(client.get(base + "/" + plan["id"]).status_code, 401)
+
+
+class FakeUnderstanding:
+    def __init__(self, evidence, status="succeeded"):
+        self.evidence_value = evidence
+        self.status = status
+
+    def evidence(self, owner, project, sequence):
+        if self.status in {"missing", "stale", "failed"}:
+            return {}, {"status": self.status, "used_count": 0, "shot_count": 0, "shot_analyzed_count": 0}
+        return self.evidence_value, {"status": self.status, "model": "vlm-test", "used_count": len(self.evidence_value),
+                                     "shot_count": 2, "shot_analyzed_count": 2}
+
+    def summary(self, owner, project, sequence):
+        return {"status": self.status, "visual_analyzed_count": len(self.evidence_value)}
+
+
+class WasteCleanupTests(unittest.TestCase):
+    def document(self):
+        doc = empty_document()
+        doc["assets"] = [video("v1", "b1", 4), video("v2", "b2", 4), audio("a1", "b1", 4)]
+        doc["clips"] = [
+            {"id": "cv1", "asset_id": "v1", "track": "video", "start": 0, "duration": 2},
+            {"id": "cv2", "asset_id": "v2", "track": "video", "start": 2, "duration": 2},
+            {"id": "ca1", "asset_id": "a1", "track": "audio", "start": 0, "duration": 2},
+            {"id": "note", "track": "text", "start": 0, "duration": 1, "text": "手动标题"},
+        ]
+        return validate_document(doc)
+
+    @staticmethod
+    def evidence():
+        return {
+            "b1": {"beat_id": "b1", "asset_id": "v1", "name": "v1", "status": "succeeded",
+                   "description": "画面是黑场，没有任何内容",
+                   "shots": [{"index": 1, "status": "succeeded", "description": "黑场", "start": 0, "end": 2}]},
+            "b2": {"beat_id": "b2", "asset_id": "v2", "name": "v2", "status": "succeeded",
+                   "description": "人物在街上奔跑，画面清晰",
+                   "shots": [{"index": 1, "status": "succeeded", "description": "奔跑", "start": 0, "end": 2}]},
+        }
+
+    def test_only_confident_waste_evidence_removes_clips_and_their_dubbing(self):
+        plan = remove_waste_clips(self.document(), self.evidence())
+        self.assertEqual(plan["count"], 2)
+        self.assertEqual([c["id"] for c in plan["document"]["clips"] if c["track"] == "video"], ["cv2"])
+        self.assertFalse(any(c["track"] == "audio" for c in plan["document"]["clips"]))
+        self.assertTrue(any(c["id"] == "note" for c in plan["document"]["clips"]))
+        self.assertEqual(plan["items"][0]["action"], "remove")
+        self.assertIn("画面证据", plan["items"][0]["reason"])
+        self.assertEqual(plan["considered_count"], 2)
+        self.assertEqual(plan["understanding_shots_used"], 2)
+
+    def test_clips_without_evidence_are_never_touched(self):
+        partial = {"b1": self.evidence()["b1"]}
+        plan = remove_waste_clips(self.document(), partial)
+        self.assertEqual(plan["count"], 2)
+        self.assertEqual([c["id"] for c in plan["document"]["clips"] if c["track"] == "video"], ["cv2"])
+        empty = remove_waste_clips(self.document(), {})
+        self.assertEqual(empty["count"], 0)
+        clean = remove_waste_clips(self.document(), self.evidence())
+        # v1 (waste) and its dubbing leave; v2 and the manual caption stay.
+        self.assertEqual(len(clean["document"]["clips"]), 2)
+
+    def test_refuses_when_every_picture_clip_looks_like_waste(self):
+        evidence = self.evidence()
+        evidence["b2"] = dict(evidence["b1"], beat_id="b2", asset_id="v2")
+        with self.assertRaises(ValueError):
+            remove_waste_clips(self.document(), evidence)
+
+    def test_dialogue_cut_uses_real_voiced_seconds_when_transcript_exists(self):
+        transcript = SubtitleAndCutTests.transcript(
+            "v2", "b2",
+            spans=[{"clip_id": "c2", "timeline_start": 0.0, "timeline_duration": 4.0, "in_point": 0.0, "speed": 1.0}],
+            segments=[{"id": "0", "start": 0, "end": 4, "text": "只有真实声音的对白"}])
+        plan = rebuild_cut(empty_document(), SubtitleAndCutTests().sources(), beats(), "dialogue_cut", transcript=transcript)
+        item = next(entry for entry in plan["items"] if entry["beat_id"] == "b2")
+        self.assertAlmostEqual(item["duration"], 4.6, delta=1 / 24)
+        kept = {entry["beat_id"] for entry in plan["items"]}
+        self.assertIn("b1", kept)
+
+    def test_preview_remove_waste_requires_understanding_then_confirms(self):
+        temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
+        store = JobStore(Path(temp.name) / "waste.db")
+        llm = Mock(); llm.assistant_models.return_value = ["model"]
+        service = AssistantService(store, llm, Path(temp.name) / "uploads")
+        editing = service.editing
+        with store.connection() as conn:
+            conn.execute("CREATE TABLE ai_projects (id TEXT PRIMARY KEY,name TEXT,settings_json TEXT)")
+            conn.execute("INSERT INTO ai_projects VALUES ('p','测试工程','{}')")
+            conn.execute("CREATE TABLE ai_smart_edit_documents (id TEXT PRIMARY KEY,project_id TEXT,owner_user_id TEXT,sequence_id TEXT,revision INTEGER,document_json TEXT,created_at TEXT,updated_at TEXT)")
+        doc = self.document()
+        key = document_id("p", "alice", "main")
+        with store.connection() as conn:
+            conn.execute("INSERT INTO ai_smart_edit_documents VALUES (?,?,?,?,?,?,?,?)",
+                         (key, "p", "alice", "main", 1, dumps(validate_document(doc)), "now", "now"))
+        source_patch = patch("backend.app.director_assistant.editing.smart_edit_service.project_sources", return_value=[])
+        source_patch.start(); self.addCleanup(source_patch.stop)
+        # Without understanding evidence the preview refuses to act.
+        with self.assertRaises(ValueError):
+            editing.preview("alice", "p", "main", revision=1, operation="remove_waste")
+        service.understanding = FakeUnderstanding(self.evidence())
+        editing.understanding = service.understanding
+        plan = editing.preview("alice", "p", "main", revision=1, operation="remove_waste")
+        self.assertEqual(plan["operation"], "remove_waste")
+        self.assertEqual(plan["count"], 2)
+        self.assertEqual(plan["understanding"]["used_count"], 2)
+        self.assertEqual(plan["status"], "pending")
+        result = editing.confirm("alice", "p", "main", plan["id"])
+        self.assertEqual(result["status"], "succeeded")
+        clips = result["snapshot"]["document"]["clips"]
+        self.assertEqual([c["id"] for c in clips if c["track"] == "video"], ["cv2"])

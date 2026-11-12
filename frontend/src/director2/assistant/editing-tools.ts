@@ -1,4 +1,4 @@
-import { AudioLines, Captions, Film, Flame, Languages, MessageSquareText, Scissors, Sparkles, type LucideIcon } from "lucide-react"
+import { AudioLines, Captions, Eraser, Film, Flame, Languages, MessageSquareText, Scissors, Sparkles, type LucideIcon } from "lucide-react"
 import type { EditingOperation, EditSnapshot, HookStrategy } from "../smart-edit/api"
 import type { AssistantSession } from "./api"
 
@@ -23,7 +23,14 @@ export const HOOK_STRATEGIES: EditingStrategy[] = [
   { id: "trailer", label: "预告片", description: "爆点冷开，金句对切，不给答案" }
 ]
 export const EDITING_TOOL_GROUPS: { id: string; label: string; tools: EditingTool[] }[] = [
-  { id: "organize", label: "素材归位", tools: [{ id: "video_arrange", label: "智能铺轨", Icon: Film }] },
+  {
+    id: "organize",
+    label: "素材归位",
+    tools: [
+      { id: "video_arrange", label: "智能铺轨", Icon: Film },
+      { id: "remove_waste", label: "废片清理", Icon: Eraser }
+    ]
+  },
   {
     id: "assemble",
     label: "智能成片",

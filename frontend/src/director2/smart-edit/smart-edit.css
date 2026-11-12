@@ -671,6 +671,7 @@
 .se-track-indicator.is-text { background: var(--se-title); }
 .se-track-indicator.is-video { background: var(--se-picture); }
 .se-track-indicator.is-audio { background: var(--se-audio); }
+.se-track-indicator.is-music { background: color-mix(in srgb, var(--se-audio), var(--studio-surface) 35%); }
 .se-track-text {
   height: 44px;
 }
@@ -678,6 +679,9 @@
   height: 58px;
 }
 .se-track-audio {
+  height: 54px;
+}
+.se-track-music {
   height: 54px;
 }
 .se-timeline-scroll {
@@ -688,7 +692,7 @@
 }
 .se-timeline-canvas {
   position: relative;
-  height: 188px;
+  height: 242px;
   min-width: 100%;
 }
 .se-ruler {
@@ -746,6 +750,29 @@
 .se-clip-audio {
   background: color-mix(in srgb, var(--se-audio), var(--studio-surface) 85%);
   border-color: var(--se-audio);
+}
+.se-clip-music {
+  background: color-mix(in srgb, var(--se-audio), var(--studio-surface) 70%);
+  border-color: color-mix(in srgb, var(--se-audio), var(--studio-surface) 40%);
+}
+.se-clip-transition {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  z-index: 2;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 16px;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--se-picture), var(--studio-surface) 55%);
+  color: var(--studio-text);
+  border: 1px solid var(--se-picture);
+}
+.se-preview-dip {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
 .se-clip-filmstrip {
   position: absolute;

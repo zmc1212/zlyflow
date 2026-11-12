@@ -17,7 +17,7 @@ import requests
 
 from ...config import settings
 from ...local_media import LOCAL_MEDIA_EXTENSIONS, is_local_url, path_for_url, url_for_path, ensure_export_allowed, ensure_import_allowed
-from ..db import execute_sql, now_str, query_one
+from ..db import execute_sql, now_str, query_all, query_one
 from .project_detail_service import ProjectDetailService
 from .project_service import ProjectService
 from .qiniu_service import QiniuService
@@ -76,7 +76,7 @@ def save_document(project_id: str, owner: str, sequence: str, revision: int, doc
     return {"revision": revision + 1, "document": doc, "updated_at": timestamp, "draft_key": did}
 
 
-def project_sources(project_id: str, sequence: str) -> list[dict]:
+def project_sources(project_id: str, sequence: str, owner: str | None = None) -> list[dict]:
     project_or_error(project_id)
     assets: list[dict] = []
     if sequence != "main":
@@ -98,6 +98,15 @@ def project_sources(project_id: str, sequence: str) -> list[dict]:
         item = asset if isinstance(asset, dict) else asset.model_dump()
         if item.get("image_url"):
             assets.append({"id": f"asset-{item['id']}", "name": item.get("name") or "项目图片", "url": item["image_url"], "kind": "image", "duration": 5, "thumbnail": item["image_url"]})
+    # Music generated in the workbench becomes BGM material; scoped to the
+    # current account so one user never sees another's soundtracks.
+    if owner:
+        rows = query_all("SELECT id, title, result_url, duration_seconds FROM music_jobs "
+                         "WHERE owner_user_id = %s AND status = 'succeeded' AND result_url IS NOT NULL "
+                         "ORDER BY created_at DESC, id DESC LIMIT 20", (owner,))
+        assets.extend({"id": f"music-{row['id']}", "name": f"音乐 · {(row.get('title') or '未命名')[:30]}",
+                       "kind": "audio", "url": row["result_url"],
+                       "duration": float(row.get("duration_seconds") or 0) or 5} for row in rows)
     return assets
 
 

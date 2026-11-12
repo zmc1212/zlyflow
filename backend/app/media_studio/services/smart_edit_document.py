@@ -14,6 +14,10 @@ from urllib.parse import urlsplit
 from ...local_media import LOCAL_MEDIA_PREFIX, is_valid_token
 
 EFFECTS = {"none", "mono", "sepia", "warm", "cool", "vivid", "soft", "fade"}
+# Transitions apply where the NEXT video clip begins: dissolve blends into the
+# previous picture; black/white dip through that solid colour without overlap.
+TRANSITIONS = {"none", "dissolve", "black", "white"}
+MAX_DISSOLVE_CHAIN = 8
 RATIOS = {"16:9": (1920, 1080), "9:16": (1080, 1920), "1:1": (1080, 1080), "4:3": (1440, 1080), "3:4": (1080, 1440)}
 MAX_DURATION = 1800
 
@@ -99,7 +103,7 @@ def validate_document(raw: dict[str, Any]) -> dict[str, Any]:
         asset["duration"] = number(asset.get("duration", 5), .04, 86400, "素材时长")
         by_asset[asset["id"]] = asset
     ids.clear()
-    lanes: dict[str, list] = {"video": [], "audio": [], "text": []}
+    lanes: dict[str, list] = {"video": [], "audio": [], "music": [], "text": []}
     fps = settings["fps"]
     for clip in clips:
         if not isinstance(clip, dict) or not isinstance(clip.get("id"), str) or not clip["id"] or len(clip["id"]) > 160 or clip["id"] in ids:
@@ -108,7 +112,7 @@ def validate_document(raw: dict[str, Any]) -> dict[str, Any]:
         track = clip.get("track")
         if track not in lanes:
             raise ValueError("无效的时间线轨道")
-        for key, default, low, high in (("start", 0, 0, MAX_DURATION), ("duration", 5, 1 / fps, MAX_DURATION), ("in_point", 0, 0, 86400), ("speed", 1, .25, 4), ("volume", 1, 0, 2), ("opacity", 1, 0, 1), ("scale", 1, .25, 3), ("x", 0, -100, 100), ("y", 0, -100, 100), ("rotation", 0, -180, 180), ("fade_in", 0, 0, 10), ("fade_out", 0, 0, 10), ("font_size", 64, 16, 200)):
+        for key, default, low, high in (("start", 0, 0, MAX_DURATION), ("duration", 5, 1 / fps, MAX_DURATION), ("in_point", 0, 0, 86400), ("speed", 1, .25, 4), ("volume", 1, 0, 2), ("opacity", 1, 0, 1), ("scale", 1, .25, 3), ("x", 0, -100, 100), ("y", 0, -100, 100), ("rotation", 0, -180, 180), ("fade_in", 0, 0, 10), ("fade_out", 0, 0, 10), ("font_size", 64, 16, 200), ("transition_duration", 0.5, 0.2, 2.0)):
             clip[key] = number(clip.get(key, default), low, high, key)
         for key in ("start", "duration"):
             if abs(clip[key] * fps - round(clip[key] * fps)) > .001:
@@ -121,6 +125,11 @@ def validate_document(raw: dict[str, Any]) -> dict[str, Any]:
         clip["effect"] = clip.get("effect", "none")
         if clip["fade_in"] + clip["fade_out"] > clip["duration"] + .001:
             raise ValueError("淡入淡出时长不能超过片段时长")
+        if clip.get("transition", "none") not in TRANSITIONS:
+            raise ValueError("不支持的转场类型")
+        clip["transition"] = clip.get("transition", "none")
+        if clip["transition"] != "none" and track != "video":
+            raise ValueError("只有画面轨片段可以设置转场")
         if track == "text":
             clip["text"] = str(clip.get("text") or "")[:1000]
             if not re.fullmatch(r"#[0-9a-fA-F]{6}", str(clip.get("color", "#ffffff"))):
@@ -128,7 +137,7 @@ def validate_document(raw: dict[str, Any]) -> dict[str, Any]:
             clip["color"] = clip.get("color", "#ffffff")
         else:
             asset = by_asset.get(clip.get("asset_id"))
-            if not asset or (track == "audio" and asset["kind"] != "audio") or (track == "video" and asset["kind"] == "audio"):
+            if not asset or (track in {"audio", "music"} and asset["kind"] != "audio") or (track == "video" and asset["kind"] == "audio"):
                 raise ValueError("片段引用了缺失或类型不匹配的素材")
             if asset["kind"] != "image" and clip["in_point"] + clip["duration"] * clip["speed"] > asset["duration"] + .1:
                 raise ValueError("片段超出原始素材时长")
@@ -138,6 +147,19 @@ def validate_document(raw: dict[str, Any]) -> dict[str, Any]:
         for previous, current in zip(lane, lane[1:]):
             if current["start"] < previous["start"] + previous["duration"] - .001:
                 raise ValueError("同一轨道内的片段不能重叠，请移动到空白位置")
+    run = 0
+    for previous, current in zip(lanes["video"], lanes["video"][1:]):
+        transition = current["transition"]
+        if transition == "none":
+            run = 0
+            continue
+        if previous["start"] + previous["duration"] < current["start"] - .001:
+            raise ValueError("转场需要紧贴上一个画面片段，请先移除两个片段之间的空隙")
+        if current["transition_duration"] > min(previous["duration"], current["duration"]) + .001:
+            raise ValueError("转场时长不能超过相邻画面片段的时长")
+        run = run + 1 if transition == "dissolve" else 0
+        if run > MAX_DISSOLVE_CHAIN:
+            raise ValueError(f"连续叠化最多 {MAX_DISSOLVE_CHAIN} 个镜头，请在中间插入硬切或其他转场")
     return doc
 
 

@@ -21,8 +21,19 @@ OPERATION_TITLES = {
     "quick_cut": "成片速剪",
     "highlight_cut": "高光合集",
     "hook_cut": "引流剪辑",
+    "remove_waste": "废片清理",
 }
 CUT_OPERATIONS = {"dialogue_cut", "quick_cut", "highlight_cut", "hook_cut"}
+EVIDENCE_OPERATIONS = {"dialogue_cut", "quick_cut", "highlight_cut", "hook_cut", "remove_waste"}
+# Only unambiguous waste signs remove footage; subjective wording like
+# 「模糊」「虚化」 stays out so stylistic shots are never auto-dropped.
+WASTE_MARKERS = (
+    "黑场", "黑屏", "全黑", "纯黑", "纯色", "纯白", "白屏", "空白", "静止画面", "静止不变",
+    "无变化", "无有效内容", "没有内容", "无可识别", "测试图", "测试卡", "彩条", "花屏", "损坏",
+    "black frame", "solid color", "color bars", "test pattern", "test card",
+    "blank screen", "frozen frame", "no content",
+)
+MAX_DISSOLVE_CHAIN = 8
 HOOK_STRATEGIES = {
     "conflict_3s": {"label": "3秒进冲突", "principle": "从冲突起刀，丢掉开场铺垫和不重要的剧情；超过 1 分钟压到约 30 秒。"},
     "climax_only": {"label": "只留高潮", "principle": "只留理解分最高的高光场次，不讲完整故事。"},
@@ -135,8 +146,9 @@ def _beat_score_detail(beat: dict) -> tuple[float, list[str]]:
     return round(score, 2), reasons or ["常规叙事镜头"]
 
 
-def _beat_score(beat: dict) -> float:
-    return _beat_score_detail(beat)[0]
+def _waste_hits(text: str) -> list[str]:
+    lowered = text.lower()
+    return [term for term in WASTE_MARKERS if term in lowered]
 
 
 def _apply_understanding(meta: list[dict], understanding: dict[str, dict] | None) -> None:
@@ -152,12 +164,50 @@ def _apply_understanding(meta: list[dict], understanding: dict[str, dict] | None
         if not text:
             continue
         item["visual"] = text[:400]
+        waste = _waste_hits(text)
+        if waste:
+            item["score"] = round(max(0.0, item["score"] - 3.0), 2)
+            item["reasons"] = ["画面疑似废片：" + "、".join(waste[:3]), *item["reasons"]]
+            continue
         hits = [term for term in HIGHLIGHT_TERMS if term in text]
         if hits:
             item["score"] = round(item["score"] + min(6.0, len(hits) * 2.0), 2)
             item["reasons"] = ["画面理解：" + "、".join(hits[:4]), *item["reasons"]]
         else:
             item["reasons"] = ["画面理解：" + text[:60], *item["reasons"]]
+        shots_ok = sum(1 for shot in evidence.get("shots") or [] if shot.get("status") == "succeeded")
+        subjects = sum(1 for subject in evidence.get("subjects") or [] if isinstance(subject, dict) and subject.get("name"))
+        if shots_ok >= 2:
+            item["score"] = round(item["score"] + min(2.0, (shots_ok - 1) * 0.8), 2)
+            item["reasons"] = [f"画面信息量高：理解到 {shots_ok} 个镜头", *item["reasons"]]
+        elif shots_ok == 1 and subjects >= 2:
+            item["score"] = round(item["score"] + 0.8, 2)
+            item["reasons"] = [f"画面主体丰富：{subjects} 个主体", *item["reasons"]]
+        camera = str(evidence.get("camera") or "").strip()
+        if camera and any(term in camera for term in ("推", "拉", "摇", "移", "跟", "手持", "升降", "环绕", "运镜")):
+            item["score"] = round(item["score"] + 0.6, 2)
+            item["reasons"] = ["画面有运镜变化", *item["reasons"]]
+
+
+def _apply_transcript_evidence(meta: list[dict], transcript: dict[str, dict] | None) -> None:
+    """Score beats by audio that actually plays on the timeline, not just the script."""
+    voiced: dict[str, float] = {}
+    for item in (transcript or {}).values():
+        if not isinstance(item, dict):
+            continue
+        beat = str(item.get("beat_id") or "")
+        if not beat:
+            continue
+        seconds = sum(max(0.0, float(span.get("timeline_duration") or 0))
+                      for span in item.get("spans") or [] if isinstance(span, dict))
+        voiced[beat] = voiced.get(beat, 0.0) + seconds
+    for item in meta:
+        seconds = round(voiced.get(item["beat_id"], 0.0), 2)
+        if seconds <= 0:
+            continue
+        item["voiced_seconds"] = seconds
+        item["score"] = round(item["score"] + min(4.0, seconds * 0.15), 2)
+        item["reasons"] = [f"真实发声 {seconds:.1f} 秒", *item["reasons"]]
 
 
 def _video_by_beat(sources: list[dict]) -> dict[str, dict]:
@@ -572,7 +622,7 @@ def _hook_plan(meta: list[dict], strategy: str) -> tuple[list[dict], int, int]:
         for item in score_order()[:cap]:
             add(item, "climax", "高光分最高：" + "；".join(item["reasons"]))
     elif strategy == "quote_open":
-        dialogue = [item for item in meta if item["has_dialogue"]] or meta
+        dialogue = [item for item in meta if item.get("has_speech", item["has_dialogue"])] or meta
         opener = max(dialogue, key=lambda item: (item["score"], item["duration"]))
         add(opener, "quote", "金句开场：" + "；".join(opener["reasons"]))
         kept = fill(opener["keep"], dialogue, "dialogue")
@@ -595,12 +645,12 @@ def _hook_plan(meta: list[dict], strategy: str) -> tuple[list[dict], int, int]:
         eligible = [item for item in chronological[:-1] if item["beat_id"] != opener["beat_id"]]
         kept, want_dialogue = opener["keep"], True
         while kept < target and eligible:
-            pool = [item for item in eligible if item["has_dialogue"] == want_dialogue and item["beat_id"] not in chosen]
+            pool = [item for item in eligible if item.get("has_speech", item["has_dialogue"]) == want_dialogue and item["beat_id"] not in chosen]
             pool = pool or [item for item in eligible if item["beat_id"] not in chosen]
             if not pool:
                 break
             item = max(pool, key=lambda value: value["score"])
-            add(item, "quote" if want_dialogue and item["has_dialogue"] else "beat", "金句对切：" + "；".join(item["reasons"]))
+            add(item, "quote" if want_dialogue and item.get("has_speech", item["has_dialogue"]) else "beat", "金句对切：" + "；".join(item["reasons"]))
             kept += item["keep"]
             want_dialogue = not want_dialogue
     else:
@@ -621,7 +671,8 @@ def _hook_plan(meta: list[dict], strategy: str) -> tuple[list[dict], int, int]:
 
 
 def _cut_plan(operation: str, beats: list[dict], sources: list[dict], strategy: str | None = None,
-              understanding: dict[str, dict] | None = None) -> tuple[list[dict], int, int]:
+              understanding: dict[str, dict] | None = None,
+              transcript: dict[str, dict] | None = None) -> tuple[list[dict], int, int]:
     videos = _video_by_beat(sources)
     usable = [beat for beat in beats if str(beat.get("id") or "") in videos]
     if not usable:
@@ -636,15 +687,21 @@ def _cut_plan(operation: str, beats: list[dict], sources: list[dict], strategy: 
         score, reasons = _beat_score_detail(beat)
         meta.append({"beat": beat, "beat_id": str(beat["id"]), "sequence": int(beat.get("sequence") or 0),
                      "duration": duration, "keep": round(keep, 3), "dialogue_seconds": dialogue_seconds,
-                     "has_dialogue": bool(dialogue), "score": score, "reasons": reasons})
+                     "has_dialogue": bool(dialogue), "voiced_seconds": 0.0, "score": score, "reasons": reasons})
     _apply_understanding(meta, understanding)
+    _apply_transcript_evidence(meta, transcript)
+    for item in meta:
+        # Script lines and real voiced audio describe the same speech; take the
+        # stronger of the two instead of double-counting both.
+        item["speech_seconds"] = round(max(item["dialogue_seconds"], item["voiced_seconds"]), 3)
+        item["has_speech"] = item["has_dialogue"] or item["voiced_seconds"] > 0.3
     if operation == "hook_cut":
         return _hook_plan(meta, strategy or "")
     decisions: dict[str, dict] = {}
     if operation == "dialogue_cut":
         for item in meta:
-            if item["has_dialogue"]:
-                decisions[item["beat_id"]] = {"trim": min(item["duration"], max(1.2, item["dialogue_seconds"] + 0.6)), "action": "trim"}
+            if item["has_speech"]:
+                decisions[item["beat_id"]] = {"trim": min(item["duration"], max(1.2, item["speech_seconds"] + 0.6)), "action": "trim"}
         if not decisions:
             raise ValueError("没有检测到对白镜头，请先完成配音或补充对白")
     elif operation == "quick_cut":
@@ -652,8 +709,8 @@ def _cut_plan(operation: str, beats: list[dict], sources: list[dict], strategy: 
         target = max(6.0, total * 0.6)
         kept_seconds = 0.0
         for item in meta:
-            if item["has_dialogue"]:
-                decisions[item["beat_id"]] = {"trim": min(item["duration"], max(2.0, item["dialogue_seconds"] + 0.5)), "action": "trim"}
+            if item["has_speech"]:
+                decisions[item["beat_id"]] = {"trim": min(item["duration"], max(2.0, item["speech_seconds"] + 0.5)), "action": "trim"}
                 kept_seconds += decisions[item["beat_id"]]["trim"]
         for item in sorted(meta, key=lambda value: value["score"], reverse=True):
             if kept_seconds >= target and decisions:
@@ -685,14 +742,15 @@ def _cut_plan(operation: str, beats: list[dict], sources: list[dict], strategy: 
 
 
 def rebuild_cut(document: dict, sources: list[dict], beats: list[dict], operation: str, strategy: str | None = None,
-                understanding: dict[str, dict] | None = None) -> dict:
-    """Rebuild picture and dubbing lanes from the selected beats; manual text is preserved."""
+                understanding: dict[str, dict] | None = None, transcript: dict[str, dict] | None = None) -> dict:
+    """Rebuild picture and dubbing lanes from the selected beats; manual text and the music lane are preserved."""
     doc = validate_document(document)
-    ordered, dropped_count, trimmed_count = _cut_plan(operation, beats, sources, strategy, understanding)
+    ordered, dropped_count, trimmed_count = _cut_plan(operation, beats, sources, strategy, understanding, transcript)
     videos, audios = _video_by_beat(sources), _audio_by_beat(sources)
     fps = doc["settings"]["fps"]
     manual_text = [clip for clip in doc["clips"] if clip["track"] == "text" and clip.get("origin") != "auto_subtitle"]
-    doc["clips"] = list(manual_text)
+    music = [clip for clip in doc["clips"] if clip["track"] == "music"]
+    doc["clips"] = [*manual_text, *music]
     cursor, items = 0.0, []
     used_assets: list[dict] = []
     for item in ordered:
@@ -732,6 +790,71 @@ def rebuild_cut(document: dict, sources: list[dict], beats: list[dict], operatio
             "trimmed_count": trimmed_count, "skipped_count": len(beats) - len(ordered),
             "understanding_used": used_evidence, "understanding_shots_used": used_shots,
             "total_duration": cursor}
+
+
+def _understanding_item_for_clip(clip: dict, assets: dict[str, dict], evidence: dict[str, dict]) -> dict | None:
+    """Resolve the understanding evidence of a clip via its asset id or beat id."""
+    asset = assets.get(clip.get("asset_id") or "")
+    for key in (f"asset:{clip.get('asset_id') or ''}", str((asset or {}).get("beat_id") or "")):
+        if key and key in evidence:
+            return evidence[key]
+    return None
+
+
+def remove_waste_clips(document: dict, evidence: dict[str, dict]) -> dict:
+    """Propose removing video clips whose understood picture shows confident waste.
+
+    Only explicit waste signs in the clip's own understanding evidence remove a
+    clip; clips without evidence are always kept. Dubbing audio of a removed
+    beat goes with it; manual text, the music lane and unevidenced clips stay.
+    """
+    doc = validate_document(document)
+    assets = {a["id"]: a for a in doc["assets"]}
+    video_clips = [c for c in doc["clips"] if c["track"] == "video"]
+    items, removed_ids, used_beats = [], [], set()
+    considered = 0
+    for clip in sorted(video_clips, key=lambda c: (c["start"], c["duration"])):
+        item = _understanding_item_for_clip(clip, assets, evidence)
+        if not item:
+            continue
+        considered += 1
+        shots = [str(shot.get("description") or "") for shot in item.get("shots") or [] if isinstance(shot, dict)]
+        text = " ".join(filter(None, [str(item.get("description") or ""), *shots]))
+        hits = _waste_hits(text)
+        if not hits:
+            continue
+        removed_ids.append(clip["id"])
+        asset = assets.get(clip.get("asset_id") or "")
+        beat_id = str((asset or {}).get("beat_id") or item.get("beat_id") or "")
+        if beat_id:
+            used_beats.add(beat_id)
+        items.append({"clip_id": clip["id"], "asset_id": clip.get("asset_id"), "beat_id": beat_id or None,
+                      "name": (asset or {}).get("name") or item.get("name") or "视频",
+                      "start": clip["start"], "duration": clip["duration"],
+                      "reason": "画面证据：" + "；".join(hits[:3]) + "；" + text[:110], "action": "remove"})
+    shots_used = sum(1 for value in evidence.values()
+                     for shot in value.get("shots") or [] if shot.get("status") == "succeeded")
+    if not removed_ids:
+        return {"document": doc, "items": [], "count": 0, "considered_count": considered,
+                "total_video_count": len(video_clips), "understanding_used": considered,
+                "understanding_shots_used": shots_used}
+    if len(removed_ids) >= len(video_clips):
+        raise ValueError("时间线上的画面片段都被判定为废片，已停止清理以免误删；请手动检查时间线或重新理解画面")
+    for clip in [c for c in doc["clips"] if c["track"] == "audio"]:
+        beat_id = str(assets.get(clip.get("asset_id") or "", {}).get("beat_id") or "")
+        if beat_id and beat_id in used_beats:
+            removed_ids.append(clip["id"])
+            items.append({"clip_id": clip["id"], "asset_id": clip.get("asset_id"), "beat_id": beat_id,
+                          "name": assets.get(clip.get("asset_id") or "", {}).get("name") or "配音",
+                          "start": clip["start"], "duration": clip["duration"],
+                          "reason": "所属镜头画面已判定为废片，配音一并移除", "action": "remove"})
+    removed = set(removed_ids)
+    doc["clips"] = [c for c in doc["clips"] if c["id"] not in removed]
+    result = validate_document(doc)
+    return {"document": result, "items": items, "count": len(items), "considered_count": considered,
+            "total_video_count": len(video_clips), "understanding_used": considered,
+            "understanding_shots_used": shots_used,
+            "total_duration": round(sum(item["duration"] for item in items), 3)}
 
 
 class EditingActions:
@@ -817,13 +940,14 @@ class EditingActions:
         if revision is not None and revision != snapshot["revision"]:
             raise AssistantConflict("剪辑已变化，请保存后重新预览")
         sources = smart_edit_service.project_sources(project, sequence)
-        beats = [] if sequence == "main" or operation in {"video_arrange", "audio_subtitle", "subtitle_translate"} else sorted(
+        beats = [] if sequence == "main" or operation in {"video_arrange", "audio_subtitle", "subtitle_translate", "remove_waste"} else sorted(
             ProjectDetailService.get_episode_detail(project, sequence).get("beats") or [],
             key=lambda beat: int(beat.get("sequence") or 0))
         evidence, evidence_meta = ({}, {"status": "missing", "used_count": 0, "shot_used_count": 0})
-        if operation in CUT_OPERATIONS and self.understanding:
+        if operation in EVIDENCE_OPERATIONS and self.understanding:
             evidence, evidence_meta = self.understanding.evidence(owner, project, sequence)
         transcript_meta: dict = {}
+        voiced_transcript: dict[str, dict] = {}
         if operation == "audio_subtitle":
             if self.transcription is None:
                 raise ValueError("音频转写能力未启用，请先在管理设置检查语音转写配置")
@@ -831,7 +955,17 @@ class EditingActions:
             if not transcript:
                 raise ValueError(TRANSCRIPT_MISSING_MESSAGES.get(str(transcript_meta.get("status")),
                                                                  TRANSCRIPT_MISSING_FALLBACK))
-        if operation == "video_arrange":
+        elif operation in CUT_OPERATIONS and self.transcription is not None:
+            voiced_transcript, soft_meta = self.transcription.evidence(owner, project, sequence)
+            if str(soft_meta.get("status")) in {"succeeded", "partial"} and voiced_transcript:
+                transcript_meta = soft_meta
+            else:
+                voiced_transcript = {}
+        if operation == "remove_waste":
+            if not evidence:
+                raise ValueError("还没有可用的画面理解结果，请先在剪辑页点击「视频理解」并等待完成")
+            plan = remove_waste_clips(snapshot["document"], evidence)
+        elif operation == "video_arrange":
             plan = arrange_videos(snapshot["document"], sources, free=sequence == "main", asset_ids=asset_ids)
         elif operation == "subtitle_arrange":
             plan = place_subtitles(snapshot["document"], beats)
@@ -847,14 +981,16 @@ class EditingActions:
                 translations = {target["clip_id"]: translated[index] for index, target in enumerate(targets)}
             plan = translate_subtitles(snapshot["document"], translations)
         else:
-            plan = rebuild_cut(snapshot["document"], sources, beats, operation, strategy, evidence)
+            plan = rebuild_cut(snapshot["document"], sources, beats, operation, strategy, evidence, voiced_transcript)
         extra = {"strategy": strategy, "strategy_title": HOOK_STRATEGIES[strategy]["label"],
                  "principle": HOOK_STRATEGIES[strategy]["principle"]} if operation == "hook_cut" else {}
-        if operation in CUT_OPERATIONS:
+        if operation in EVIDENCE_OPERATIONS:
             extra["understanding"] = {**evidence_meta, "used_count": plan.pop("understanding_used", 0),
                                       "shot_used_count": plan.pop("understanding_shots_used", 0)}
         if operation == "audio_subtitle":
             extra["transcript"] = transcript_meta
+        elif operation in CUT_OPERATIONS and transcript_meta:
+            extra["transcript"] = {**transcript_meta, "used_count": transcript_meta.get("used_count", 0)}
         return self._store_proposal(owner, project, sequence, snapshot, operation, session_id, run_id, extra=extra, **plan)
 
     def _store_proposal(self, owner, project, sequence, snapshot, operation, session_id, run_id, *, extra=None, **plan):

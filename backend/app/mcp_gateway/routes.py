@@ -385,7 +385,7 @@ def register_mcp_routes(app, *, current_user, mutating_user, settings, submit_ge
     @sdk.tool(annotations=edit, structured_output=True)
     async def studio_preview_edit(project_id: str, sequence_id: str, operation: str, revision: int | None = None,
                                   asset_ids: list[str] | None = None, strategy: str | None = None) -> dict[str, Any]:
-        """生成待确认剪辑方案，不修改时间线。operation：video_arrange 智能铺轨、subtitle_arrange 自动字幕、audio_subtitle 音轨字幕、subtitle_translate 字幕翻译（把文字轨已有字幕翻成简体中文，只改文本）、dialogue_cut 对白精剪、quick_cut 成片速剪、highlight_cut 高光合集、hook_cut 引流剪辑。asset_ids 仅用于 video_arrange；strategy 仅用于 hook_cut（conflict_3s、climax_only、quote_open、ending_hook、trailer）。"""
+        """生成待确认剪辑方案，不修改时间线。operation：video_arrange 智能铺轨、subtitle_arrange 自动字幕、audio_subtitle 音轨字幕、subtitle_translate 字幕翻译（把文字轨已有字幕翻成简体中文，只改文本）、dialogue_cut 对白精剪、quick_cut 成片速剪、highlight_cut 高光合集、hook_cut 引流剪辑、remove_waste 废片清理（只依据画面理解的明确废片证据移除镜头）。asset_ids 仅用于 video_arrange；strategy 仅用于 hook_cut（conflict_3s、climax_only、quote_open、ending_hook、trailer）。"""
         return await run("studio:edit", lambda user: editing.preview(
             user["id"], project_id, sequence_id, operation=operation, revision=revision,
             asset_ids=asset_ids, strategy=strategy))

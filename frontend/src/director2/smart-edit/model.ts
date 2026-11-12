@@ -1,4 +1,5 @@
-export type EditTrack = "video" | "audio" | "text"
+export type EditTrack = "video" | "audio" | "music" | "text"
+export type EditTransition = "none" | "dissolve" | "black" | "white"
 export type EditAsset = {
   id: string
   name: string
@@ -30,6 +31,8 @@ export type EditClip = {
   effect: string
   fade_in: number
   fade_out: number
+  transition?: EditTransition
+  transition_duration?: number
   text: string
   color: string
   font_size: number
@@ -62,6 +65,13 @@ export const EFFECTS = [
     css: "contrast(.85) brightness(1.04) saturate(.8)"
   }
 ]
+export const TRANSITIONS: { id: EditTransition; name: string }[] = [
+  { id: "none", name: "无转场" },
+  { id: "dissolve", name: "叠化" },
+  { id: "black", name: "黑场" },
+  { id: "white", name: "白场" }
+]
+export const DEFAULT_TRANSITION_DURATION = 0.5
 export const uid = () => crypto.randomUUID()
 export function wrapText(text: string, fontSize: number): string {
   const limit = (1920 * 0.86) / fontSize
@@ -137,9 +147,12 @@ export function gapAt(
 export function makeClip(
   doc: EditDocument,
   asset?: EditAsset,
-  at = 0
+  at = 0,
+  track?: EditTrack
 ): EditClip {
-  const track = asset?.kind === "audio" ? "audio" : asset ? "video" : "text"
+  const lane: EditTrack =
+    track ||
+    (asset?.kind === "audio" ? "audio" : asset ? "video" : "text")
   const fps = doc.settings.fps
   const duration = Math.max(
     1 / fps,
@@ -147,9 +160,9 @@ export function makeClip(
   )
   return {
     id: uid(),
-    track,
+    track: lane,
     asset_id: asset?.id,
-    start: gapAt(doc, track, at, duration),
+    start: gapAt(doc, lane, at, duration),
     duration,
     in_point: 0,
     speed: 1,
@@ -158,15 +171,27 @@ export function makeClip(
     opacity: 1,
     scale: 1,
     x: 0,
-    y: track === "text" ? 35 : 0,
+    y: lane === "text" ? 35 : 0,
     rotation: 0,
     effect: "none",
     fade_in: 0,
     fade_out: 0,
+    transition: "none",
+    transition_duration: DEFAULT_TRANSITION_DURATION,
     text: asset ? "" : "在这里写下你的故事",
     color: "#ffffff",
     font_size: 64
   }
+}
+export function canTransition(doc: EditDocument, clip: EditClip): boolean {
+  // A transition blends with the previous picture, so the clip must directly
+  // follow another video clip on the picture lane.
+  if (clip.track !== "video") return false
+  return laneClips(doc, "video").some(
+    (c) =>
+      c.id !== clip.id &&
+      Math.abs(c.start + c.duration - clip.start) < 0.001
+  )
 }
 export function patchClip(
   doc: EditDocument,
@@ -194,6 +219,23 @@ export function patchClip(
   if (next.fade_in + next.fade_out > next.duration) {
     next.fade_in = Math.min(next.fade_in, next.duration / 2)
     next.fade_out = Math.min(next.fade_out, next.duration / 2)
+  }
+  if (next.transition && next.transition !== "none") {
+    if (next.track !== "video" || !canTransition(doc, next))
+      throw new Error("转场需要紧贴上一个画面片段，请先移除两个片段之间的空隙")
+    const previous = laneClips(doc, "video").find(
+      (c) =>
+        c.id !== id && Math.abs(c.start + c.duration - next.start) < 0.001
+    )
+    next.transition_duration = Math.max(
+      0.2,
+      Math.min(
+        2,
+        next.transition_duration ?? DEFAULT_TRANSITION_DURATION,
+        previous?.duration ?? next.duration,
+        next.duration
+      )
+    )
   }
   if (next.start + next.duration > 1800) throw new Error("时间线最长为 30 分钟")
   if (
@@ -237,7 +279,8 @@ export function splitClip(
               duration: frame(c.duration - left, doc.settings.fps),
               in_point: c.in_point + left * c.speed,
               fade_in: 0,
-              fade_out: Math.min(c.fade_out, (c.duration - left) / 2)
+              fade_out: Math.min(c.fade_out, (c.duration - left) / 2),
+              transition: "none" as EditTransition
             }
           ]
         : [c]
@@ -376,7 +419,7 @@ export function parseDocument(text: string): EditDocument {
     if (
       !c.id ||
       clipIds.has(c.id) ||
-      !["video", "audio", "text"].includes(c.track) ||
+      !["video", "audio", "music", "text"].includes(c.track) ||
       ![
         c.start,
         c.duration,
@@ -392,6 +435,8 @@ export function parseDocument(text: string): EditDocument {
         c.fade_out,
         c.font_size
       ].every(Number.isFinite) ||
+      (c.transition_duration !== undefined &&
+        !Number.isFinite(c.transition_duration)) ||
       c.start < 0 ||
       c.duration < 1 / doc.settings.fps - 0.001 ||
       c.speed < 0.25 ||
@@ -419,6 +464,8 @@ export function parseDocument(text: string): EditDocument {
       ) > 0.001 ||
       c.fade_in + c.fade_out > c.duration + 0.001 ||
       !EFFECTS.some((e) => e.id === c.effect) ||
+      (c.transition !== undefined &&
+        !TRANSITIONS.some((t) => t.id === c.transition)) ||
       (c.track === "text" &&
         (typeof c.text !== "string" || !/^#[0-9a-f]{6}$/i.test(c.color)))
     )
@@ -426,7 +473,8 @@ export function parseDocument(text: string): EditDocument {
     clipIds.add(c.id)
     if (c.track !== "text") {
       const asset = doc.assets.find((a) => a.id === c.asset_id)
-      if (!asset || (c.track === "audio") !== (asset.kind === "audio"))
+      const wantsAudio = c.track === "audio" || c.track === "music"
+      if (!asset || wantsAudio !== (asset.kind === "audio"))
         throw new Error("工程缺少片段使用的素材")
     }
     const others = {

@@ -28,6 +28,7 @@ export type EditingOperation =
   | "quick_cut"
   | "highlight_cut"
   | "hook_cut"
+  | "remove_waste"
 export type HookStrategy =
   | "conflict_3s"
   | "climax_only"
@@ -155,11 +156,13 @@ export type EditingAction = {
     name: string
     start?: number
     duration?: number
-    action?: "add" | "keep" | "trim" | "update"
+    action?: "add" | "keep" | "trim" | "update" | "remove"
     reason?: string
   }[]
   count: number
   skipped_count?: number
+  considered_count?: number
+  total_video_count?: number
   missing_video_count?: number
   append_at?: number
   total_duration: number

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   blankDocument,
+  canTransition,
   duplicateClip,
   endOf,
   makeClip,
@@ -132,5 +133,50 @@ describe("smart editing timeline", () => {
       "一二三四五六七八\n九十\n手动换行"
     )
     expect(wrapText("第一行\r\n\r\n第二行", 64)).toBe("第一行\n\n第二行")
+  })
+  it("allows transitions only on adjacent picture clips and clamps their duration", () => {
+    let doc = fixture()
+    const second = makeClip(doc, source, endOf(doc))
+    doc = { ...doc, clips: [...doc.clips, second] }
+    const first = doc.clips[0]
+    expect(canTransition(doc, second)).toBe(true)
+    expect(canTransition(doc, first)).toBe(false)
+    const transitioned = patchClip(doc, second.id, {
+      transition: "dissolve",
+      transition_duration: 5
+    })
+    expect(
+      transitioned.clips.find((c) => c.id === second.id)?.transition_duration
+    ).toBe(2)
+    // Splitting resets the transition on the right half only.
+    const split = splitClip(transitioned, second.id, second.start + 1)
+    expect(split.clips.find((c) => c.id === second.id)?.transition).toBe(
+      "dissolve"
+    )
+    const right = split.clips.find((c) => c.id !== second.id && c.start > second.start)
+    expect(right?.transition).toBe("none")
+    // A gap breaks adjacency: after moving the second clip, transitions are rejected.
+    expect(() =>
+      patchClip(split, second.id, { start: 4 })
+    ).toThrow()
+  })
+  it("places audio assets on the music lane and round-trips the document", () => {
+    let doc = blankDocument()
+    const music: EditAsset = {
+      id: "m1",
+      kind: "audio",
+      name: "BGM",
+      url: "https://media.example/bgm.mp3",
+      duration: 30
+    }
+    doc.assets = [music]
+    const bed = makeClip(doc, music, 0, "music")
+    doc = { ...doc, clips: [bed] }
+    expect(bed.track).toBe("music")
+    expect(endOf(doc)).toBeCloseTo(
+      Math.floor(30 * doc.settings.fps) / doc.settings.fps
+    )
+    const parsed = parseDocument(JSON.stringify(doc))
+    expect(parsed.clips[0].track).toBe("music")
   })
 })

@@ -25,9 +25,9 @@ describe("editing assistant isolation and result adoption", () => {
     expect(newestPendingEditingAction([older, latest], new Set([latest.id]))).toBeUndefined()
     expect(newestPendingEditingAction([older, { ...latest, status: "succeeded" }], new Set())).toBeUndefined()
   })
-  it("offers eight preview-first operations and explicit hook strategies", () => {
+  it("offers nine preview-first operations and explicit hook strategies", () => {
     const tools = EDITING_TOOL_GROUPS.flatMap(group => group.tools)
-    expect(tools.map(tool => tool.id)).toEqual(["video_arrange", "dialogue_cut", "quick_cut", "highlight_cut", "hook_cut", "subtitle_arrange", "audio_subtitle", "subtitle_translate"])
+    expect(tools.map(tool => tool.id)).toEqual(["video_arrange", "remove_waste", "dialogue_cut", "quick_cut", "highlight_cut", "hook_cut", "subtitle_arrange", "audio_subtitle", "subtitle_translate"])
     expect(EDITING_TOOL_GROUPS.map(group => group.label)).toEqual(["素材归位", "智能成片", "字幕"])
     expect(tools.find(tool => tool.id === "hook_cut")?.strategies?.map(item => item.id)).toEqual(["conflict_3s", "climax_only", "quote_open", "ending_hook", "trailer"])
   })

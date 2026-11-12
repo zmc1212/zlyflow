@@ -60,6 +60,36 @@ class SmartEditDocumentTests(unittest.TestCase):
         doc["clips"].append({"id": "text", "track": "text", "start": 0, "duration": 1, "text": "你好 <测试> ' : %", "color": "#ffffff"})
         self.assertEqual(len(validate_document(doc)["clips"]), 2)
 
+    def test_transitions_require_adjacent_picture_clips_and_bounded_duration(self):
+        doc = fixture()
+        doc["assets"].append({"id": "v2", "name": "镜头二", "kind": "video", "url": "https://media.example/two.mp4", "duration": 4})
+        doc["clips"].append({"id": "c2", "asset_id": "v2", "track": "video", "start": 2, "duration": 2, "transition": "dissolve", "transition_duration": .5})
+        self.assertEqual(validate_document(doc)["clips"][1]["transition"], "dissolve")
+        gapped = copy.deepcopy(doc); gapped["clips"][1]["start"] = 3
+        with self.assertRaises(ValueError): validate_document(gapped)
+        long = copy.deepcopy(doc); long["clips"][1].update(transition="black", transition_duration=5)
+        with self.assertRaises(ValueError): validate_document(long)
+        caption = copy.deepcopy(doc); caption["clips"].append({"id": "t1", "track": "text", "start": 0, "duration": 1, "text": "标题", "transition": "black"})
+        with self.assertRaises(ValueError): validate_document(caption)
+        chain = copy.deepcopy(doc)
+        chain["assets"].append({"id": "v3", "name": "镜头三", "kind": "video", "url": "https://media.example/three.mp4", "duration": 4})
+        chain["clips"].append({"id": "c3", "asset_id": "v3", "track": "video", "start": 4, "duration": 2, "transition": "dissolve"})
+        self.assertEqual(len(validate_document(chain)["clips"]), 3)
+        for index in range(9):
+            chain["assets"].append({"id": f"v{index + 10}", "name": "镜", "kind": "video", "url": f"https://media.example/x{index}.mp4", "duration": 4})
+            chain["clips"].append({"id": f"c{index + 10}", "asset_id": f"v{index + 10}", "track": "video", "start": 6 + index, "duration": 1, "transition": "dissolve"})
+        with self.assertRaises(ValueError): validate_document(chain)
+
+    def test_music_lane_accepts_audio_assets_and_rejects_mismatched_kinds(self):
+        doc = fixture()
+        doc["assets"].append({"id": "m1", "name": "BGM", "kind": "audio", "url": "https://media.example/bgm.mp3", "duration": 10})
+        doc["clips"].append({"id": "bgm", "asset_id": "m1", "track": "music", "start": 0, "duration": 4})
+        self.assertEqual(validate_document(doc)["clips"][1]["track"], "music")
+        wrong = copy.deepcopy(doc); wrong["clips"][1] = {"id": "bgm", "asset_id": "v1", "track": "music", "start": 0, "duration": 2}
+        with self.assertRaises(ValueError): validate_document(wrong)
+        plain = copy.deepcopy(doc); plain["clips"][1]["track"] = "voice"
+        with self.assertRaises(ValueError): validate_document(plain)
+
     def test_text_wrap_matches_browser_breaks_and_preserves_manual_lines(self):
         self.assertEqual(wrap_text("一二三四五六七八九十\n手动换行", 192), "一二三四五六七八\n九十\n手动换行")
         self.assertEqual(wrap_text("第一行\r\n\r\n第二行", 64), "第一行\n\n第二行")
@@ -311,6 +341,62 @@ class SmartEditRenderTests(unittest.TestCase):
             # Decode the gap: it must remain black despite an audio-only lane.
             sample = subprocess.run([shutil.which("ffmpeg"), "-v", "error", "-ss", "1.25", "-i", str(output), "-frames:v", "1", "-vf", "crop=16:16:0:0", "-pix_fmt", "rgb24", "-f", "rawvideo", "-"], capture_output=True, check=True, timeout=30).stdout
             self.assertLess(sum(sample) / len(sample), 8)
+
+
+    def test_real_export_blends_dissolve_and_mixes_music_lane(self):
+        with tempfile.TemporaryDirectory(prefix="zly-edit-test-") as directory:
+            root = Path(directory)
+            def ff(*args):
+                subprocess.run([shutil.which("ffmpeg"), "-hide_banner", "-loglevel", "error", "-y", *args], check=True, capture_output=True, timeout=60)
+            first, second = root / "first.mp4", root / "second.mp4"
+            ff("-f", "lavfi", "-i", "color=c=red:s=160x90:r=24:d=3", "-f", "lavfi", "-i", "sine=frequency=440:duration=3", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(first))
+            ff("-f", "lavfi", "-i", "color=c=green:s=160x90:r=24:d=3", "-f", "lavfi", "-i", "sine=frequency=880:duration=3", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(second))
+            music = root / "music.wav"
+            ff("-f", "lavfi", "-i", "sine=frequency=220:duration=4", str(music))
+            doc = fixture()
+            doc["assets"] += [{"id": "v2", "name": "镜头二", "kind": "video", "url": "https://media.example/two.mp4", "duration": 3}, {"id": "bgm", "name": "BGM", "kind": "audio", "url": "https://media.example/bgm.wav", "duration": 4}]
+            doc["clips"] += [{"id": "c2", "asset_id": "v2", "track": "video", "start": 2, "duration": 2, "transition": "dissolve", "transition_duration": .5}, {"id": "m1", "asset_id": "bgm", "track": "music", "start": 0, "duration": 4}]
+            sources = {"v1": first, "v2": second, "bgm": music}
+            stages = []
+            output = render_document(doc, root, lambda a, _: sources[a["id"]], stages.append, quality=720)
+            info = probe(output)
+            self.assertAlmostEqual(info["duration"], 4, delta=.1)
+            self.assertTrue(info["has_audio"])
+            self.assertEqual(stages[-1], 95)
+            def frame(seconds):
+                return subprocess.run([shutil.which("ffmpeg"), "-v", "error", "-ss", f"{seconds:.2f}", "-i", str(output), "-frames:v", "1", "-pix_fmt", "rgb24", "-f", "rawvideo", "-"], capture_output=True, check=True, timeout=30).stdout
+            def channel(sample, offset):
+                values = sample[offset::3]
+                return sum(values) / max(1, len(values))
+            before, blend = frame(1.0), frame(2.25)
+            self.assertGreater(channel(before, 0), 120)   # pure red before the dissolve
+            self.assertLess(channel(before, 1), 60)
+            self.assertGreater(channel(blend, 0), 60)     # mid-dissolve mixes red and green
+            self.assertGreater(channel(blend, 1), 60)
+
+    def test_real_export_dips_to_black_across_the_cut(self):
+        with tempfile.TemporaryDirectory(prefix="zly-edit-test-") as directory:
+            root = Path(directory)
+            def ff(*args):
+                subprocess.run([shutil.which("ffmpeg"), "-hide_banner", "-loglevel", "error", "-y", *args], check=True, capture_output=True, timeout=60)
+            first, second = root / "first.mp4", root / "second.mp4"
+            ff("-f", "lavfi", "-i", "color=c=red:s=160x90:r=24:d=2", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(first))
+            ff("-f", "lavfi", "-i", "color=c=green:s=160x90:r=24:d=2", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(second))
+            doc = fixture()
+            doc["clips"][0]["in_point"] = 0
+            doc["assets"].append({"id": "v2", "name": "镜头二", "kind": "video", "url": "https://media.example/two.mp4", "duration": 2})
+            doc["clips"].append({"id": "c2", "asset_id": "v2", "track": "video", "start": 2, "duration": 2, "transition": "black", "transition_duration": .5})
+            sources = {"v1": first, "v2": second}
+            output = render_document(doc, root, lambda a, _: sources[a["id"]], lambda _: None, quality=720)
+            def frame(seconds):
+                return subprocess.run([shutil.which("ffmpeg"), "-v", "error", "-ss", f"{seconds:.2f}", "-i", str(output), "-frames:v", "1", "-pix_fmt", "rgb24", "-f", "rawvideo", "-"], capture_output=True, check=True, timeout=30).stdout
+            def channel(sample, offset):
+                values = sample[offset::3]
+                return sum(values) / max(1, len(values))
+            self.assertGreater(channel(frame(1.0), 0), 120)  # red picture before the dip window
+            seam = frame(2.0)                                 # dip covers the cut completely
+            for offset in range(3):
+                self.assertLess(channel(seam, offset), 30)
 
 
 if __name__ == "__main__":

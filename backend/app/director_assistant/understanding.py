@@ -488,9 +488,14 @@ class MediaUnderstanding:
             return {}, {"status": "stale", "used_count": 0, "shot_used_count": 0}
         evidence = {}
         for item in record.get("items") or []:
-            if item.get("status") not in {"succeeded", "partial"} or not item.get("beat_id"):
+            if item.get("status") not in {"succeeded", "partial"}:
                 continue
-            evidence[str(item["beat_id"])] = item
+            if item.get("beat_id"):
+                evidence[str(item["beat_id"])] = item
+            if item.get("asset_id"):
+                # Asset-keyed entries (prefix avoids colliding with beat ids) let
+                # free-edit sequences and clip-level lookups use the same record.
+                evidence.setdefault(f"asset:{item['asset_id']}", item)
         stored = record.get("summary") or {}
         return evidence, {"status": record.get("status"), "model": record.get("model"),
                           "analyzed_count": int(stored.get("analyzed_count") or 0),

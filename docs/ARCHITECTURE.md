@@ -1,5 +1,20 @@
 # ZLY AI Video Studio 架构快照
 
+## 2026-11-13：智能剪辑 A6「废片清理」+ 画面转场 + 音乐轨（BGM 联动）+ 导出性能
+
+- 变更原因：A6（语义分段与废片识别）是 `docs/智能剪辑助手开发计划.md` 既定下一步——画面理解此前只给高光加分，不参与删镜头决策；同时时间线缺画面转场与独立音乐轨（BGM 无法与配音并行）、导出为「分段 + 成片」两遍 x264 编码且 512MB 上传整读内存。本批一次交付四项：`remove_waste` 动作、片段级转场、音乐轨与 BGM 素材接入、渲染管线提速与上传流式化。
+- 当前基线：
+  - **废片清理（remove_waste）**：`editing.py` 新增 `WASTE_MARKERS`/`_waste_hits()`/`remove_waste_clips()`——只有素材自身的 `media_understanding` 描述命中明确废片标记（黑场/黑屏/纯色/空白/静止画面/测试图/彩条/花屏及英文对应词）才移除；主观措辞（模糊/虚化）刻意排除。移除画面镜头时按 beat 关联把其分镜配音一并移除，手工文字与音乐轨永不触碰；全部画面片段被判废片时直接报错拒绝。`understanding.evidence()` 扩为「分镜 ID + `asset:<素材ID>`」双键索引，自由剪辑（main）与画布工程可用；`preview()` 对 remove_waste 要求已有理解结果否则报错提示先「视频理解」。确认链与其它动作一致（revision CAS + 幂等）。
+  - **AI 决策升级（确定性证据加权，不引入模型决策）**：`_apply_understanding()` 升级——疑似废片降 3 分；理解到 ≥2 镜、≥2 主体、运镜关键词分别加成并给出「画面信息量高/主体丰富/有运镜变化」理由；新增 `_apply_transcript_evidence()`——音轨转写的实际发声秒数（`spans.timeline_duration` 按 beat 汇总）参与 `dialogue_cut`/`quick_cut` 的取舍与保留时长（`speech_seconds = max(剧本对白秒, 真实发声秒)`，避免重复计分），`hook_cut` 的金句对切改用发声证据；cut 类预览附带 `transcript` 元数据供前端展示语音依据。
+  - **画面转场**：`smart_edit_document.py` 新增 `TRANSITIONS = {none, dissolve, black, white}` 与 `transition_duration`（0.2–2 秒，默认 0.5）；校验：只属于画面轨、紧贴上一画面片段（无空隙）、时长 ≤ 相邻片段时长、连续叠化链 ≤ 8。渲染端 `smart_edit_render.py` 重构为「渲染单元」模型：`_video_segments()` 切片 → `_group_units()` 把叠化相邻片段合成单元 → 叠化单元内前一画面按转场时长延长（tpad 冻结兜底）、后一画面 alpha 淡入、音频交叉淡化 + amix；黑场/白场 dip 拆两半铺纯色层（上一片段尾部淡入纯色、下一片段头部淡出纯色，不重叠时间线，音频同步 dip）。前端预览：叠化双视频层 + 透明度/音量渐变近似；黑/白场纯色遮罩精确；时间线转场角标；`Inspector` 画面页新增「入转场 + 时长」。
+  - **音乐轨**：文档模型第四轨 `music`（仅音频素材；与配音轨可并行混音，轨内不重叠）。时间线新增音乐轨泳道与按轨拖放落点；`render_document` 的混音输入扩为 `audio + music`；`export_otio/export_xml/export_jianying` 携带音乐轨（剪映 material type `music`）；精剪重建保留音乐轨。素材库：`project_sources()` 按账号追加 `music_jobs` 最近 20 首已生成音乐（`status='succeeded'`），音乐工作台产物可直接作 BGM 拖入。
+  - **导出性能**：分段渲染线程池并行（环境变量 `ZLY_SMART_EDIT_RENDER_WORKERS`，默认 2、上限 4，进度按完成数推进）；字幕烧录移入分段阶段（跨单元渐变窗口钳制非负）；成片阶段仅在需要混音时 `-c:v copy` 直拷贝混音，无配音/音乐片段时仅 faststart 封装——视频编码从两遍降为一遍；字体候选补 macOS 系统字体（PingFang/Songti/Arial Unicode）。**上传**：`QiniuService.store_path()` 从临时文件流式直传（分片 `put_stream_v2`/`put_stream`，小文件 `put_data`），上传路由不再 `read_bytes()` 整读 512MB。
+  - **协议面**：`protocol.py` 的 `EditDraft`/`EDIT_OPERATION_ENUM`/SYSTEM_PROMPT 加入 `remove_waste`（明确「只依据画面理解证据」）；MCP `studio_preview_edit` 描述同步；`smart_edit_router.py` 的动作说明与 sources 摘要更新。
+- 受影响文件：后端 `backend/app/director_assistant/{editing,protocol,understanding}.py`、`backend/app/media_studio/services/{smart_edit_document,smart_edit_render,smart_edit_service,qiniu_service}.py`、`backend/app/media_studio/routers/smart_edit_router.py`、`backend/app/mcp_gateway/routes.py`；前端 `frontend/src/director2/smart-edit/{model.ts,api.ts,Timeline.tsx,Preview.tsx,Inspector.tsx,SmartEditPane.tsx,smart-edit.css}`、`frontend/src/director2/assistant/{editing-tools.ts,DirectorAssistant.tsx}`；测试 `backend/tests/{test_editing_assistant,test_smart_edit}.py`、`frontend/src/director2/smart-edit/model.test.ts`、`frontend/src/director2/assistant/editing-tools.test.ts`。
+- 兼容性：文档版本仍为 1——旧工程缺省 `transition="none"`、`transition_duration=0.5`，无音乐片段即无影响；既有 8 个动作语义与参数不变；`remove_waste` 为纯新增动作，旧 MCP/HTTP 调用不受影响；无新表、无迁移（理解/转写/提案仍存 `ai_assistant_records`，音乐素材只读 `music_jobs`）。含转场/音乐轨的新工程回退到旧版本时：转场字段被忽略（退化为硬切）、音乐片段会因旧校验「无效轨道」报错需删除。
+- 验证命令（本机 macOS 验证环境：`backend/.venv` Python 3.10 + 静态 ffmpeg 7.0）：`backend/tests/test_smart_edit.py`（24 项 + 3 个真实 FFmpeg 渲染测试全部通过——含新增「叠化混色通道校验」「黑场 dip 接缝纯黑校验」）、`backend/tests/test_editing_assistant.py`（52 项通过，含 remove_waste 预览/确认/无证据保留/全废片拒绝与发声证据参与精剪）、`backend/tests/test_director_assistant.py` 通过；前端 `vitest` 138 文件 964 项通过、`tsc -b` 干净、`pnpm build`（clean-dist → vite build）通过。后端全量测试中 11 个收集错误与 scail2 失败源于工作区并行改动删除 `director_recipe.PAYLOAD_KIND_REPLICATION`，另 1 项 `test_smart_edit.LocalMediaTests` 为本机 `/var→/private/var` 符号链接环境性失败（HEAD 基线同样失败），均与本次改动无关。
+- 回滚方式：撤销上述文件的本次改动即可。已保存的含转场工程回退后转场失效（退化为硬切）；含音乐片段的工程需在旧版本删除该片段方可通过校验；理解/转写记录与提案记录不受影响。
+
 ## 2026-11-12：智能剪辑助手新增「字幕翻译」（subtitle_translate）
 
 - 变更原因：智能剪辑原有 7 个动作都不能处理「把已有字幕翻译成中文」——字幕语言跟随来源（`subtitle_arrange` 按分集剧本对白铺字，剧本是日文就铺出日文字幕）；用户输入「把字幕转成中文」时无对应能力，模型只复述了系统提示词里铺轨请求的输出示例（「请核对待铺视频清单，确认后追加到主轨。」）且未携带工具调用，流程停住。本次新增第 8 个动作 `subtitle_translate`，并修复示例话术泄漏。
@@ -5202,3 +5217,14 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：纯加法。`UserResponse` 新增两个带默认值的字段，旧客户端忽略即可；不新增数据表，不改会话与密码存储，`/api/auth/login` 的 429 文案与 5 次 / 15 分钟阈值不变。
 - 验证：`python -m unittest backend.tests.test_core.AuthenticationTests -v`；后端全量 `python -m unittest discover -s backend/tests -p test_core.py`（129 项通过）；`pnpm --dir frontend build`。
 - 回滚方式：还原上述文件；解除操作只影响内存计数，不涉及数据迁移。
+
+## 2026-11-13 下线旧九阶段 Recipe 与旧导演工程管理的孤儿 HTTP 面（第二批死代码清理）
+
+- 变更原因：旧九阶段 Recipe 界面与旧导演台时间线下线后，其 HTTP 面在前端已 0 调用（`frontend/src/director/director-api.ts` 同批清理为仅存复制片/批量/资产库在用的 14 个函数）。本轮删除全部孤儿路由与仅被这些路由消费的服务函数，属死代码清理，不改变任何存活功能。
+- 后端：`main.py` 删除 32 个路由 handler（`/api/director/recipes/**` 全族、`GET /api/director/projects` 列表、`/copy`、`/migrate`、`/convert-to-recipe`、`GET|POST /api/director/operations/{id}` 与 `/cancel`、`GET /api/director/export-capabilities`、`POST /api/director/library-assets/from-recipe`）并同步清理悬空 import；级联删除 `director_export.py`（TTS/BGM/MUX/FCPXML/EDL 导出管线 24 个函数）、`director_jobs.py`（16 个）、`director_library.recipe_items_for_library`、`director_compiler` 旧常量、`director_recipe` 3 个函数、`llm_minimax_skills.SEEDANCE_CONTINUITY_EXCERPT`、`models.py` 16 个请求/响应模型；另清理 `storage.py`/`llm_client.py`/`h3_prompt_builder.py`/`llm_service.py` 历史遗留未使用 import。
+- 保留：`POST /api/director/projects`、`DELETE /api/director/projects/{id}`（存活 GET/PUT 详情、复制片/批量工程生命周期与测试造数依赖）、library-assets 全套 CRUD、`GET /api/director/operations/{id}/events`（SSE）、replications 与 batches 全部端点、art-styles。
+- 前端：删除孤儿模块 `director2/home-projects.ts`（已被 `home-project-cards.ts` 取代）及其测试；`index.css` 清除旧首页约 200 行死样式（保留 `dh-project-*` 活规则与 `dh-pack-picker-*`）；`director2.css` 删除 HomeView.vue 段 250 行死样式；`tsconfig.app.json` 开启 `noUnusedLocals`/`noUnusedParameters` 并修复全部存量未使用符号。
+- 测试：删除 20 个仅覆盖已删端点的测试方法，修剪 3 个混合测试（`test_director.py`），后端套件 1173 项、失败集与基线一致（4 项既有环境问题）。
+- 兼容性：被删端点无任何前端/桌面端/MCP 调用方；历史导演工程数据不删除，仍可经保留的 GET/PUT `/api/director/projects/{id}` 读取与更新；无数据库迁移、端口或工作流协议变化。
+- 验证命令：`python -m unittest discover -s backend/tests`（与改动前基线失败集一致）；`pnpm --dir frontend exec tsc -p tsconfig.app.json --noEmit`；`pnpm --dir frontend test`（964 项）；`pnpm --dir frontend build`。
+- 回滚方式：还原 `backend/app/main.py` 与上述模块文件、`backend/tests/test_director.py`、`frontend/src/director/director-api.ts`、`frontend/src/director2/home-projects.ts*`、两处 CSS 与 `tsconfig.app.json` 即可；无数据回滚需求。
