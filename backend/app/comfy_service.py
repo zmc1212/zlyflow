@@ -158,10 +158,12 @@ from .stem_split_workflow import (
     STEM_SPLIT_VOCALS_NODE,
     build_stem_split_workflow,
 )
+from .minimax_h3_image_workflow import H3_IMAGE_OUTPUT_NODE, build_minimax_h3_image_workflow
 from .workflow_registry import (
     ACTION_WORKFLOWS,
     DIRECTOR_ACCEL_WORKFLOWS,
     DUAL_ACCEL_WORKFLOWS,
+    H3_IMAGE_WORKFLOWS,
     H3_WORKFLOWS,
     LIGHTX2V_WORKFLOWS,
     T8_WORKFLOWS,
@@ -217,7 +219,7 @@ class ComfyQueuePrompt:
 
 
 class ComfyUnavailable(legacy.ComfyError):
-    """ComfyUI/FRP is unreachable long enough that the worker should release its slot."""
+    """视频服务 is unreachable long enough that the worker should release its slot."""
 
 
 class ComfyCancelled(legacy.ComfyError):
@@ -281,7 +283,7 @@ def node_percent(value: object, maximum: object) -> int | None:
 def interpret_comfy_progress(
     message: dict, prompt_id: str, workflow: dict | None, generation_stage: str,
 ) -> ComfyProgressTick | None:
-    """Map ComfyUI socket traffic to a wait-for-switch stage or sampling percent."""
+    """Map 视频服务 socket traffic to a wait-for-switch stage or sampling percent."""
     if not isinstance(message, dict) or not workflow:
         return None
     msg_type = message.get("type")
@@ -391,7 +393,7 @@ def _split_box_pixels(per_mille: object, source: str) -> dict:
 
 
 class ComfyService:
-    """ComfyUI HTTP client that reuses the proven workflow node mappings."""
+    """视频服务 HTTP client that reuses the proven workflow node mappings."""
 
     def __init__(
         self,
@@ -553,7 +555,7 @@ class ComfyService:
                 break
             except requests.RequestException as error:
                 logger.warning(
-                    "ComfyUI upload failed: file=%s size=%.2fMB attempt=%s/%s elapsed=%.2fs error=%s: %s",
+                    "视频服务 upload failed: file=%s size=%.2fMB attempt=%s/%s elapsed=%.2fs error=%s: %s",
                     source.name, size_mb, attempt, COMFY_UPLOAD_ATTEMPTS,
                     time.monotonic() - started, type(error).__name__, error,
                     exc_info=True,
@@ -563,18 +565,18 @@ class ComfyService:
                     continue
                 raise ComfyUnavailable(
                     f"参考素材 {source.name}（{size_mb:.2f} MB）上传失败：{type(error).__name__}: {error}。"
-                    "ComfyUI 或 FRP 连接中断，任务尚未提交。"
+                    "视频服务连接中断，任务尚未提交。"
                 ) from error
         if not response.ok:
-            raise legacy.ComfyError(f"上传图像到 ComfyUI 失败: {response.text}")
+            raise legacy.ComfyError(f"上传图像到视频服务失败: {response.text}")
         payload = response.json()
         name = payload.get("name")
         if not name:
-            raise legacy.ComfyError(f"ComfyUI 上传接口未返回文件名: {payload}")
+            raise legacy.ComfyError(f"视频服务上传接口未返回文件名: {payload}")
         return f"{payload.get('subfolder')}/{name}" if payload.get("subfolder") else name
 
     def upload_video(self, local_path: str, tag: str) -> str:
-        """上传视频到 ComfyUI input 目录（/upload/image 接口接受任意文件，VHS 从该目录读取）。"""
+        """上传视频到视频服务 input 目录（/upload/image 接口接受任意文件，VHS 从该目录读取）。"""
         return self.upload_image(local_path, tag)
 
     def run_depth_extraction(
@@ -583,7 +585,7 @@ class ComfyService:
         on_submitted: Callable[[str, str, str], None] | None = None,
         is_cancelled: Callable[[], bool] | None = None,
     ) -> StoredResource:
-        """把参考片交给 ComfyUI 的 Depth Anything 3 提取时序稳定深度视频，返回本地文件。"""
+        """把参考片交给视频服务的 Depth Anything 3 提取时序稳定深度视频，返回本地文件。"""
         filename = self.upload_video(str(video_path), "depth_source")
         workflow = build_depth_video_workflow(filename, fps=fps, frame_cap=frame_cap, resolution=resolution)
         record = self.run_workflow(
@@ -631,7 +633,7 @@ class ComfyService:
                 f"{self.comfy_url}/prompt", json={"prompt": workflow, "client_id": client_id}, timeout=(5, 30),
             )
         except requests.RequestException as error:
-            raise ComfyUnavailable("ComfyUI 或 FRP 当前不可用，任务尚未提交。") from error
+            raise ComfyUnavailable("视频服务当前不可用，任务尚未提交。") from error
         if not response.ok:
             raise legacy.ComfyError(explain_comfy_prompt_rejection(
                 response.status_code,
@@ -641,7 +643,7 @@ class ComfyService:
             ))
         prompt_id = response.json().get("prompt_id")
         if not prompt_id:
-            raise legacy.ComfyError("ComfyUI 未返回任务 ID。")
+            raise legacy.ComfyError("视频服务未返回任务 ID。")
         return prompt_id
 
     @staticmethod
@@ -730,11 +732,11 @@ class ComfyService:
             return
 
     def free_resources(self, *, force: bool = False) -> bool:
-        """Unload ComfyUI models and drop caches when its queue is idle.
+        """Unload 视频服务 models and drop caches when its queue is idle.
 
-        ComfyUI keeps UNET/CLIP/VAE in VRAM and RAM after a prompt so the next
+        视频服务 keeps UNET/CLIP/VAE in VRAM and RAM after a prompt so the next
         run is faster. Workbench API graphs do not include cleanup nodes, so the
-        worker must ask ComfyUI to unload once no local video job remains.
+        worker must ask 视频服务 to unload once no local video job remains.
 
         POST /free only sets flags, and the prompt worker may wait up to 1000s
         when idle. A tiny VRAMCleanup prompt wakes that loop immediately.
@@ -832,7 +834,7 @@ class ComfyService:
                 continue
             last_history_poll = time.monotonic()
             try:
-                # ComfyUI can temporarily stop answering HTTP requests while a
+                # 视频服务 can temporarily stop answering HTTP requests while a
                 # large model is loading or a long video step is running. The
                 # prompt remains active, so a single polling read timeout must
                 # not turn the job into a failed ZLY AI Video Studio task.
@@ -841,7 +843,7 @@ class ComfyService:
                 unavailable_since = unavailable_since or time.monotonic()
                 if time.monotonic() - unavailable_since >= 30:
                     raise ComfyUnavailable(
-                        "ComfyUI 或 FRP 连接中断，任务已暂停。恢复后将自动重新提交。"
+                        "视频服务连接中断，任务已暂停。恢复后将自动重新提交。"
                     ) from error
                 time.sleep(2)
                 continue
@@ -856,7 +858,7 @@ class ComfyService:
                     unavailable_since = unavailable_since or time.monotonic()
                     if time.monotonic() - unavailable_since >= 30:
                         raise ComfyUnavailable(
-                            "ComfyUI 或 FRP 连接中断，任务已暂停。恢复后将自动重新提交。"
+                            "视频服务连接中断，任务已暂停。恢复后将自动重新提交。"
                         )
                     time.sleep(2)
                     continue
@@ -868,7 +870,7 @@ class ComfyService:
                         elapsed = self.execution_elapsed_ms(record)
                         if elapsed is not None:
                             self.last_execution_elapsed_ms = (self.last_execution_elapsed_ms or 0) + elapsed
-                        raise legacy.ComfyError(f"ComfyUI 推理失败: {legacy.get_error_message(record)}")
+                        raise legacy.ComfyError(f"视频服务推理失败: {legacy.get_error_message(record)}")
                     if status == "success" or record.get("outputs"):
                         elapsed = self.execution_elapsed_ms(record)
                         if elapsed is not None:
@@ -882,14 +884,14 @@ class ComfyService:
                         missing_since = missing_since or time.monotonic()
                         if time.monotonic() - missing_since >= 30:
                             raise ComfyUnavailable(
-                                "ComfyUI 重启后未找到原任务，任务已暂停。恢复后将自动重新提交。"
+                                "视频服务重启后未找到原任务，任务已暂停。恢复后将自动重新提交。"
                             )
             else:
                 unavailable_since = unavailable_since or time.monotonic()
                 if time.monotonic() - unavailable_since >= 30:
-                    raise ComfyUnavailable("ComfyUI 或 FRP 连接中断，任务已暂停。恢复后将自动重新提交。")
+                    raise ComfyUnavailable("视频服务连接中断，任务已暂停。恢复后将自动重新提交。")
             time.sleep(2)
-        raise ComfyUnavailable(f"等待 ComfyUI 超时（{legacy.REQUEST_TIMEOUT_SECONDS // 60} 分钟）。")
+        raise ComfyUnavailable(f"等待视频服务超时（{legacy.REQUEST_TIMEOUT_SECONDS // 60} 分钟）。")
 
     def run_workflow(
         self, workflow: dict, stage: str, update_stage: Callable[[str, int | None], None],
@@ -927,12 +929,12 @@ class ComfyService:
     def output_source_info(file_info: dict) -> dict:
         filename = file_info.get("filename")
         if not isinstance(filename, str) or not filename or filename != Path(filename).name:
-            raise legacy.ComfyError(f"ComfyUI 输出缺少 filename: {file_info}")
+            raise legacy.ComfyError(f"视频服务输出缺少 filename: {file_info}")
         raw_subfolder = file_info.get("subfolder", "")
         subfolder = str(raw_subfolder).replace("\\", "/")
         folder = PurePosixPath(subfolder)
         if folder.is_absolute() or ".." in folder.parts:
-            raise legacy.ComfyError(f"ComfyUI 输出目录不合法: {file_info}")
+            raise legacy.ComfyError(f"视频服务输出目录不合法: {file_info}")
         return {
             "filename": filename,
             "subfolder": subfolder,
@@ -942,7 +944,7 @@ class ComfyService:
     def open_output_stream(self, source_info: dict) -> requests.Response:
         source = self.output_source_info(source_info)
         if source["type"] != "output":
-            raise legacy.ComfyError("仅允许交付 ComfyUI output 目录中的文件。")
+            raise legacy.ComfyError("仅允许交付视频服务 output 目录中的文件。")
         try:
             response = requests.get(
                 f"{self.comfy_url}/view",
@@ -951,11 +953,11 @@ class ComfyService:
                 timeout=(5, 120),
             )
         except requests.RequestException as error:
-            raise legacy.ComfyError(f"读取 ComfyUI 输出失败: {error}") from error
+            raise legacy.ComfyError(f"读取视频服务输出失败: {error}") from error
         if not response.ok:
             detail = response.text
             response.close()
-            raise legacy.ComfyError(f"读取 ComfyUI 输出失败: {detail}")
+            raise legacy.ComfyError(f"读取视频服务输出失败: {detail}")
         return response
 
     def can_stream_output(self, source_info: dict | None) -> bool:
@@ -1060,7 +1062,7 @@ class ComfyService:
     _VACE_MODEL_INFO_TTL_SEC = 300
 
     def _resolve_vace_model_names(self) -> dict[str, str]:
-        """按远端 ComfyUI /object_info 实际清单解析 VACE 所需模型文件名。
+        """按远端视频服务/object_info 实际清单解析 VACE 所需模型文件名。
 
         远端节点与模型路径以远端实例实际配置为准：优先精确匹配内置文件名，
         其次按特征匹配（vace unet / wan vae / umt5 clip），都找不到时给出
@@ -1081,7 +1083,7 @@ class ComfyService:
         unet = unet or next((n for n in unets if "vace" in n.lower()), None)
         if not unet:
             raise legacy.ComfyError(
-                "远端 ComfyUI 缺少 Wan VACE 模型：请在其实例的 diffusion_models（unet）目录放置 "
+                "远端视频服务缺少 Wan VACE 模型：请在其实例的 diffusion_models（unet）目录放置 "
                 f"wan2.1_vace_1.3B.safetensors 后重试。当前可选 unet：{unets}。"
             )
         vaes = filenames("VAELoader", "vae_name")
@@ -1089,14 +1091,14 @@ class ComfyService:
         vae = vae or next((n for n in vaes if re.search(r"wan.?2.?1.*vae", n, re.IGNORECASE)), None)
         if not vae:
             raise legacy.ComfyError(
-                f"远端 ComfyUI 缺少 Wan 2.1 VAE：请在其实例 vae 目录放置 wan_2.1_vae.safetensors。当前可选：{vaes}。"
+                f"远端视频服务缺少 Wan 2.1 VAE：请在其实例 vae 目录放置 wan_2.1_vae.safetensors。当前可选：{vaes}。"
             )
         clips = filenames("CLIPLoader", "clip_name")
         clip = next((n for n in clips if n == "umt5_xxl_fp8_e4m3fn_scaled.safetensors"), None)
         clip = clip or next((n for n in clips if "umt5" in n.lower()), None)
         if not clip:
             raise legacy.ComfyError(
-                f"远端 ComfyUI 缺少 UMT5 文本编码器：请在其实例 text_encoders（clip）目录放置 "
+                f"远端视频服务缺少 UMT5 文本编码器：请在其实例 text_encoders（clip）目录放置 "
                 f"umt5_xxl_fp8_e4m3fn_scaled.safetensors。当前可选：{clips}。"
             )
         resolved = {"unet": unet, "vae": vae, "clip": clip}
@@ -1767,7 +1769,7 @@ class ComfyService:
         on_submitted: Callable[[str, str, str], None] | None,
         is_cancelled: Callable[[], bool] | None,
     ) -> list[dict]:
-        """ComfyUI 图片编辑工作流（去背景 / 图层分离）：references[0] 为原图。
+        """视频服务图片编辑工作流（去背景 / 图层分离）：references[0] 为原图。
 
         去背景画布编辑器可追加 references[1] 移除蒙版、references[2] 保留蒙版
         （PNG，白色生效）；图层分离仍只收 1 张原图。
@@ -1820,6 +1822,39 @@ class ComfyService:
             legacy.output_file(record, SAM3_OUTPUT_NODE, ("images",)), "image_background_remove",
         )
         return [self.output_payload(output, "image", "去背景图片")]
+
+    def _run_h3_image(
+        self, mode: JobMode, references: list[str], prompt: str, options: dict,
+        update_stage: Callable[[str, int | None], None],
+        on_submitted: Callable[[str, str, str], None],
+        is_cancelled: Callable[[], bool] | None = None,
+    ) -> list[dict]:
+        """MiniMax H3 Image 生图：文生图 0 张参考 / 多参考编辑 1-16 张。"""
+        normalized = normalize_options(mode, options or {})
+        if mode is JobMode.MINIMAX_H3_IMAGE_EDIT:
+            resolved_prompt = resolve_minimax_picture_prompt(prompt, len(references))
+        else:
+            resolved_prompt = prompt
+        seed = int(normalized.get("seed") or 0) or secrets.randbits(63)
+        update_stage("正在上传参考素材" if references else "正在提交文生图任务")
+        uploaded = []
+        for index, path in enumerate(references, 1):
+            if is_cancelled is not None and is_cancelled():
+                raise ComfyCancelled("任务已停止")
+            uploaded.append(self.upload_image(path, f"h3_image_reference_{index}"))
+        workflow = build_minimax_h3_image_workflow(
+            mode.value, resolved_prompt, uploaded, normalized, seed,
+        )
+        record = self.run_workflow(
+            workflow, "正在生成图片", update_stage, on_submitted=on_submitted, is_cancelled=is_cancelled,
+        )
+        return self._h3_image_outputs(record)
+
+    def _h3_image_outputs(self, record: dict) -> list[dict]:
+        output = self.download(
+            legacy.output_file(record, H3_IMAGE_OUTPUT_NODE, ("images",)), "minimax_h3_image",
+        )
+        return [self.output_payload(output, "image", "生成图片")]
 
     def _depth_capture_outputs(self, record: dict) -> list[dict]:
         """成片为主产物；深度预览视频为辅助产物，缺失时不阻塞成片交付。"""
@@ -1981,6 +2016,8 @@ class ComfyService:
         if mode is JobMode.KEEP_FACE_RESTORE:
             output = self.download(legacy.output_file(record, KEEP_OUTPUT_NODE, ("videos", "gifs", "images")), "keep_face_restore")
             return [self.output_payload(output, "video", KEEP_OUTPUT_LABEL)]
+        if mode in H3_IMAGE_WORKFLOWS:
+            return self._h3_image_outputs(record)
         if mode in H3_WORKFLOWS:
             output = self.download(legacy.output_file(record, "14", ("videos", "gifs", "images")), "minimax_h3")
             return [self.output_payload(output, "video", generation_output_label(mode))]
@@ -2201,6 +2238,10 @@ class ComfyService:
             return self._run_image_edit(
                 mode, references, prompt, options, update_stage, on_submitted, is_cancelled,
             )
+        if mode in H3_IMAGE_WORKFLOWS:
+            return self._run_h3_image(
+                mode, references, prompt, options, update_stage, on_submitted, is_cancelled,
+            )
         if mode in H3_WORKFLOWS:
             if mode is JobMode.MINIMAX_H3_AVATAR or mode is JobMode.MINIMAX_H3_LIP_SYNC:
                 # 数字人/口型同步的 references 是 [视频或形象图, 音频]，不走 <Picture n> 标签注入。
@@ -2238,7 +2279,7 @@ class ComfyService:
                 workflow = build_minimax_h3_workflow(mode, resolved_prompt, uploaded, options, seed)
             if refine_preview:
                 # Persist before submission so a restart mid-first-pass can still
-                # resume with the exact graph and hit the ComfyUI refine cache.
+                # resume with the exact graph and hit the 视频服务 refine cache.
                 self.last_refine_state = {
                     "status": "awaiting",
                     "workflow": continuation_workflow(workflow),

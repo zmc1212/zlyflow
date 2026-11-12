@@ -3,6 +3,7 @@ import { Alert, Button, Input, Select, Switch, message } from "antd"
 import { CheckCircle2, ExternalLink, KeyRound, Mic, Sparkles } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { jsonMutation, requestJson } from "../api"
+import { searchFilterOption } from "../search-match"
 import { CopyFieldButton } from "./FieldCopy"
 
 type TtsConfig = {
@@ -248,7 +249,7 @@ export default function TtsProviderSettings({ csrfToken }: { csrfToken: string }
   const error = save.error ?? test.error ?? query.error
 
   return (
-    <main className="mx-auto max-w-[1020px] px-5 py-6 lg:px-8">
+    <main className="studio-admin-panel max-w-[1180px] px-5 py-6 lg:px-8">
       <div className="flex items-start gap-4 border-b border-black/[0.06] pb-5">
         <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-[#7047f6]/10 text-[#7047f6]">
           <Mic size={22} />
@@ -305,6 +306,8 @@ export default function TtsProviderSettings({ csrfToken }: { csrfToken: string }
               className="mt-1.5 w-full"
               value={selectedPreset}
               onChange={handlePresetChange}
+              showSearch
+              filterOption={searchFilterOption}
               options={PROVIDER_PRESETS.map((item) => ({ value: item.value, label: item.label }))}
             />
           </div>
@@ -394,6 +397,8 @@ export default function TtsProviderSettings({ csrfToken }: { csrfToken: string }
               <Select
                 className="mt-1.5 w-full"
                 value={model}
+                showSearch
+                filterOption={searchFilterOption}
                 options={[
                   ...currentPreset.recommendedModels.map((item) => ({ value: item.id, label: item.name })),
                   ...(model && !currentPreset.recommendedModels.some((item) => item.id === model)
@@ -426,7 +431,7 @@ export default function TtsProviderSettings({ csrfToken }: { csrfToken: string }
               options={voiceOptions}
               onChange={setVoice}
               showSearch
-              optionFilterProp="label"
+              filterOption={searchFilterOption}
             />
             {selectedPreset === "mimo" ? (
               <p className="mt-1.5 text-[11px] leading-4 text-[#6b7280]">
@@ -444,7 +449,7 @@ export default function TtsProviderSettings({ csrfToken }: { csrfToken: string }
           </div>
 
           {error ? <Alert type="error" showIcon message={error.message} /> : null}
-          <div className="flex flex-wrap gap-3 pt-2">
+          <div className="studio-admin-actions">
             <Button type="primary" loading={save.isPending} onClick={() => save.mutate()}>保存配置</Button>
             <Button loading={test.isPending} onClick={() => test.mutate()} icon={<CheckCircle2 size={15} />}>测试连接</Button>
           </div>

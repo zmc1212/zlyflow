@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
-import { Alert, Button, Dropdown, Form, Input, Modal, Tooltip, message } from "antd"
-import { ArrowLeft, Boxes, FileText, Film, ListChecks, MoreHorizontal, Pencil, Scissors, Settings2, Sparkles } from "lucide-react"
+import { Alert, Button, Dropdown, Form, Input, Modal, Skeleton, Tooltip, message } from "antd"
+import { ArrowLeft, Boxes, FileText, Film, ListChecks, MoreHorizontal, Pencil, Scissors, Settings2, Sparkles, Workflow } from "lucide-react"
 import { getProject, listAssets, listDocuments, listEpisodes, listSkillPacks, transferEpisodesFromDoc, updateProject, director2ErrorDetail, type Director2Project, type Director2SkillPack } from "./api"
 import ScriptWorkspace from "./panes/ScriptWorkspace"
 import AssetsLibraryPane from "./panes/AssetsLibraryPane"
@@ -23,7 +23,10 @@ const STAGES = [
   { key: "content", label: "剧本", Icon: FileText },
   { key: "assets", label: "制作资产", Icon: Boxes },
   { key: "workshop", label: "分镜", Icon: Film },
+  { key: "workbench", label: "工作台", Icon: Workflow },
 ] as const
+
+const WorkbenchPane = lazy(() => import("./panes/WorkbenchPane"))
 
 export default function ProjectFlowShell({ csrfToken, route }: { csrfToken: string; route: Extract<Director2Route, { kind: "project" }> }) {
   const navigate = useNavigate()
@@ -123,10 +126,11 @@ export default function ProjectFlowShell({ csrfToken, route }: { csrfToken: stri
     <div className="project-flow-body">
       {activeMenu !== "workshop" && <header className="project-flow-header"><div><span className="project-flow-name" title={project?.name}>{project?.name || "正在加载短剧…"}</span><Button type="text" size="small" aria-label="编辑基本信息" icon={<Pencil size={13}/>} disabled={!project} onClick={editProjectInfo}/></div><div><Dropdown trigger={["click"]} menu={{ items: tools }}><Button type="text" aria-label="项目更多操作" icon={<MoreHorizontal size={17}/>} /></Dropdown><Button type={assistant.open ? "default" : "text"} icon={<Sparkles size={14}/>} aria-pressed={assistant.open} onClick={() => assistant.setOpen(!assistant.open)}>智能助手</Button></div></header>}
       {flow.error && <Alert type="error" showIcon title="阶段状态加载失败" action={<Button size="small" onClick={() => void flow.refetch()}>重试</Button>}/>}
-      <section className={`project-content-pane${activeMenu === "content" ? " is-script-workspace" : ""}${isWorkshopDetail ? " is-workshop-detail" : ""}${activeMenu === "workshop" && !isWorkshopDetail ? " is-workshop-overview" : ""}${activeMenu === "edit" ? " is-smart-edit" : ""}`}>
+      <section className={`project-content-pane${activeMenu === "content" ? " is-script-workspace" : ""}${isWorkshopDetail ? " is-workshop-detail" : ""}${activeMenu === "workshop" && !isWorkshopDetail ? " is-workshop-overview" : ""}${activeMenu === "workbench" ? " is-workbench" : ""}${activeMenu === "edit" ? " is-smart-edit" : ""}`}>
         {activeMenu === "content" && <ScriptWorkspace csrfToken={csrfToken} projectId={projectId} onChanged={changed}/>}
         {activeMenu === "assets" && <AssetsLibraryPane ref={assetsPaneRef} csrfToken={csrfToken} projectId={projectId} projectName={project?.name} onChanged={changed} onBack={() => navigateMenu("content")} onContinue={continueToWorkshop}/>}
         {activeMenu === "workshop" && <div className="d2-workshop-host"><EpisodeWorkshopPane ref={workshopPaneRef} csrfToken={csrfToken} projectId={projectId} episodeId={route.episodeId} onDetailModeChange={setInWorkshopDetail} projectName={project?.name} projectControls={<><Button block type="text" icon={<Pencil size={14}/>} onClick={editProjectInfo}>编辑基本信息</Button><Button block type="text" icon={<Settings2 size={14}/>} onClick={() => setSettingsOpen(true)}>制作配方与设置</Button><Button block type="text" onClick={() => navigateMenu("jobs")}>全部任务</Button></>}/></div>}
+        {activeMenu === "workbench" && <Suspense fallback={<div className="wb-pane"><div className="wb-loading"><Skeleton active paragraph={{ rows: 5 }}/></div></div>}><WorkbenchPane csrfToken={csrfToken} projectId={projectId} episodeId={route.episodeId}/></Suspense>}
         {activeMenu === "jobs" && <JobsCenterPane csrfToken={csrfToken} projectId={projectId}/>}
         {activeMenu === "edit" && <SmartEditPane csrfToken={csrfToken} projectId={projectId} episodeId={route.episodeId}/>}
       </section>

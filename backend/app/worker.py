@@ -8,6 +8,14 @@ from datetime import datetime, timezone
 from pathlib import Path, PureWindowsPath
 
 from .comfy_service import ComfyCancelled, ComfyQueuePrompt, ComfyService, ComfyUnavailable
+from .cloud_video.base import (
+    CloudVideoConnectionError,
+    CloudVideoError,
+    CloudVideoTemporaryError,
+    CloudVideoUncertainSubmitError,
+    with_cloud_video_billing_caution,
+)
+from .cloud_video_service import CloudVideoService
 from .config import settings
 from .gpu_runtime import idle_run, occupy_gpu
 from .grs_client import (
@@ -25,15 +33,33 @@ from .grs_provider import GrsProviderService
 from .models import JobMode, JobStatus
 from .resource_storage import ResourceStorage, resource_object_url
 from .storage import JobStore
-from .workflow_registry import grs_request_size, is_h3_workflow, is_image_workflow, is_local_comfy_job
+from .workflow_registry import (
+    cloud_model_for,
+    grs_request_size,
+    is_h3_workflow,
+    is_image_workflow,
+    is_local_comfy_job,
+    workflow_for,
+)
 
 
 GRS_PROGRESS_HORIZON_SECONDS = 120.0
 logger = logging.getLogger(__name__)
 
+# 云端视频任务的进度映射时间轴（厂商多数不回传进度，用已等待时长估算 12-90% 区间）
+CLOUD_VIDEO_PROGRESS_HORIZON_SECONDS = 300.0
+# 云端视频任务轮询上限：厂商异步任务一般 1-10 分钟内完成，超时后需人工核对远端状态
+CLOUD_VIDEO_TIMEOUT_SECONDS = 45 * 60.0
+
+
+def cloud_video_progress(elapsed_seconds: float) -> int:
+    horizon = max(60.0, CLOUD_VIDEO_PROGRESS_HORIZON_SECONDS)
+    ratio = min(1.0, max(0.0, elapsed_seconds) / horizon)
+    return min(90, 12 + int(78 * ratio))
+
 
 def grs_image_progress(elapsed_seconds: float) -> int:
-    """Map GRS wait time to 12-90% without using the 12-hour timeout as the bar scale."""
+    """Map 图片服务 wait time to 12-90% without using the 12-hour timeout as the bar scale."""
     horizon = max(30.0, GRS_PROGRESS_HORIZON_SECONDS)
     ratio = min(1.0, max(0.0, elapsed_seconds) / horizon)
     return min(90, 12 + int(78 * ratio))
@@ -67,8 +93,12 @@ class JobWorker:
         self.task: asyncio.Task | None = None
         self.watch_task: asyncio.Task | None = None
         self.image_tasks: set[asyncio.Task] = set()
+        self.cloud_video_tasks: set[asyncio.Task] = set()
+        self.queued_cloud_video_ids: set[str] = set()
         self.background_tasks: set[asyncio.Task] = set()
         self.image_semaphore = asyncio.Semaphore(max(1, min(4, settings.grs_max_concurrency)))
+        # 云端视频不占本地显卡，与 ComfyUI 串行队列并行，独立信号量限流
+        self.cloud_video_semaphore = asyncio.Semaphore(max(1, settings.cloud_video_max_concurrency))
 
     async def start(self) -> None:
         recovered = await asyncio.to_thread(self.recover)
@@ -86,10 +116,23 @@ class JobWorker:
                         item["id"],
                         status=JobStatus.INTERRUPTED,
                         stage="提交后中断，需显式重试",
-                        error="未持久化 GRS 远端任务 ID；为避免重复扣费不会自动重提。",
+                        error="未持久化图片服务远端任务 ID；为避免重复扣费不会自动重提。",
                     )
                     continue
                 self.enqueue_generation(item["id"])
+        # 云端视频任务恢复：已拿到远端任务 ID 的继续轮询，未提交的重新排队提交。
+        cloud_items = await asyncio.to_thread(self.store.recoverable_generation_items, "cloud_video")
+        for item in cloud_items:
+            if item["status"] == JobStatus.RUNNING.value and not item.get("remote_task_id"):
+                await asyncio.to_thread(
+                    self.store.update_generation,
+                    item["id"],
+                    status=JobStatus.INTERRUPTED,
+                    stage="提交后中断，需显式重试",
+                    error="未持久化云端视频远端任务 ID；为避免重复扣费不会自动重提。",
+                )
+                continue
+            self.enqueue_cloud_video_generation(item["id"])
 
     async def stop(self) -> None:
         tasks = [task for task in (self.watch_task, self.task) if task]
@@ -102,6 +145,11 @@ class JobWorker:
             task.cancel()
         if image_tasks:
             await asyncio.wait(image_tasks, timeout=self.STOP_TIMEOUT_SECONDS)
+        cloud_tasks = list(self.cloud_video_tasks)
+        for task in cloud_tasks:
+            task.cancel()
+        if cloud_tasks:
+            await asyncio.wait(cloud_tasks, timeout=self.STOP_TIMEOUT_SECONDS)
         background_tasks = list(self.background_tasks)
         for task in background_tasks:
             task.cancel()
@@ -115,6 +163,11 @@ class JobWorker:
             for item in items:
                 if item["status"] == JobStatus.QUEUED.value:
                     self.enqueue_generation(item["id"])
+            return
+        if items and items[0]["executor"] == "cloud_video":
+            for item in items:
+                if item["status"] in {JobStatus.QUEUED.value, JobStatus.RUNNING.value, JobStatus.INTERRUPTED.value}:
+                    self.enqueue_cloud_video_generation(item["id"])
             return
         if job_id in self.queued_job_ids:
             return
@@ -201,7 +254,7 @@ class JobWorker:
                 return
             _, prompt, job = min(matches, key=lambda item: item[0])
             self.store.set_comfy_execution(job["id"], prompt.prompt_id, prompt.client_id, "generation")
-            self.store.update(job["id"], stage="已重新连接 ComfyUI 队列")
+            self.store.update(job["id"], stage="已重新连接视频服务队列")
             candidates.remove(job)
             prompts.remove(prompt)
 
@@ -210,14 +263,14 @@ class JobWorker:
         if count >= self.MAX_AUTO_RETRIES:
             self.store.update(
                 job_id, status=JobStatus.INTERRUPTED,
-                stage=f"已自动重试 {self.MAX_AUTO_RETRIES} 次仍未完成，请检查 ComfyUI 后手动重新提交",
+                stage=f"已自动重试 {self.MAX_AUTO_RETRIES} 次仍未完成，请检查视频服务后手动重新提交",
             )
             return False
-        self.store.update(job_id, status=JobStatus.INTERRUPTED, stage="ComfyUI 任务已丢失，正在自动重新提交")
+        self.store.update(job_id, status=JobStatus.INTERRUPTED, stage="视频服务任务已丢失，正在自动重新提交")
         if not self.store.retry_terminal(job_id):
             return False
         self._auto_retries[job_id] = count + 1
-        self.store.update(job_id, stage=f"ComfyUI 已恢复，正在自动重新提交（第 {count + 1} 次）")
+        self.store.update(job_id, stage=f"视频服务已恢复，正在自动重新提交（第 {count + 1} 次）")
         return True
 
     def recover(self) -> list[str]:
@@ -265,11 +318,11 @@ class JobWorker:
             state, _ = self.comfy.prompt_state(prompt_id, active_prompt_ids)
             if state in {"active", "completed"}:
                 if job["status"] == JobStatus.INTERRUPTED.value:
-                    self.store.update(job["id"], status=JobStatus.RUNNING, stage="正在恢复 ComfyUI 任务同步")
+                    self.store.update(job["id"], status=JobStatus.RUNNING, stage="正在恢复视频服务任务同步")
                 recovered.append(job["id"])
             elif state == "failed":
                 self.store.clear_comfy_execution(job["id"])
-                self.store.update(job["id"], status=JobStatus.FAILED, stage="ComfyUI 推理失败", error="ComfyUI 已报告任务失败")
+                self.store.update(job["id"], status=JobStatus.FAILED, stage="视频服务推理失败", error="视频服务已报告任务失败")
             elif state == "missing":
                 self.store.clear_comfy_execution(job["id"])
                 if self._auto_requeue_lost_job(job["id"]):
@@ -287,10 +340,10 @@ class JobWorker:
                 await self.release_comfy_resources_if_idle()
 
     async def release_comfy_resources_if_idle(self) -> None:
-        """Ask ComfyUI to unload models after the last local video job.
+        """Ask 视频服务 to unload models after the last local video job.
 
-        Consecutive queued H3 jobs keep models loaded. Image/GRS jobs do not
-        occupy ComfyUI VRAM and are ignored here. Skip `/free` while IndexTTS
+        Consecutive queued H3 jobs keep models loaded. Image/图片服务 jobs do not
+        occupy 视频服务 VRAM and are ignored here. Skip `/free` while IndexTTS
         or another Comfy job holds `occupy_gpu`, so director2 H3/TTS cannot be
         unloaded mid-run by the generate-page worker.
         """
@@ -324,7 +377,7 @@ class JobWorker:
             job = await asyncio.to_thread(self.store.get, job_id, include_references=True)
         elif job["status"] == JobStatus.INTERRUPTED and job.get("comfy_prompt_id"):
             await asyncio.to_thread(
-                self.store.update, job_id, status=JobStatus.RUNNING, stage="正在恢复 ComfyUI 任务同步",
+                self.store.update, job_id, status=JobStatus.RUNNING, stage="正在恢复视频服务任务同步",
             )
             job = await asyncio.to_thread(self.store.get, job_id, include_references=True)
         if job["status"] != JobStatus.RUNNING:
@@ -430,7 +483,7 @@ class JobWorker:
             self.store.update(
                 job_id,
                 status=JobStatus.INTERRUPTED,
-                stage="ComfyUI 连接中断，恢复后将自动重新提交",
+                stage="视频服务连接中断，恢复后将自动重新提交",
                 error=str(error),
             )
         except Exception as error:
@@ -445,7 +498,7 @@ class JobWorker:
             return
         if self.grs_provider is None or self.resource_storage is None:
             self.store.update_generation(
-                generation_item_id, status=JobStatus.FAILED, stage="GRS 执行器不可用", error="服务器未初始化 GRS 执行器。",
+                generation_item_id, status=JobStatus.FAILED, stage="图片服务执行器不可用", error="服务器未初始化图片服务执行器。",
             )
             return
         async with self.image_semaphore:
@@ -454,7 +507,7 @@ class JobWorker:
             context = self.store.generation_context(generation_item_id)
             mode = context["mode"]
             if mode in COMPOSITE_IMAGE_MODES:
-                # 复合图片工作流本身不在 GRS 模型目录（mode 不是模型 key）；按其内部 provider_model 校验。
+                # 复合图片工作流本身不在图片服务模型目录（mode 不是模型 key）；按其内部 provider_model 校验。
                 provider_model = str(
                     (context.get("options") or {}).get("provider_model") or DEFAULT_COMPOSITE_PROVIDER_MODEL,
                 )
@@ -465,7 +518,7 @@ class JobWorker:
                 available, reason = self.grs_provider.availability(mode)
             if not available:
                 self.store.update_generation(
-                    generation_item_id, status=JobStatus.FAILED, stage="GRS 配置不可用", error=reason or "GRS 不可用",
+                    generation_item_id, status=JobStatus.FAILED, stage="图片服务配置不可用", error=reason or "图片服务不可用",
                 )
                 return
             client = self.grs_provider.client()
@@ -491,7 +544,7 @@ class JobWorker:
                         return
                     if not await asyncio.to_thread(
                         self.store.claim_generation, generation_item_id,
-                        stage="正在提交 GRS", progress=5,
+                        stage="正在提交图片服务", progress=5,
                     ):
                         return
 
@@ -506,7 +559,7 @@ class JobWorker:
                         return images
 
                     if mode in COMPOSITE_IMAGE_MODES:
-                        # 复合图片工作流：本地预处理（遮罩/垫图）+ 指令模板 + GRS 指令改图。
+                        # 复合图片工作流：本地预处理（遮罩/垫图）+ 指令模板 + 图片服务指令改图。
                         try:
                             remote_task_id = await asyncio.to_thread(
                                 self._submit_composite_image, client, mode, context,
@@ -532,7 +585,7 @@ class JobWorker:
                                 return
                             self.store.update_generation(
                                 generation_item_id, status=JobStatus.FAILED,
-                                stage="无法连接 GRS", error=str(error),
+                                stage="无法连接图片服务", error=str(error),
                             )
                             return
                         except Exception as error:
@@ -540,13 +593,13 @@ class JobWorker:
                                 return
                             self.store.update_generation(
                                 generation_item_id, status=JobStatus.INTERRUPTED,
-                                stage="GRS 提交结果不确定", error=with_grs_billing_caution(str(error)),
+                                stage="图片服务提交结果不确定", error=with_grs_billing_caution(str(error)),
                             )
                             return
                     if self._generation_cancelled(generation_item_id):
                         return
                     self.store.update_generation(
-                        generation_item_id, status=JobStatus.RUNNING, stage="GRS 已接单，等待生成",
+                        generation_item_id, status=JobStatus.RUNNING, stage="图片服务已接单，等待生成",
                         progress=12, remote_task_id=remote_task_id, remote_status="submitted",
                     )
                 if mode in COMPOSITE_IMAGE_MODES:
@@ -659,14 +712,14 @@ class JobWorker:
             return
         if last_error is not None:
             raise last_error
-        raise GrsError("GRS 未返回可下载的图片")
+        raise GrsError("图片服务未返回可下载的图片")
 
     # ------------------------------------------------------------------
-    # 复合图片工作流（局部重绘 / 消除笔 / 扩图）：GRS 指令改图 + 本地合成
+    # 复合图片工作流（局部重绘 / 消除笔 / 扩图）：图片服务指令改图 + 本地合成
     # ------------------------------------------------------------------
 
     def _submit_composite_image(self, client: GrsClient, mode: str, context: dict) -> str:
-        """复合工作流提交（线程内执行）：校验素材、构建指令并提交 GRS。"""
+        """复合工作流提交（线程内执行）：校验素材、构建指令并提交图片服务。"""
         _original, options, prompt, images = build_composite_inputs(settings.uploads_dir, mode, context)
         provider_model = str(options.get("provider_model") or DEFAULT_COMPOSITE_PROVIDER_MODEL)
         return client.submit(
@@ -713,7 +766,7 @@ class JobWorker:
             return
         if last_error is not None:
             raise last_error
-        raise GrsError("GRS 未返回可下载的图片")
+        raise GrsError("图片服务未返回可下载的图片")
 
     async def _poll_image(
         self, client: GrsClient, generation_item_id: str, remote_task_id: str,
@@ -730,14 +783,14 @@ class JobWorker:
             except GrsTemporaryError as error:
                 delay = min(30, max(5, delay * 2))
                 self.store.update_generation(
-                    generation_item_id, stage=f"GRS 暂时不可用，{delay} 秒后重试", remote_status="temporary_error", error=str(error),
+                    generation_item_id, stage=f"图片服务暂时不可用，{delay} 秒后重试", remote_status="temporary_error", error=str(error),
                 )
                 await asyncio.sleep(delay)
                 continue
             elapsed = time.monotonic() - started
             progress = grs_image_progress(elapsed)
             self.store.update_generation(
-                generation_item_id, stage="GRS 正在生成图片", progress=progress, remote_status=status,
+                generation_item_id, stage="图片服务正在生成图片", progress=progress, remote_status=status,
             )
             terminal = status in SUCCESS_STATUSES or status in FAILED_STATUSES
             if terminal and urls:
@@ -752,7 +805,7 @@ class JobWorker:
                 except GrsTemporaryError as error:
                     delay = min(30, max(5, delay * 2))
                     self.store.update_generation(
-                        generation_item_id, stage=f"GRS 图片下载暂时失败，{delay} 秒后重试",
+                        generation_item_id, stage=f"图片服务下载暂时失败，{delay} 秒后重试",
                         remote_status="temporary_error", error=str(error),
                     )
                     await asyncio.sleep(delay)
@@ -767,11 +820,199 @@ class JobWorker:
                 raise GrsError(GrsClient.format_failure(status, message))
             if status in SUCCESS_STATUSES:
                 self.store.update_generation(
-                    generation_item_id, stage="GRS 已完成，等待结果地址", progress=progress, remote_status=status,
+                    generation_item_id, stage="图片服务已完成，等待结果地址", progress=progress, remote_status=status,
                 )
             await asyncio.sleep(delay)
         timeout_minutes = max(1, int(settings.grs_timeout_seconds) // 60)
-        raise GrsError(f"GRS 图片生成超过 {timeout_minutes} 分钟，已停止轮询。")
+        raise GrsError(f"图片服务生成超过 {timeout_minutes} 分钟，已停止轮询。")
+
+    # ------------------------------------------------------------------
+    # 云端视频模型执行器（executor=cloud_video）：提交 → 持久化 remote_task_id → 轮询 → 七牛落盘。
+    # 不占 ComfyUI 串行队列与显卡，与本地视频任务并行，独立信号量限流。
+    # ------------------------------------------------------------------
+
+    def enqueue_cloud_video_generation(self, generation_item_id: str) -> None:
+        if generation_item_id in self.queued_cloud_video_ids:
+            return
+        self.queued_cloud_video_ids.add(generation_item_id)
+        task = asyncio.create_task(
+            self.execute_cloud_video(generation_item_id), name=f"cloud-video-{generation_item_id}",
+        )
+        self.cloud_video_tasks.add(task)
+
+        def _release(done: asyncio.Task) -> None:
+            self.cloud_video_tasks.discard(done)
+            self.queued_cloud_video_ids.discard(generation_item_id)
+
+        task.add_done_callback(_release)
+
+    @staticmethod
+    def _cloud_video_reference_paths(definition, context: dict) -> tuple[Path | None, Path | None]:
+        """keyframes 参考槽位映射：references[0]=首帧，references[1]=尾帧（可选）；T2V 无参考。"""
+        uploads_root = settings.uploads_dir.resolve()
+        resolved: list[Path] = []
+        for name in context.get("references") or []:
+            value = str(name or "").strip()
+            if not value:
+                continue
+            path = Path(value).resolve()
+            if uploads_root not in path.parents or not path.is_file():
+                raise CloudVideoError(f"参考图片不存在或超出上传目录: {path.name}")
+            resolved.append(path)
+        if definition.reference_mode == "keyframes" and resolved:
+            return resolved[0], (resolved[1] if len(resolved) > 1 else None)
+        return None, None
+
+    async def execute_cloud_video(self, generation_item_id: str) -> None:
+        if self._generation_cancelled(generation_item_id):
+            return
+        try:
+            service = CloudVideoService.instance()
+        except CloudVideoError as error:
+            self.store.update_generation(
+                generation_item_id, status=JobStatus.FAILED, stage="云端视频执行器不可用", error=str(error),
+            )
+            return
+        if self.resource_storage is None:
+            self.store.update_generation(
+                generation_item_id, status=JobStatus.FAILED, stage="云端视频执行器不可用",
+                error="服务器未初始化资源存储。",
+            )
+            return
+        async with self.cloud_video_semaphore:
+            if self._generation_cancelled(generation_item_id):
+                return
+            context = self.store.generation_context(generation_item_id)
+            mode = context["mode"]
+            definition = workflow_for(mode)
+            provider_key = definition.cloud_provider or ""
+            available, reason = service.availability(provider_key)
+            if not available:
+                self.store.update_generation(
+                    generation_item_id, status=JobStatus.FAILED, stage="云端视频服务不可用",
+                    error=reason or "云端视频服务不可用",
+                )
+                return
+            remote_task_id = context.get("remote_task_id")
+            try:
+                if not remote_task_id:
+                    unclaimable = self._unclaimable_reference_error(context)
+                    if unclaimable:
+                        if self._generation_cancelled(generation_item_id):
+                            return
+                        self.store.update_generation(
+                            generation_item_id, status=JobStatus.FAILED,
+                            stage="参考素材不可用", error=unclaimable,
+                        )
+                        return
+                    if not self._generation_references_available_locally(context):
+                        # 共享数据库部署：参考文件在创建任务的主机上，留给那台主机认领提交。
+                        return
+                    if not await asyncio.to_thread(
+                        self.store.claim_generation, generation_item_id,
+                        stage="正在提交云端视频任务", progress=5,
+                    ):
+                        return
+                    options = dict(context.get("options") or {})
+                    first_frame, last_frame = self._cloud_video_reference_paths(definition, context)
+                    remote_task_id = await asyncio.to_thread(
+                        service.submit_generation, provider_key,
+                        model=cloud_model_for(mode, options) or definition.cloud_model or "",
+                        prompt=context["prompt"],
+                        negative_prompt=str(context.get("negative_prompt") or "").strip() or None,
+                        first_frame=first_frame, last_frame=last_frame,
+                        options=options, client_ref=generation_item_id,
+                    )
+                    if self._generation_cancelled(generation_item_id):
+                        return
+                    await asyncio.to_thread(
+                        self.store.update_generation, generation_item_id,
+                        status=JobStatus.RUNNING, stage="云端已接单，等待生成", progress=12,
+                        remote_task_id=remote_task_id, remote_status="submitted",
+                    )
+                await self._poll_cloud_video(service, provider_key, generation_item_id, remote_task_id)
+            except CloudVideoUncertainSubmitError as error:
+                if self._generation_cancelled(generation_item_id):
+                    return
+                self.store.update_generation(
+                    generation_item_id, status=JobStatus.INTERRUPTED,
+                    stage="云端提交结果不确定", error=with_cloud_video_billing_caution(str(error)),
+                )
+            except CloudVideoConnectionError as error:
+                if self._generation_cancelled(generation_item_id):
+                    return
+                self.store.update_generation(
+                    generation_item_id, status=JobStatus.FAILED,
+                    stage="无法连接云端视频服务", error=str(error),
+                )
+            except CloudVideoError as error:
+                if self._generation_cancelled(generation_item_id) or self._generation_has_output(generation_item_id):
+                    return
+                self.store.update_generation(
+                    generation_item_id, status=JobStatus.FAILED,
+                    stage="云端视频生成失败", error=str(error),
+                )
+            except Exception as error:
+                if self._generation_cancelled(generation_item_id) or self._generation_has_output(generation_item_id):
+                    return
+                logger.exception("云端视频任务执行失败 %s", generation_item_id)
+                self.store.update_generation(
+                    generation_item_id, status=JobStatus.FAILED,
+                    stage="云端视频执行异常", error=str(error)[:500],
+                )
+
+    async def _poll_cloud_video(
+        self, service: CloudVideoService, provider_key: str, generation_item_id: str, remote_task_id: str,
+    ) -> None:
+        started = time.monotonic()
+        delay = 6.0
+        while True:
+            if self._generation_cancelled(generation_item_id):
+                return
+            try:
+                snapshot = await asyncio.to_thread(service.resume_snapshot, provider_key, remote_task_id)
+                delay = 6.0
+            except CloudVideoTemporaryError as error:
+                delay = min(30.0, max(6.0, delay * 2))
+                self.store.update_generation(
+                    generation_item_id, stage=f"云端视频服务暂时不可用，{int(delay)} 秒后重试",
+                    remote_status="temporary_error", error=str(error),
+                )
+                await asyncio.sleep(delay)
+                continue
+            elapsed = time.monotonic() - started
+            if snapshot.status == "completed" and snapshot.video_urls:
+                if self._generation_cancelled(generation_item_id):
+                    return
+                await asyncio.to_thread(
+                    self.store.update_generation, generation_item_id,
+                    stage="正在下载成片并上传云存储", progress=92,
+                    remote_status=snapshot.remote_status or "completed",
+                )
+                filename = f"{provider_key}_{remote_task_id.replace(':', '-')}.mp4"
+                output = await asyncio.to_thread(
+                    service.download_and_store, snapshot.video_urls,
+                    prefix=f"cloud_video/{provider_key}", filename=filename,
+                )
+                await asyncio.to_thread(
+                    self.store.update_generation, generation_item_id,
+                    status=JobStatus.SUCCEEDED, stage="生成完成", progress=100,
+                    outputs=[output], error="", remote_status=snapshot.remote_status or "completed",
+                )
+                return
+            if snapshot.status == "failed":
+                raise CloudVideoError(
+                    f"云端视频生成失败：{snapshot.message or snapshot.remote_status or '未知原因'}",
+                )
+            self.store.update_generation(
+                generation_item_id, stage="云端正在生成视频", progress=cloud_video_progress(elapsed),
+                remote_status=snapshot.remote_status or "processing",
+            )
+            if elapsed > CLOUD_VIDEO_TIMEOUT_SECONDS:
+                raise CloudVideoError(
+                    f"云端视频生成超过 {CLOUD_VIDEO_TIMEOUT_SECONDS // 60} 分钟，已停止轮询。远端任务 ID {remote_task_id}",
+                )
+            await asyncio.sleep(delay)
 
     async def _refresh_grs_balance(self) -> None:
         if self.grs_provider is None:

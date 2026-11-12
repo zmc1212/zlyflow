@@ -48,7 +48,7 @@ export default function MotionRefVideoReferences({
             <Maximize2 size={13} className="studio-motion-reference-enlarge" />
           </Button>
           <label className="studio-motion-reference-label" htmlFor={`${id}-char-${index}`}>
-            {tool ? null : <strong>{label}</strong>}
+            {tool ? null : <strong title={label}>{label}</strong>}
             <span title={asset.file.name}>{tool ? `表演者 ${index + 1} · 点击或拖入替换` : `表演者 ${index + 1} · 点击替换`}</span>
           </label>
         </div>
@@ -71,7 +71,7 @@ export default function MotionRefVideoReferences({
         </label>
         <label className="studio-motion-reference-label" htmlFor={`${id}-char-add`}>
           {tool ? null : <strong>添加角色</strong>}
-          <span>已添加 {characters.length} / {maxCharacters} · 顺序对应视频中表演者</span>
+          <span title={`已添加 ${characters.length} / ${maxCharacters} · 顺序对应视频中表演者`}>已添加 {characters.length} / {maxCharacters} · 顺序对应视频中表演者</span>
         </label>
       </div>
       <input id={`${id}-char-add`} aria-label="添加角色形象图" type="file" accept="image/*" multiple className="sr-only"
@@ -89,7 +89,7 @@ export default function MotionRefVideoReferences({
           {tool ? <span>点击或拖入动作参考视频</span> : null}
         </label>}
         <label className="studio-motion-reference-label" htmlFor={`${id}-motion`}>
-          {tool ? null : <strong>{labels[maxCharacters] || "动作参考视频"}</strong>}
+          {tool ? null : <strong title={labels[maxCharacters] || "动作参考视频"}>{labels[maxCharacters] || "动作参考视频"}</strong>}
           <span title={motion?.file.name}>{tool
             ? (motion ? "点击替换" : "MP4 / MOV · ≤50 MB")
             : motion

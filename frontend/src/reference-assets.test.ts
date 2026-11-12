@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { fileFromReferenceBlob, roundReferenceSources, sniffImageKind } from "./reference-assets"
+import { fileFromReferenceBlob, roundReferenceSources, sniffImageKind, sniffMediaKind } from "./reference-assets"
 
 const PNG_HEADER = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0, 0, 0, 0, 0])
 const JPEG_HEADER = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+const MP4_HEADER = new Uint8Array([0, 0, 0, 24, 102, 116, 121, 112, 105, 115, 111, 109, 0, 0, 0, 0])
+const WAV_HEADER = new Uint8Array([0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00, 0x57, 0x41, 0x56, 0x45, 0, 0, 0, 0])
+const FLAC_HEADER = new Uint8Array([0x66, 0x4c, 0x61, 0x43, 0, 0, 0, 34, 0, 0, 0, 0, 0, 0, 0, 0])
 
 describe("sniffImageKind", () => {
   it("recognizes PNG and JPEG by magic bytes even when the server type is octet-stream", () => {
@@ -76,5 +79,36 @@ describe("fileFromReferenceBlob", () => {
 
   it("does not accept image bytes as a restored motion video", async () => {
     await expect(fileFromReferenceBlob(new Blob([PNG_HEADER]), 2, "image/png", "video")).rejects.toThrow("视频")
+  })
+})
+
+describe("media reference slots (音频或视频通用槽位)", () => {
+  it("resolves audio and video from magic bytes when the API only says media", () => {
+    expect(sniffMediaKind(MP4_HEADER, "application/octet-stream")).toEqual({ kind: "video", mime: "video/mp4", ext: "mp4" })
+    expect(sniffMediaKind(WAV_HEADER, "application/octet-stream")).toEqual({ kind: "audio", mime: "audio/wav", ext: "wav" })
+    expect(sniffMediaKind(FLAC_HEADER, "")).toEqual({ kind: "audio", mime: "audio/flac", ext: "flac" })
+  })
+
+  it("trusts a declared audio/video MIME before falling back to magic bytes", () => {
+    expect(sniffMediaKind(new Uint8Array(16), "audio/mpeg")).toEqual({ kind: "audio", mime: "audio/mpeg", ext: "mp3" })
+    expect(sniffMediaKind(PNG_HEADER, "video/quicktime")).toEqual({ kind: "video", mime: "video/quicktime", ext: "mov" })
+    expect(sniffMediaKind(PNG_HEADER, "image/png")).toBeUndefined()
+  })
+
+  it("restores a stem-split audio reference as a playable audio file", async () => {
+    const file = await fileFromReferenceBlob(new Blob([WAV_HEADER]), 1, "application/octet-stream", "media")
+    expect(file.type).toBe("audio/wav")
+    expect(file.name).toBe("reference-1.wav")
+  })
+
+  it("restores a stem-split video reference as a video file", async () => {
+    const file = await fileFromReferenceBlob(new Blob([MP4_HEADER]), 1, "application/octet-stream", "media")
+    expect(file.type).toBe("video/mp4")
+    expect(file.name).toBe("reference-1.mp4")
+  })
+
+  it("reports an unreadable media reference instead of guessing", async () => {
+    await expect(fileFromReferenceBlob(new Blob([new Uint8Array(16)]), 1, "application/octet-stream", "media"))
+      .rejects.toThrow("音频或视频")
   })
 })

@@ -62,8 +62,8 @@ describe("single source image tools", () => {
     const html = renderWithClient(<ImageBgRemoveTool csrfToken="" />, IMAGE_BACKGROUND_REMOVE_WORKFLOW, {
       id: IMAGE_BACKGROUND_REMOVE_WORKFLOW,
       available: false,
-      unavailable_reason: "ComfyUI 或 FRP 当前不可用，任务尚未提交。",
+      unavailable_reason: "视频服务当前不可用，任务尚未提交。",
     })
-    expect(html).toContain("ComfyUI 或 FRP 当前不可用，任务尚未提交。")
+    expect(html).toContain("视频服务当前不可用，任务尚未提交。")
   })
 })

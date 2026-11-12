@@ -46,11 +46,13 @@ export const PATHS = {
   adminVlm: "/admin/vlm",
   adminTts: "/admin/tts",
   adminStorage: "/admin/storage",
+  adminMail: "/admin/mail",
 } as const
 
 export const ROUTE_PATTERNS = {
   generateImageJob: "/generate/image/:jobId",
   generateVideoJob: "/generate/video/:jobId",
+  musicChat: "/music/:chatId",
   directorLegacyRecipe: "/director/:projectId",
   directorDiagnosis: "/director/script-diagnosis",
   directorBatch: "/director/batch/:projectId",
@@ -59,6 +61,7 @@ export const ROUTE_PATTERNS = {
   directorProjectMenu: "/director/projects/:projectId/:menu",
   directorProjectEpisode: "/director/projects/:projectId/workshop/:episodeId",
   directorProjectEdit: "/director/projects/:projectId/edit/:episodeId",
+  directorProjectWorkbench: "/director/projects/:projectId/workbench/:episodeId",
   directorFeatured: "/director/featured/:featuredId",
   directorFeaturedProcess: "/director/featured/:featuredId/process",
   director2: "/director2",
@@ -70,9 +73,9 @@ export const ROUTE_PATTERNS = {
   adminTab: "/admin/:tab",
 } as const
 
-export const ADMIN_TABS = ["accounts", "providers", "llm", "vlm", "tts", "storage"] as const
+export const ADMIN_TABS = ["accounts", "providers", "llm", "vlm", "tts", "storage", "mail"] as const
 export type AdminTab = (typeof ADMIN_TABS)[number]
-export const SUPER_ADMIN_ONLY_TABS: readonly AdminTab[] = ["providers", "llm", "vlm", "tts", "storage"]
+export const SUPER_ADMIN_ONLY_TABS: readonly AdminTab[] = ["providers", "llm", "vlm", "tts", "storage", "mail"]
 
 const AUTH_SCREEN_PATHS = new Set<string>([PATHS.login, PATHS.setup, PATHS.password])
 
@@ -85,6 +88,7 @@ export const STUDIO_ROUTE_PATHS = [
   PATHS.tools,
   PATHS.inspiration,
   PATHS.music,
+  ROUTE_PATTERNS.musicChat,
   PATHS.toolPromptReverse,
   PATHS.toolMotionTransfer,
   PATHS.toolCharacterReplace,
@@ -112,6 +116,7 @@ export const STUDIO_ROUTE_PATHS = [
   ROUTE_PATTERNS.directorProjectMenu,
   ROUTE_PATTERNS.directorProjectEpisode,
   ROUTE_PATTERNS.directorProjectEdit,
+  ROUTE_PATTERNS.directorProjectWorkbench,
   ROUTE_PATTERNS.directorFeatured,
   ROUTE_PATTERNS.directorFeaturedProcess,
   PATHS.director,
@@ -140,6 +145,18 @@ const DIRECTOR_LEGACY_STUDIO_SEGMENTS = new Set(["batch", "replication"])
 export function generateJobPath(mediaType: GenerateMediaType, jobId?: string) {
   const base = mediaType === "image" ? PATHS.generateImage : PATHS.generateVideo
   return jobId ? `${base}/${encodeURIComponent(jobId)}` : base
+}
+
+export function musicChatPath(chatId?: string | null) {
+  return chatId ? `${PATHS.music}/${encodeURIComponent(chatId)}` : PATHS.music
+}
+
+export function parseMusicPath(pathname: string): { chatId?: string } {
+  const prefix = `${PATHS.music}/`
+  if (!pathname.startsWith(prefix)) return {}
+  const rest = pathname.slice(prefix.length)
+  if (!rest || rest.includes("/")) return {}
+  return { chatId: decodeURIComponent(rest) }
 }
 
 export function studioWorkspaceFromPath(pathname: string): StudioWorkspace {
@@ -208,7 +225,7 @@ export function adminTabPath(tab: AdminTab) {
 }
 
 export function isAdminTab(value: string | undefined): value is AdminTab {
-  return value === "accounts" || value === "providers" || value === "llm" || value === "vlm" || value === "tts" || value === "storage"
+  return value === "accounts" || value === "providers" || value === "llm" || value === "vlm" || value === "tts" || value === "storage" || value === "mail"
 }
 
 export function isAdminPath(pathname: string) {

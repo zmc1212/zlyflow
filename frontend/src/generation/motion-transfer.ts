@@ -62,6 +62,31 @@ export function motionDurationError(seconds: number | undefined, duration: unkno
     : ""
 }
 
+/** 「开始生成」按钮的禁用原因；为空表示可以提交，与 ready 判定保持同源。 */
+export function motionToolSubmitBlockReason(input: {
+  mode: string
+  imageCount: number
+  hasVideo: boolean
+  workflowLoaded: boolean
+  subjectsReady: boolean
+  durationError: string
+  submitting: boolean
+  restoring: boolean
+}): string {
+  if (input.restoring) return "正在恢复素材…"
+  if (input.submitting) return "正在提交…"
+  if (!input.workflowLoaded) return "正在读取动作迁移能力"
+  if (input.imageCount < 1) {
+    return input.mode === MOTION_REF_VIDEO_WORKFLOW
+      ? "先添加角色形象图（至少 1 张），才能开始生成"
+      : "先上传角色形象图，才能开始生成"
+  }
+  if (!input.hasVideo) return "先上传动作参考视频，才能开始生成"
+  if (input.durationError) return input.durationError
+  if (!input.subjectsReady) return "先按编号选定形象图和视频中的人物，才能开始生成"
+  return ""
+}
+
 export type ToolOptionDefinition = {
   label: string
   type: "string" | "number" | "integer" | "boolean"

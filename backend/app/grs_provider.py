@@ -66,17 +66,17 @@ class GrsProviderService:
     def reveal_secret(self, field: str) -> str | None:
         """管理页「复制 Key」取回的明文。"""
         if field != "api_key":
-            raise ValueError("GRS 图片供应商只支持复制 API Key")
+            raise ValueError("图片服务供应商只支持复制 API Key")
         return self.api_key()
 
     def availability(self, mode: JobMode | str | None = None) -> tuple[bool, str | None]:
         config = self.store.get_grs_settings()
         if not config["enabled"]:
-            return False, "GRS 图片供应商尚未启用，请联系超级管理员。"
+            return False, "图片服务供应商尚未启用，请联系超级管理员。"
         if not self.credentials.ready:
             return False, self.credentials.error
         if not self.api_key():
-            return False, "GRS API Key 未配置或无法使用当前主密钥解密。"
+            return False, "图片服务 API Key 未配置或无法使用当前主密钥解密。"
         if mode is not None:
             entry = self.store.get_grs_image_model(mode_key(mode))
             if entry is None or not entry["enabled"]:
@@ -93,7 +93,7 @@ class GrsProviderService:
     def resolve_composite_model(self, requested: str | None) -> str:
         """复合图片工作流（局部重绘/消除笔/扩图）的实际生图模型。
 
-        这些工作流本身不在 GRS 模型目录里，只有内部 provider_model 指向目录条目；
+        这些工作流本身不在图片服务模型目录里，只有内部 provider_model 指向目录条目；
         请求模型被管理员停用或不存在时，回落到目录默认启用模型，
         避免注册表内置默认值与管理员配置漂移导致任务必然失败。
         """
@@ -128,7 +128,7 @@ class GrsProviderService:
     def fetch_platform_models(
         self, *, base_url: str | None = None, api_key: str | None = None,
     ) -> dict[str, Any]:
-        """动态拉取 GRS 平台在售模型，并与本地目录对齐。
+        """动态拉取图片服务平台在售模型，并与本地目录对齐。
 
         平台接口只给模型 ID，能力档（比例/分辨率/画质参数）仍来自内置映射或家族推断，
         因此新模型导入前必须由管理员确认。
@@ -266,7 +266,7 @@ class GrsProviderService:
         }
         parsed = urlparse(str(values.get("base_url", "")))
         if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
-            raise ValueError("GRS Base URL 必须是无内嵌凭证的 HTTPS 地址")
+            raise ValueError("图片服务 Base URL 必须是无内嵌凭证的 HTTPS 地址")
         values["base_url"] = str(values["base_url"]).rstrip("/")
         api_key = payload.get("api_key")
         if api_key is not None and api_key.strip():
@@ -278,7 +278,7 @@ class GrsProviderService:
     def _validate_base_url(base_url: str) -> str:
         parsed = urlparse(base_url)
         if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
-            raise ValueError("GRS Base URL 必须是无内嵌凭证的 HTTPS 地址")
+            raise ValueError("图片服务 Base URL 必须是无内嵌凭证的 HTTPS 地址")
         return base_url.rstrip("/")
 
     def client(self, *, base_url: str | None = None, api_key: str | None = None) -> GrsClient:
@@ -287,7 +287,7 @@ class GrsProviderService:
         if not effective_key:
             if not self.credentials.ready:
                 raise GrsError(self.credentials.error or "凭证主密钥不可用")
-            raise GrsError("尚未保存 GRS API Key，请输入 API Key 后测试或保存配置")
+            raise GrsError("尚未保存图片服务 API Key，请输入 API Key 后测试或保存配置")
         effective_url = self._validate_base_url((base_url or config["base_url"]).strip())
         return GrsClient(effective_url, effective_key)
 
@@ -344,11 +344,11 @@ class GrsProviderService:
             self._balance_refresh_deadline = time.monotonic() + max(1.0, min_interval_seconds)
             available, reason = self.availability()
             if not available:
-                return {**snapshot, "refresh_error": reason or "GRS 余额暂不可用"}
+                return {**snapshot, "refresh_error": reason or "图片服务余额暂不可用"}
             try:
                 self.balance()
             except Exception:
-                return {**snapshot, "refresh_error": "GRS 余额暂不可用"}
+                return {**snapshot, "refresh_error": "图片服务余额暂不可用"}
             # 创作页加载就会走到这里，顺带把平台标价积分带上（6 小时限频，通常直接跳过）
             self.refresh_model_costs()
             return self.balance_snapshot()

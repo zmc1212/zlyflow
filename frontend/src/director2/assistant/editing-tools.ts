@@ -1,4 +1,4 @@
-import { AudioLines, Captions, Film, Flame, MessageSquareText, Scissors, Sparkles, type LucideIcon } from "lucide-react"
+import { AudioLines, Captions, Film, Flame, Languages, MessageSquareText, Scissors, Sparkles, type LucideIcon } from "lucide-react"
 import type { EditingOperation, EditSnapshot, HookStrategy } from "../smart-edit/api"
 import type { AssistantSession } from "./api"
 
@@ -39,7 +39,8 @@ export const EDITING_TOOL_GROUPS: { id: string; label: string; tools: EditingToo
     label: "字幕",
     tools: [
       { id: "subtitle_arrange", label: "自动字幕", Icon: Captions },
-      { id: "audio_subtitle", label: "音轨字幕", Icon: AudioLines }
+      { id: "audio_subtitle", label: "音轨字幕", Icon: AudioLines },
+      { id: "subtitle_translate", label: "字幕翻译", Icon: Languages }
     ]
   }
 ]

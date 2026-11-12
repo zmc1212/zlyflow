@@ -10,11 +10,11 @@ def validate_comfy_base_url(value: str) -> str:
     text = (value or "").strip().rstrip("/")
     parsed = urlparse(text)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        raise ValueError("ComfyUI 地址必须是有效的 HTTP 或 HTTPS URL，例如 http://127.0.0.1:8188")
+        raise ValueError("视频服务地址必须是有效的 HTTP 或 HTTPS URL，例如 http://127.0.0.1:8188")
     if parsed.username or parsed.password:
-        raise ValueError("ComfyUI 地址不能包含用户名或密码")
+        raise ValueError("视频服务地址不能包含用户名或密码")
     if parsed.query or parsed.fragment:
-        raise ValueError("ComfyUI 地址不能包含查询参数或片段")
+        raise ValueError("视频服务地址不能包含查询参数或片段")
     return text
 
 

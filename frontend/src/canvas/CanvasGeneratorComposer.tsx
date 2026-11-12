@@ -2,6 +2,7 @@ import { useReactFlow } from "@xyflow/react"
 import { Button, Dropdown, Input, Popover, Select, Tooltip } from "antd"
 import { ChevronDown, ChevronLeft, ChevronRight, Image as ImageIcon, Plus, Settings, SlidersHorizontal, Sparkles, Square, Type, X } from "lucide-react"
 import { useEffect, useRef, type KeyboardEvent } from "react"
+import { searchFilterOption } from "../search-match"
 import type { CanvasGeneratorContextValue, CanvasNodeActions } from "./CanvasNodes"
 import { GeneratorOptionField } from "./CanvasGeneratorInspector"
 import { canvasReferenceSlots } from "./canvas-composer"
@@ -132,7 +133,7 @@ export function CanvasGeneratorComposer({ id, data, generator, actions }: {
         <Select aria-label="节点生成工作流" className="canvas-composer-workflow" size="small"
           classNames={{ popup: { root: "canvas-select-popup" } }} popupMatchSelectWidth={280}
           value={mode?.id} placeholder="选择工作流" loading={generator.modesLoading} disabled={locked}
-          showSearch optionFilterProp="label" options={generator.modes.map((item) => ({ value: item.id, label: item.name }))}
+          showSearch filterOption={searchFilterOption} options={generator.modes.map((item) => ({ value: item.id, label: item.name }))}
           onChange={(value) => updateNodeData(id, canvasWorkflowChangePatch(value, generator.modeFor(value)))} />
         {fields.primary.length ? (
           <Popover trigger="click" placement="bottom" classNames={{ root: "canvas-popover canvas-composer-settings" }} title="创作参数" content={parameterContent(false)}>

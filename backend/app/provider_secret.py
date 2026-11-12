@@ -15,6 +15,7 @@ SECRET_FIELDS: dict[str, tuple[str, ...]] = {
     "tts": ("api_key",),
     "grs": ("api_key",),
     "qiniu": ("access_key", "secret_key"),
+    "mail": ("password",),
 }
 
 

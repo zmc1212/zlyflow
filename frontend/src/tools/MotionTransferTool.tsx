@@ -4,6 +4,7 @@ import { ArrowLeft, ArrowLeftRight, ChevronDown, Clock3, Dices, ImagePlus, Messa
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { apiErrorMessage, notifyUnauthorized, requestJson as api } from "../api"
+import { searchFilterOption } from "../search-match"
 import {
   MOTION_REF_VIDEO_WORKFLOW,
   MOTION_SKELETON_WORKFLOW,
@@ -15,6 +16,7 @@ import {
   motionToolDefaults,
   motionToolOptions,
   motionToolPayload,
+  motionToolSubmitBlockReason,
   hasSubjects,
   type SubjectPoint,
   type MotionReferenceAsset,
@@ -22,6 +24,7 @@ import {
 } from "../generation/motion-transfer"
 import { generateJobPath } from "../paths"
 import { createLocalId } from "../lib/utils"
+import { promptAutoSize } from "../prompt-autosize"
 import MotionRefVideoReferences from "../generation/MotionRefVideoReferences"
 import MotionTransferReferences from "../generation/MotionTransferReferences"
 import AssetPickerModal from "./AssetPickerModal"
@@ -247,9 +250,18 @@ export default function MotionTransferTool({
     }
   }, [subjectCount])
   const durationError = motionDurationError(video?.duration, values.duration, schema?.duration)
-  const imagesReady = isMultiMode ? characters.length >= 1 : Boolean(portrait)
   const subjectsReady = !isReplaceMode || (hasSubjects(sourcePoints, subjectCount) && hasSubjects(referencePoints, subjectCount))
-  const ready = Boolean(imagesReady && video && subjectsReady && workflow) && !durationError && !submitting && !restoring
+  const submitBlockReason = motionToolSubmitBlockReason({
+    mode,
+    imageCount: isMultiMode ? characters.length : (portrait ? 1 : 0),
+    hasVideo: Boolean(video),
+    workflowLoaded: Boolean(workflow),
+    subjectsReady,
+    durationError,
+    submitting,
+    restoring,
+  })
+  const ready = !submitBlockReason
 
   const setOption = (name: string, next: string | number | boolean) => {
     setValuesByMode((current) => ({
@@ -372,7 +384,7 @@ export default function MotionTransferTool({
       </header>
 
       {workflowQuery.isLoading ? (
-        <div className="grid min-h-[220px] place-items-center"><Spin tip="正在读取动作迁移能力" /></div>
+        <div className="grid min-h-[220px] w-full place-items-center"><Spin tip="正在读取动作迁移能力" /></div>
       ) : workflowQuery.isError ? (
         <Empty description={`动作迁移能力读取失败：${apiErrorMessage(workflowQuery.error, "请稍后重试")}`}>
           <Button icon={<RefreshCw size={14} />} onClick={() => void workflowQuery.refetch()}>重新读取</Button>
@@ -385,6 +397,8 @@ export default function MotionTransferTool({
               <Select
                 id="motion-tool-mode"
                 aria-label="迁移方式"
+                showSearch
+                filterOption={searchFilterOption}
                 value={mode}
                 onChange={(next) => { setMode(next); setAdvancedOpen(false) }}
                 className="w-full"
@@ -464,16 +478,20 @@ export default function MotionTransferTool({
               placeholder={isMultiMode
                 ? "描述角色外观、服装与场景；留空则使用内置模板，自动按顺序绑定每位表演者。"
                 : "可补充角色的外观、服装与表演特点；留空自动跟随原片动作与表情。"}
-              rows={4}
+              autoSize={promptAutoSize(4)}
               maxLength={1500}
             />
           </div>
 
           <div className="studio-motion-footer">
             <span className="studio-tool-motion-note">素材各不超过 50 MB；画面比例与时长按所选迁移方式的能力生效。</span>
-            <Button type="primary" size="large" loading={submitting} disabled={!ready} icon={<Sparkles size={19} />} onClick={() => void submit()}>
-              {submitting ? "提交中" : "开始生成"}
-            </Button>
+            <Tooltip title={submitBlockReason || undefined}>
+              <span className="studio-submit-tooltip-wrap">
+                <Button type="primary" size="large" loading={submitting} disabled={!ready} aria-label={submitBlockReason ? `开始生成（${submitBlockReason}）` : "开始生成"} icon={<Sparkles size={19} />} onClick={() => void submit()}>
+                  {submitting ? "提交中" : "开始生成"}
+                </Button>
+              </span>
+            </Tooltip>
           </div>
           </div>
         </section>

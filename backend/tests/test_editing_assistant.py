@@ -11,7 +11,16 @@ from unittest.mock import Mock, patch
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from backend.app.director_assistant.editing import arrange_videos, place_audio_subtitles, place_subtitles, rebuild_cut
+from backend.app.director_assistant.editing import (
+    _needs_chinese_translation,
+    arrange_videos,
+    make_subtitle_translator,
+    place_audio_subtitles,
+    place_subtitles,
+    rebuild_cut,
+    subtitle_translation_targets,
+    translate_subtitles,
+)
 from backend.app.director_assistant.repository import AssistantConflict, AssistantNotFound, dumps
 from backend.app.director_assistant.service import AssistantService
 from backend.app.media_studio.routers.smart_edit_router import register_smart_edit_routes
@@ -56,6 +65,14 @@ class ArrangeVideosTests(unittest.TestCase):
         self.assertEqual(parsed.tool_calls[1].arguments, {"operation": "video_arrange"})
         for raw in ['<tool_call>shell</tool_call>', '<tool_call>propose_edit<param_key>project_id</param_key><param_value>other</param_value></tool_call>', '<tool_call>editor_read</tool_call>混入正文', '<!DOCTYPE x><tool_call>editor_read</tool_call>']:
             with self.subTest(raw=raw), self.assertRaises(ValueError): AssistantService._parse(raw)
+
+    def test_subtitle_translate_is_a_valid_propose_edit_operation(self):
+        parsed = AssistantService._parse(json.dumps({"text": "开始", "tool_calls": [
+            {"name": "propose_edit", "arguments": {"operation": "subtitle_translate"}}]}))
+        self.assertEqual(parsed.tool_calls[0].arguments, {"operation": "subtitle_translate"})
+        with self.assertRaises(ValueError):
+            AssistantService._parse(json.dumps({"text": "开始", "tool_calls": [
+                {"name": "propose_edit", "arguments": {"operation": "subtitle_translate", "strategy": "trailer"}}]}))
 
     def test_adopted_order_imports_duplicates_and_existing_lanes(self):
         doc = empty_document()
@@ -254,6 +271,68 @@ class SubtitleAndCutTests(unittest.TestCase):
             rebuild_cut(doc, self.sources(), beats(), "hook_cut", "unknown")
 
 
+class SubtitleTranslateTests(unittest.TestCase):
+    def test_language_detection(self):
+        self.assertTrue(_needs_chinese_translation("シャンクス、おれも船に乗せてくれ！"))
+        self.assertTrue(_needs_chinese_translation("路飞：「行くぞ！」"))
+        self.assertTrue(_needs_chinese_translation("Let's go, Luffy!"))
+        self.assertTrue(_needs_chinese_translation("안녕하세요"))
+        self.assertFalse(_needs_chinese_translation("香克斯，让我上船吧！"))
+        self.assertFalse(_needs_chinese_translation("第一集 123！"))
+        self.assertFalse(_needs_chinese_translation("？！"))
+
+    def test_targets_collect_only_foreign_lines(self):
+        doc = empty_document()
+        doc["assets"] = [video("v1", duration=30)]
+        doc["clips"] = [
+            {"id": "ja", "track": "text", "start": 0, "duration": 1, "text": "行くぞ！"},
+            {"id": "zh", "track": "text", "start": 1, "duration": 1, "text": "已经是中文"},
+            {"id": "blank", "track": "text", "start": 2, "duration": 1, "text": " "},
+            {"id": "v", "track": "video", "asset_id": "v1", "start": 0, "duration": 3},
+        ]
+        self.assertEqual(subtitle_translation_targets(doc), [{"clip_id": "ja", "text": "行くぞ！"}])
+
+    def test_translate_subtitles_only_touches_text(self):
+        doc = empty_document()
+        doc["assets"] = [video("v1", duration=30)]
+        doc["clips"] = [
+            {"id": "ja", "track": "text", "start": 1.5, "duration": 2, "text": "シャンクス、おれも船に乗せてくれ！"},
+            {"id": "zh", "track": "text", "start": 4, "duration": 1, "text": "已经是中文"},
+            {"id": "v", "track": "video", "asset_id": "v1", "start": 0, "duration": 5},
+        ]
+        plan = translate_subtitles(doc, {"ja": "香克斯，让我上船吧！"})
+        self.assertEqual((plan["count"], plan["skipped_count"]), (1, 1))
+        self.assertEqual(plan["items"][0]["clip_id"], "ja")
+        self.assertEqual(plan["items"][0]["name"], "香克斯，让我上船吧！")
+        self.assertIn("原文：", plan["items"][0]["reason"])
+        clips = {clip["id"]: clip for clip in plan["document"]["clips"]}
+        self.assertEqual(clips["ja"]["text"], "香克斯，让我上船吧！")
+        self.assertEqual((clips["ja"]["start"], clips["ja"]["duration"]), (1.5, 2))
+        self.assertEqual(clips["zh"]["text"], "已经是中文")
+        self.assertEqual(next(c for c in doc["clips"] if c["id"] == "ja")["text"], "シャンクス、おれも船に乗せてくれ！")
+        with self.assertRaises(ValueError):
+            translate_subtitles(doc, {})
+
+    def test_translator_validates_and_batches_model_output(self):
+        llm = Mock()
+        llm.chat_json.return_value = {"lines": ["一", "二"]}
+        translate = make_subtitle_translator(llm)
+        self.assertEqual(translate(["a", "b"]), ["一", "二"])
+        llm.chat_json.return_value = {"lines": ["一"]}
+        with self.assertRaises(ValueError):
+            translate(["a", "b"])
+        llm.chat_json.side_effect = RuntimeError("provider down")
+        with self.assertRaises(ValueError):
+            translate(["a"])
+        batch_llm = Mock()
+        batch_llm.chat_json.side_effect = lambda system, payload, **kwargs: {
+            "lines": ["译"] * len(json.loads(payload)["lines"])}
+        self.assertEqual(make_subtitle_translator(batch_llm)([f"line{i}" for i in range(85)]), ["译"] * 85)
+        self.assertEqual(batch_llm.chat_json.call_count, 3)
+        with self.assertRaises(ValueError):
+            make_subtitle_translator(object())(["a"])
+
+
 class FakeTranscript:
     def __init__(self, evidence=None, status="succeeded"):
         self.evidence_value = evidence if evidence is not None else SubtitleAndCutTests.transcript()
@@ -355,6 +434,131 @@ class EditingAssistantTests(unittest.TestCase):
             self.assertIn(phrase, str(error.exception))
         self.assertEqual(len(self.editing.read("alice", "p", "main")["clips"]), 2)
         self.assertEqual(self.service.repo.list("alice", "edit_proposal"), [])
+
+    def subtitle_timeline(self, revision=1):
+        doc = copy.deepcopy(self.doc)
+        doc["clips"] = [
+            {"id": "ja1", "track": "text", "start": 0, "duration": 2, "text": "シャンクス、おれも船に乗せてくれ！", "origin": "auto_subtitle"},
+            {"id": "zh1", "track": "text", "start": 3, "duration": 1, "text": "已经是中文", "origin": "auto_subtitle"},
+        ]
+        self.seed(doc, revision)
+
+    def test_subtitle_translate_flow_through_preview_and_confirm(self):
+        self.subtitle_timeline()
+        self.llm.chat_json.return_value = {"lines": ["香克斯，让我上船吧！"]}
+        session = self.session()
+        plan = self.editing.preview("alice", "p", "main", revision=1, session_id=session["id"], operation="subtitle_translate")
+        self.assertEqual((plan["operation"], plan["title"], plan["count"], plan["skipped_count"], plan["status"]),
+                         ("subtitle_translate", "字幕翻译", 1, 1, "pending"))
+        self.assertEqual(plan["items"][0]["clip_id"], "ja1")
+        self.assertEqual(plan["items"][0]["name"], "香克斯，让我上船吧！")
+        self.assertIn("原文：", plan["items"][0]["reason"])
+        texts = [c.get("text") for c in self.editing.read("alice", "p", "main")["clips"]]
+        self.assertIn("シャンクス、おれも船に乗せてくれ！", texts)
+        self.assertIn("已经是中文", texts)
+        result = self.editing.confirm("alice", "p", "main", plan["id"])
+        self.assertEqual(result["status"], "succeeded")
+        clips = {c["id"]: c for c in result["snapshot"]["document"]["clips"]}
+        self.assertEqual(clips["ja1"]["text"], "香克斯，让我上船吧！")
+        self.assertEqual(clips["zh1"]["text"], "已经是中文")
+        self.assertEqual((clips["ja1"]["start"], clips["ja1"]["duration"]), (0, 2))
+        self.assertEqual(self.editing.confirm("alice", "p", "main", plan["id"]), result)
+        self.assertEqual(self.llm.chat_json.call_count, 1)
+
+    def test_subtitle_translate_without_foreign_lines_returns_empty_plan(self):
+        doc = copy.deepcopy(self.doc)
+        doc["clips"] = [{"id": "zh1", "track": "text", "start": 0, "duration": 1, "text": "已经是中文"}]
+        self.seed(doc, 1)
+        plan = self.editing.preview("alice", "p", "main", revision=1, operation="subtitle_translate")
+        self.assertEqual((plan["count"], plan["status"]), (0, "empty"))
+        self.llm.chat_json.assert_not_called()
+
+    def test_subtitle_translate_failures_surface_friendly_errors(self):
+        self.subtitle_timeline()
+        self.llm.chat_json.side_effect = RuntimeError("provider down")
+        with self.assertRaises(ValueError) as error:
+            self.editing.preview("alice", "p", "main", revision=1, operation="subtitle_translate")
+        self.assertIn("字幕翻译暂时失败", str(error.exception))
+        self.llm.chat_json.side_effect = None
+        self.llm.chat_json.return_value = {"lines": []}
+        with self.assertRaises(ValueError) as error:
+            self.editing.preview("alice", "p", "main", revision=1, operation="subtitle_translate")
+        self.assertIn("结果不完整", str(error.exception))
+        self.assertEqual(self.service.repo.list("alice", "edit_proposal"), [])
+        self.assertEqual(self.editing.read("alice", "p", "main")["revision"], 1)
+
+    def test_reapply_restores_translations_without_new_model_calls(self):
+        self.subtitle_timeline()
+        self.llm.chat_json.return_value = {"lines": ["香克斯，让我上船吧！"]}
+        session = self.session()
+        plan = self.editing.preview("alice", "p", "main", revision=1, session_id=session["id"], operation="subtitle_translate")
+        self.editing.confirm("alice", "p", "main", plan["id"])
+        calls = self.llm.chat_json.call_count
+        self.assertEqual(plan["translations"][0]["original"], "シャンクス、おれも船に乗せてくれ！")
+        doc = copy.deepcopy(self.doc)
+        doc["clips"] = [
+            {"id": "ja9", "track": "text", "start": 0, "duration": 2, "text": "シャンクス、おれも船に乗せてくれ！", "origin": "auto_subtitle"},
+            {"id": "zh9", "track": "text", "start": 3, "duration": 1, "text": "已经是中文", "origin": "auto_subtitle"},
+        ]
+        self.seed(doc, 2)
+        again = self.editing.reapply("alice", "p", "main", plan["id"], revision=2, session_id=session["id"])
+        self.assertEqual((again["operation"], again["status"], again["count"], again["reapplied_from"]),
+                         ("subtitle_translate", "pending", 1, plan["id"]))
+        self.assertEqual(again["items"][0]["name"], "香克斯，让我上船吧！")
+        self.assertEqual(self.llm.chat_json.call_count, calls)
+        result = self.editing.confirm("alice", "p", "main", again["id"])
+        clips = {c["id"]: c for c in result["snapshot"]["document"]["clips"]}
+        self.assertEqual(clips["ja9"]["text"], "香克斯，让我上船吧！")
+        self.assertEqual(result["snapshot"]["revision"], 3)
+
+    def test_reapply_rejects_pending_and_unmatched_and_other_operations(self):
+        self.subtitle_timeline()
+        self.llm.chat_json.return_value = {"lines": ["香克斯，让我上船吧！"]}
+        plan = self.editing.preview("alice", "p", "main", revision=1, operation="subtitle_translate")
+        with self.assertRaises(ValueError):
+            self.editing.reapply("alice", "p", "main", plan["id"], revision=1)
+        self.editing.confirm("alice", "p", "main", plan["id"])
+        doc = copy.deepcopy(self.doc)
+        doc["clips"] = [{"id": "en", "track": "text", "start": 0, "duration": 1, "text": "Hello world"}]
+        self.seed(doc, 2)
+        empty = self.editing.reapply("alice", "p", "main", plan["id"], revision=2)
+        self.assertEqual((empty["count"], empty["status"]), (0, "empty"))
+        self.assertEqual(self.llm.chat_json.call_count, 1)
+        other = self.editing.preview("alice", "p", "main", revision=2, operation="video_arrange")
+        self.editing.confirm("alice", "p", "main", other["id"])
+        with self.assertRaises(ValueError):
+            self.editing.reapply("alice", "p", "main", other["id"], revision=3)
+        with self.assertRaises(AssistantNotFound):
+            self.editing.reapply("bob", "p", "main", plan["id"], revision=3)
+
+    def test_reapply_falls_back_to_legacy_items(self):
+        self.subtitle_timeline()
+        self.llm.chat_json.return_value = {"lines": ["香克斯，让我上船吧！"]}
+        plan = self.editing.preview("alice", "p", "main", revision=1, operation="subtitle_translate")
+        self.editing.confirm("alice", "p", "main", plan["id"])
+        record = self.service.repo.get("alice", plan["id"])
+        self.service.repo.update("alice", record, {"translations": None})
+        self.subtitle_timeline(2)
+        again = self.editing.reapply("alice", "p", "main", plan["id"], revision=2)
+        self.assertEqual((again["count"], again["status"]), (1, "pending"))
+        self.assertEqual(again["items"][0]["name"], "香克斯，让我上船吧！")
+
+    def test_http_reapply_route(self):
+        app = FastAPI(); app.state.director_assistant = self.service
+        def current(): return {"id": "alice"}
+        def mutation(): return {"id": "alice"}
+        register_smart_edit_routes(app, current_user=current, mutating_user=mutation)
+        self.subtitle_timeline()
+        self.llm.chat_json.return_value = {"lines": ["香克斯，让我上船吧！"]}
+        base = "/api/projects/p/smart-edit/main/actions"
+        with TestClient(app) as client:
+            plan = client.post(base + "/preview", json={"revision": 1, "operation": "subtitle_translate"}).json()
+            client.post(base + "/" + plan["id"] + "/confirm")
+            self.subtitle_timeline(2)
+            reapplied = client.post(base + "/" + plan["id"] + "/reapply", json={"revision": 2}).json()
+            self.assertEqual((reapplied["operation"], reapplied["count"], reapplied["reapplied_from"]),
+                             ("subtitle_translate", 1, plan["id"]))
+            self.assertEqual(client.post(base + "/" + plan["id"] + "/reapply", json={"revision": 1}).status_code, 409)
 
     def test_editor_read_analysis_reports_transcript_state(self):
         self.editing.transcription = FakeTranscript()
@@ -497,6 +701,20 @@ class EditingAssistantTests(unittest.TestCase):
             def denied(): raise HTTPException(403, "CSRF 校验失败")
             app.dependency_overrides[mutation] = denied
             self.assertEqual(client.post(base + "/" + plan["id"] + "/reorder", json={"asset_ids": ["v1"]}).status_code, 403)
+
+    def test_http_subtitle_translate_route(self):
+        app = FastAPI(); app.state.director_assistant = self.service
+        def current(): return {"id": "alice"}
+        def mutation(): return {"id": "alice"}
+        register_smart_edit_routes(app, current_user=current, mutating_user=mutation)
+        self.subtitle_timeline()
+        self.llm.chat_json.return_value = {"lines": ["香克斯，让我上船吧！"]}
+        base = "/api/projects/p/smart-edit/main/actions"
+        with TestClient(app) as client:
+            plan = client.post(base + "/preview", json={"revision": 1, "operation": "subtitle_translate"}).json()
+            self.assertEqual((plan["operation"], plan["count"]), ("subtitle_translate", 1))
+            confirmed = client.post(base + "/" + plan["id"] + "/confirm").json()
+            self.assertEqual(confirmed["snapshot"]["document"]["clips"][0]["text"], "香克斯，让我上船吧！")
 
     def test_complete_language_turn_freezes_context_and_produces_authorization_part(self):
         session = self.session()

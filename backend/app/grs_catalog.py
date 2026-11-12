@@ -53,15 +53,15 @@ MODEL_CAPABILITY_NOTES = {
 }
 
 # 旧版目录（含已入库的内置行）里批量生成过的长句。列在这里只用于识别"这不是管理员自己写的"，
-# 让读路径改用当前档位文案，避免平台已经出现 2.6 而行上还写着"使用 GRS GPT Image 2.5 生成图片"。
+# 让读路径改用当前档位文案，避免平台已经出现 2.6 而行上还写着"使用图片服务 GPT Image 2.5 生成图片"。
 LEGACY_AUTO_DESCRIPTIONS = frozenset({
-    "使用 GRS 生成图片，支持 0–10 张有序参考图。",
-    "使用 GRS 高画质图片能力，支持 1K/2K/4K 与自定义尺寸。",
-    "使用 GRS GPT Image 2.5 生成图片，支持 0–10 张有序参考图。",
-    "使用 GRS GPT Image 2.5 高画质能力，支持 1K/2K/4K 与画质档位。",
-    "使用 GRS Nano Banana 生成图片，支持 1K/2K/4K。",
-    "使用 GRS Nano Banana 2 生成图片，支持超长画幅与 1K/2K/4K。",
-    "使用 GRS 生成图片。",
+    "使用图片服务生成图片，支持 0–10 张有序参考图。",
+    "使用图片服务高画质图片能力，支持 1K/2K/4K 与自定义尺寸。",
+    "使用图片服务 GPT Image 2.5 生成图片，支持 0–10 张有序参考图。",
+    "使用图片服务 GPT Image 2.5 高画质能力，支持 1K/2K/4K 与画质档位。",
+    "使用图片服务 Nano Banana 生成图片，支持 1K/2K/4K。",
+    "使用图片服务 Nano Banana 2 生成图片，支持超长画幅与 1K/2K/4K。",
+    "使用图片服务生成图片。",
 })
 
 
@@ -69,7 +69,7 @@ def model_description(profile: str | None, provider_model: str | None = None) ->
     note = MODEL_CAPABILITY_NOTES.get(str(provider_model or "").strip().lower())
     if note:
         return note
-    return PROFILE_CAPABILITIES.get(str(profile or ""), "GRS 生图模型。")
+    return PROFILE_CAPABILITIES.get(str(profile or ""), "图片服务生图模型。")
 
 
 def effective_description(row: dict[str, Any] | None) -> str:

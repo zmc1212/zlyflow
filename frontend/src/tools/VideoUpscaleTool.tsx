@@ -123,7 +123,7 @@ void api<{ id: string; references: ReferenceSource[]; rounds: SavedRound[] }>(`/
       </header>
 
       {restoring || handoffRestoring ? (
-        <div className="grid min-h-[220px] place-items-center"><Spin tip={restoring ? "正在恢复超分素材" : "正在读取原片"} /></div>
+        <div className="grid min-h-[220px] w-full place-items-center"><Spin tip={restoring ? "正在恢复超分素材" : "正在读取原片"} /></div>
       ) : (
         <section className="studio-motion-card" aria-label="视频超分创作">
           <div className="studio-tool-motion-materials">

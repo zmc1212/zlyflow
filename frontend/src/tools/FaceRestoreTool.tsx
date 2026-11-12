@@ -121,7 +121,7 @@ export default function FaceRestoreTool({ csrfToken }: { csrfToken: string }) {
       <Button type="text" className="studio-tool-back" icon={<ArrowLeft size={14} />} onClick={() => navigate(PATHS.tools)}>返回 AI 工具</Button>
       <div className="studio-motion-hero-copy"><h1>人脸高清修复</h1><p>修复选中的模糊人脸，保留视频中的其他人物、身体与背景</p></div>
     </header>
-    {workflow.isLoading || restoring ? <div className="grid min-h-[220px] place-items-center"><Spin tip={restoring ? "正在关联视频与高清前原片" : "正在读取修复设置"} /></div>
+    {workflow.isLoading || restoring ? <div className="grid min-h-[220px] w-full place-items-center"><Spin tip={restoring ? "正在关联视频与高清前原片" : "正在读取修复设置"} /></div>
       : workflow.isError ? <Empty description="人脸修复设置读取失败"><Button onClick={() => void workflow.refetch()}>重新读取</Button></Empty>
       : <section className="studio-motion-card" aria-label="人脸高清修复创作">
         <div className="studio-tool-motion-materials">

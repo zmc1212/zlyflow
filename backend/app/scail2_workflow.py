@@ -122,13 +122,13 @@ def probe_scail_canvas(video: Path) -> tuple[int, int]:
 def scail_missing_message(info: dict, graph: dict) -> str | None:
     missing = sorted({v["class_type"] for v in graph.values()} - set(info))
     if missing:
-        return "当前 ComfyUI 缺少动作迁移节点：" + "、".join(missing)
+        return "当前视频服务缺少动作迁移节点：" + "、".join(missing)
     for kind, (field, filename) in [*SCAIL_MODELS.items(),
                                    ("LoraLoaderModelOnly", ("lora_name", DPO_LORA)),
                                    ("LoraLoaderModelOnly", ("lora_name", LIGHT_LORA))]:
         choices = info[kind].get("input", {}).get("required", {}).get(field, [[]])[0]
         if isinstance(choices, list) and filename not in choices:
-            return f"当前 ComfyUI 未发现动作迁移模型：{filename}"
+            return f"当前视频服务未发现动作迁移模型：{filename}"
     return None
 
 

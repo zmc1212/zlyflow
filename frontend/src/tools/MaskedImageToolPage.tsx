@@ -156,7 +156,7 @@ export default function MaskedImageToolPage({ config, csrfToken }: { config: Mas
       </header>
 
       {workflowQuery.isLoading ? (
-        <div className="grid min-h-[220px] place-items-center"><Spin tip={config.loadingTip} /></div>
+        <div className="grid min-h-[220px] w-full place-items-center"><Spin tip={config.loadingTip} /></div>
       ) : workflowQuery.isError ? (
         <Empty description={`能力读取失败：${apiErrorMessage(workflowQuery.error, "请稍后重试")}`}>
           <Button icon={<RefreshCw size={14} />} onClick={() => void workflowQuery.refetch()}>重新读取</Button>
@@ -165,7 +165,7 @@ export default function MaskedImageToolPage({ config, csrfToken }: { config: Mas
         <section className="studio-motion-card studio-masked-card" aria-label={`${config.title}创作`}>
           <div className="studio-masked-panel">
             {restoring && !source ? (
-              <div className="grid min-h-[220px] place-items-center"><Spin tip="正在读取图片…" /></div>
+              <div className="grid min-h-[220px] w-full place-items-center"><Spin tip="正在读取图片…" /></div>
             ) : source ? (
               <div className="studio-masked-source">
                 <button

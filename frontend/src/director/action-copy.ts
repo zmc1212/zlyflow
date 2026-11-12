@@ -128,8 +128,8 @@ export function plateBatchConfirm(kind: "character" | "location", total: number,
     title: sceneOnly ? "全部场景定妆" : "全部定妆",
     countLabel: `将为 ${total} 个${sceneOnly ? "场景" : "角色"}提交定妆图。`,
     costLabel: skip
-      ? `已有定妆图的 ${skip} 个会跳过，预计提交 ${pending} 个 GRS 图片任务。`
-      : `预计消耗：${total} 个 GRS 图片任务。`,
+      ? `已有定妆图的 ${skip} 个会跳过，预计提交 ${pending} 个图片任务。`
+      : `预计消耗：${total} 个图片任务。`,
   }
 }
 
@@ -149,7 +149,7 @@ export function boardBatchConfirm(mode: BoardBatchMode, count: number, title?: s
     title: title || (mode === "still" ? "全部静帧" : mode === "preview" ? "全部预览" : mode === "custom" ? "全部自定义生成" : "全部出片"),
     countLabel: `将提交 ${count} 镜${modeLabel}。`,
     costLabel: mode === "still"
-      ? `预计消耗：${count} 个 GRS 图片任务。`
+      ? `预计消耗：${count} 个图片任务。`
       : `预计消耗：${count} 个本机 MiniMax H3 任务（${passLabel}）。`,
   }
 }

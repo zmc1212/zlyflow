@@ -68,6 +68,9 @@ class WorkflowDefinition:
     media_type: str = "video"
     executor: str = "comfyui"
     grs_profile: str | None = None
+    # 云端视频执行器（executor="cloud_video"）专用：供应商 key 与默认厂商模型。
+    cloud_provider: str | None = None
+    cloud_model: str | None = None
     catalog_group: str = ""
     hidden_from_catalog: bool = False
     supports_timeline: bool = False
@@ -83,9 +86,9 @@ class WorkflowDefinition:
     reference_slots: tuple[str, ...] = ()
     # 结果能否与某个输入逐像素对比："overlay"=与原图叠层滑杆对比，"none"=只看待结果本身。
     result_compare: str = "none"
-    # GRS 生图目录的「默认模型」标记：决定创作页预选与导演台自动出图使用的模型，与显示顺序无关。
+    # 图片服务生图目录的「默认模型」标记：决定创作页预选与导演台自动出图使用的模型，与显示顺序无关。
     is_default: bool = False
-    # GRS 平台标价积分（每张），来自上游价格接口，只用于创作页与管理页展示，不参与提交参数。
+    # 图片服务平台标价积分（每张），来自上游价格接口，只用于创作页与管理页展示，不参与提交参数。
     credit_cost: int | None = None
 
     def reference_kind(self, index: int, count: int | None = None) -> str:
@@ -105,6 +108,8 @@ class WorkflowDefinition:
         data = asdict(self)
         data.pop("option_schema", None)
         data.pop("grs_profile", None)
+        data.pop("cloud_provider", None)
+        data.pop("cloud_model", None)
         data["reference_labels"] = list(self.reference_labels)
         data["parameters"] = parameter_payload(self)
         data["director_controls"] = director_controls(self)
@@ -271,7 +276,7 @@ def grs_option_schema(
         resolution_enum = list(resolutions or ["1K", "2K", "4K"])
         include_custom = False
     else:
-        raise ValueError(f"未知 GRS 生图能力档: {profile}")
+        raise ValueError(f"未知图片服务生图能力档: {profile}")
     companions = ["resolution", "count"]
     if include_custom:
         companions.extend(["custom_width", "custom_height"])
@@ -346,6 +351,7 @@ CATALOG_GROUP_DIRECTOR_ACCEL = "h3_director_accel"
 CATALOG_GROUP_ACTION = "h3_action"
 CATALOG_GROUP_OFFICIAL_H3 = "official_h3"
 CATALOG_GROUP_CUSTOM = "custom"
+CATALOG_GROUP_CLOUD_VIDEO = "cloud_video"
 CATALOG_GROUPS = {
     CATALOG_GROUP_IMAGE: {"label": "图片生成", "order": 0},
     CATALOG_GROUP_IMAGE_EDIT: {"label": "图片编辑", "order": 1},
@@ -355,7 +361,103 @@ CATALOG_GROUPS = {
     CATALOG_GROUP_ACTION: {"label": "动作与打斗", "order": 18},
     CATALOG_GROUP_OFFICIAL_H3: {"label": "官方 MiniMax H3", "order": 20},
     CATALOG_GROUP_CUSTOM: {"label": "自定义", "order": 30},
+    CATALOG_GROUP_CLOUD_VIDEO: {"label": "云端视频模型", "order": 40},
 }
+
+# --------------------------------------------------------------------------
+# 云端视频模型（executor="cloud_video"）
+# --------------------------------------------------------------------------
+
+# 云端视频模型常量：模型版本作为 advanced 选项开放（默认值即各工作流 cloud_model）
+KLING_DEFAULT_MODEL = "kling-v1-6"
+KLING_MODE_OPTIONS = ["std", "pro"]
+KLING_MODEL_OPTIONS = ["kling-v1-6", "kling-v2-master", "kling-v2-1-master"]
+KLING_ASPECT_RATIOS = ["16:9", "9:16", "1:1"]
+SEEDANCE_DEFAULT_MODEL = "doubao-seedance-1-0-pro-250528"
+SEEDANCE_MODEL_OPTIONS = [
+    "doubao-seedance-1-0-pro-250528",
+    "doubao-seedance-1-0-lite-t2v-250428",
+]
+SEEDANCE_RESOLUTION_OPTIONS = ["480p", "720p", "1080p"]
+SEEDANCE_ASPECT_RATIOS = ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9", "9:21"]
+HAILUO_MODEL_T2V_OPTIONS = ["T2V-01", "T2V-01-Director", "MiniMax-Hailuo-02"]
+HAILUO_MODEL_I2V_OPTIONS = ["I2V-01", "I2V-01-live", "MiniMax-Hailuo-02"]
+HAILUO_RESOLUTION_OPTIONS = ["768P", "1080P"]
+
+# 云端视频比例标签（ui_control=visual-settings）
+CLOUD_ASPECT_RATIO_UI_OPTIONS = {
+    "16:9": "16:9 横屏",
+    "9:16": "9:16 竖屏",
+    "1:1": "1:1 方形",
+    "4:3": "4:3 标准",
+    "3:4": "3:4 竖版",
+    "21:9": "21:9 超宽屏",
+    "9:21": "9:21 超长竖屏",
+}
+
+
+def _cloud_aspect_ratio_option(ratios: list[str]) -> dict[str, Any]:
+    return option(
+        "画面比例", "string", ratios[0], group="primary", enum=list(ratios),
+        ui_control="visual-settings",
+        ui_options=[{"value": value, "label": CLOUD_ASPECT_RATIO_UI_OPTIONS.get(value, value)} for value in ratios],
+    )
+
+
+def _cloud_duration_select(durations: list[str], default: str) -> dict[str, Any]:
+    return option(
+        "时长（秒）", "string", default, group="primary", enum=list(durations), ui_control="select",
+        ui_options=[{"value": value, "label": f"{value} 秒"} for value in durations],
+    )
+
+
+def cloud_video_option_schema(mode_id: str) -> dict[str, Any]:
+    """云端视频工作流参数 schema（primary + advanced 合一，internal 由后端托管）。
+
+    primary：画面比例 / 时长；advanced：模型版本、生成模式、分辨率档。
+    cloud_model 等内部映射不进 schema，由 WorkflowDefinition.cloud_provider/cloud_model 声明。
+    """
+    properties: dict[str, Any] = {}
+    if mode_id.startswith("cloud-kling"):
+        properties["aspect_ratio"] = _cloud_aspect_ratio_option(KLING_ASPECT_RATIOS)
+        properties["duration"] = _cloud_duration_select(["5", "10"], "5")
+        properties["model"] = option(
+            "模型版本", "string", KLING_DEFAULT_MODEL, group="advanced",
+            enum=KLING_MODEL_OPTIONS, ui_control="select",
+        )
+        properties["kling_mode"] = option(
+            "生成模式", "string", "std", group="advanced", enum=KLING_MODE_OPTIONS, ui_control="select",
+            ui_options=[{"value": "std", "label": "标准"}, {"value": "pro", "label": "高品质"}],
+            description="标准模式速度更快；高品质（pro）效果更好、计费更高。",
+        )
+    elif mode_id.startswith("cloud-seedance"):
+        properties["aspect_ratio"] = _cloud_aspect_ratio_option(SEEDANCE_ASPECT_RATIOS)
+        properties["duration"] = option(
+            "时长", "integer", 5, group="primary", minimum=3, maximum=12, step=1, unit="秒",
+            ui_control="duration-slider",
+        )
+        properties["model"] = option(
+            "模型版本", "string", SEEDANCE_DEFAULT_MODEL, group="advanced",
+            enum=SEEDANCE_MODEL_OPTIONS, ui_control="select",
+        )
+        properties["resolution"] = option(
+            "分辨率", "string", "720p", group="advanced",
+            enum=SEEDANCE_RESOLUTION_OPTIONS, ui_control="select",
+        )
+    elif mode_id.startswith("cloud-hailuo"):
+        properties["duration"] = _cloud_duration_select(["6", "10"], "6")
+        t2v = mode_id == "cloud-hailuo-t2v"
+        properties["model"] = option(
+            "模型版本", "string", HAILUO_MODEL_T2V_OPTIONS[0] if t2v else HAILUO_MODEL_I2V_OPTIONS[0],
+            group="advanced",
+            enum=HAILUO_MODEL_T2V_OPTIONS if t2v else HAILUO_MODEL_I2V_OPTIONS, ui_control="select",
+        )
+        properties["resolution"] = option(
+            "分辨率", "string", "768P", group="advanced",
+            enum=HAILUO_RESOLUTION_OPTIONS, ui_control="select",
+            description="768P 生成更快；1080P 更清晰。部分模型档位不支持 1080P 时将回落 768P。",
+        )
+    return {"type": "object", "properties": properties}
 
 H3_STANDARD_RESOLUTION_PRESETS = {
     "0.2": 0.2,
@@ -468,7 +570,7 @@ def h3_weight_profile_option() -> dict[str, Any]:
             {"value": H3_WEIGHT_FULL, "label": "完整（32 GB）"},
             {"value": H3_WEIGHT_PRUNED, "label": "精简（20 GB）"},
         ],
-        description="完整权重可挂加速 LoRA；精简权重关闭加速 LoRA，适合 32 GB 内存机器。平台按 ComfyUI 机器内存自动选择。",
+        description="完整权重可挂加速 LoRA；精简权重关闭加速 LoRA，适合 32 GB 内存机器。平台按视频服务机器内存自动选择。",
     )
 
 
@@ -526,7 +628,7 @@ def h3_custom_steps_option() -> dict[str, Any]:
 
 # --- 生成档位与模型体积自动托管 -------------------------------------------------
 # speed / weight_profile 属于采样步数与设备精度类技术参数，按产品规范由后端托管：
-# 创建表单不展示，客户端未显式提交时结合 ComfyUI 机器配置自动取最合适的组合。
+# 创建表单不展示，客户端未显式提交时结合视频服务机器配置自动取最合适的组合。
 # 完整 INT8 权重约 32 GB，加载需要同等量级内存；精简约 20 GB，适合 32 GB 内存机器。
 # 阈值取 40 GiB：内存明显高于完整权重体积才托管为完整权重。
 H3_WEIGHT_FULL_MIN_RAM_BYTES = 40 * 1024**3
@@ -537,7 +639,7 @@ _hardware_profile_resolver: Callable[[], dict[str, Any] | None] | None = None
 def set_hardware_profile_resolver(
     resolver: Callable[[], dict[str, Any] | None] | None,
 ) -> None:
-    """注入 ComfyUI 硬件探测；normalize_options 据此托管 speed / weight_profile。"""
+    """注入视频服务硬件探测；normalize_options 据此托管 speed / weight_profile。"""
     global _hardware_profile_resolver
     _hardware_profile_resolver = resolver
 
@@ -553,7 +655,7 @@ def hardware_profile() -> dict[str, Any] | None:
 
 
 def comfy_ram_total_bytes(stats: dict[str, Any] | None) -> int | None:
-    """从 ComfyUI /system_stats 读取系统内存总量（字节）。"""
+    """从视频服务/system_stats 读取系统内存总量（字节）。"""
     system = (stats or {}).get("system")
     total = system.get("ram_total") if isinstance(system, dict) else None
     if isinstance(total, bool) or not isinstance(total, (int, float)) or total <= 0:
@@ -857,7 +959,7 @@ def director_accel_weight_profile_option() -> dict[str, Any]:
             {"value": H3_WEIGHT_FULL, "label": "完整（32 GB）"},
             {"value": H3_WEIGHT_PRUNED, "label": "精简（20 GB）"},
         ],
-        description="加速版默认完整 INT8；加速来自双 Sage，不挂 Turbo LoRA。精简权重约 20 GB，适合内存紧张的机器。平台按 ComfyUI 机器内存自动选择。",
+        description="加速版默认完整 INT8；加速来自双 Sage，不挂 Turbo LoRA。精简权重约 20 GB，适合内存紧张的机器。平台按视频服务机器内存自动选择。",
     )
 
 
@@ -980,7 +1082,7 @@ def action_option_schema() -> dict[str, Any]:
         "sampler_name": option("采样器", "string", ACTION_SAMPLER, enum=[ACTION_SAMPLER, "euler", "res_multistep"]),
         "shift_video": option("视频 Shift", "number", 12, minimum=0.01, maximum=100, step=0.01),
         "shift_audio": option("音频 Shift", "number", 3, minimum=0.01, maximum=100, step=0.01),
-        # 以下范围对齐远端打斗调参节点的实际校验区间，越界会被 ComfyUI 拒绝。
+        # 以下范围对齐远端打斗调参节点的实际校验区间，越界会被视频服务拒绝。
         "receptive_field_scale": option("感受野倍率", "number", 2.0, minimum=1.0, maximum=100.0, step=0.5),
         "temporal_weight": option("时间注意力权重", "number", 3.0, minimum=0.1, maximum=10.0, step=0.1),
         "cfg_low": option("低段 CFG", "number", 0.9, minimum=0.5, maximum=2.0, step=0.05),
@@ -1175,7 +1277,7 @@ T8_ASPECT_RATIOS = [
 def t8_option_schema(*, sampler: str) -> dict[str, Any]:
     multirate = sampler == "multirate"
     # The T8 conditioning node rejects canvases larger than 768x1344. 0.98 MP
-    # resolves to that maximum at 16:9 with ComfyUI's 32-pixel grid.
+    # resolves to that maximum at 16:9 with 视频服务's 32-pixel grid.
     quality_megapixels = H3_T8_RESOLUTION_PRESETS
     default_quality = "0.4" if multirate else "0.7"
     properties: dict[str, Any] = {
@@ -1300,6 +1402,77 @@ LIGHTX2V_OPTION_SCHEMA = lightx2v_option_schema()
 DUAL_ACCEL_OPTION_SCHEMA = dual_accel_option_schema()
 DIRECTOR_ACCEL_OPTION_SCHEMA = director_accel_option_schema()
 ACTION_OPTION_SCHEMA = action_option_schema()
+
+
+# MiniMax H3 Image（开源图像模型）：同一套权重支持文生图与 1-16 张参考图编辑。
+# 画面比例、输出清晰度与提示词扩写是普通用户可理解的创作选项；模型/采样参数由后端默认值托管。
+H3_IMAGE_RESOLUTION_PRESETS = {
+    "standard": 4.0,
+    "high": 9.0,
+    "ultra": 16.0,
+}
+# 官方模板采样契约：蒸馏 6 步、CFG=1（无负面提示词，euler/simple）。
+H3_IMAGE_STEPS = 6
+H3_IMAGE_CFG = 1.0
+
+
+def h3_image_option_schema(edit_mode: bool) -> dict[str, Any]:
+    aspect_choices = [{"value": "auto", "label": "自动（跟随第 1 张参考图）"}] if edit_mode else []
+    aspect_choices += [
+        {"value": "1:1", "label": "1:1 方形"},
+        {"value": "16:9", "label": "16:9 横屏"},
+        {"value": "9:16", "label": "9:16 竖屏"},
+        {"value": "4:3", "label": "4:3 标准"},
+        {"value": "3:4", "label": "3:4 竖版"},
+        {"value": "3:2", "label": "3:2 摄影"},
+        {"value": "2:3", "label": "2:3 竖版摄影"},
+        {"value": "21:9", "label": "21:9 超宽屏"},
+    ]
+    return {
+        "type": "object",
+        "properties": {
+            "aspect_ratio": option(
+                "画面比例", "string", "auto" if edit_mode else "1:1", group="primary",
+                ui_control="select", ui_options=aspect_choices,
+                description="编辑模式可选自动，跟随第一张参考图的比例。",
+            ),
+            "quality": option(
+                "输出清晰度", "string", "standard", group="primary",
+                ui_control="select",
+                enum=list(H3_IMAGE_RESOLUTION_PRESETS),
+                ui_options=[
+                    {"value": "standard", "label": "标准（约 400 万像素）"},
+                    {"value": "high", "label": "高清（约 900 万像素）"},
+                    {"value": "ultra", "label": "超清（约 1600 万像素）"},
+                ],
+                megapixels_by_quality=H3_IMAGE_RESOLUTION_PRESETS,
+                ui_resolution_preview=H3_LOCAL_RESOLUTION_PREVIEW,
+                description="默认约 400 万像素；超清档更慢且显存占用更高，16GB 显卡建议先用标准档。",
+            ),
+            "prompt_expander": option(
+                "提示词扩写", "boolean", True, group="primary",
+                description="开启后内置模型把简短创意自动扩写成详细描述；已写好完整提示词时可关闭。",
+            ),
+            "seed": option(
+                "随机种子", "integer", 0, group="advanced",
+                minimum=0, maximum=2147483647, step=1, randomize_when_zero=True,
+                description="固定种子可复现相同结果；0 表示每次随机。",
+            ),
+            "megapixels": option(
+                "内部像素面积", "number", 4.0, group="internal", minimum=0.25, maximum=16.0, step=0.1, unit="MP",
+            ),
+            "width": option("画布宽", "integer", 2048, group="internal", minimum=0, maximum=8192, step=32),
+            "height": option("画布高", "integer", 2048, group="internal", minimum=0, maximum=8192, step=32),
+            "steps": option("采样步数", "integer", H3_IMAGE_STEPS, group="internal", minimum=1, maximum=50, step=1),
+            "cfg": option("CFG", "number", H3_IMAGE_CFG, group="internal", minimum=1.0, maximum=12.0, step=0.1),
+            "sampler": option("采样器", "string", "euler", group="internal", enum=["euler"]),
+            "scheduler": option("调度器", "string", "simple", group="internal", enum=["simple"]),
+        },
+    }
+
+
+H3_IMAGE_T2I_OPTION_SCHEMA = h3_image_option_schema(False)
+H3_IMAGE_EDIT_OPTION_SCHEMA = h3_image_option_schema(True)
 
 
 # Wan VACE 深度复刻：画布尺寸与帧数由源视频/深度视频决定，属 internal 托管；
@@ -1736,7 +1909,7 @@ AVATAR_OPTION_SCHEMA = {
             description="lock_source：口型锁定源音频并保留原声；remix_source：重绘源音频；native：模型自生成音频。",
         ),
         "audio_denoise_strength": option("音频重绘强度", "number", 0.35, minimum=0, maximum=1, step=0.01),
-        # 当前远端 ComfyUI 0.43 构建禁用了 T8 Hybrid 路径（ref/keyframe latent 组装变更未复验），
+        # 当前远端视频服务 0.43 构建禁用了 T8 Hybrid 路径（ref/keyframe latent 组装变更未复验），
         # add_source_as_reference=True 会把源音频挂为参考媒体并强制 Hybrid，因此固定关闭。
         "add_source_as_reference": option("将源音频作为参考", "boolean", False),
         "prompt_primary_audio_ordinal": option("提示词主音频序号", "integer", 0, minimum=0, maximum=9, step=1),
@@ -2235,6 +2408,32 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
         catalog_group=CATALOG_GROUP_OFFICIAL_H3,
     ),
     WorkflowDefinition(
+        JobMode.MINIMAX_H3_IMAGE_T2I.value,
+        "H3 图像 文生图",
+        "MiniMax H3 Image 开源图像模型：6 步蒸馏直出高清图片（默认约 400 万像素，最高约 1600 万），"
+        "内置提示词扩写自动把简短创意扩成详细描述。纯本地免费。",
+        "none",
+        0,
+        0,
+        option_schema=H3_IMAGE_T2I_OPTION_SCHEMA,
+        media_type="image",
+        catalog_group=CATALOG_GROUP_IMAGE,
+    ),
+    WorkflowDefinition(
+        JobMode.MINIMAX_H3_IMAGE_EDIT.value,
+        "H3 图像 多参考编辑",
+        "上传 1-16 张参考图：第 1 张为编辑底图，其余作为人物、道具、材质或场景依据，"
+        "提示词用 <Picture n> 引用第 n 张图，可换主体、换材质、换背景或合成新图。"
+        "MiniMax H3 Image 模型，6 步蒸馏直出高清图片，纯本地免费。references[0..N] 按顺序为参考图。",
+        "collection",
+        1,
+        16,
+        option_schema=H3_IMAGE_EDIT_OPTION_SCHEMA,
+        media_type="image",
+        catalog_group=CATALOG_GROUP_IMAGE,
+        result_compare="overlay",
+    ),
+    WorkflowDefinition(
         JobMode.MINIMAX_H3_AVATAR.value,
         "H3 数字人口播",
         "上传人物形象图与口播音频，生成口型与语音精确同步的说话视频：H3 原生音画一体驱动，"
@@ -2360,7 +2559,7 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
     WorkflowDefinition(
         JobMode.STEM_SPLIT.value,
         "人声/伴奏分离",
-        "上传一段音频或视频，用当前连接 ComfyUI 的 MelBand RoFormer 模型分离出人声与伴奏两条音轨："
+        "上传一段音频或视频，用当前连接视频服务的 MelBand RoFormer 模型分离出人声与伴奏两条音轨："
         "纯本地免费。适合清唱提取、伴奏制作与语音增强。该实例必须已安装 Mel-Band RoFormer 节点与权重。"
         "references[0] 为待分离的音频或视频。",
         "collection",
@@ -2381,7 +2580,7 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
     WorkflowDefinition(
         JobMode.IMAGE_BACKGROUND_REMOVE.value,
         "图片去背景",
-        "上传一张图片，自动识别并保留主体、移除背景，输出透明背景 PNG。使用当前连接 ComfyUI 实例的 "
+        "上传一张图片，自动识别并保留主体、移除背景，输出透明背景 PNG。使用当前连接视频服务实例的 "
         "SAM3.1 分割模型，纯本地免费。提示词填写要保留的主体描述（英文效果更稳，如 person / product）。"
         "画布编辑器修正边缘时：references[1] 为移除蒙版（白色=强制透明），references[2] 为保留蒙版（白色=强制不透明）。",
         "collection",
@@ -2505,6 +2704,93 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
         catalog_group=CATALOG_GROUP_IMAGE_EDIT,
         default_prompt="扩展画面范围并保持原内容不变",
     ),
+    # ----------------------------------------------------------------------
+    # 云端视频模型（executor="cloud_video"，直连厂商官方 API）。
+    # 提交与轮询由 worker 云端执行器 + cloud_video 适配器完成，可用性由供应商设置驱动。
+    # ----------------------------------------------------------------------
+    WorkflowDefinition(
+        JobMode.CLOUD_KLING_T2V.value,
+        "可灵 · 文生视频",
+        "快手可灵云端模型，根据提示词直接生成视频；按次计费，不走本地显卡。",
+        "none",
+        0,
+        0,
+        accepts_negative_prompt=True,
+        option_schema=cloud_video_option_schema("cloud-kling-t2v"),
+        executor="cloud_video",
+        cloud_provider="kling",
+        cloud_model=KLING_DEFAULT_MODEL,
+        catalog_group=CATALOG_GROUP_CLOUD_VIDEO,
+    ),
+    WorkflowDefinition(
+        JobMode.CLOUD_KLING_I2V.value,
+        "可灵 · 图生视频",
+        "快手可灵云端模型，以首帧图片为起点生成视频，可附加尾帧控制结束画面；按次计费。",
+        "keyframes",
+        1,
+        2,
+        ("首帧", "尾帧（可选）"),
+        accepts_negative_prompt=True,
+        option_schema=cloud_video_option_schema("cloud-kling-i2v"),
+        executor="cloud_video",
+        cloud_provider="kling",
+        cloud_model=KLING_DEFAULT_MODEL,
+        catalog_group=CATALOG_GROUP_CLOUD_VIDEO,
+    ),
+    WorkflowDefinition(
+        JobMode.CLOUD_SEEDANCE_T2V.value,
+        "即梦 Seedance · 文生视频",
+        "火山方舟 Seedance 云端模型，多画幅多时长，运动表现力强；按次计费，不走本地显卡。",
+        "none",
+        0,
+        0,
+        option_schema=cloud_video_option_schema("cloud-seedance-t2v"),
+        executor="cloud_video",
+        cloud_provider="jimeng",
+        cloud_model=SEEDANCE_DEFAULT_MODEL,
+        catalog_group=CATALOG_GROUP_CLOUD_VIDEO,
+    ),
+    WorkflowDefinition(
+        JobMode.CLOUD_SEEDANCE_I2V.value,
+        "即梦 Seedance · 图生视频",
+        "火山方舟 Seedance 云端模型，以首帧图片为起点生成视频，可附加尾帧控制结束画面；按次计费。",
+        "keyframes",
+        1,
+        2,
+        ("首帧", "尾帧（可选）"),
+        option_schema=cloud_video_option_schema("cloud-seedance-i2v"),
+        executor="cloud_video",
+        cloud_provider="jimeng",
+        cloud_model=SEEDANCE_DEFAULT_MODEL,
+        catalog_group=CATALOG_GROUP_CLOUD_VIDEO,
+    ),
+    WorkflowDefinition(
+        JobMode.CLOUD_HAILUO_T2V.value,
+        "海螺 · 文生视频",
+        "MiniMax 海螺云端模型，镜头语言表现自然；按次计费，不走本地显卡。",
+        "none",
+        0,
+        0,
+        option_schema=cloud_video_option_schema("cloud-hailuo-t2v"),
+        executor="cloud_video",
+        cloud_provider="hailuo",
+        cloud_model="T2V-01",
+        catalog_group=CATALOG_GROUP_CLOUD_VIDEO,
+    ),
+    WorkflowDefinition(
+        JobMode.CLOUD_HAILUO_I2V.value,
+        "海螺 · 图生视频",
+        "MiniMax 海螺云端模型，以首帧图片为起点生成视频（暂不支持尾帧）；按次计费。",
+        "keyframes",
+        1,
+        1,
+        ("首帧",),
+        option_schema=cloud_video_option_schema("cloud-hailuo-i2v"),
+        executor="cloud_video",
+        cloud_provider="hailuo",
+        cloud_model="I2V-01",
+        catalog_group=CATALOG_GROUP_CLOUD_VIDEO,
+    ),
 )
 
 WORKFLOW_BY_ID = {definition.id: definition for definition in WORKFLOWS}
@@ -2591,6 +2877,13 @@ def director_workflow_families() -> list[dict[str, Any]]:
             })
             continue
         group_id = definition.catalog_group or definition.id
+        if is_cloud_video_workflow(definition.id) and definition.cloud_provider:
+            # 云端视频按厂商分族，避免同一目录分组下三家厂商的路由互相覆盖
+            group_id = f"{definition.catalog_group}:{definition.cloud_provider}"
+            group_meta = {
+                "label": f"云端 · {CLOUD_PROVIDER_DIRECTOR_LABELS.get(definition.cloud_provider, definition.cloud_provider)}",
+                "order": int(group_meta.get("order", 100)),
+            }
         entry = grouped.setdefault(group_id, {
             "id": group_id,
             "label": group_meta.get("label") or definition.name,
@@ -2648,17 +2941,134 @@ COMFY_IMAGE_WORKFLOW_IDS = {
     JobMode.IMAGE_LAYER_SPLIT.value,
 }
 
-# GRS 生成 + 本地合成的复合图片工作流（executor=grs，但不是 GRS 目录模型）。
+# MiniMax H3 Image 生图工作流（同一开源图像模型的文生图与多参考编辑两个入口，
+# media_type=image、executor=comfyui，跑在当前连接的视频服务实例上）。
+H3_IMAGE_WORKFLOWS = {JobMode.MINIMAX_H3_IMAGE_T2I, JobMode.MINIMAX_H3_IMAGE_EDIT}
+H3_IMAGE_WORKFLOW_IDS = {item.value for item in H3_IMAGE_WORKFLOWS}
+
+# 图片服务生成 + 本地合成的复合图片工作流（executor=grs，但不是图片服务目录模型）。
 COMPOSITE_IMAGE_WORKFLOW_IDS = {
     JobMode.IMAGE_INPAINT.value,
     JobMode.IMAGE_ERASER.value,
     JobMode.IMAGE_OUTPAINT.value,
 }
 
+# 云端视频模型工作流（executor=cloud_video，直连厂商官方 API，不占本地显卡与 ComfyUI 串行队列）。
+CLOUD_VIDEO_WORKFLOW_IDS = {
+    JobMode.CLOUD_KLING_T2V.value,
+    JobMode.CLOUD_KLING_I2V.value,
+    JobMode.CLOUD_SEEDANCE_T2V.value,
+    JobMode.CLOUD_SEEDANCE_I2V.value,
+    JobMode.CLOUD_HAILUO_T2V.value,
+    JobMode.CLOUD_HAILUO_I2V.value,
+}
+
+
+def is_cloud_video_workflow(mode: JobMode | str) -> bool:
+    """云端视频模型工作流（executor=cloud_video）：提交/轮询走厂商 API，由云端视频并发执行器处理。"""
+    return mode_key(mode) in CLOUD_VIDEO_WORKFLOW_IDS
+
+
+def cloud_provider_for(mode: JobMode | str) -> str | None:
+    try:
+        definition = workflow_for(mode)
+    except KeyError:
+        return None
+    return definition.cloud_provider if is_cloud_video_workflow(definition.id) else None
+
+
+def cloud_model_for(mode: JobMode | str, options: dict[str, Any] | None = None) -> str | None:
+    """云端视频工作流的厂商模型名：options.model（advanced 选项）优先，回落注册表默认。"""
+    try:
+        definition = workflow_for(mode)
+    except KeyError:
+        return None
+    if not is_cloud_video_workflow(definition.id):
+        return None
+    chosen = str((options or {}).get("model") or "").strip()
+    return chosen or definition.cloud_model
+
+
+# 导演台族标签（按厂商分族用）
+CLOUD_PROVIDER_DIRECTOR_LABELS = {"kling": "可灵", "jimeng": "即梦 Seedance", "hailuo": "海螺"}
+
+
+def clamp_cloud_video_options(mode: JobMode | str, options: dict[str, Any] | None) -> dict[str, Any]:
+    """导演链路（批量台 / 镜头渲染）透传的是 H3 语义参数（quality/speed/weight_profile 等）。
+
+    云端视频工作流 schema 不同：只保留 schema 内的键，并把比例/时长夹到该工作流允许的档位，
+    避免 normalize_options 因未知参数或档位不匹配直接报错。
+    """
+    try:
+        definition = workflow_for(mode)
+    except KeyError:
+        return dict(options or {})
+    if not is_cloud_video_workflow(definition.id):
+        return dict(options or {})
+    properties = (definition.option_schema or {}).get("properties", {})
+    clamped: dict[str, Any] = {}
+    for name, value in dict(options or {}).items():
+        schema_def = properties.get(name)
+        if schema_def is None:
+            continue  # H3 专属参数（quality/speed/weight_profile…）对云端工作流无意义，直接丢弃
+        enum = schema_def.get("enum")
+        if enum:
+            if str(value) in {str(item) for item in enum}:
+                clamped[name] = value
+            else:
+                clamped[name] = _closest_cloud_value(enum, value, schema_def.get("default"))
+            continue
+        if name == "duration" and schema_def.get("type") == "integer":
+            try:
+                number = int(float(value))
+            except (TypeError, ValueError):
+                number = int(schema_def.get("default", 5))
+            clamped[name] = max(int(schema_def.get("minimum", 3)), min(int(schema_def.get("maximum", 12)), number))
+            continue
+        clamped[name] = value
+    return clamped
+
+
+def _closest_cloud_value(enum: list[Any], value: Any, default: Any) -> Any:
+    """把导演链路透传的值夹到云端 schema 允许档位：数字按数值距离，比例（W:H）按宽高比距离。"""
+    text = str(value or "").strip()
+    wanted = _cloud_value_number(text)
+    if wanted is None:
+        return default
+
+    def distance(item: Any) -> float:
+        number = _cloud_value_number(str(item))
+        return abs(number - wanted) if number is not None else float("inf")
+
+    return min(enum, key=distance)
+
+
+def _cloud_value_number(text: str) -> float | None:
+    """把 '8' / '2:3' 统一换算成可比较的数值（比例按宽高比）；无法解析返回 None。"""
+    try:
+        return float(text)
+    except (TypeError, ValueError):
+        pass
+    parts = text.split(":")
+    if len(parts) == 2:
+        try:
+            width, height = float(parts[0]), float(parts[1])
+        except (TypeError, ValueError):
+            return None
+        if width <= 0 or height <= 0:
+            return None
+        return width / height
+    return None
+
 
 def is_comfy_image_workflow(mode: JobMode | str) -> bool:
-    """跑在当前连接 ComfyUI 实例上的图片编辑工作流（media_type=image，executor=comfyui）。"""
+    """跑在当前连接视频服务实例上的图片编辑工作流（media_type=image，executor=comfyui）。"""
     return mode_key(mode) in COMFY_IMAGE_WORKFLOW_IDS
+
+
+def is_h3_image_workflow(mode: JobMode | str) -> bool:
+    """MiniMax H3 Image 生图工作流（media_type=image，executor=comfyui）。"""
+    return mode_key(mode) in H3_IMAGE_WORKFLOW_IDS
 
 
 def is_composite_image_workflow(mode: JobMode | str) -> bool:
@@ -2666,10 +3076,10 @@ def is_composite_image_workflow(mode: JobMode | str) -> bool:
 
 
 def is_grs_image_workflow(mode: JobMode | str) -> bool:
-    """GRS 目录驱动的图片工作流（grs- 前缀）。
+    """图片服务目录驱动的图片工作流（grs- 前缀）。
 
-    ComfyUI 图片工作流与 GRS+本地合成的复合图片工作流都不在此列：
-    前者可用性跟随 ComfyUI，后者的 provider_model 不走目录开关。
+    视频服务图片工作流与图片服务+本地合成的复合图片工作流都不在此列：
+    前者可用性跟随视频服务，后者的 provider_model 不走目录开关。
     """
     return not is_comfy_image_workflow(mode) and mode_key(mode).startswith("grs-")
 
@@ -2679,7 +3089,7 @@ def is_stem_split_workflow(mode: JobMode | str) -> bool:
 
 
 def is_local_comfy_job(mode: JobMode | str) -> bool:
-    """Creation-page ComfyUI jobs that occupy the serial video worker."""
+    """Creation-page 视频服务 jobs that occupy the serial video worker."""
     return (
         is_h3_workflow(mode)
         or is_upscale_workflow(mode)
@@ -2693,6 +3103,7 @@ def is_local_comfy_job(mode: JobMode | str) -> bool:
         or is_keyframe_workflow(mode)
         or is_stem_split_workflow(mode)
         or is_comfy_image_workflow(mode)
+        or is_h3_image_workflow(mode)
         or mode_key(mode) == JobMode.WAN_VACE_DEPTH_V2V.value
     )
 
@@ -2753,7 +3164,7 @@ def is_image_workflow(mode: JobMode | str) -> bool:
         return False
 
 
-# Historical GRS workflow IDs remain valid for job history and builtin fallback.
+# Historical 图片服务 workflow IDs remain valid for job history and builtin fallback.
 IMAGE_WORKFLOWS = {JobMode.GRS_GPT_IMAGE_2, JobMode.GRS_GPT_IMAGE_2_VIP}
 
 H3_QUALITY_MEGAPIXELS = H3_STANDARD_OPTION_SCHEMA["properties"]["quality"]["megapixels_by_quality"]
@@ -3009,6 +3420,11 @@ def normalize_options(mode: JobMode | str, raw: dict[str, Any] | None) -> dict[s
         normalized["target_point"] = normalize_face_point(normalized["target_point"])
         if normalized["overlap"] >= normalized["chunk_length"]:
             raise ValueError("人脸修复的时序重叠必须小于处理窗口。")
+        return normalized
+    if is_h3_image_workflow(mode):
+        normalized = _normalize_schema_options(workflow_for(mode).option_schema or {}, raw or {})
+        width, height = h3_image_dimensions(normalized)
+        normalized.update(width=width, height=height)
         return normalized
     if is_video_edit_workflow(mode):
         normalized = _normalize_schema_options(VIDEO_EDIT_OPTION_SCHEMA, raw or {})
@@ -3275,7 +3691,7 @@ def validate_option_relationships(mode: JobMode | str, options: dict[str, Any], 
 
 
 def grs_request_size(mode: JobMode | str, options: dict[str, Any]) -> tuple[str, str | None]:
-    """Map registry values to the GRS wire-level aspectRatio/imageSize fields."""
+    """Map registry values to the 图片服务 wire-level aspectRatio/imageSize fields."""
     definition = workflow_for(mode)
     aspect_ratio = options["aspect_ratio"]
     resolution = options["resolution"]
@@ -3291,7 +3707,7 @@ def grs_request_size(mode: JobMode | str, options: dict[str, Any]) -> tuple[str,
 
 def h3_dimensions(options: dict[str, Any]) -> tuple[int, int]:
     _, ratio = parse_h3_aspect_ratio(options["aspect_ratio"])
-    # Keep the workbench calculation byte-for-byte compatible with ComfyUI's
+    # Keep the workbench calculation byte-for-byte compatible with 视频服务's
     # ResolutionSelector: MP is based on 1024² and each side is rounded to the
     # configured 32-pixel alignment grid.
     # `megapixels` is an internal compatibility field. Older saved drafts and
@@ -3305,6 +3721,27 @@ def h3_dimensions(options: dict[str, Any]) -> tuple[int, int]:
     area = megapixels * 1024 * 1024
     if not math.isfinite(area * ratio) or not math.isfinite(area / ratio):
         raise ValueError("MiniMax H3 aspect ratio is outside the supported numeric range")
+    width = round(math.sqrt(area * ratio) / 32) * 32
+    height = round(math.sqrt(area / ratio) / 32) * 32
+    return width, height
+
+
+def h3_image_dimensions(options: dict[str, Any]) -> tuple[int, int]:
+    """H3 Image 画布：MP 以 1024² 计、两边对齐 32 像素网格。
+
+    比例为 auto 时返回 (0, 0)，交给 MiniMaxH3ImageConditioning 节点跟随
+    image_1 的缩放尺寸自适应（无参考图则 2048x2048），与官方模板一致。
+    """
+    aspect = str(options.get("aspect_ratio") or "auto")
+    if aspect == "auto":
+        return 0, 0
+    _, ratio = parse_h3_aspect_ratio(aspect)
+    quality = options.get("quality")
+    quality_megapixels = H3_IMAGE_RESOLUTION_PRESETS.get(str(quality)) if quality is not None else None
+    megapixels = quality_megapixels if quality_megapixels is not None else options["megapixels"]
+    area = megapixels * 1024 * 1024
+    if not math.isfinite(area * ratio) or not math.isfinite(area / ratio):
+        raise ValueError("MiniMax H3 Image aspect ratio is outside the supported numeric range")
     width = round(math.sqrt(area * ratio) / 32) * 32
     height = round(math.sqrt(area / ratio) / 32) * 32
     return width, height

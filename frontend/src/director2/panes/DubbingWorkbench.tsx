@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { Alert, Button, Input, Select, Slider, Space, Tag, Upload, message } from "antd"
 import { Mic, RefreshCw, Volume2 } from "lucide-react"
+import { searchFilterOption } from "../../search-match"
 import {
   generateEpisodeDubbing,
   getEpisodeDubbing,
@@ -278,7 +279,7 @@ export default function DubbingWorkbench({ csrfToken, projectId, episodeId }: Du
                         onChange={(value) => { if (value) void handleApplyPreset(item.id, value) }}
                         loading={uploadingId === item.id}
                         showSearch
-                        optionFilterProp="label"
+                        filterOption={searchFilterOption}
                         size="small"
                         style={{ minWidth: 148 }}
                       />

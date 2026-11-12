@@ -1,13 +1,18 @@
 .studio-motion-references {
   display: grid;
+  /* 单列必须允许收缩到 0：否则窄栏里的长标签会按 max-content 撑宽整列，覆盖到右侧提示词。 */
+  grid-template-columns: minmax(0, 1fr);
   align-content: start;
   gap: 8px;
   min-width: 0;
+  max-width: 100%;
 }
 .studio-motion-reference {
   position: relative;
   display: flex;
   align-items: center;
+  min-width: 0;
+  max-width: 100%;
   min-height: 54px;
   gap: 8px;
   padding: 6px;
@@ -47,9 +52,19 @@
   color: #fff;
   filter: drop-shadow(0 1px 2px #000);
 }
-.studio-motion-reference-label { flex: 1; min-width: 0; cursor: pointer; }
+.studio-motion-reference-label { flex: 1; min-width: 0; overflow: hidden; cursor: pointer; }
 .studio-motion-reference-label strong, .studio-motion-reference-label span { display: block; }
-.studio-motion-reference-label strong { font-size: 11px; font-weight: 500; color: var(--studio-text); }
+/* 标题最多两行，超长文本也按字符换行，保证任意工作流的标签都不会横向溢出窄栏。 */
+.studio-motion-reference-label strong {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--studio-text);
+}
 .studio-motion-reference-label span {
   overflow: hidden;
   margin-top: 3px;

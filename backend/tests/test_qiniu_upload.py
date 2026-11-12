@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 import sys
+import qiniu
 import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -14,6 +15,14 @@ from backend.app.media_studio.services.qiniu_service import (
     UPLOAD_ATTEMPTS,
     UPLOAD_PART_BYTES,
     QiniuService,
+)
+
+from backend.app import qiniu_storage as qiniu_storage_module
+from backend.app.qiniu_storage import (
+    QiniuStorage,
+    QINIU_UPLOAD_BACKUP_HOSTS,
+    UPLOAD_ATTEMPTS as STORAGE_UPLOAD_ATTEMPTS,
+    UPLOAD_PART_BYTES as STORAGE_UPLOAD_PART_BYTES,
 )
 
 CONFIG = {
@@ -76,7 +85,7 @@ class QiniuUploadTests(unittest.TestCase):
             result, info = sdk.put_data(token, "key", b"small", regions=[sdk.Region(up_host="up-z0.qiniup.com", scheme="https")])
         self.assertTrue(info.ok())
         self.assertEqual("key", result["key"])
-        self.assertEqual((10, 120), send.call_args.kwargs["timeout"])
+        self.assertEqual((15, 180), send.call_args.kwargs["timeout"])
         self.assertTrue(send.call_args.args[0].url.startswith("https://up-z0.qiniup.com/"))
 
     def test_large_payload_uses_resumable_chunked_upload(self) -> None:
@@ -158,6 +167,16 @@ class QiniuUploadTests(unittest.TestCase):
         self.assertEqual(put_data.call_count, 1)
         self.sleep.assert_not_called()
 
+    def test_region_declares_backup_upload_host(self) -> None:
+        calls: list[dict] = []
+        with mock.patch.object(
+            qiniu_service_module.qiniu, "put_data", side_effect=_writer(calls)
+        ):
+            QiniuService.store_bytes("image", "cover.png", b"small")
+        regions = calls[0]["kwargs"]["regions"]
+        self.assertEqual(regions[0].up_host, "up-z0.qiniup.com")
+        self.assertEqual(regions[0].up_host_backup, "upload-z0.qiniup.com")
+
     def test_retry_classification(self) -> None:
         self.assertTrue(QiniuService._retryable_upload(_Info(503)))
         self.assertTrue(QiniuService._retryable_upload(_Info(-1)))
@@ -167,6 +186,50 @@ class QiniuUploadTests(unittest.TestCase):
         ))
         self.assertFalse(QiniuService._retryable_upload(_Info(400, "invalid argument")))
         self.assertFalse(QiniuService._retryable_upload(_Info(614, "file exists")))
+
+
+class QiniuStorageUploadTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.previous_timeout = qiniu.config.get_default("connection_timeout")
+        self.addCleanup(
+            qiniu.set_default,
+            connection_timeout=self.previous_timeout,
+        )
+        sleep_patcher = mock.patch.object(qiniu_storage_module.time, "sleep", return_value=None)
+        sleep_patcher.start()
+        self.addCleanup(sleep_patcher.stop)
+        self.storage = QiniuStorage(dict(CONFIG))
+
+    def test_large_music_upload_uses_one_mib_parts_and_backup_host(self) -> None:
+        calls: list[dict] = []
+        content = b"x" * (9 * 1024 * 1024)
+        with mock.patch.object(
+            qiniu, "put_stream_v2", side_effect=_writer(calls), create=True
+        ):
+            stored = self.storage.store_bytes("music/audio", "song.flac", content)
+        self.assertTrue(stored.key.startswith("studio/music/audio/"))
+        kwargs = calls[0]["kwargs"]
+        self.assertEqual(kwargs["part_size"], STORAGE_UPLOAD_PART_BYTES)
+        self.assertLessEqual(kwargs["part_size"], 1024 * 1024)
+        region = kwargs["regions"][0]
+        self.assertEqual(region.up_host, "up-z0.qiniup.com")
+        self.assertEqual(region.up_host_backup, QINIU_UPLOAD_BACKUP_HOSTS["z0"])
+
+    def test_write_timeout_retried_and_reported_with_payload_size(self) -> None:
+        content = b"x" * (9 * 1024 * 1024)
+        with mock.patch.object(
+            qiniu,
+            "put_stream_v2",
+            side_effect=TimeoutError("The write operation timed out"),
+            create=True,
+        ) as upload:
+            with self.assertRaises(RuntimeError) as raised:
+                self.storage.store_bytes("music/audio", "song.flac", content)
+        self.assertEqual(upload.call_count, STORAGE_UPLOAD_ATTEMPTS)
+        message = str(raised.exception)
+        self.assertIn("七牛云上传失败", message)
+        self.assertIn("9.0 MiB", message)
+        self.assertIn("The write operation timed out", message)
 
 
 if __name__ == "__main__":

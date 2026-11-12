@@ -1,3 +1,6 @@
+﻿import { filterSearchOptions } from "../search-match"
+import type { SearchableOption } from "../search-match"
+
 export type CatalogModel = {
   id: string
   label: string
@@ -54,6 +57,17 @@ export function providerPresetFor(preset: OfficialProviderPreset, purpose: "chat
     docUrl: preset.api_key_url,
     recommendedModels: models.map(row => ({ id: row.id, name: row.label, free: row.free })),
   }
+}
+
+/** 模型下拉专用：没有命中时留一行提示，而不是静默收起下拉框。 */
+export function filterModelOptions<T extends SearchableOption>(
+  options: T[],
+  query: string,
+): (T | (SearchableOption & { disabled: true; hint: true }))[] {
+  const text = (query || "").trim()
+  const matched = filterSearchOptions(options, text)
+  if (matched.length || !text) return matched
+  return [{ value: `__no-model-match__${text}`, label: `无匹配模型，继续输入或用「${text}」保存`, disabled: true, hint: true }]
 }
 
 export function modelPriceLabel(free: boolean | null): string {

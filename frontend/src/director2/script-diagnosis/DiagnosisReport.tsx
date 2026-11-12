@@ -5,6 +5,7 @@ import {
   DIMENSIONS, PRIORITIES, citationLabel, durationLabel, sliceCharacters,
   type Diagnosis, type Evidence, type Issue,
 } from "./model"
+import { searchFilterOption } from "../../search-match"
 
 export default function DiagnosisReport({ task }: { task: Diagnosis }) {
   const [sourceId, setSourceId] = useState(task.sources[0]?.id || "")
@@ -83,7 +84,7 @@ export default function DiagnosisReport({ task }: { task: Diagnosis }) {
     </div>
     <aside className="sd-original" aria-label="剧本原文">
       <div className="sd-original-heading"><FileText size={17} /><strong>原文对照</strong><span>提交时的剧本</span></div>
-      <Select aria-label="选择原文文件" value={source?.id} onChange={value => { setSourceId(value); setSelected(null) }}
+      <Select aria-label="选择原文文件" showSearch filterOption={searchFilterOption} value={source?.id} onChange={value => { setSourceId(value); setSelected(null) }}
         options={task.sources.map(item => ({ value: item.id, label: item.name }))} />
       <div className="sd-original-tip">{marked ? citationLabel(task.sources, marked) : "点击报告中的原文依据，定位到对应段落"}</div>
       <pre className="sd-original-text">{marked

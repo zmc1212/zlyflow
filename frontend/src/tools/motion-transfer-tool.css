@@ -115,6 +115,50 @@
 .studio-motion-references-multi .studio-motion-reference-move.ant-btn:first-of-type { right: 41px; }
 .studio-motion-references-multi .studio-motion-reference-move.ant-btn:last-of-type { right: 72px; }
 .studio-motion-references-tool .studio-motion-reference-enlarge { top: 12px; right: 12px; bottom: auto; }
+/* 素材槽基础皮肤：视频超分 / 人声伴奏分离 / 视频局部重拍 / 深度捕捉 / 图片扩图 / 人脸高清修复
+   共用同一套 studio-motion-material-* 结构（各自渲染 video / img / 空态 + 操作按钮）。
+   face-restore-tool.css 里以 .studio-face-restore-tool 作用域的同名前缀规则在此之上做局部覆盖。 */
+.studio-motion-material-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.studio-motion-material-row[data-single] { grid-template-columns: minmax(0, 1fr); }
+.studio-motion-material {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--studio-border);
+  border-radius: 14px;
+  background: var(--studio-surface);
+}
+.studio-motion-material > video,
+.studio-motion-material > img {
+  display: block;
+  width: 100%;
+  height: 280px;
+  object-fit: contain;
+  border-radius: 12px;
+  background: var(--studio-media);
+}
+.studio-motion-material-empty {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 280px;
+  padding: 20px;
+  border: 1px dashed var(--studio-border-strong);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--studio-surface-raised) 45%, var(--studio-surface));
+  color: var(--studio-text-secondary);
+  font-size: 14px;
+  line-height: 22px;
+  text-align: center;
+}
+.studio-motion-material-empty > svg { color: var(--studio-accent-text); stroke-width: 1.4; }
+.studio-motion-material-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .studio-motion-upload-actions { display: flex; gap: 10px; padding: 0 4px; }
 .studio-motion-upload-actions .ant-btn { flex: none; width: 180px; height: 50px; padding-inline: 8px; border-color: var(--studio-border-strong); border-radius: 10px; background: var(--studio-surface); color: var(--studio-text); font-size: 12px; font-weight: 500; }
 .studio-motion-settings { position: relative; display: flex; flex-direction: column; min-width: 0; }
@@ -150,9 +194,10 @@
 .studio-motion-tool textarea.ant-input::placeholder { color: var(--studio-text-muted); font-size: 12px; }
 .studio-motion-footer { display: flex; align-items: center; justify-content: flex-end; gap: 18px; margin-top: auto; padding: 13px 8px 0; }
 .studio-motion-footer .studio-tool-motion-note { flex: 1; color: var(--studio-text-muted); font-size: 11px; line-height: 19px; text-align: right; }
-.studio-motion-footer > .ant-btn { width: 256px; min-width: 190px; height: 52px; border: 0; border-radius: 16px; background: linear-gradient(115deg, var(--studio-motion-violet), var(--studio-motion-violet-end)); color: #fff; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .2); font-size: 16px; font-weight: 600; }
-.studio-motion-footer > .ant-btn:not(:disabled):hover { background: linear-gradient(115deg, var(--studio-motion-violet-end), var(--studio-motion-violet)); color: #fff; }
-.studio-motion-footer > .ant-btn:disabled { background: color-mix(in srgb, var(--studio-motion-violet) 22%, var(--studio-surface-raised)); color: var(--studio-text-muted); box-shadow: none; }
+.studio-submit-tooltip-wrap { display: inline-flex; flex: none; }
+.studio-motion-footer .ant-btn { width: 256px; min-width: 190px; height: 52px; border: 0; border-radius: 16px; background: linear-gradient(115deg, var(--studio-motion-violet), var(--studio-motion-violet-end)); color: #fff; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .2); font-size: 16px; font-weight: 600; }
+.studio-motion-footer .ant-btn:not(:disabled):hover { background: linear-gradient(115deg, var(--studio-motion-violet-end), var(--studio-motion-violet)); color: #fff; }
+.studio-motion-footer .ant-btn:disabled { background: color-mix(in srgb, var(--studio-motion-violet) 22%, var(--studio-surface-raised)); color: var(--studio-text-muted); box-shadow: none; }
 .studio-motion-watermark { position: absolute; z-index: 0; right: -42px; bottom: -42px; width: 160px; height: 100px; object-fit: cover; opacity: .22; mask-image: radial-gradient(ellipse at center, #000 15%, transparent 70%); pointer-events: none; }
 :root:not([data-theme="dark"]) .studio-motion-hero-art { opacity: .32; mix-blend-mode: multiply; }
 :root:not([data-theme="dark"]) .studio-motion-watermark { opacity: .12; mix-blend-mode: multiply; }

@@ -1,4 +1,4 @@
-import type { MusicJob, MusicLyricLine } from "./api"
+import type { FeaturedMusic, MusicJob, MusicLyricLine } from "./api"
 
 export type MusicFilter = "all" | "active" | "succeeded" | "failed"
 export type MusicView = "grid" | "list"
@@ -51,18 +51,113 @@ export function musicArtworkUrl(job: Pick<MusicJob, "style" | "cover_url">): str
   return mood ? `/music-art/${mood}.webp` : job.cover_url || "/music-art/daylight.webp"
 }
 
-export function filterMusicJobs(jobs: MusicJob[], filter: MusicFilter, query: string): MusicJob[] {
-  const needle = query.trim().toLocaleLowerCase()
+/**
+ * 音乐页的用户作用域：`undefined` 表示只看本人，`"all"` 表示全部用户，其它为指定账号 id。
+ * 仅管理员（admin / super_admin）生效；普通账号与「选中本人」都返回 undefined。
+ */
+export function musicScopedUserId(
+  role: string | null | undefined, adminFilter: string | null | undefined, currentUserId: string | null | undefined,
+): string | undefined {
+  if (role !== "admin" && role !== "super_admin") return undefined
+  const filter = adminFilter || "all"
+  return filter === currentUserId ? undefined : filter
+}
+
+/** 管理员是否正以只读方式查看某个具体用户（非本人、也非「全部用户」）的音乐数据。 */
+export function musicReadOnlyScope(
+  role: string | null | undefined, adminFilter: string | null | undefined, currentUserId: string | null | undefined,
+): boolean {
+  const scope = musicScopedUserId(role, adminFilter, currentUserId)
+  return scope !== undefined && scope !== "all"
+}
+
+/** 是否可对某条音乐任务/对话执行删除、重命名、对话修改等写操作：本人且非只读查看他人时。 */
+export function musicCanManage(
+  ownerUserId: string | null | undefined, currentUserId: string | null | undefined, readOnly: boolean,
+): boolean {
+  return !readOnly && Boolean(currentUserId) && ownerUserId === currentUserId
+}
+
+/** 管理员是否正在查看他人数据（「全部用户」或某个具体账号）；用于跨账号重试入口。 */
+export function musicAdminViewingOthers(
+  role: string | null | undefined, adminFilter: string | null | undefined, currentUserId: string | null | undefined,
+): boolean {
+  return musicScopedUserId(role, adminFilter, currentUserId) !== undefined
+}
+
+/** 是否可对失败歌曲点「重试」：仅失败任务；本人可管理，或管理员正在跨账号查看。 */
+export function musicCanRetry(
+  job: Pick<MusicJob, "status" | "owner_user_id">, currentUserId: string | null | undefined,
+  readOnly: boolean, adminViewingOthers: boolean,
+): boolean {
+  return job.status === "failed" && (musicCanManage(job.owner_user_id, currentUserId, readOnly) || adminViewingOthers)
+}
+
+export function filterMusicJobs(jobs: MusicJob[], filter: MusicFilter, query: string): MusicJob[] {  const needle = query.trim().toLocaleLowerCase()
   return jobs.filter((job) => {
     const matchesStatus = filter === "all" || (filter === "active" ? job.status === "queued" || job.status === "running" : job.status === filter)
     return matchesStatus && (!needle || `${job.title} ${job.style} ${musicStyleTags(job).join(" ")}`.toLocaleLowerCase().includes(needle))
   })
 }
 
+/** 精选歌曲在播放器里用一个稳定的合成 ID，避免与原任务 ID 冲突。 */
+export const FEATURED_MUSIC_ID_PREFIX = "featured:"
+
+export function featuredMusicJobId(featuredId: string): string {
+  return `${FEATURED_MUSIC_ID_PREFIX}${featuredId}`
+}
+
+export function isFeaturedMusicJobId(jobId: string | null | undefined): boolean {
+  return Boolean(jobId?.startsWith(FEATURED_MUSIC_ID_PREFIX))
+}
+
+/** 把只读精选快照投影成播放器可用的 MusicJob，不改动曲库任务状态。 */
+export function featuredMusicAsJob(song: FeaturedMusic): MusicJob {
+  return {
+    id: featuredMusicJobId(song.id),
+    owner_user_id: song.owner_user_id ?? "",
+    title: song.title,
+    style: song.style,
+    lyrics: song.lyrics,
+    status: "succeeded",
+    progress: 100,
+    params: {},
+    result_url: song.result_url,
+    result_format: song.result_format,
+    cover_url: song.cover_url,
+    duration_seconds: song.duration_seconds,
+    remote_job_id: null,
+    remote_song_id: null,
+    error_message: null,
+    chat_id: null,
+    created_at: song.published_at,
+    updated_at: song.updated_at,
+    completed_at: song.published_at,
+  }
+}
+
 export function adjacentMusicJob(jobs: MusicJob[], id: string, direction: -1 | 1): MusicJob | null {
   const playable = jobs.filter((job) => job.status === "succeeded" && job.result_url)
   const index = playable.findIndex((job) => job.id === id)
   return index < 0 ? null : playable[index + direction] ?? null
+}
+
+/** 对话版本链：同一 chat_id 的任务按创建时间排序，链上 ≥2 版时给每张卡片「对话 vN」标签。 */
+export function buildMusicVersionLabels(jobs: MusicJob[]): Record<string, string> {
+  const chains = new Map<string, MusicJob[]>()
+  for (const job of jobs) {
+    if (!job.chat_id) continue
+    const chain = chains.get(job.chat_id) ?? []
+    chain.push(job)
+    chains.set(job.chat_id, chain)
+  }
+  const labels: Record<string, string> = {}
+  for (const chain of chains.values()) {
+    if (chain.length < 2) continue
+    chain.sort((a, b) => (a.created_at ?? "").localeCompare(b.created_at ?? ""))
+    chain.forEach((job, index) => { labels[job.id] = `对话 v${index + 1}` })
+  }
+  return labels
 }
 
 export function musicDate(value: string | null, now = new Date()): string {
@@ -72,6 +167,25 @@ export function musicDate(value: string | null, now = new Date()): string {
   const sameDay = date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate()
   const day = sameDay ? "今天" : date.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" })
   return `${day} ${date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })}`
+}
+
+/** 对话栏右缘的短时间：今天只显示 HH:MM，今年显示 M/D HH:MM（对齐生成页任务栏）。 */
+export function musicTimeShort(value: string | null | undefined, nowMs = Date.now()): string {
+  if (!value) return ""
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ""
+  const now = new Date(nowMs)
+  const time = date.toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit" })
+  if (date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate()) return time
+  if (date.getFullYear() === now.getFullYear()) return `${date.getMonth() + 1}/${date.getDate()} ${time}`
+  return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`
+}
+
+/** 悬停提示里的完整时间。 */
+export function musicTimeFull(value: string | null | undefined): string {
+  if (!value) return ""
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleString("zh-CN", { hour12: false })
 }
 
 export function musicLyricText(lyrics: string): string[] {

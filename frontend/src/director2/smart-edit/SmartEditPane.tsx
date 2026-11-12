@@ -40,6 +40,7 @@ import {
 import { useNavigate } from "react-router-dom"
 import { ApiRequestError } from "../../api"
 import { director2MenuEpisodeId, director2ProjectPath } from "../paths"
+import { searchFilterOption } from "../../search-match"
 import { listEpisodes, type Director2Episode } from "../api"
 import {
   downloadBlob,
@@ -821,6 +822,8 @@ function EditWorkspace({
           {sequence.startsWith("canvas-") && <Button type="text" onClick={() => { setPlaying(false); void saveLatest().then(() => navigate(director2ProjectPath(projectId, "assets") + "?view=canvas")).catch(() => message.error("请先保存剪辑修改")) }}>返回创作画布</Button>}
           <Select
             aria-label="选择剪辑分集"
+            showSearch
+            filterOption={searchFilterOption}
             value={sequence}
             options={[
               { value: "main", label: "自由剪辑" },

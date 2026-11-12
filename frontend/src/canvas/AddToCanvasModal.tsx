@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Button, Empty, Modal, Select, Spin, message } from "antd"
 import { Frame, Plus } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
+import { searchFilterOption } from "../search-match"
 import { useNavigate } from "react-router-dom"
 import { canvasProjectPath } from "../paths"
 import { createCanvasProject, listCanvasProjects } from "./canvas-api"
@@ -112,7 +113,7 @@ export default function AddToCanvasModal({ open, csrfToken, asset, onClose }: Ad
           <Select
             className="w-full"
             showSearch
-            optionFilterProp="label"
+            filterOption={searchFilterOption}
             placeholder="选择目标画布"
             value={selectedId}
             onChange={(value) => setSelectedId(value)}

@@ -128,12 +128,19 @@ class FakeYuE2Client:
         self.created: list[dict] = []
         self.fail = False
         self.song_id = "song-1"
+        self.remote_jobs: dict[str, dict] = {}
 
     def create_song(self, **kwargs):
         if self.fail:
             raise YuE2Error("引擎不可用")
         self.created.append(kwargs)
         return {"id": "remote-job-1", "status": "queued"}
+
+    def get_job(self, job_id: str):
+        job = self.remote_jobs.get(job_id)
+        if job is None:
+            raise YuE2Error("YuE2 任务不存在 (HTTP 404)")
+        return job
 
     def wait_for_job(self, job_id: str, **kwargs):
         if self.fail:
@@ -235,6 +242,73 @@ class MusicJobServiceTests(unittest.TestCase):
             MusicJobService.recover_interrupted_jobs()
         final = self.store.get_music_job(record["id"])
         self.assertEqual(final["status"], "failed")
+
+    # ------------------------------------------------------------------ #
+    # 失败重试：优先复用远端已生成的歌曲
+    # ------------------------------------------------------------------ #
+    def _failed_upload_job(self) -> dict:
+        """模拟截图场景：远端已生成完成，但七牛上传失败导致任务标记 failed。"""
+        with patch.object(MusicJobService, "client", return_value=self.fake_client), \
+             patch.object(MusicJobService, "kick", lambda *args, **kwargs: None):
+            record = MusicJobService.enqueue(
+                "user-1", title="测试歌", style="pop", lyrics="", duration_seconds=30,
+            )
+        self.store.update_music_job(
+            record["id"], status="failed", remote_job_id="remote-job-1",
+            error_message="七牛云上传失败: Connection aborted",
+        )
+        return record
+
+    def test_retry_reuses_completed_remote_song(self) -> None:
+        record = self._failed_upload_job()
+        self.fake_client.remote_jobs["remote-job-1"] = {
+            "id": "remote-job-1", "status": "completed", "song": {"id": "song-1"},
+        }
+        with patch.object(MusicJobService, "client", return_value=self.fake_client), \
+             patch.object(MusicJobService, "kick", lambda *args, **kwargs: None):
+            retried = MusicJobService.retry_job(record["id"], "user-1")
+            self.assertEqual(retried["status"], "queued")
+            self.assertIsNone(retried["error_message"])
+            MusicJobService._run(record["id"])
+        final = self.store.get_music_job(record["id"])
+        self.assertEqual(final["status"], "succeeded")
+        self.assertEqual(final["remote_song_id"], "song-1")
+        self.assertEqual(final["result_url"], "https://cdn.example.com/music/audio/x.flac")
+        # 关键断言：没有重新占用远端生成资源
+        self.assertEqual(self.fake_client.created, [])
+        self.storage.store_bytes.assert_called_once()
+
+    def test_retry_waits_for_still_running_remote_job(self) -> None:
+        record = self._failed_upload_job()
+        self.fake_client.remote_jobs["remote-job-1"] = {"id": "remote-job-1", "status": "running"}
+        with patch.object(MusicJobService, "client", return_value=self.fake_client), \
+             patch.object(MusicJobService, "kick", lambda *args, **kwargs: None):
+            MusicJobService.retry_job(record["id"], "user-1")
+            MusicJobService._run(record["id"])
+        final = self.store.get_music_job(record["id"])
+        self.assertEqual(final["status"], "succeeded")
+        self.assertEqual(self.fake_client.created, [])
+
+    def test_retry_regenerates_when_remote_job_lost(self) -> None:
+        record = self._failed_upload_job()
+        # remote_jobs 为空 → get_job 抛 YuE2Error → 回退到完整重新生成
+        with patch.object(MusicJobService, "client", return_value=self.fake_client), \
+             patch.object(MusicJobService, "kick", lambda *args, **kwargs: None):
+            MusicJobService.retry_job(record["id"], "user-1")
+            MusicJobService._run(record["id"])
+        final = self.store.get_music_job(record["id"])
+        self.assertEqual(final["status"], "succeeded")
+        self.assertEqual(len(self.fake_client.created), 1)
+
+    def test_retry_rejects_active_and_succeeded_jobs(self) -> None:
+        record = self._failed_upload_job()
+        self.store.update_music_job(record["id"], status="running")
+        with patch.object(MusicJobService, "client", return_value=self.fake_client):
+            with self.assertRaises(MusicServiceError):
+                MusicJobService.retry_job(record["id"], "user-1")
+            self.store.update_music_job(record["id"], status="succeeded")
+            with self.assertRaises(MusicServiceError):
+                MusicJobService.retry_job(record["id"], "user-1")
 
 
 class FakeLlmProvider:
@@ -384,6 +458,77 @@ class MusicEndpointTests(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.json(), [])
 
+    def _seed_music_job(self, job_id: str, owner: str) -> None:
+        self.job_store.create_music_job({
+            "id": job_id, "owner_user_id": owner, "title": job_id, "style": "pop", "lyrics": "",
+            "status": "succeeded", "result_url": "https://cdn/x.flac",
+            "created_at": "2026-11-08T00:00:00+00:00", "updated_at": "2026-11-08T00:00:00+00:00",
+        })
+
+    def test_music_jobs_admin_scope_ignored_for_regular_users(self) -> None:
+        """音乐任务列表：普通账号只能看本人（user_id 被忽略），管理员可看指定账号或全部用户。"""
+        self._seed_music_job("music-a", self.admin["id"])
+        self._seed_music_job("music-e", self.employee["id"])
+
+        self.client.cookies.set("zly_ai_video_studio_session", self.employee_token)
+        self.assertEqual([job["id"] for job in self.client.get("/api/music/jobs").json()], ["music-e"])
+        # 普通账号传 user_id 不会越权拿到他人任务
+        self.assertEqual([job["id"] for job in self.client.get("/api/music/jobs?user_id=all").json()], ["music-e"])
+        self.assertEqual(
+            [job["id"] for job in self.client.get(f"/api/music/jobs?user_id={self.admin['id']}").json()],
+            ["music-e"],
+        )
+
+        self.client.cookies.set("zly_ai_video_studio_session", self.admin_token)
+        self.assertEqual(
+            [job["id"] for job in self.client.get(f"/api/music/jobs?user_id={self.employee['id']}").json()],
+            ["music-e"],
+        )
+        self.assertEqual(
+            sorted(job["id"] for job in self.client.get("/api/music/jobs?user_id=all").json()),
+            ["music-a", "music-e"],
+        )
+        # 管理员未指定 user_id 时仍默认只看本人
+        self.assertEqual([job["id"] for job in self.client.get("/api/music/jobs").json()], ["music-a"])
+
+    def test_music_chats_admin_scope_and_read_only_detail(self) -> None:
+        from backend.app.music_chat import create_chat as create_music_chat_record
+
+        employee_chat = create_music_chat_record(self.job_store, self.employee["id"])
+        admin_chat = create_music_chat_record(self.job_store, self.admin["id"])
+
+        self.client.cookies.set("zly_ai_video_studio_session", self.employee_token)
+        self.assertEqual([c["id"] for c in self.client.get("/api/music/chats").json()], [employee_chat["id"]])
+        # 普通账号看不到管理员对话详情
+        self.assertEqual(self.client.get(f"/api/music/chats/{admin_chat['id']}").status_code, 404)
+
+        self.client.cookies.set("zly_ai_video_studio_session", self.admin_token)
+        self.assertEqual(
+            [c["id"] for c in self.client.get(f"/api/music/chats?user_id={self.employee['id']}").json()],
+            [employee_chat["id"]],
+        )
+        self.assertEqual(
+            sorted(c["id"] for c in self.client.get("/api/music/chats?user_id=all").json()),
+            sorted([employee_chat["id"], admin_chat["id"]]),
+        )
+        # 管理员可只读查看他人对话详情
+        detail = self.client.get(f"/api/music/chats/{employee_chat['id']}")
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()["owner_user_id"], self.employee["id"])
+
+    def test_music_job_detail_admin_read_only(self) -> None:
+        self._seed_music_job("music-read", self.employee["id"])
+        url = "/api/music/jobs/music-read"
+        self.client.cookies.set("zly_ai_video_studio_session", self.employee_token)
+        self.assertEqual(self.client.get(url).status_code, 200)
+        # 管理员可只读查看他人任务详情；删除仍限本人（重试已单独开管理员跨账号）。
+        self.client.cookies.set("zly_ai_video_studio_session", self.admin_token)
+        self.assertEqual(self.client.get(url).status_code, 200)
+        self.assertEqual(self.client.get(url).json()["owner_user_id"], self.employee["id"])
+        self.assertEqual(
+            self.client.delete(url, headers={"X-CSRF-Token": csrf_token(self.admin_token)}).status_code, 404,
+        )
+
     def test_create_music_job_returns_queued(self) -> None:
         self.client.cookies.set("zly_ai_video_studio_session", self.employee_token)
         fake_client = FakeYuE2Client()
@@ -451,6 +596,61 @@ class MusicEndpointTests(unittest.TestCase):
         )
         self.assertEqual(res.status_code, 404)
 
+    def test_retry_endpoint_requeues_failed_job(self) -> None:
+        record = self.job_store.create_music_job({
+            "id": "music-retry", "owner_user_id": self.employee["id"], "title": "t", "style": "s",
+            "lyrics": "", "status": "failed", "remote_job_id": "remote-job-1",
+            "error_message": "七牛云上传失败: Connection aborted",
+            "created_at": "2026-11-07T00:00:00+00:00", "updated_at": "2026-11-07T00:00:00+00:00",
+        })
+        url = f"/api/music/jobs/{record['id']}/retry"
+        self.assertEqual(self.client.post(url).status_code, 401)
+        self.client.cookies.set("zly_ai_video_studio_session", self.employee_token)
+        with patch.object(MusicJobService, "client", return_value=FakeYuE2Client()), \
+             patch.object(MusicJobService, "kick", lambda *args, **kwargs: None):
+            res = self.client.post(url, headers={"X-CSRF-Token": csrf_token(self.employee_token)})
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertEqual(body["status"], "queued")
+        self.assertIsNone(body["error_message"])
+        self.assertEqual(self.job_store.get_music_job(record["id"])["remote_job_id"], "remote-job-1")
+
+    def test_admin_can_retry_other_users_failed_job(self) -> None:
+        record = self.job_store.create_music_job({
+            "id": "music-admin-retry", "owner_user_id": self.employee["id"], "title": "t", "style": "s",
+            "lyrics": "", "status": "failed", "remote_job_id": "remote-job-2",
+            "error_message": "七牛云上传失败: Connection aborted",
+            "created_at": "2026-11-07T00:00:00+00:00", "updated_at": "2026-11-07T00:00:00+00:00",
+        })
+        url = f"/api/music/jobs/{record['id']}/retry"
+        self.client.cookies.set("zly_ai_video_studio_session", self.admin_token)
+        with patch.object(MusicJobService, "client", return_value=FakeYuE2Client()), \
+             patch.object(MusicJobService, "kick", lambda *args, **kwargs: None):
+            res = self.client.post(url, headers={"X-CSRF-Token": csrf_token(self.admin_token)})
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertEqual(body["status"], "queued")
+        self.assertIsNone(body["error_message"])
+        # 重试不转移归属：任务仍属于原员工，执行器按原归属上传与记录。
+        self.assertEqual(body["owner_user_id"], self.employee["id"])
+        stored = self.job_store.get_music_job(record["id"])
+        self.assertEqual(stored["status"], "queued")
+        self.assertEqual(stored["remote_job_id"], "remote-job-2")
+
+    def test_employee_cannot_retry_other_users_failed_job(self) -> None:
+        record = self.job_store.create_music_job({
+            "id": "music-other-retry", "owner_user_id": self.admin["id"], "title": "t", "style": "s",
+            "lyrics": "", "status": "failed",
+            "created_at": "2026-11-07T00:00:00+00:00", "updated_at": "2026-11-07T00:00:00+00:00",
+        })
+        self.client.cookies.set("zly_ai_video_studio_session", self.employee_token)
+        res = self.client.post(
+            f"/api/music/jobs/{record['id']}/retry",
+            headers={"X-CSRF-Token": csrf_token(self.employee_token)},
+        )
+        self.assertEqual(res.status_code, 404)
+        self.assertEqual(self.job_store.get_music_job(record["id"])["status"], "failed")
+
     def test_music_lyrics_owner_csrf_and_saved_timing(self) -> None:
         record = self.job_store.create_music_job({
             "id": "music-lyrics", "owner_user_id": self.employee["id"], "status": "succeeded",
@@ -460,7 +660,9 @@ class MusicEndpointTests(unittest.TestCase):
         url = "/api/music/jobs/" + record["id"] + "/lyrics"
         self.assertEqual(self.client.get(url).status_code, 401)
         self.client.cookies.set("zly_ai_video_studio_session", self.admin_token)
-        self.assertEqual(self.client.get(url).status_code, 404)
+        # 管理员可只读查看他人歌曲的歌词时间轴，但对齐（写操作）仍限本人
+        self.assertEqual(self.client.get(url).status_code, 200)
+        self.assertEqual(self.client.get(url).json()["status"], "idle")
         self.assertEqual(self.client.post(url, headers={"X-CSRF-Token": csrf_token(self.admin_token)}).status_code, 404)
         self.client.cookies.set("zly_ai_video_studio_session", self.employee_token)
         self.assertEqual(self.client.get(url).json()["status"], "idle")

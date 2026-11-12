@@ -50,6 +50,7 @@ type ProcessNodeData = {
   text?: string
   prompt?: string
   mediaUrl?: string
+  mediaKind?: "image" | "video"
   cover?: string
   duration?: number
   camera?: string
@@ -80,16 +81,117 @@ function inferMediaKind(url: string | undefined, data: Record<string, unknown>):
   return "image"
 }
 
+/** 提示词卡缩略图的媒体类型：优先用画布节点的 resultKind，没有时按地址扩展名兜底。 */
+export function processThumbKind(data: ProcessNodeData): "image" | "video" {
+  return data.mediaKind ?? inferMediaKind(data.mediaUrl, {})
+}
+
+/** 画面估算高度：只用于把「一行排开」的画布重排成网格时估算分组包围盒。 */
+const PROCESS_NODE_HEIGHTS: Record<ProcessNodeData["kind"], number> = {
+  prompt: 360,
+  image: 280,
+  video: 290,
+  asset: 320,
+  episode: 160,
+  text: 240,
+  audio: 140,
+  unknown: 220,
+}
+
+const MAX_LAYOUT_COLUMNS = 6
+const LAYOUT_GAP_X = 200
+const LAYOUT_GAP_Y = 180
+/** 宽高比超过该值视为「一行排开」的画布，展示时重排成网格。 */
+const WIDE_LAYOUT_RATIO = 4
+
+/** 快照画布可能是分组画布（子节点坐标相对父分组），展示时先合成为绝对坐标。 */
+function resolveCanvasPositions(rawNodes: Array<{ id: string; position?: unknown; parentId?: string | null }>): Map<string, { x: number; y: number }> {
+  const rawById = new Map(rawNodes.map(node => [node.id, node]))
+  const resolved = new Map<string, { x: number; y: number }>()
+  const resolve = (id: string, depth = 0): { x: number; y: number } => {
+    const cached = resolved.get(id)
+    if (cached) return cached
+    const raw = rawById.get(id)
+    const local = finitePosition(raw?.position) ?? { x: 0, y: 0 }
+    const parentId = raw?.parentId
+    const parent = parentId && parentId !== id && depth < 8 && rawById.has(parentId) ? resolve(parentId, depth + 1) : null
+    const value = parent ? { x: parent.x + local.x, y: parent.y + local.y } : local
+    resolved.set(id, value)
+    return value
+  }
+  rawNodes.forEach(node => { resolve(node.id) })
+  return resolved
+}
+
+/** 找到节点所属的最外层分组；分组画布重排时按它保持同组节点聚在一起。 */
+function canvasGroupRoot(id: string, parentOf: Map<string, string>): string {
+  let current = id
+  const seen = new Set<string>([id])
+  for (let depth = 0; depth < 8; depth += 1) {
+    const parent = parentOf.get(current)
+    if (!parent || seen.has(parent)) break
+    seen.add(parent)
+    current = parent
+  }
+  return current
+}
+
+/**
+ * 展示用布局：分组画布（资产画布）常常把所有分组排成很长的一行，
+ * 整页 fitView 后会缩到看不清。这里只在「明显一行排开」时把分组重排成网格，
+ * 组内相对位置保持不变；紧凑画布原样输出，避免破坏用户自己摆好的版式。
+ */
+export function arrangeShowcaseLayout(entries: Array<{ node: ProcessNode; rootId: string }>): { nodes: ProcessNode[]; reflowed: boolean } {
+  const untouched = { nodes: entries.map(entry => entry.node), reflowed: false }
+  const clusters = new Map<string, ProcessNode[]>()
+  for (const entry of entries) {
+    const list = clusters.get(entry.rootId)
+    if (list) list.push(entry.node)
+    else clusters.set(entry.rootId, [entry.node])
+  }
+  if (clusters.size < 6) return untouched
+
+  const boxes = Array.from(clusters, ([id, list]) => {
+    const minX = Math.min(...list.map(node => node.position.x))
+    const minY = Math.min(...list.map(node => node.position.y))
+    const maxX = Math.max(...list.map(node => node.position.x + (node.data.width ?? 260)))
+    const maxY = Math.max(...list.map(node => node.position.y + (PROCESS_NODE_HEIGHTS[node.data.kind] ?? 220)))
+    return { id, list, minX, minY, width: maxX - minX, height: maxY - minY }
+  })
+  const left = Math.min(...boxes.map(box => box.minX))
+  const right = Math.max(...boxes.map(box => box.minX + box.width))
+  const top = Math.min(...boxes.map(box => box.minY))
+  const bottom = Math.max(...boxes.map(box => box.minY + box.height))
+  if (right - left <= (bottom - top) * WIDE_LAYOUT_RATIO + 1) return untouched
+
+  boxes.sort((a, b) => (a.minY - b.minY) || (a.minX - b.minX))
+  const cellWidth = Math.max(...boxes.map(box => box.width)) + LAYOUT_GAP_X
+  const cellHeight = Math.max(...boxes.map(box => box.height)) + LAYOUT_GAP_Y
+  const columns = Math.min(MAX_LAYOUT_COLUMNS, Math.max(2, Math.round(Math.sqrt((boxes.length * 1.4 * cellHeight) / cellWidth))))
+  const positioned = new Map<string, ProcessNode>()
+  boxes.forEach((box, index) => {
+    const dx = (index % columns) * cellWidth - box.minX
+    const dy = Math.floor(index / columns) * cellHeight - box.minY
+    for (const node of box.list) positioned.set(node.id, { ...node, position: { x: node.position.x + dx, y: node.position.y + dy } })
+  })
+  return { nodes: entries.map(entry => positioned.get(entry.node.id) ?? entry.node), reflowed: true }
+}
+
 /** 把快照冻结的真实画布草稿归一成只读展示图。 */
-export function normalizeRealCanvas(snapshot: Director2FeaturedSnapshot): { nodes: ProcessNode[]; edges: Edge[]; label: string } | null {
+export function normalizeRealCanvas(snapshot: Director2FeaturedSnapshot): { nodes: ProcessNode[]; edges: Edge[]; label: string; reflowed: boolean } | null {
   const canvas = snapshot.canvas
   if (!canvas?.nodes?.length) return null
   const assetById = new Map(snapshot.assets.filter(asset => asset.id).map(asset => [asset.id as string, asset]))
-  const nodes: ProcessNode[] = []
+  const positions = resolveCanvasPositions(canvas.nodes)
+  const parentOf = new Map<string, string>()
+  for (const raw of canvas.nodes) {
+    if (raw.parentId && raw.parentId !== raw.id) parentOf.set(raw.id, raw.parentId)
+  }
+  const entries: Array<{ node: ProcessNode; rootId: string }> = []
   let fallbackX = 0
   for (const raw of canvas.nodes) {
     const data = asRecord(raw.data)
-    const position = finitePosition(raw.position) ?? { x: fallbackX, y: 0 }
+    const position = positions.get(raw.id) ?? finitePosition(raw.position) ?? { x: fallbackX, y: 0 }
     fallbackX += 320
     const kind = String(raw.kind || raw.type || "unknown")
     const label = typeof data.label === "string" ? data.label : ""
@@ -114,6 +216,8 @@ export function normalizeRealCanvas(snapshot: Director2FeaturedSnapshot): { node
         kind: "prompt",
         prompt: typeof data.prompt === "string" ? data.prompt : "",
         mediaUrl: url,
+        // 生成结果可能是视频：画布节点自带 resultKind，缩略图必须按它选择 <video>，不能一律当图片。
+        mediaKind: data.resultKind === "video" ? "video" : data.resultKind === "image" ? "image" : undefined,
         cover: typeof data.cover === "string" ? data.cover : undefined,
         optionValues: asRecord(data.optionValues),
         width: width ?? 340,
@@ -138,18 +242,20 @@ export function normalizeRealCanvas(snapshot: Director2FeaturedSnapshot): { node
     } else {
       payload = { ...base, kind: "unknown", text: typeof data.text === "string" ? data.text : undefined, width: width ?? 240 }
     }
-    nodes.push({ id: raw.id, type: processNodeType(payload), position, data: payload })
+    entries.push({ node: { id: raw.id, type: processNodeType(payload), position, data: payload }, rootId: canvasGroupRoot(raw.id, parentOf) })
   }
 
+  const layout = arrangeShowcaseLayout(entries)
+  const nodes = layout.nodes
   const nodeIds = new Set(nodes.map(node => node.id))
   const edges: Edge[] = (canvas.edges || [])
     .filter(edge => edge && nodeIds.has(edge.source) && nodeIds.has(edge.target) && edge.source !== edge.target)
     .map((edge, index) => ({ id: edge.id || `pc-${index}`, source: edge.source, target: edge.target, type: "smoothstep" }))
-  return { nodes, edges, label: "完整创作画布" }
+  return { nodes, edges, label: "完整创作画布", reflowed: layout.reflowed }
 }
 
 /** 没有真实画布时，用快照里的资产与分镜合成创作流程视图（提示词 → 分镜图 → 成片镜头）。 */
-export function synthesizeProcessGraph(snapshot: Director2FeaturedSnapshot): { nodes: ProcessNode[]; edges: Edge[]; label: string } {
+export function synthesizeProcessGraph(snapshot: Director2FeaturedSnapshot): { nodes: ProcessNode[]; edges: Edge[]; label: string; reflowed?: boolean } {
   const nodes: ProcessNode[] = []
   const edges: Edge[] = []
   let edgeSeq = 0
@@ -206,8 +312,7 @@ export function synthesizeProcessGraph(snapshot: Director2FeaturedSnapshot): { n
   return { nodes, edges, label: assets.length ? "资产与分镜创作流程" : "分镜创作流程" }
 }
 
-function processNodeType(data: ProcessNodeData): string {
-  if (data.kind === "prompt") return "process-prompt"
+function processNodeType(data: ProcessNodeData): string {  if (data.kind === "prompt") return "process-prompt"
   if (data.kind === "image" || data.kind === "video") return "process-media"
   if (data.kind === "asset") return "process-asset"
   if (data.kind === "episode") return "process-episode"
@@ -234,15 +339,20 @@ function InvisibleHandles() {
 
 function ProcessMediaNode({ data }: NodeProps<ProcessNode>) {
   const isVideo = data.kind === "video"
+  const [failed, setFailed] = useState(false)
+  useEffect(() => { setFailed(false) }, [data.mediaUrl, data.cover])
+  const placeholder = failed || (!isVideo && !data.mediaUrl)
   return <div className="fpc-node fpc-media" style={{ width: data.width }}>
     <InvisibleHandles />
     <div className="fpc-media-frame">
-      {isVideo
-        ? data.cover
-          ? <img src={data.cover} alt="" loading="lazy" />
-          : <video src={data.mediaUrl} muted preload="metadata" />
-        : data.mediaUrl ? <img src={data.mediaUrl} alt="" loading="lazy" /> : <Clapperboard size={22} />}
-      {isVideo && <span className="fpc-media-play"><Play size={15} /></span>}
+      {placeholder
+        ? <Clapperboard size={22} />
+        : isVideo
+          ? (data.cover
+            ? <img src={data.cover} alt="" loading="lazy" onError={() => setFailed(true)} />
+            : <video src={data.mediaUrl} muted preload="metadata" onError={() => setFailed(true)} />)
+          : <img src={data.mediaUrl} alt="" loading="lazy" onError={() => setFailed(true)} />}
+      {isVideo && !placeholder && <span className="fpc-media-play"><Play size={15} /></span>}
     </div>
     {(data.label || data.duration) ? <div className="fpc-media-caption"><span>{data.label}</span>{data.duration ? <em>{data.duration}s</em> : null}</div> : null}
   </div>
@@ -251,9 +361,19 @@ function ProcessMediaNode({ data }: NodeProps<ProcessNode>) {
 function ProcessPromptNode({ data }: NodeProps<ProcessNode>) {
   const prompt = data.prompt || ""
   const excerpt = prompt.length > PROMPT_EXCERPT_CHARS ? `${prompt.slice(0, PROMPT_EXCERPT_CHARS)}…` : prompt
+  // 生成节点的结果可能是视频；没有 resultKind 时再按地址扩展名兜底判断。
+  const thumbKind = processThumbKind(data)
+  const [thumbFailed, setThumbFailed] = useState(false)
+  useEffect(() => { setThumbFailed(false) }, [data.mediaUrl, data.cover])
   return <div className="fpc-node fpc-prompt" style={{ width: data.width }}>
     <InvisibleHandles />
-    {data.mediaUrl ? <div className="fpc-prompt-thumb">{inferMediaKind(data.mediaUrl, {}) === "video" ? <video src={data.mediaUrl} muted preload="metadata" /> : <img src={data.mediaUrl} alt="" loading="lazy" />}</div> : null}
+    {data.mediaUrl && !thumbFailed ? <div className="fpc-prompt-thumb">
+      {thumbKind === "video"
+        ? data.cover
+          ? <img src={data.cover} alt="" loading="lazy" onError={() => setThumbFailed(true)} />
+          : <video src={data.mediaUrl} muted preload="metadata" onError={() => setThumbFailed(true)} />
+        : <img src={data.mediaUrl} alt="" loading="lazy" onError={() => setThumbFailed(true)} />}
+    </div> : null}
     <div className="fpc-prompt-body">
       <div className="fpc-prompt-tag"><Wand2 size={11} /> 提示词{data.label ? ` · ${data.label}` : ""}</div>
       {excerpt ? <p>{excerpt}</p> : <p className="is-empty">未记录提示词</p>}
@@ -443,8 +563,8 @@ export default function FeaturedProcessPage({ featuredId, csrfToken }: { feature
           deleteKeyCode={null}
           minZoom={0.04}
           maxZoom={1.6}
-          defaultViewport={work.snapshot.canvas?.viewport ?? undefined}
-          fitView={!work.snapshot.canvas?.viewport}
+          defaultViewport={graph.reflowed ? undefined : work.snapshot.canvas?.viewport ?? undefined}
+          fitView={graph.reflowed || !work.snapshot.canvas?.viewport}
           fitViewOptions={{ padding: 0.18, maxZoom: 0.85 }}
           onNodeClick={(_, node) => handleNodeClick(node as ProcessNode, edges)}
           panOnDrag

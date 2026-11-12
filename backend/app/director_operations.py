@@ -55,7 +55,7 @@ def _analyze_shot_with_retry(vlm_provider: Any, *, frames: list[str], shot_numbe
 class DirectorOperationService:
     """Durable coordinator for long LLM preparation work.
 
-    ComfyUI jobs remain owned by JobWorker; this service only makes the LLM
+    视频服务 jobs remain owned by JobWorker; this service only makes the LLM
     preparation lifecycle durable and observable.
     """
 
@@ -460,7 +460,7 @@ class DirectorOperationService:
         content_revision = int(record["content_revision"])
         comfy = getattr(self.worker, "comfy", None)
         if comfy is None:
-            raise ValueError("ComfyUI 服务未就绪，无法提取深度视频")
+            raise ValueError("视频服务未就绪，无法提取深度视频")
 
         def persist(current: dict[str, Any], *, progress: int | None = None, message: str | None = None) -> None:
             nonlocal content_revision

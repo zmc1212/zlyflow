@@ -4,7 +4,8 @@ import { Bot, CheckCircle2, ExternalLink, KeyRound, RefreshCw, Sparkles } from "
 import { useEffect, useMemo, useRef, useState } from "react"
 import { jsonMutation, requestJson } from "../api"
 import { CopyFieldButton } from "./FieldCopy"
-import { buildModelOptions, modelPriceLabel, modelPriceTagStyle, providerPresetFor, resolveModelFree, sameProviderEndpoint } from "./provider-models"
+import { searchFilterOption } from "../search-match"
+import { buildModelOptions, filterModelOptions, modelPriceLabel, modelPriceTagStyle, providerPresetFor, resolveModelFree, sameProviderEndpoint } from "./provider-models"
 import type { CatalogModel, CatalogResponse, ProviderPresetsResponse } from "./provider-models"
 
 type SavedEndpointCredential = {
@@ -157,6 +158,10 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
   const [selectedPreset, setSelectedPreset] = useState("modelscope")
   const [catalogModels, setCatalogModels] = useState<CatalogModel[]>([])
   const [catalogBaseUrl, setCatalogBaseUrl] = useState("")
+  // 输入框里的搜索词单独记录：展开时列出全部模型，只有真正输入关键字才过滤。
+  const [modelQuery, setModelQuery] = useState("")
+  // 生成候选时用「已确认模型」，不能用正在敲的搜索词，否则每敲一个字候选列表就被这段文本重建。
+  const [optionModel, setOptionModel] = useState(model)
   const autoFetchedFor = useRef("")
   const hydratedConnection = useRef("")
 
@@ -268,8 +273,14 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
   const currentPreset = providerPresets.find((p) => p.value === selectedPreset)
   const activeCatalog = useMemo(() => sameProviderEndpoint(baseUrl, catalogBaseUrl) ? catalogModels : [], [baseUrl, catalogBaseUrl, catalogModels])
   const modelOptions = useMemo(() => {
-    return buildModelOptions(baseUrl, model, activeCatalog, currentPreset, officialPresets ?? [])
-  }, [baseUrl, model, activeCatalog, currentPreset, officialPresets])
+    return buildModelOptions(baseUrl, optionModel, activeCatalog, currentPreset, officialPresets ?? [])
+  }, [baseUrl, optionModel, activeCatalog, currentPreset, officialPresets])
+
+  useEffect(() => {
+    if (!modelQuery) setOptionModel(model)
+  }, [model, modelQuery])
+
+  const visibleModelOptions = useMemo(() => filterModelOptions(modelOptions, modelQuery), [modelOptions, modelQuery])
   const selectedModelFree = resolveModelFree(baseUrl, model, activeCatalog, officialPresets ?? [])
   const pricingPreset = officialPresets?.find(preset => sameProviderEndpoint(preset.base_url, baseUrl))
   const savedKeyMatches = Boolean(query.data?.has_api_key && sameProviderEndpoint(baseUrl, query.data.base_url))
@@ -284,7 +295,7 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
   const error = save.error ?? test.error ?? catalog.error ?? query.error ?? presetsQuery.error
 
   return (
-    <main className="mx-auto max-w-[1020px] px-5 py-6 lg:px-8">
+    <main className="studio-admin-panel max-w-[1180px] px-5 py-6 lg:px-8">
       <div className="flex items-start gap-4 border-b border-black/[0.06] pb-5">
         <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-[#7047f6]/10 text-[#7047f6]">
           <Bot size={22} />
@@ -324,6 +335,8 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
               aria-label="快速服务预设"
               value={selectedPreset}
               onChange={handlePresetChange}
+              showSearch
+              filterOption={searchFilterOption}
               options={providerPresets.map((p) => ({ value: p.value, label: p.label }))}
             />
           </div>
@@ -384,18 +397,15 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
               className="mt-1.5 w-full"
               aria-label="模型名称"
               value={model}
-              options={modelOptions}
+              options={visibleModelOptions}
               defaultActiveFirstOption={false}
               onChange={(value) => setModel(value)}
+              onSearch={(value) => setModelQuery(value)}
+              onSelect={() => setModelQuery("")}
+              onOpenChange={(open) => { if (!open) setModelQuery("") }}
               placeholder={selectedPreset === "siliconflow" ? "从官方目录选择价格为 0 的免费模型" : "选择或输入模型名称"}
-              filterOption={(input, option) => {
-                const query = (input || "").trim().toLowerCase()
-                if (!query) return true
-                const isExactOption = modelOptions.some((row) => row.value.toLowerCase() === query)
-                if (isExactOption) return true
-                const haystack = `${option?.value ?? ""} ${option?.label ?? ""}`.toLowerCase()
-                return haystack.includes(query)
-              }}
+              // 过滤与排序统一交给 filterSearchOptions，避免再被 rc-select 二次过滤。
+              filterOption={false}
               listHeight={320}
             />
             {pricingPreset ? (
@@ -405,10 +415,10 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
             ) : null}
             <p className="mt-1.5 text-[11px] leading-4 text-[#6b7280]">
               {selectedPreset === "siliconflow"
-                ? "展开下拉框会列出已拉取的全部免费对话模型；输入关键字才搜索。填写 Token 后点「拉取官方列表」。"
+                ? "展开下拉框会列出已拉取的全部免费对话模型；输入关键字才搜索（支持模糊搜索，忽略 - . 空格）。填写 Token 后点「拉取官方列表」。"
                 : selectedPreset === "ollama" || selectedPreset === "lmstudio"
                   ? "展开下拉框可看到本机已安装模型，名称须与服务端完全一致。"
-                  : "展开下拉框可看到推荐或已拉取的模型，也可直接输入模型 ID。"}
+                  : "展开下拉框可看到推荐或已拉取的模型，也可直接输入模型 ID；关键字支持模糊搜索。"}
             </p>
             {modelLooksLikeVision(model) ? (
               <Alert
@@ -435,6 +445,7 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
               value={assistantModels}
               options={modelOptions.map(option => ({ label: option.label, value: option.value }))}
               onChange={setAssistantModels}
+              filterOption={searchFilterOption}
               maxCount={32}
               tokenSeparators={[","]}
             />
@@ -464,6 +475,10 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
                 已记住该服务的 API Key{savedEndpointCredential.api_key_masked ? `（${savedEndpointCredential.api_key_masked}）` : ""}
                 与模型 {savedEndpointCredential.model || "（未记录）"}：保存后自动启用，无需重新粘贴；输入新 Key 可覆盖。
               </p>
+            ) : !savedKeyMatches && selectedPreset !== "custom" && selectedPreset !== "ollama" && selectedPreset !== "lmstudio" ? (
+              <p className="mt-1.5 text-[11px] leading-4 text-[var(--studio-text-muted)]">
+                该服务还没有保存过 API Key：首次使用需粘贴一次并保存，之后切换供应商会自动带出，无需重复输入。
+              </p>
             ) : null}
             {selectedPreset === "ollama" ? (
               <p className="mt-1.5 text-[11px] leading-4 text-[#6b7280]">
@@ -474,7 +489,7 @@ export default function LlmProviderSettings({ csrfToken }: { csrfToken: string }
 
           {error ? <Alert type="error" showIcon message={error.message} /> : null}
 
-          <div className="flex flex-wrap gap-3 pt-2">
+          <div className="studio-admin-actions">
             <Button type="primary" loading={save.isPending} onClick={() => save.mutate()}>
               保存配置
             </Button>

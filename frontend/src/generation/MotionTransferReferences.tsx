@@ -45,7 +45,7 @@ export default function MotionTransferReferences({
           {variant === "tool" ? <span>点击或拖入{label}</span> : null}
         </label>}
         <label className="studio-motion-reference-label" htmlFor={`${id}-${kind}`}>
-          {variant === "compact" ? <strong>{label}</strong> : null}
+          {variant === "compact" ? <strong title={label}>{label}</strong> : null}
           <span title={asset?.file.name}>{variant === "tool"
             ? kind === "image" ? `全身清晰 · 点击${asset ? "替换" : "上传"}` : asset ? "点击替换" : "MP4 / MOV · ≤50 MB"
             : asset

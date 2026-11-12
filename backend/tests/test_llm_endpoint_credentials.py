@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 from cryptography.fernet import Fernet
 
 from backend.app.grs_provider import CredentialManager
-from backend.app.llm_provider import LlmProviderService
+from backend.app.llm_provider import DEFAULT_MODELSCOPE_BASE_URL, DEFAULT_MODELSCOPE_MODEL, LlmProviderService
 from backend.app.storage import JobStore
 
 
@@ -76,6 +76,26 @@ class LlmEndpointCredentialTests(unittest.TestCase):
         # 原配置不被破坏。
         self.assertEqual(self.service.api_key(), "sk-qiniu-secret")
         self.assertEqual(self.store.get_llm_settings()["base_url"], QINIU_URL)
+
+    def test_missing_key_error_explains_first_time_paste_on_unsaved_endpoint(self) -> None:
+        """切到从未保存过凭据的云服务且未提交 Key 时，测试/拉目录报错要说明「首次需粘贴一次」。"""
+        self.save_config(base_url=QINIU_URL, model="qiniu/conatus-free", api_key="sk-qiniu-secret")
+        with self.assertRaises(ValueError) as caught_test:
+            self.service.test({"base_url": INTERNAI_URL, "model": "intern-s2", "api_key": None})
+        self.assertIn("粘贴一次", str(caught_test.exception))
+        with self.assertRaises(Exception) as caught_catalog:
+            self.service.list_catalog({"base_url": INTERNAI_URL, "api_key": None})
+        self.assertIn("粘贴一次", str(caught_catalog.exception))
+        # 全新环境：激活端点（默认魔搭）从未配置 Key，仍走通用提示。
+        fresh_store = JobStore(Path(self.temp_dir.name) / "default-endpoint.db")
+        fresh_service = LlmProviderService(fresh_store, self.credential_key)
+        with self.assertRaises(ValueError) as caught_default:
+            fresh_service.test({
+                "base_url": DEFAULT_MODELSCOPE_BASE_URL,
+                "model": DEFAULT_MODELSCOPE_MODEL,
+                "api_key": None,
+            })
+        self.assertIn("测试连接需要提供有效的 API Key / Token", str(caught_default.exception))
 
     def test_switch_to_local_endpoint_without_record_clears_key(self) -> None:
         self.save_config(base_url=QINIU_URL, model="qiniu/conatus-free", api_key="sk-qiniu-secret")

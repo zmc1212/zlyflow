@@ -10,11 +10,11 @@ class StorageConfigTests(unittest.TestCase):
     def test_parse_docs_storage_config(self) -> None:
         parsed = parse_storage_config(Path("docs") / "存储配置.md")
         mysql = parsed["mysql"]
-        self.assertEqual(mysql["host"], "192.168.10.125")
-        self.assertEqual(mysql["port"], 3306)
+        self.assertEqual(mysql["host"], "192.168.10.200")
+        self.assertEqual(mysql["port"], 3307)
         self.assertEqual(mysql["database"], "ai-media")
-        self.assertEqual(mysql["user"], "root")
-        self.assertEqual(mysql["password"], "123456")
+        self.assertEqual(mysql["user"], "ai_media_app")
+        self.assertEqual(mysql["password"], "YLb9LkRmIn38zGFldjazVHBd")
 
     def test_load_app_env_dev_and_prod(self) -> None:
         import os
@@ -27,9 +27,9 @@ class StorageConfigTests(unittest.TestCase):
         os.environ["APP_ENV"] = "dev"
         load_app_env("dev")
         dev_settings = mysql_settings_from_env_or_docs()
-        self.assertEqual(dev_settings["host"], "192.168.10.125")
-        self.assertEqual(dev_settings["port"], 3306)
-        self.assertEqual(dev_settings["password"], "123456")
+        self.assertEqual(dev_settings["host"], "192.168.10.200")
+        self.assertEqual(dev_settings["port"], 3307)
+        self.assertEqual(dev_settings["password"], "YLb9LkRmIn38zGFldjazVHBd")
 
         # Test prod environment
         os.environ.pop("MYSQL_HOST", None)

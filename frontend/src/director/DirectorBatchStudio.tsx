@@ -4,6 +4,7 @@ import { ArrowLeft, Film } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import JobErrorNotice from "./components/JobErrorNotice"
 import DirectorPromptBar from "./components/DirectorPromptBar"
+import { searchFilterOption } from "../search-match"
 import { DirectorMobileBottomBar, DirectorMobileHeader } from "./DirectorMobileChrome"
 import { BATCH_PROMPT_PLACEHOLDER } from "./action-copy"
 import {
@@ -187,6 +188,8 @@ export default function DirectorBatchStudio({
             <Form.Item label="视频工作流">
               <Select
                 aria-label="视频工作流"
+                showSearch
+                filterOption={searchFilterOption}
                 value={workflowFamilyId}
                 options={workflowFamilyOptions}
                 onChange={(value: string) => setPayload((current) => ({ ...current, videoWorkflowFamily: value }))}
@@ -196,6 +199,8 @@ export default function DirectorBatchStudio({
             <Form.Item label="画风（可选）">
               <Select
                 aria-label="画风（可选）"
+                showSearch
+                filterOption={searchFilterOption}
                 allowClear
                 placeholder="选择画风"
                 value={payload.artStyle?.id}

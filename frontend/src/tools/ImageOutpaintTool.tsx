@@ -114,7 +114,7 @@ export default function ImageOutpaintTool({ csrfToken }: { csrfToken: string }) 
       </header>
 
       {workflowQuery.isLoading ? (
-        <div className="grid min-h-[220px] place-items-center"><Spin tip="正在读取图片扩图能力" /></div>
+        <div className="grid min-h-[220px] w-full place-items-center"><Spin tip="正在读取图片扩图能力" /></div>
       ) : workflowQuery.isError ? (
         <Empty description={`能力读取失败：${apiErrorMessage(workflowQuery.error, "请稍后重试")}`}>
           <Button icon={<RefreshCw size={14} />} onClick={() => void workflowQuery.refetch()}>重新读取</Button>

@@ -15,6 +15,7 @@ import {
 } from "../generation/motion-transfer"
 import { generateJobPath } from "../paths"
 import { createLocalId } from "../lib/utils"
+import { promptAutoSize } from "../prompt-autosize"
 import MotionTransferReferences from "../generation/MotionTransferReferences"
 import AssetPickerModal from "./AssetPickerModal"
 import { restoreReferenceFiles, roundReferenceSources, type ReferenceSource } from "../reference-assets"
@@ -205,7 +206,7 @@ export default function FaceSwapTool({ csrfToken }: { csrfToken: string }) {
       </header>
 
       {workflowQuery.isLoading ? (
-        <div className="grid min-h-[220px] place-items-center"><Spin tip="正在读取角色替换能力" /></div>
+        <div className="grid min-h-[220px] w-full place-items-center"><Spin tip="正在读取角色替换能力" /></div>
       ) : workflowQuery.isError ? (
         <Empty description={`角色替换能力读取失败：${apiErrorMessage(workflowQuery.error, "请稍后重试")}`}>
           <Button icon={<RefreshCw size={14} />} onClick={() => void workflowQuery.refetch()}>重新读取</Button>
@@ -257,7 +258,7 @@ export default function FaceSwapTool({ csrfToken }: { csrfToken: string }) {
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
                 placeholder="可补充换脸要求，例如只换脸保留原片发型服装、锁定某个人物等；留空使用内置换脸指令。"
-                rows={4}
+                autoSize={promptAutoSize(4)}
                 maxLength={1500}
               />
             </div>

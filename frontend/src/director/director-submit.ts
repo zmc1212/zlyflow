@@ -150,8 +150,8 @@ export function summarizeJobError(raw: string | null | undefined): { summary: st
   ) {
     return { summary: "显存不足。请把分辨率改到 0.4 MP 后再生成。", detail }
   }
-  if (compact.includes("ComfyUI 推理失败") || compact.includes("ComfyUI 报错") || lower.includes("execution_error")) {
-    return { summary: "ComfyUI 推理失败。可查看详情排查。", detail }
+  if (compact.includes("视频服务推理失败") || compact.includes("ComfyUI 推理失败") || compact.includes("ComfyUI 报错") || lower.includes("execution_error")) {
+    return { summary: "视频服务推理失败。可查看详情排查。", detail }
   }
   if (looksLikeTechnicalJobError(compact)) {
     return { summary: "生成失败，可查看详情排查。", detail }

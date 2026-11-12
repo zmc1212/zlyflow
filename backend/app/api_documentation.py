@@ -52,6 +52,11 @@ FIELD_DOCUMENTATION: dict[str, tuple[str, str]] = {
     "description": ("说明", "面向调用方的业务说明。"),
     "detail": ("错误明细", "请求失败时的结构化校验错误列表。"),
     "display_name": ("显示名称", "在工作台界面展示的员工姓名或昵称。"),
+    "email": ("找回邮箱", "账号绑定的邮箱，仅用于忘记密码时接收一次性验证码，不作为登录名。仅管理员或本人（需校验当前密码）可修改，同一时间只能绑定一个账号。"),
+    "code": ("验证码", "重置密码的一次性验证码，通常为 6 位数字，有效期有限且校验成功后立即失效。"),
+    "masked_email": ("脱敏邮箱", "已脱敏的收件邮箱（如 a***@example.com），仅用于界面回显。"),
+    "sent": ("已受理", "发送请求是否已被受理；为 true 不保证账号存在，以免暴露账号枚举信息。"),
+    "expires_in_minutes": ("有效分钟数", "验证码或凭证的有效时长，单位为分钟。"),
     "display_prompt": ("中文展示提示词", "随任务轮次保存的中文提示词，仅用于界面默认展示；实际提交生成的是 prompt（H3 要求英文）。为空时界面回退显示 prompt。"),
     "domain": ("访问域名", "七牛云 Bucket 绑定的访问域名，须包含协议且可被员工浏览器访问。"),
     "download_url": ("临时下载地址", "当前用户或桌面客户端下载指定输出的临时地址；过期后须重新签发。"),
@@ -88,7 +93,7 @@ FIELD_DOCUMENTATION: dict[str, tuple[str, str]] = {
     "builtin": ("内置模型", "是否来自工作台内置 GRS 文档目录；同步内置目录时不会覆盖已有项。"),
     "is_default": ("默认模型", "创作页生图工作流的预选项，也是导演台自动出图使用的模型；同一时间只有一个默认模型，与列表显示顺序互不影响。"),
     "job_id": ("任务 ID", "生成任务的唯一标识。"),
-    "kind": ("媒体类型", "输出媒体类型，例如 image 或 video。"),
+    "kind": ("媒体类型", "媒体类型：输出为 image 或 video；参考素材为 image、video、audio，或 media（音频或视频通用槽位，如人声/伴奏分离，具体类型由客户端按素材本身判定）。"),
     "label": ("显示名称", "面向界面或调用方展示的字段或媒体名称。"),
     "last_balance": ("最近余额", "最近一次成功查询到的 GRS 余额；从未查询过时为 null。"),
     "last_balance_at": ("余额查询时间", "最近一次成功查询余额的 ISO 8601 时间；未查询过时为 null。"),
@@ -138,7 +143,7 @@ FIELD_DOCUMENTATION: dict[str, tuple[str, str]] = {
     "reference_count": ("参考素材数量", "本次任务或轮次实际保存的参考素材数量。"),
     "reference_labels": ("参考素材角色", "按上传顺序说明素材角色，例如首帧、角色形象图或动作参考视频。"),
     "reference_mode": ("参考图规则", "工作流对参考图的使用方式和顺序要求。"),
-    "reference_slots": ("参考素材槽位类型", "工作流按最大参考素材数声明的槽位类型序列（image/video）；实际提交数少于声明槽位时，末位按尾槽类型、其余按图片。"),
+    "reference_slots": ("参考素材槽位类型", "工作流按最大参考素材数声明的槽位类型序列（image/video/media；media 表示音频或视频通用槽位）；实际提交数少于声明槽位时，末位按尾槽类型、其余按图片。"),
     "references": ("参考素材文件", "multipart/form-data 中可重复提交的文件字段。类型、数量和顺序以所选工作流定义为准；动作迁移（骨架/SCAIL 版）为角色图在前、动作视频在后，多人参考视频版为 1-6 张角色图在前（<Picture n> 与上传顺序对应）、动作视频在末位。"),
     "refresh_error": ("刷新失败原因", "最近一次后台刷新 GRS 余额失败的错误摘要；成功时为 null。"),
     "region": ("存储区域", "七牛云 Bucket 所在区域代码，例如 z0。"),
@@ -174,7 +179,7 @@ FIELD_DOCUMENTATION: dict[str, tuple[str, str]] = {
     "updated_at": ("更新时间", "记录最后更新时的 ISO 8601 时间字符串（UTC）。"),
     "url": ("访问地址", "当前用户可访问的受控资源预览地址。"),
     "user": ("当前用户", "当前会话对应的用户资料；未登录时为 null。"),
-    "username": ("账号名", "登录账号名；创建超级管理员时只能使用字母、数字、点、下划线和连字符。"),
+    "username": ("账号名", "登录账号名；登录接口也接受账号绑定的找回邮箱作为登录标识。创建超级管理员时账号名只能使用字母、数字、点、下划线和连字符。"),
     "value": ("有效值", "任务实际生效且已规范化的参数值。"),
     "values": ("可选值", "参数允许的枚举值；空数组表示不限制为枚举。"),
     "version": ("版本号", "画布草稿的递增版本号；创建画布时为 1，每次保存或恢复历史都会加 1。"),
@@ -193,6 +198,12 @@ FIELD_DOCUMENTATION: dict[str, tuple[str, str]] = {
     "payload": ("时间轴载荷", "分镜、主体槽、画幅等 JSON；服务端会剥离 data URL，参考图走上传目录。"),
     "imported": ("迁入数量", "本次迁库新写入的工程数量。"),
     "skipped": ("跳过数量", "因 ID 已存在而未重复写入的工程数量。"),
+    "host": ("服务器地址", "SMTP 邮件服务器主机名或 IP 地址。"),
+    "port": ("服务端口", "SMTP 服务器端口，例如 465（SSL）或 587（STARTTLS）。"),
+    "security": ("连接加密", "SMTP 连接加密方式：ssl 直连、starttls 升级或 none 明文。"),
+    "from_address": ("发件邮箱", "发送验证码邮件时使用的发件人邮箱地址。"),
+    "from_name": ("发件人名称", "邮件中展示的发件人显示名称。"),
+    "has_password": ("已配置密码", "是否已保存 SMTP 登录密码；不会泄露具体内容。"),
 }
 
 
@@ -236,14 +247,29 @@ PATH_PARAMETER_DOCUMENTATION = {
 }
 
 
-OPERATION_DETAILS: dict[tuple[str, str], str] = {
-    ("delete", "/api/projects/{project_id}/episodes/{episode_id}/beats"): "需要登录和 X-CSRF-Token。JSON {beat_ids: string[]}，按片段 ID 批量删除当前分集片段，至少保留 1 个。事务读取最新分集，保留其他片段的正文、顺序和媒体；清除过期的整集视频绑定，保留云端媒体和历史任务。空选择、列表已变化或删除全部返回 400；所选片段或整集正在生成时返回 409。返回 status、deleted_beat_ids 和剩余 beats。",
+# 无需登录会话即可调用的公开接口；其余接口都会在文档中标注 APIKeyCookie 会话安全要求。
+PUBLIC_PATHS: frozenset[str] = frozenset({
+    "/api/health",
+    "/api/auth/status",
+    "/api/auth/setup",
+    "/api/auth/login",
+    "/api/auth/password/email-challenge",
+    "/api/auth/password/email-reset",
+})
+
+
+OPERATION_DETAILS: dict[tuple[str, str], str] = {    ("delete", "/api/projects/{project_id}/episodes/{episode_id}/beats"): "需要登录和 X-CSRF-Token。JSON {beat_ids: string[]}，按片段 ID 批量删除当前分集片段，至少保留 1 个。事务读取最新分集，保留其他片段的正文、顺序和媒体；清除过期的整集视频绑定，保留云端媒体和历史任务。空选择、列表已变化或删除全部返回 400；所选片段或整集正在生成时返回 409。返回 status、deleted_beat_ids 和剩余 beats。",
     ("get", "/api/auth/status"): "无需登录。用于判断是否需要初始化首位超级管理员，以及当前浏览器是否已有有效会话。",
     ("post", "/api/auth/setup"): "无需既有会话，但仅接受工作站本机回环请求，且仅在 setup_required 为 true 时成功。成功后会设置 HttpOnly 会话 Cookie 并返回 CSRF 令牌。",
-    ("post", "/api/auth/login"): "无需既有会话。成功后服务端以 Set-Cookie 写入 HttpOnly 会话 Cookie；后续写操作还须携带响应中的 csrf_token。连续失败会受到登录限流保护。",
+    ("post", "/api/auth/login"): "无需既有会话。登录标识可填账号名，也可填账号绑定的找回邮箱，二者都能登录。成功后服务端以 Set-Cookie 写入 HttpOnly 会话 Cookie；后续写操作还须携带响应中的 csrf_token。连续失败会受到登录限流保护。",
     ("post", "/api/auth/logout"): "需要已登录会话和 X-CSRF-Token。撤销当前会话并清除浏览器 Cookie。",
     ("post", "/api/auth/password"): "需要已登录会话和 X-CSRF-Token。校验当前密码后更新密码并换发会话 Cookie。",
-    ("patch", "/api/auth/profile"): "需要已登录会话和 X-CSRF-Token。修改当前账号的显示姓名并返回最新登录状态；姓名去除首尾空白后不能为空。",
+    ("patch", "/api/auth/profile"): "需要已登录会话和 X-CSRF-Token。修改当前账号的显示姓名；提交 email 可修改找回邮箱，若邮箱发生变化必须同时提交正确的 current_password。姓名去除首尾空白后不能为空。",
+    ("post", "/api/auth/password/email-challenge"): "无需登录。向账号绑定的邮箱发送一次性重置验证码。为避免账号枚举，无论邮箱是否存在都返回已受理；连续请求受发送限流保护（15 分钟内最多 5 次）。邮件服务未配置时返回 503。",
+    ("post", "/api/auth/password/email-reset"): "无需登录。校验邮箱验证码并重设密码；成功后立即建立会话（设置 HttpOnly Cookie）并使该账号全部旧会话失效。验证码错误或过期返回 400，连续失败受限流保护。",
+    ("get", "/api/admin/providers/mail"): "需要超级管理员权限。返回 SMTP 邮件服务配置；登录密码仅回传是否已保存，不返回原文。",
+    ("put", "/api/admin/providers/mail"): "需要超级管理员权限和 X-CSRF-Token。保存 SMTP 邮件服务配置；登录密码在服务端加密保存，响应不回显原文，留空表示保持不变。",
+    ("post", "/api/admin/providers/mail/test"): "需要超级管理员权限和 X-CSRF-Token。测试 SMTP 连接（建立连接并按需登录），不会真正发送邮件。",
     ("get", "/api/admin/users"): "需要管理员或超级管理员权限。返回可管理的账号列表；员工不能调用。",
     ("post", "/api/admin/users"): "需要管理员或超级管理员权限和 X-CSRF-Token。创建账号后，该账号首次登录必须修改密码。",
     ("patch", "/api/admin/users/{user_id}"): "需要管理员或超级管理员权限和 X-CSRF-Token。可修改任意账号的显示姓名；角色与启用状态仍按权限限制，管理员只能调整员工。",
@@ -475,7 +501,7 @@ def enrich_openapi_documentation(schema: dict[str, Any]) -> dict[str, Any]:
                 name = parameter.get("name")
                 if name in PATH_PARAMETER_DOCUMENTATION:
                     parameter["description"] = PATH_PARAMETER_DOCUMENTATION[name]
-            if path not in {"/api/health", "/api/auth/status", "/api/auth/setup", "/api/auth/login"}:
+            if path not in PUBLIC_PATHS:
                 operation["security"] = [{"APIKeyCookie": []}]
             _add_examples(operation, method, path)
     for component in documented.get("components", {}).get("schemas", {}).values():

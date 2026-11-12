@@ -16,6 +16,7 @@ import {
 } from "../generation/depth"
 import { generateJobPath } from "../paths"
 import { createLocalId } from "../lib/utils"
+import { promptAutoSize } from "../prompt-autosize"
 import { restoreReferenceFiles, roundReferenceSources, type ReferenceSource } from "../reference-assets"
 import "./motion-transfer-tool.css"
 
@@ -214,7 +215,7 @@ export default function DepthCaptureTool({ csrfToken, workflowId = DEPTH_WORKFLO
       </header>
 
       {workflowQuery.isLoading ? (
-        <div className="grid min-h-[220px] place-items-center"><Spin tip={`正在读取${text.title}能力`} /></div>
+        <div className="grid min-h-[220px] w-full place-items-center"><Spin tip={`正在读取${text.title}能力`} /></div>
       ) : workflowQuery.isError ? (
         <Empty description={`${text.title}能力读取失败：${apiErrorMessage(workflowQuery.error, "请稍后重试")}`}>
           <Button icon={<RefreshCw size={14} />} onClick={() => void workflowQuery.refetch()}>重新读取</Button>
@@ -278,7 +279,7 @@ export default function DepthCaptureTool({ csrfToken, workflowId = DEPTH_WORKFLO
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
               placeholder={text.placeholder}
-              rows={4}
+              autoSize={promptAutoSize(4)}
               maxLength={workflowId === DEPTH_WORKFLOW ? 1500 : 8000}
             />
           </div>

@@ -40,6 +40,7 @@ main.studio-generation-home {
 .studio-generation-home .studio-composer-service-meta > span span { color: var(--studio-text-secondary); }
 .studio-generation-home .studio-composer-prompt { min-height: 98px; grid-template-columns: 112px minmax(0, 1fr); gap: 16px; }
 .studio-generation-home .studio-composer-prompt > :first-child { min-height: 88px; align-self: start; }
+.studio-generation-home .studio-reference-panel.studio-reference-stack { height: 88px; min-height: 88px; }
 .studio-generation-home .studio-reference-slot { height: 88px; border-color: var(--studio-border-strong); border-radius: 9px; background: var(--studio-surface-raised); }
 .studio-generation-home .studio-reference-slot:hover { border-color: var(--studio-primary); background: var(--studio-primary-soft); }
 .studio-generation-home .studio-reference-slot span { color: var(--studio-text-secondary); }
@@ -51,7 +52,8 @@ main.studio-generation-home {
 .studio-generation-home .studio-composer-editor-meta { min-height: 26px; justify-content: flex-end; margin-bottom: 2px; }
 .studio-generation-home .studio-composer-workflow-meta { display: none; }
 .studio-generation-home #studio-composer .studio-prompt-input {
-  height: 54px;
+  /* 高度由内容撑开（上限见 App.tsx 的 STUDIO_PROMPT_MAX_ROWS），这里只固定起始的最小高度。 */
+  height: auto;
   min-height: 54px;
   border: 0;
   border-radius: 0;

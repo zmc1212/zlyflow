@@ -14,7 +14,7 @@ from typing import Any
 
 from .grs_provider import CredentialManager
 from .llm_client import LlmError
-from .music_yue2_client import YuE2Client, YuE2Error, YUE2_POLL_INTERVAL, YUE2_POLL_MAX_WAIT
+from .music_yue2_client import COMPLETED_STATUSES, FAILED_STATUSES, YuE2Client, YuE2Error, YUE2_POLL_INTERVAL, YUE2_POLL_MAX_WAIT
 from .resource_storage import resource_object_url
 from .storage import JobStore, now
 
@@ -175,6 +175,7 @@ class MusicJobService:
         lm_seed: int | None = None,
         cot: str = "full",
         adapters: list[dict[str, Any]] | None = None,
+        chat_id: str | None = None,
     ) -> dict[str, Any]:
         if cls._store is None:
             raise MusicServiceError("音乐服务尚未初始化")
@@ -218,6 +219,7 @@ class MusicJobService:
                 "cot": cot_value,
                 "adapters": clean_adapters,
             },
+            "chat_id": chat_id,
             "created_at": timestamp,
             "updated_at": timestamp,
         })
@@ -325,6 +327,52 @@ class MusicJobService:
             )
         cls.kick()
 
+    @classmethod
+    def retry_job(cls, job_id: str, owner_user_id: str | None) -> dict[str, Any]:
+        """重试失败任务：保留 remote_job_id，执行器会优先复用远端已生成的歌曲，避免整首重新生成。
+
+        owner_user_id 为 None 表示不限制归属，供管理员跨账号重试；普通账号始终传本人 id。
+        """
+        if cls._store is None:
+            raise MusicServiceError("音乐服务尚未初始化")
+        record = cls._store.get_music_job(job_id, owner_user_id=owner_user_id)
+        if not record:
+            raise ValueError("音乐任务不存在")
+        status = str(record.get("status"))
+        if status in MUSIC_ACTIVE_STATUSES:
+            raise MusicServiceError("任务正在执行中，无需重试")
+        if status == "succeeded":
+            raise MusicServiceError("任务已成功，无需重试")
+        cls.client()  # 未配置时在重置前就给出引导性报错
+        updated = cls._store.update_music_job(
+            job_id, status="queued", progress=0, error_message=None, completed_at=None,
+        )
+        if updated is None:
+            raise MusicServiceError("重试失败：任务记录不存在")
+        cls.kick()
+        return updated
+
+    @classmethod
+    def _resume_remote_job(
+        cls, client: YuE2Client, remote_job_id: str,
+        report_progress: Any, store: JobStore, job_id: str,
+    ) -> dict[str, Any] | None:
+        """失败重试时复用远端任务：已完成/仍在生成都续走下载上传；远端已失败或丢失则返回 None 重新生成。"""
+        try:
+            remote_job = client.get_job(remote_job_id)
+        except YuE2Error:
+            return None
+        status = str(remote_job.get("status") or "").lower()
+        if status in COMPLETED_STATUSES:
+            return remote_job
+        if status in FAILED_STATUSES:
+            return None
+        store.update_music_job(job_id, status="running", progress=25)
+        return client.wait_for_job(
+            remote_job_id, poll_interval=YUE2_POLL_INTERVAL, max_wait=YUE2_POLL_MAX_WAIT,
+            on_progress=report_progress,
+        )
+
     # ------------------------------------------------------------------ #
     # 执行
     # ------------------------------------------------------------------ #
@@ -344,25 +392,32 @@ class MusicJobService:
                 progress = 30 if phase in ("", "queued", "planning") else 65
                 store.update_music_job(job_id, status="running", progress=progress)
 
-            remote_job = client.create_song(
-                style=str(record.get("style") or ""),
-                lyrics=str(record.get("lyrics") or ""),
-                title=str(record.get("title") or "") or None,
-                duration_seconds=params.get("duration_seconds"),
-                output_format=params.get("output_format"),
-                steps=params.get("steps"),
-                seed=params.get("seed"),
-                lm_seed=params.get("lm_seed"),
-                cot=params.get("cot"),
-                adapters=params.get("adapters") or None,
-                client_ref=job_id,
-            )
-            remote_job_id = str(remote_job.get("id") or "")
-            store.update_music_job(job_id, remote_job_id=remote_job_id, status="running", progress=25)
-            finished = client.wait_for_job(
-                remote_job_id, poll_interval=YUE2_POLL_INTERVAL, max_wait=YUE2_POLL_MAX_WAIT,
-                on_progress=report_progress,
-            )
+            # 重试路径：上次执行已拿到 remote_job_id 时优先续传，避免重复占用远端生成资源
+            remote_job_id = str(record.get("remote_job_id") or "")
+            finished: dict[str, Any] | None = None
+            if remote_job_id:
+                finished = cls._resume_remote_job(client, remote_job_id, report_progress, store, job_id)
+                remote_job_id = ""
+            if finished is None:
+                remote_job = client.create_song(
+                    style=str(record.get("style") or ""),
+                    lyrics=str(record.get("lyrics") or ""),
+                    title=str(record.get("title") or "") or None,
+                    duration_seconds=params.get("duration_seconds"),
+                    output_format=params.get("output_format"),
+                    steps=params.get("steps"),
+                    seed=params.get("seed"),
+                    lm_seed=params.get("lm_seed"),
+                    cot=params.get("cot"),
+                    adapters=params.get("adapters") or None,
+                    client_ref=job_id,
+                )
+                remote_job_id = str(remote_job.get("id") or "")
+                store.update_music_job(job_id, remote_job_id=remote_job_id, status="running", progress=25)
+                finished = client.wait_for_job(
+                    remote_job_id, poll_interval=YUE2_POLL_INTERVAL, max_wait=YUE2_POLL_MAX_WAIT,
+                    on_progress=report_progress,
+                )
             song_id = cls._completed_song_id(finished)
             if not song_id:
                 raise MusicServiceError("YuE2 任务完成但未返回歌曲 ID")

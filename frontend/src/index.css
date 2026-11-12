@@ -338,8 +338,13 @@ button:not(:disabled),
 .studio-duration-slider { margin: 5px 0 30px !important; }
 .studio-duration-slider .ant-slider-rail { background: rgba(255, 255, 255, 0.1) !important; }
 .studio-duration-slider .ant-slider-track { background: #8b6cff !important; }
-.studio-duration-slider .ant-slider-handle::after { box-shadow: 0 0 0 3px rgba(139, 108, 255, 0.2) !important; }
+/* 把手必须比轨道与面板底色更亮：实心浅色填充 + 实色描边，避免与 #1e2229 面板糊在一起。 */
+.studio-duration-slider .ant-slider-handle::after { background-color: #f3f5f7 !important; box-shadow: 0 0 0 2px #8b6cff, 0 0 0 5px rgba(139, 108, 255, 0.22) !important; }
 .studio-duration-slider .ant-slider-mark-text { color: #536471 !important; font-size: 10px; font-weight: 500; }
+/* rc-slider 只要存在 marks 就会为每个刻度画一颗 .ant-slider-dot；antd 默认用 colorBgElevated 填充 + colorBorderSecondary 描边，
+   在深色下两者都比轨道更暗，圆点会消失。这里改为亮环 + 微亮填充，清晰但弱于把手。 */
+.studio-duration-slider .ant-slider-dot,
+.studio-duration-slider .ant-slider-dot-active { background-color: rgba(243, 245, 247, 0.18) !important; border-color: rgba(243, 245, 247, 0.62) !important; }
 .studio-duration-number.ant-input-number { border: 0; background: transparent; box-shadow: none; }
 .studio-duration-number .ant-input-number-input { color: #f5f5f7; text-align: center; font-size: 13px; }
 .studio-duration-number .ant-input-number-handler-wrap { border-inline-start: 0; background: transparent; }
@@ -1347,8 +1352,9 @@ button:not(:disabled),
      Only the generate view needs it; other mains (auth, admin, MCP, assets) must keep their own height.
      空状态没有历史内容，也不再预留，否则页面会出现无意义的空白滚动。
      Director, 导台2 and 无限画布 use viewport-locked panes; this rule must not apply to those mains.
-     导台2 内部还有 <main class="app-main">，必须一并排除，否则会把分集页撑出套娃滚动条。 */
-  main.studio-generate-main:not(.studio-generate-empty) { padding-bottom: 340px; }
+     导台2 内部还有 <main class="app-main">，必须一并排除，否则会把分集页撑出套娃滚动条。
+     提示词输入框会随内容涨到 10 行（App.tsx 的 STUDIO_PROMPT_MAX_ROWS），预留空间按撑满时的高度算。 */
+  main.studio-generate-main:not(.studio-generate-empty) { padding-bottom: 376px; }
   .studio-light .director-workspace-main {
     min-height: 0 !important;
     height: 100vh !important;
@@ -1379,11 +1385,17 @@ button:not(:disabled),
   }
   .studio-composer-collapsed > .absolute { display: none; }
   .studio-composer-collapsed .studio-composer-prompt { display: block; min-height: 42px; }
+  #studio-composer.studio-composer-collapsed .studio-prompt-input {
+    display: block;
+    height: 42px;
+    min-height: 42px;
+    line-height: 22px;
+    overflow: hidden;
+  }
   .studio-composer-collapsed .studio-composer-prompt > :first-child,
   .studio-composer-collapsed .studio-composer-editor-meta,
   .studio-composer-collapsed .studio-picture-tags { display: none; }
   .studio-composer-collapsed .studio-composer-editor { padding-top: 0; }
-  .studio-composer-collapsed .studio-prompt-input { display: block; height: 42px; line-height: 22px; overflow: hidden; }
   .studio-composer-collapsed .studio-composer-toolbar { position: absolute; top: 14px; right: 14px; display: block; margin: 0; border: 0; padding: 0; }
   .studio-composer-collapsed .studio-composer-toolbar > div { display: none; }
   .studio-composer-collapsed .studio-composer-toolbar button[type="submit"] { display: flex; width: 42px; height: 42px; align-items: center; justify-content: center; gap: 0; border-radius: 999px; padding: 0; line-height: 0; box-shadow: none; }
@@ -1571,12 +1583,21 @@ button:not(:disabled),
   color: #24399f;
 }
 #studio-composer textarea.studio-prompt-input {
-  /* antd 的 textarea.ant-input { height: auto } 特异性高于 Tailwind 的 h-[106px]，会塌回默认两行；这里统一给非首页输入面板显式高度，并去掉描边与内边距，与首页无边框设计一致。 */
-  height: 106px;
+  /* 高度由内容决定（App.tsx 中 resizePromptInput 按 scrollHeight 逐节点撑高，上限 10 行）。
+     这里只给最小高度：antd 的 textarea.ant-input { height: auto } 与 Tailwind 的 h-* 会互相打架，
+     固定高度会导致长提示词被裁在框内，因此写成 min-height。 */
+  height: auto;
+  min-height: 106px;
   border: 0;
   background: transparent;
   padding: 0;
   box-shadow: none;
+  /* 无边框设计：所有状态一律无描边。必须写在基础态而非只用 :focus 覆盖——否则失焦瞬间
+     outline-style 从 none 回落到 Tailwind outline-none 的 solid(2px 透明)，而 outline-color 仍是从
+     currentColor 继承来的实色，antd 的 textarea.ant-input { transition: all .3s } 会把这一瞬的实心描边
+     淡出，表现为"失焦一闪边框"。统一为 none 后失去焦点无任何 outline 数值变化，不会触发过渡。 */
+  outline: none;
+  outline-offset: 0;
 }
 /* antd v6 的 borderless 变体在 :focus 仍画 outline，会沿栅格列贴边画出一圈主色描边；无边框设计下聚焦只留光标。 */
 #studio-composer textarea.studio-prompt-input:is(:hover, :focus, :focus-visible) {
@@ -1585,6 +1606,11 @@ button:not(:disabled),
 }
 .studio-light .studio-prompt-input { color: #27303a; caret-color: #4d6bfe; }
 .studio-light .studio-prompt-input::placeholder { color: #98a2ad; opacity: 1; }
+/* composer 左侧参考图栏固定为窄列：任何工作流的参考面板都必须能在该列内收缩，禁止撑宽覆盖提示词。 */
+#studio-composer .studio-composer-prompt > :first-child { min-width: 0; max-width: 100%; }
+/* 窄栏内的上下两行参考槽（首尾帧、数字人形象图/音频）统一等高，图标尺寸一致。 */
+.studio-reference-panel.studio-reference-stack { grid-template-rows: repeat(2, minmax(0, 1fr)); height: 106px; }
+.studio-reference-panel.studio-reference-stack .studio-reference-slot { height: auto; }
 .studio-light .studio-reference-slot { border-color: #d5dce5; background: #f8fafc; color: #27303a; }
 .studio-light .studio-reference-slot:hover { border-color: #8ea7ff; background: #f2f5ff; }
 .studio-light .studio-reference-slot.cursor-not-allowed { background: #f3f5f7; border-color: #e1e5ea; }
@@ -1627,8 +1653,10 @@ button:not(:disabled),
 .studio-light .studio-resolution-choice-selected { background: #4d6bfe; color: #fff; }
 .studio-light .studio-duration-slider .ant-slider-rail { background: #e5e9ee !important; }
 .studio-light .studio-duration-slider .ant-slider-track { background: #4d6bfe !important; }
-.studio-light .studio-duration-slider .ant-slider-handle::after { box-shadow: 0 0 0 3px rgba(77, 107, 254, 0.18) !important; }
+.studio-light .studio-duration-slider .ant-slider-handle::after { background-color: #ffffff !important; box-shadow: 0 0 0 2px #4d6bfe, 0 0 0 5px rgba(77, 107, 254, 0.16) !important; }
 .studio-light .studio-duration-slider .ant-slider-mark-text { color: #536471 !important; font-weight: 500; }
+.studio-light .studio-duration-slider .ant-slider-dot,
+.studio-light .studio-duration-slider .ant-slider-dot-active { background-color: rgba(23, 26, 31, 0.12) !important; border-color: rgba(23, 26, 31, 0.5) !important; }
 
 .studio-light [class*="bg-[#17181e"],
 .studio-light [class*="bg-[#181a20"],
@@ -1733,6 +1761,7 @@ button:not(:disabled),
 #studio-composer .studio-composer-toolbar .studio-toolbar-unit { color: var(--studio-text-secondary); }
 #studio-composer .studio-composer-actions { display: flex; flex: none; flex-wrap: nowrap; align-items: center; gap: 10px; margin-left: auto; }
 #studio-composer .studio-submit-cost { color: var(--studio-text-secondary); font-size: 12px; white-space: nowrap; }
+#studio-composer .studio-generate-submit-wrap { display: inline-flex; flex: none; border-radius: 50%; }
 #studio-composer .studio-generate-submit.ant-btn {
   display: inline-flex;
   width: 36px;
@@ -1870,8 +1899,10 @@ button:not(:disabled),
 .studio-parameter-popover .studio-dimension-unit { color: #85858d; font-size: 12px; }
 .studio-parameter-popover .studio-duration-slider .ant-slider-rail { background: rgba(255, 255, 255, 0.1) !important; }
 .studio-parameter-popover .studio-duration-slider .ant-slider-track { background: #8b6cff !important; }
-.studio-parameter-popover .studio-duration-slider .ant-slider-handle::after { box-shadow: 0 0 0 3px rgba(139, 108, 255, 0.2) !important; }
+.studio-parameter-popover .studio-duration-slider .ant-slider-handle::after { background-color: #f3f5f7 !important; box-shadow: 0 0 0 2px #8b6cff, 0 0 0 5px rgba(139, 108, 255, 0.22) !important; }
 .studio-parameter-popover .studio-duration-slider .ant-slider-mark-text { color: #8b93a1 !important; font-weight: 500; }
+.studio-parameter-popover .studio-duration-slider .ant-slider-dot,
+.studio-parameter-popover .studio-duration-slider .ant-slider-dot-active { background-color: rgba(243, 245, 247, 0.18) !important; border-color: rgba(243, 245, 247, 0.62) !important; }
 .studio-parameter-popover .studio-duration-number .ant-input-number-input { color: #f5f5f7; }
 /* Light skin for the parameter popover (aspect group, resolution grid, dimensions, duration slider). */
 [data-theme="light"] .studio-parameter-popover .ant-popover-inner { border: 1px solid #e6eaf0; border-radius: 16px; background: #fff; box-shadow: 0 18px 42px rgba(22, 31, 44, 0.14); }
@@ -1893,8 +1924,10 @@ button:not(:disabled),
 [data-theme="light"] .studio-parameter-popover .studio-dimension-unit { color: #607080; }
 [data-theme="light"] .studio-parameter-popover .studio-duration-slider .ant-slider-rail { background: #dfe5ec !important; }
 [data-theme="light"] .studio-parameter-popover .studio-duration-slider .ant-slider-track { background: #4d6bfe !important; }
-[data-theme="light"] .studio-parameter-popover .studio-duration-slider .ant-slider-handle::after { box-shadow: 0 0 0 3px rgba(77, 107, 254, 0.18) !important; }
+[data-theme="light"] .studio-parameter-popover .studio-duration-slider .ant-slider-handle::after { background-color: #ffffff !important; box-shadow: 0 0 0 2px #4d6bfe, 0 0 0 5px rgba(77, 107, 254, 0.16) !important; }
 [data-theme="light"] .studio-parameter-popover .studio-duration-slider .ant-slider-mark-text { color: #536471 !important; }
+[data-theme="light"] .studio-parameter-popover .studio-duration-slider .ant-slider-dot,
+[data-theme="light"] .studio-parameter-popover .studio-duration-slider .ant-slider-dot-active { background-color: rgba(23, 26, 31, 0.12) !important; border-color: rgba(23, 26, 31, 0.5) !important; }
 [data-theme="light"] .studio-parameter-popover .studio-duration-number .ant-input-number-input { color: #171a1f; }
 .studio-duration-trigger { white-space: nowrap; gap: 4px; padding-inline: 8px; }
 .studio-duration-trigger > span { white-space: nowrap; }
@@ -5147,3 +5180,11 @@ button:not(:disabled),
 .studio-audio-result-download { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid var(--studio-border); border-radius: 8px; background: var(--studio-surface); color: var(--studio-text) !important; font-size: 12px; cursor: pointer; transition: background-color 140ms ease; }
 .studio-audio-result-download:hover:not(:disabled) { background: var(--studio-surface-raised); }
 .studio-audio-result-download:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* 管理设置：较窄的设置面板与 1680px 标签栏左对齐，避免切换标签时整体位置跳动 */
+@media (min-width: 1024px) {
+  .studio-admin-panel { margin-left: max(0px, calc((100% - 1680px) / 2)); }
+}
+
+/* 管理设置：各页保存/测试等操作按钮统一沿表单内容左基线排列，窄屏自动换行 */
+.studio-admin-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding-top: 8px; }

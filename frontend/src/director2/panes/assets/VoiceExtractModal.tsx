@@ -1,6 +1,7 @@
 import { Button, Modal, Select, Slider, Space } from "antd"
 import { useEffect, useMemo, useRef, useState } from "react"
 import type { VoiceExtractSource } from "../../api"
+import { searchFilterOption } from "../../../search-match"
 import {
   VOICE_EXTRACT_HINT,
   clampVoiceExtractWindow,
@@ -176,6 +177,8 @@ export default function VoiceExtractModal({
             <label className="voice-extract-label">选成片</label>
             <Select
               placeholder="第N集 · 镜号 · 台词摘要"
+              showSearch
+              filterOption={searchFilterOption}
               value={selectedKey || undefined}
               loading={loadingSources}
               options={sources.map((item) => ({

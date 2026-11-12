@@ -23,12 +23,18 @@
 }
 @media (min-width: 1280px) { :root { --studio-music-rail-left: 76px; } }
 
-.studio-music-main {
-  max-width: none;
-  padding: 4px 32px 0;
-}
+/* 主区：复用 App 共享 main 栅格（lg+ 左侧让位 240px 对话栏），对话态给固定 composer 留滚动空间。 */
 .studio-music-main:has(.has-live-lyrics) {
   padding-inline-end: calc(var(--studio-music-lyrics-width) + 44px);
+}
+@media (min-width: 1024px) {
+  main.studio-music-main.studio-music-chat-open { padding-bottom: 340px; }
+  /* 播放条可见时 composer 与主区留白一起上移让位 */
+  .studio-music-workspace.has-player .studio-composer-form { bottom: calc(var(--studio-music-player-height) + 16px); }
+  /* 对话栏占据左侧后，composer 宽度按剩余空间收窄，避免溢出视口 */
+  .studio-workspace:not(.studio-task-rail-collapsed) .studio-music-composer.studio-composer-form {
+    width: min(1080px, calc(100vw - 364px));
+  }
 }
 .has-live-lyrics .studio-music-list-head { flex-wrap: wrap; row-gap: 10px; }
 .studio-music-workspace {
@@ -41,39 +47,25 @@
 .studio-music-workspace.has-player { padding-bottom: 140px; }
 .studio-music-workspace > audio { display: none; }
 .studio-music-banner { margin-bottom: 20px; }
-.studio-music-hero { display: flex; flex-direction: column; align-items: center; }
-.studio-music-hero-title {
+/* 页签：对话创作 / 我的歌曲 */
+.studio-music-view-tabs { display: flex; align-items: center; margin-bottom: 20px; }
+.studio-music-view-tabs.ant-segmented { padding: 0; background: transparent; }
+.studio-music-view-tabs .ant-segmented-group { gap: 14px; }
+.studio-music-view-tabs .ant-segmented-item { color: var(--studio-text-muted); }
+.studio-music-view-tabs .ant-segmented-item-label { min-height: 40px; padding: 0 6px; font-size: 17px; line-height: 40px; }
+.studio-music-view-tabs .ant-segmented-item-selected { background: transparent; color: var(--studio-music-accent); box-shadow: inset 0 -2px var(--studio-music-accent); border-radius: 0; font-weight: 600; }
+.studio-music-view-tabs .ant-segmented-thumb { visibility: hidden; }
+/* 对话首页：问候语 + 内联 composer + 氛围 + 最近歌曲 */
+.studio-music-home-head { padding: 18px 0 8px; text-align: center; }
+.studio-music-home-title {
   margin: 0;
-  font-size: 36px;
+  font-size: 34px;
   font-weight: 600;
   letter-spacing: -.6px;
-  line-height: 52px;
+  line-height: 50px;
   color: var(--studio-text);
-  text-align: center;
 }
-.studio-music-hero-sub { margin: 4px 0 0; font-size: 16px; line-height: 24px; color: var(--studio-text-muted); text-align: center; }
-.studio-music-panel {
-  width: min(100%, 1216px);
-  margin-top: 24px;
-  overflow: hidden;
-  border: 1px solid var(--studio-border);
-  border-radius: 21px;
-  background: var(--studio-surface);
-  box-shadow: 0 6px 24px color-mix(in srgb, var(--studio-text) 3%, transparent);
-  transition: border-color 150ms ease;
-}
-.studio-music-panel:focus-within { border-color: color-mix(in srgb, var(--studio-music-accent) 45%, var(--studio-border)); }
-.studio-music-mode-row { display: flex; align-items: center; height: 62px; padding: 7px; border-bottom: 1px solid var(--studio-border); background: color-mix(in srgb, var(--studio-surface-raised) 50%, var(--studio-surface)); }
-.studio-music-tabs.ant-segmented { padding: 0; background: transparent; }
-.studio-music-tabs .ant-segmented-group { gap: 4px; }
-.studio-music-tabs .ant-segmented-item { min-width: 210px; height: 47px; border-radius: 14px; color: var(--studio-text-muted); }
-.studio-music-tabs .ant-segmented-item-label { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 47px; padding: 0 24px; font-size: 16px; line-height: 47px; }
-.studio-music-tabs .ant-segmented-item-icon { display: inline-flex; align-items: center; }
-.studio-music-tabs .ant-segmented-item-selected,
-.studio-music-tabs .ant-segmented-thumb { background: var(--studio-music-accent-soft); color: var(--studio-music-accent); border-radius: 14px; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--studio-music-accent) 22%, transparent); }
-.studio-music-tabs .ant-segmented-item-selected { font-weight: 600; }
-.studio-music-composer { padding: 16px 20px 14px; }
-.studio-music-composer[hidden] { display: none; }
+.studio-music-home-sub { margin: 6px 0 0; font-size: 15px; line-height: 24px; color: var(--studio-text-muted); }
 .studio-music-composer .studio-music-composer-editor.ant-input {
   min-height: 72px !important;
   padding: 0 6px;
@@ -163,6 +155,9 @@
 .studio-music-filters .ant-segmented-item-selected { border-radius: 0; background: transparent; color: var(--studio-music-accent); box-shadow: inset 0 -2px var(--studio-music-accent); }
 .studio-music-filters .ant-segmented-thumb { visibility: hidden; }
 .studio-music-library-tools { display: flex; align-items: center; gap: 18px; margin-left: auto; }
+/* 管理员只读查看他人音乐数据时的提示条 */
+.studio-music-view-note { margin: -6px 0 18px; color: var(--studio-text-muted); font-size: 13px; line-height: 20px; }
+.studio-music-list-head + .studio-music-view-note { margin-top: -8px; }
 .studio-music-search.ant-input-affix-wrapper { width: 214px; height: 42px; padding: 0 12px; border-color: var(--studio-border-strong); border-radius: 12px; background: var(--studio-surface); box-shadow: none; color: var(--studio-text-muted); }
 .studio-music-search .ant-input-prefix { margin-inline-end: 10px; }
 .studio-music-search .ant-input { font-size: 14px; }
@@ -405,3 +400,71 @@
 @media (prefers-reduced-motion: reduce) {
   .studio-music-workspace *, .studio-music-workspace *::after { animation: none !important; transition: none !important; }
 }
+
+.studio-music-listening-links { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+
+/* 对话流（主区）：用户气泡/助手回复/提案卡/歌曲结果卡 */
+.studio-music-stream-loading { padding: 80px 0; color: var(--studio-text-muted); font-size: 14px; text-align: center; }
+.studio-music-stream-head { padding: 6px 0 18px; text-align: center; }
+.studio-music-stream-title { margin: 0; color: var(--studio-text); font-size: 24px; font-weight: 600; line-height: 34px; }
+.studio-music-stream-sub { margin: 6px 0 0; color: var(--studio-text-muted); font-size: 13px; line-height: 22px; }
+.studio-music-stream-feed { display: flex; flex-direction: column; gap: 20px; }
+.studio-music-stream-message { max-width: min(78%, 760px); padding: 12px 18px; border-radius: 16px; font-size: 15px; line-height: 1.75; overflow-wrap: anywhere; }
+.studio-music-stream-message.is-user { align-self: flex-end; background: var(--studio-music-accent); border-bottom-right-radius: 5px; color: var(--studio-music-accent-ink); }
+.studio-music-stream-message.is-user.is-pending { opacity: .65; }
+.studio-music-stream-message.is-assistant { align-self: flex-start; background: var(--studio-surface); border: 1px solid var(--studio-border); border-bottom-left-radius: 5px; color: var(--studio-text); }
+.studio-music-stream .studio-music-chat-reply { margin: 0; }
+.studio-music-stream .studio-music-chat-proposal { margin-top: 12px; padding-top: 12px; }
+.studio-music-stream .studio-music-chat-proposal-lyrics { max-height: 320px; font-size: 14px; }
+.studio-music-stream .studio-music-chat-proposal-actions { justify-content: flex-end; }
+.studio-music-chat-typing { display: inline-flex; align-self: flex-start; gap: 5px; padding: 14px 16px; background: var(--studio-surface); border: 1px solid var(--studio-border); border-radius: 16px; border-bottom-left-radius: 5px; }
+.studio-music-chat-typing span { width: 6px; height: 6px; border-radius: 50%; background: var(--studio-text-muted); animation: studio-music-typing 1.2s infinite ease-in-out; }
+.studio-music-chat-typing span:nth-child(2) { animation-delay: .15s; }
+.studio-music-chat-typing span:nth-child(3) { animation-delay: .3s; }
+@keyframes studio-music-typing { 0%, 60%, 100% { transform: none; opacity: .4; } 30% { transform: translateY(-4px); opacity: 1; } }
+/* 提案卡内部结构（对话流与历史 Drawer 时期共用类名保留） */
+.studio-music-chat-proposal { display: grid; gap: 9px; margin-top: 11px; padding-top: 11px; border-top: 1px solid var(--studio-border); }
+.studio-music-chat-proposal-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.studio-music-chat-proposal-head strong { color: var(--studio-text); font-size: 15px; }
+.studio-music-chat-proposal-head span { color: var(--studio-text-muted); font-size: 12px; }
+.studio-music-chat-proposal-style { margin: 0; color: var(--studio-text-muted); font-size: 12.5px; line-height: 1.7; overflow-wrap: anywhere; }
+.studio-music-chat-proposal-lyrics { max-height: 220px; margin: 0; padding: 12px 14px; overflow-y: auto; background: var(--studio-field); border-radius: 10px; color: var(--studio-text-secondary); font-size: 13px; line-height: 1.9; white-space: pre-wrap; overflow-wrap: anywhere; }
+.studio-music-chat-proposal-actions { display: flex; align-items: center; justify-content: flex-end; min-height: 32px; }
+.studio-music-chat-proposal-state { display: flex; align-items: center; gap: 8px; }
+.studio-music-chat-proposal-progress { color: var(--studio-text-muted); font-size: 12px; }
+/* 对话流中的歌曲结果卡 */
+.studio-music-stream-song { display: flex; align-items: center; gap: 14px; margin-top: 12px; padding: 10px 14px 10px 10px; border: 1px solid var(--studio-border); border-radius: 14px; background: var(--studio-surface-raised); }
+.studio-music-stream-song-cover { position: relative; flex: none; width: 56px; height: 56px; padding: 0; border: 0; border-radius: 10px; background: var(--studio-field); cursor: pointer; overflow: hidden; }
+.studio-music-stream-song-cover img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.studio-music-stream-song-play { position: absolute; inset: 0; display: grid; place-items: center; background: var(--studio-music-cover-scrim); color: var(--studio-music-cover-ink); }
+.studio-music-stream-song-info { min-width: 0; flex: 1; }
+.studio-music-stream-song-info strong { display: block; overflow: hidden; color: var(--studio-text); font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+.studio-music-stream-song-info p { margin: 3px 0 0; color: var(--studio-text-muted); font-size: 12.5px; }
+.studio-music-stream-song-side { display: flex; flex: none; align-items: center; gap: 10px; }
+.studio-music-stream-song-duration { color: var(--studio-text-muted); font-size: 13px; }
+/* 左栏对话行选中态（hover 用 Tailwind） */
+.studio-music-rail-row-selected { background: var(--studio-primary-soft); }
+.studio-music-rail-scroll { scrollbar-width: thin; }
+/* 首页最近歌曲区块 */
+.studio-music-recent { margin-top: 30px; }
+.studio-music-advanced-modal .studio-music-advanced-note { margin: 0 0 14px; color: var(--studio-text-muted); font-size: 13px; line-height: 1.7; }
+.studio-music-advanced-modal .ant-modal-body { max-height: 72vh; overflow-y: auto; }
+@media (prefers-reduced-motion: reduce) {
+  .studio-music-chat-typing span { animation: none !important; }
+}
+/* 流式回复中的助手气泡 */
+.studio-music-stream-message.is-streaming .studio-music-chat-reply { min-height: 24px; }
+.studio-music-stream-hint { display: inline-flex; align-items: center; gap: 7px; margin: 10px 0 0; color: var(--studio-text-muted); font-size: 12px; }
+.studio-music-stream-hint .ant-spin-dot-item { background: var(--studio-music-accent); }
+
+/* 精选音乐：管理员发布后全员可见的只读展示位 */
+.studio-featured-music-note { color: var(--studio-text-muted); font-size: 14px; line-height: 24px; }
+.studio-featured-music-grid { grid-template-columns: repeat(3, minmax(0, 294px)); }
+.studio-featured-music-badge { position: absolute; top: 12px; left: 12px; z-index: 2; display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; background: color-mix(in srgb, var(--studio-music-accent) 88%, #000); color: var(--studio-music-accent-ink); font-size: 12px; font-weight: 600; line-height: 20px; pointer-events: none; }
+.studio-featured-music-card .studio-music-card-sub { color: var(--studio-text-muted); }
+.studio-featured-music-form { display: flex; flex-direction: column; gap: 16px; }
+.studio-featured-music-form label { display: flex; flex-direction: column; gap: 8px; color: var(--studio-text); font-size: 14px; font-weight: 500; }
+.studio-featured-music-source { display: flex; align-items: center; gap: 14px; padding: 12px; border: 1px solid var(--studio-border); border-radius: 12px; background: var(--studio-surface-raised); }
+.studio-featured-music-source-cover { flex: none; width: 56px; height: 56px; border-radius: 8px; object-fit: cover; }
+.studio-featured-music-source strong { display: block; color: var(--studio-text); font-size: 15px; line-height: 24px; }
+.studio-featured-music-source span { display: block; margin-top: 2px; color: var(--studio-text-muted); font-size: 13px; line-height: 20px; }

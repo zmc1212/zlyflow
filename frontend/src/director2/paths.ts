@@ -8,9 +8,9 @@ export type Director2Route =
   | { kind: "diagnosis" }
   | { kind: "featured"; featuredId: string }
   | { kind: "featured-process"; featuredId: string }
-  | { kind: "project"; projectId: string; menu: "content" | "assets" | "workshop" | "edit" | "jobs"; episodeId: string | null }
+  | { kind: "project"; projectId: string; menu: "content" | "assets" | "workshop" | "workbench" | "edit" | "jobs"; episodeId: string | null }
 
-const MENU_SEGMENTS = new Set(["content", "assets", "workshop", "edit", "jobs"])
+const MENU_SEGMENTS = new Set(["content", "assets", "workshop", "workbench", "edit", "jobs"])
 
 export function parseDirector2Path(pathname: string): Director2Route {
   const rest = pathname === DIRECTOR2_PREFIX || pathname.startsWith(`${DIRECTOR2_PREFIX}/`)
@@ -28,9 +28,9 @@ export function parseDirector2Path(pathname: string): Director2Route {
   if (segments[0] === "projects" && segments[1]) {
     const projectId = segments[1]
     const menu = segments[2] && MENU_SEGMENTS.has(segments[2])
-      ? (segments[2] as "content" | "assets" | "workshop" | "edit" | "jobs")
+      ? (segments[2] as "content" | "assets" | "workshop" | "workbench" | "edit" | "jobs")
       : "content"
-    const episodeId = (menu === "workshop" || menu === "edit") && segments[3] ? decodeURIComponent(segments[3]) : null
+    const episodeId = (menu === "workshop" || menu === "workbench" || menu === "edit") && segments[3] ? decodeURIComponent(segments[3]) : null
     return { kind: "project", projectId, menu, episodeId }
   }
 
@@ -62,7 +62,7 @@ export function director2DiagnosisPath(input: { id?: string; projectId?: string;
 export function director2ProjectPath(projectId: string, menu: string, episodeId?: string | null): string {
   const base = `${DIRECTOR2_PREFIX}/projects/${encodeURIComponent(projectId)}`
   if (!menu || menu === "content") return `${base}/content`
-  if ((menu === "workshop" || menu === "edit") && episodeId) return `${base}/${menu}/${encodeURIComponent(episodeId)}`
+  if ((menu === "workshop" || menu === "workbench" || menu === "edit") && episodeId) return `${base}/${menu}/${encodeURIComponent(episodeId)}`
   return `${base}/${menu}`
 }
 
@@ -82,6 +82,7 @@ export function director2MenuEpisodeId(input: {
   if (targetMenu === "edit")
     return currentMenu === "edit" ? currentEpisodeId : currentEpisodeId || lastEpisodeId || null
   if (targetMenu === "workshop" && currentMenu === "edit") return currentEpisodeId?.startsWith("canvas-") ? null : currentEpisodeId
+  if (targetMenu === "workbench") return currentMenu === "workbench" ? currentEpisodeId : currentEpisodeId || lastEpisodeId || null
   return null
 }
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
-import { Empty, Modal, Spin, message } from "antd"
+import { Empty, Image, Modal, Spin, message } from "antd"
 import { ChevronLeft, ChevronRight, Images, Sparkles, X } from "lucide-react"
 import { requestJson } from "../api"
 import "./inspiration.css"
@@ -105,6 +105,29 @@ export function ShowcaseThumb({ item }: { item: ShowcaseItem }) {
   return <div className="inspiration-thumb inspiration-thumb-empty"><Images size={22} /></div>
 }
 
+/** 参考图缩略：点击进入 Image 预览（缩放、旋转、多图左右切换），与导演台资产卡保持同一套放大交互。 */
+export function ShowcaseReferences({ references, onPreviewOpenChange }: {
+  references: { url: string; name: string }[]
+  onPreviewOpenChange?: (open: boolean) => void
+}) {
+  if (!references.length) return null
+  return (
+    <Image.PreviewGroup preview={{ onOpenChange: onPreviewOpenChange }}>
+      <div className="inspiration-msg-images">
+        {references.map((reference) => (
+          <Image
+            key={reference.url}
+            className="inspiration-msg-image"
+            src={reference.url}
+            alt={reference.name}
+            preview={{ cover: "放大查看" }}
+          />
+        ))}
+      </div>
+    </Image.PreviewGroup>
+  )
+}
+
 /** 瀑布流卡片：媒体高度由成品比例决定，竖屏不再被裁成 16:9，也不撑坏其他行。 */
 function ShowcaseCard({ item, aspectRatio, onOpen }: {
   item: ShowcaseItem
@@ -149,6 +172,7 @@ export default function InspirationWorkspace({ onUseInComposer }: {
   const [failed, setFailed] = useState("")
   const [activeId, setActiveId] = useState<string | null>(null)
   const [promptExpanded, setPromptExpanded] = useState(false)
+  const [referencePreviewOpen, setReferencePreviewOpen] = useState(false)
   const [playing, setPlaying] = useState(false)
   const [messageApi, contextHolder] = message.useMessage()
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -185,6 +209,7 @@ export default function InspirationWorkspace({ onUseInComposer }: {
     setActiveId(id)
     setPlaying(false)
     setPromptExpanded(false)
+    setReferencePreviewOpen(false)
   }, [])
 
   const step = useCallback((delta: number) => {
@@ -195,17 +220,20 @@ export default function InspirationWorkspace({ onUseInComposer }: {
       return filtered[(index + delta + filtered.length) % filtered.length].id
     })
     setPlaying(false)
+    setReferencePreviewOpen(false)
   }, [filtered])
 
   useEffect(() => {
     if (!active) return
     const onKey = (event: KeyboardEvent) => {
+      // 参考图大图预览自己用 ←/→ 切换参考图，此时不能同时翻下一条示例。
+      if (referencePreviewOpen) return
       if (event.key === "ArrowRight") step(1)
       if (event.key === "ArrowLeft") step(-1)
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [active, step])
+  }, [active, step, referencePreviewOpen])
 
   // 不依赖 effect 挂载时机（Modal destroyOnHidden + portal 动画会使首开时 videoRef 仍为 null）：
   // 改在 <video> 自身源加载就绪的 canplay 事件里触发自动播放，并用 url 去重避免重复抢播。
@@ -322,7 +350,9 @@ export default function InspirationWorkspace({ onUseInComposer }: {
         className="inspiration-modal"
         classNames={{ mask: "inspiration-modal-mask" }}
         open={Boolean(active)}
-        onCancel={() => { setActiveId(null); setPlaying(false); autoPlayedRef.current = null }}
+        onCancel={() => { setActiveId(null); setPlaying(false); setReferencePreviewOpen(false); autoPlayedRef.current = null }}
+        // 大图预览打开时把 Esc 交给预览自己处理，避免一次按键连详情弹层一起关掉。
+        keyboard={!referencePreviewOpen}
         footer={null}
         destroyOnHidden
         width="calc(100vw - 24px)"
@@ -397,7 +427,7 @@ export default function InspirationWorkspace({ onUseInComposer }: {
                   type="button"
                   className="inspiration-chat-close"
                   aria-label="关闭"
-                  onClick={() => { setActiveId(null); setPlaying(false); autoPlayedRef.current = null }}
+                  onClick={() => { setActiveId(null); setPlaying(false); setReferencePreviewOpen(false); autoPlayedRef.current = null }}
                 >
                   <X size={18} />
                 </button>
@@ -405,11 +435,11 @@ export default function InspirationWorkspace({ onUseInComposer }: {
 
               <div className="inspiration-thread">
                 {active.references.length ? (
-                  <div className="inspiration-msg-images">
-                    {active.references.map((reference) => (
-                      <img key={reference.url} src={reference.url} alt={reference.name} loading="lazy" />
-                    ))}
-                  </div>
+                  <ShowcaseReferences
+                    key={active.id}
+                    references={active.references}
+                    onPreviewOpenChange={setReferencePreviewOpen}
+                  />
                 ) : null}
                 <div className="inspiration-msg-user">请用 {BRAND} 生成：{active.title}</div>
                 <p className="inspiration-msg-reply">

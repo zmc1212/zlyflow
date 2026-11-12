@@ -23,6 +23,7 @@ export type EditingOperation =
   | "video_arrange"
   | "subtitle_arrange"
   | "audio_subtitle"
+  | "subtitle_translate"
   | "dialogue_cut"
   | "quick_cut"
   | "highlight_cut"
@@ -150,10 +151,11 @@ export type EditingAction = {
     asset_id?: string
     beat_id?: string
     segment_id?: string
+    clip_id?: string
     name: string
     start?: number
     duration?: number
-    action?: "add" | "keep" | "trim"
+    action?: "add" | "keep" | "trim" | "update"
     reason?: string
   }[]
   count: number
@@ -168,6 +170,7 @@ export type EditingAction = {
   strategy?: HookStrategy
   strategy_title?: string
   principle?: string
+  reapplied_from?: string
   understanding?: {
     status: UnderstandingStatus | "stale"
     model?: string | null
@@ -253,6 +256,18 @@ export const reorderEditingAction = (
   requestJson<EditingAction>(
     `${actionBase(project, sequence)}/${encodeURIComponent(id)}/reorder`,
     jsonMutation(token, { asset_ids: assetIds })
+  )
+export const reapplyEditingAction = (
+  token: string,
+  project: string,
+  sequence: string,
+  id: string,
+  revision: number,
+  sessionId?: string
+) =>
+  requestJson<EditingAction>(
+    `${actionBase(project, sequence)}/${encodeURIComponent(id)}/reapply`,
+    jsonMutation(token, { revision, session_id: sessionId || null })
   )
 export const readEditingAction = (project: string, sequence: string, id: string) =>
   requestJson<EditingAction>(`${actionBase(project, sequence)}/${encodeURIComponent(id)}`)

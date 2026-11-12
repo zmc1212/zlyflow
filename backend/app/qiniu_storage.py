@@ -22,10 +22,30 @@ QINIU_UPLOAD_HOSTS = {
     "na0": "up-na0.qiniup.com",
     "as0": "up-as0.qiniup.com",
 }
+# 源站上传域名作为备用入口：单条链路写超时后 SDK 可以换主机重试。
+QINIU_UPLOAD_BACKUP_HOSTS = {
+    "z0": "upload-z0.qiniup.com",
+    "cn-east-2": "upload-cn-east-2.qiniup.com",
+    "z1": "upload-z1.qiniup.com",
+    "z2": "upload-z2.qiniup.com",
+    "na0": "upload-na0.qiniup.com",
+    "as0": "upload-as0.qiniup.com",
+}
+# 单次 socket 连接/读写期限（连接 15s、读取 180s）。分片上传按片计算，180s 足以覆盖 1 MiB 慢速链路。
+# 与 media_studio 共用 qiniu 进程级默认值，必须保持一致，否则后初始化者会覆盖对方。
+QINIU_REQUEST_TIMEOUT = (15, 180)
+LARGE_UPLOAD_BYTES = 8 * 1024 * 1024
+# 七牛分片上传 v2 允许 1 MiB~1 GiB；慢链路用小分片缩短单次写阻塞。
+UPLOAD_PART_BYTES = 1024 * 1024
+UPLOAD_ATTEMPTS = 4
 
 
 def qiniu_upload_host(region: str) -> str:
     return QINIU_UPLOAD_HOSTS[region]
+
+
+def qiniu_upload_backup_host(region: str) -> str:
+    return QINIU_UPLOAD_BACKUP_HOSTS[region]
 
 
 def validate_qiniu_config(values: dict[str, Any]) -> dict[str, str | bool]:
@@ -65,10 +85,21 @@ class QiniuStorage:
         except ImportError as error:
             raise RuntimeError("未安装 qiniu SDK，请重新安装后端依赖") from error
         self._qiniu = qiniu
+        # 音乐整轨 FLAC 可达数十 MiB；SDK 默认 30s 超时在慢网络下容易出现写超时，
+        # 进程级调大一次连接/读写超时，避免大文件表单和分片上传被中途掐断。
+        # 同时固定默认 zone 为 HTTPS：put_stream/put_data 会把 default_zone.scheme
+        # 当作 preferred_scheme，未设置时会退回端口 80。
+        qiniu.set_default(
+            default_zone=qiniu.Region(scheme="https"),
+            connection_timeout=QINIU_REQUEST_TIMEOUT,
+        )
         self._auth = qiniu.Auth(str(self.config["access_key"]), str(self.config["secret_key"]))
         self._bucket_manager = qiniu.BucketManager(self._auth)
+        region = str(self.config["region"])
         self._upload_regions = [qiniu.Region(
-            up_host=qiniu_upload_host(str(self.config["region"])), scheme="https",
+            up_host=qiniu_upload_host(region),
+            up_host_backup=qiniu_upload_backup_host(region),
+            scheme="https",
         )]
 
     def _key(self, prefix: str, source_filename: str) -> str:
@@ -95,7 +126,7 @@ class QiniuStorage:
         mime_type = mimetypes.guess_type(source_filename)[0] or "application/octet-stream"
         # 七牛官方建议超过 8 MiB 使用分片上传；put_data 会把整个视频作为单次表单请求发送，
         # 在本地网络或代理短暂断开时很容易留下 RemoteDisconnected。
-        if len(content) > 8 * 1024 * 1024:
+        if len(content) > LARGE_UPLOAD_BYTES:
             stream_uploader = getattr(self._qiniu, "put_stream_v2", None)
             if stream_uploader is not None:
                 return stream_uploader(
@@ -106,7 +137,7 @@ class QiniuStorage:
                     len(content),
                     mime_type=mime_type,
                     bucket_name=str(self.config["bucket"]),
-                    part_size=4 * 1024 * 1024,
+                    part_size=UPLOAD_PART_BYTES,
                     regions=self._upload_regions,
                 )
             # qiniu==7.16.0 exposes the same v2 resumable uploader as
@@ -121,7 +152,7 @@ class QiniuStorage:
                     len(content),
                     mime_type=mime_type,
                     bucket_name=str(self.config["bucket"]),
-                    part_size=4 * 1024 * 1024,
+                    part_size=UPLOAD_PART_BYTES,
                     version="v2",
                     regions=self._upload_regions,
                 )
@@ -133,23 +164,27 @@ class QiniuStorage:
         key = self._key(prefix, source_filename)
         token = self._auth.upload_token(str(self.config["bucket"]), key, 3600)
         last_info: object | None = None
-        for attempt in range(3):
+        for attempt in range(UPLOAD_ATTEMPTS):
             try:
                 result, info = self._upload(token, key, source_filename, content)
             except Exception as error:
                 last_info = error
-                if attempt < 2 and self._retryable_upload(error):
+                if attempt + 1 < UPLOAD_ATTEMPTS and self._retryable_upload(error):
                     time.sleep(0.5 * (2**attempt))
                     continue
-                raise RuntimeError(f"七牛云上传失败: {error}") from error
+                raise RuntimeError(
+                    f"七牛云上传失败（{len(content) / 1048576:.1f} MiB，{UPLOAD_ATTEMPTS} 次尝试）: {error}"
+                ) from error
             last_info = info
             if getattr(info, "ok", lambda: False)() and result and result.get("key") == key:
                 return StoredResource(key=key, local_path=None)
-            if attempt < 2 and self._retryable_upload(info):
+            if attempt + 1 < UPLOAD_ATTEMPTS and self._retryable_upload(info):
                 time.sleep(0.5 * (2**attempt))
                 continue
             break
-        raise RuntimeError(f"七牛云上传失败: {last_info}")
+        raise RuntimeError(
+            f"七牛云上传失败（{len(content) / 1048576:.1f} MiB，{UPLOAD_ATTEMPTS} 次尝试）: {last_info}"
+        )
 
     def create_reference(self, prefix: str, source_filename: str) -> StoredResource:
         raise RuntimeError("七牛云存储需要先上传完成的媒体文件")

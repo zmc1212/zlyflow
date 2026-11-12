@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
-import { ShowcaseThumb, type ShowcaseItem } from "./InspirationWorkspace"
+import { ShowcaseReferences, ShowcaseThumb, type ShowcaseItem } from "./InspirationWorkspace"
 
 const base: ShowcaseItem = {
   id: "showcase-1",
@@ -24,6 +24,22 @@ const base: ShowcaseItem = {
   source_job_id: "job-1",
   sort_order: 1,
 }
+
+describe("ShowcaseReferences", () => {
+  it("puts reference thumbnails behind an Ant Design preview so they can be enlarged", () => {
+    const html = renderToStaticMarkup(<ShowcaseReferences references={[{ url: "/cdn/ref-1.png", name: "参考图1" }]} />)
+    expect(html).toContain("ant-image")
+    expect(html).toContain('role="button"')
+    expect(html).toContain("ant-image-cover")
+    expect(html).toContain('src="/cdn/ref-1.png"')
+    expect(html).toContain("inspiration-msg-image")
+    expect(html).toContain("放大查看")
+  })
+
+  it("renders nothing when an example has no references", () => {
+    expect(renderToStaticMarkup(<ShowcaseReferences references={[]} />)).toBe("")
+  })
+})
 
 describe("ShowcaseThumb", () => {
   it("prefers a stored cover over the media itself", () => {

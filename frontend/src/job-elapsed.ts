@@ -49,7 +49,7 @@ export function executionCaption(executionElapsedMs?: number | null): string {
   if (typeof executionElapsedMs !== "number" || !Number.isFinite(executionElapsedMs) || executionElapsedMs < 0) {
     return ""
   }
-  return `ComfyUI 推理 ${formatElapsed(executionElapsedMs)}`
+  return `视频服务推理 ${formatElapsed(executionElapsedMs)}`
 }
 
 export function useNow(active: boolean, intervalMs = 1000): number {

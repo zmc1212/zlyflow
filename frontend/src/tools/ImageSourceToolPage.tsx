@@ -124,7 +124,7 @@ export default function ImageSourceToolPage({ config, csrfToken }: { config: Ima
       </header>
 
       {workflowQuery.isLoading ? (
-        <div className="grid min-h-[220px] place-items-center"><Spin tip={config.loadingTip} /></div>
+        <div className="grid min-h-[220px] w-full place-items-center"><Spin tip={config.loadingTip} /></div>
       ) : workflowQuery.isError ? (
         <Empty description={`能力读取失败：${apiErrorMessage(workflowQuery.error, "请稍后重试")}`}>
           <Button icon={<RefreshCw size={14} />} onClick={() => void workflowQuery.refetch()}>重新读取</Button>
@@ -166,7 +166,7 @@ export default function ImageSourceToolPage({ config, csrfToken }: { config: Ima
 
           <div className="studio-motion-settings">
             <div className="studio-motion-footer">
-              <span className="studio-tool-motion-note">处理在当前连接的 ComfyUI 实例上完成，纯本地免费。</span>
+              <span className="studio-tool-motion-note">处理在当前连接的视频服务实例上完成，纯本地免费。</span>
               <Button type="primary" size="large" loading={submitting} disabled={!ready} icon={<Sparkles size={19} />} onClick={() => void submit()}>
                 {submitting ? "提交中" : "开始处理"}
               </Button>

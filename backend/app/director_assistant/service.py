@@ -95,7 +95,7 @@ class AssistantService:
         from .transcription import MediaTranscription
         self.understanding = MediaUnderstanding(self.repo, vlm_provider)
         self.transcription = MediaTranscription(self.repo, llm_provider)
-        self.editing = EditingActions(self.repo, self.understanding, self.transcription)
+        self.editing = EditingActions(self.repo, self.understanding, self.transcription, llm=llm_provider)
 
     @property
     def enabled(self):
@@ -464,9 +464,9 @@ class AssistantService:
             messages = [{"role": "system", "content": (NATIVE_SYSTEM_PROMPT if native_active else SYSTEM_PROMPT) + "\n当前选择：" + dumps(context)}]
             if (run.get("context") or {}).get("kind") == "smart_edit":
                 messages.append({"role": "system", "content": """当前页面已打开智能剪辑，你是本集智能剪辑助手。工程和剪辑序列已经由会话固定；main表示自由剪辑，包含导入素材，同样支持铺轨。素材和时间线可用editor_read直接读取，不需要用户重新提供分镜内容、文件名、工程或集数，不要把铺轨当成剧本/分镜创作，也不要先读project_read。
-用户明确要求“按分镜铺轨”“把未铺轨视频追加到主轨”这类默认铺轨时，直接按顺序调用editor_read和propose_edit，不再提澄清问题，也不要只描述将要操作。可以在同一个JSON的tool_calls中依次放两个工具，工作台会先读取并验证时间线，再生成提案。清单由工作台确定性生成，用户随后在授权弹窗确认，模型不能替用户确认或声称执行完成。
-这种请求的正确输出示例：{"text":"请核对待铺视频清单，确认后追加到主轨。","tool_calls":[{"name":"editor_read","arguments":{}},{"name":"propose_edit","arguments":{"operation":"video_arrange"}}]}。
-用户要求“自动字幕”用subtitle_arrange；要求“按真实声音/原声/配音上字幕”“音轨字幕”“按转写铺字幕”用audio_subtitle；要求“对白精剪/只留对白”用dialogue_cut；要求“成片速剪/压缩节奏”用quick_cut；要求“高光合集/只留高光”用highlight_cut；要求“引流剪辑/钩子剪辑/预告片/抓开头”用hook_cut并选择策略：conflict_3s（3秒进冲突）、climax_only（只留高潮）、quote_open（金句开场）、ending_hook（结尾悬念）、trailer（预告片）。用户没说明具体方式时先问一个问题，不要替用户选。这些策略会重建画面与配音轨，必须先生成提案并等待授权，不能自行判断已执行。editor_read返回的基础理解摘要（对白镜头数、对白秒数、高光候选及依据）来自分镜与配音文本；如果analysis.understanding.status为succeeded或partial，说明用户已在剪辑页运行过「视频理解」，可引用其中逐镜画面描述与镜头信息，但要说明这是关键帧画面理解，不含音轨转写。status为missing或failed时不要声称看过画面，可建议用户先点「视频理解」。授权清单里的“画面理解”理由来自该结果。audio_subtitle只用已完成的音轨转写证据：analysis.transcript.status为succeeded或partial才有段落可用；为missing、stale、empty或failed时不得生成音轨字幕，也不得把剧本对白冒充转写结果，应说明原因并建议用户先在剪辑页点「转写音频」。用户只咨询时正常回答；执行状态以工作台实际返回为准。"""})
+用户明确要求“按分镜铺轨”“把未铺轨视频追加到主轨”“把字幕转成中文/翻译字幕”这类目标明确的操作时，直接按顺序调用editor_read和propose_edit生成提案，不再提澄清问题，也不要只描述将要操作或反问是否执行。可以在同一个JSON的tool_calls中依次放两个工具，工作台会先读取并验证时间线，再生成提案。清单由工作台确定性生成，用户随后在授权弹窗确认，模型不能替用户确认或声称执行完成。
+这种请求的正确输出示例：{"text":"请核对待铺视频清单，确认后追加到主轨。","tool_calls":[{"name":"editor_read","arguments":{}},{"name":"propose_edit","arguments":{"operation":"video_arrange"}}]}。该示例仅适用于铺轨类请求；其他任何请求都禁止照搬示例话术，必须按用户实际意图选择操作、提问或如实说明。
+用户要求“自动字幕”用subtitle_arrange；要求“把字幕翻译成中文”“字幕换成中文”“翻译字幕”用subtitle_translate，它只把文字轨已有字幕的文本换成简体中文，不改时间和样式，已是中文的条目会自动跳过；要求“按真实声音/原声/配音上字幕”“音轨字幕”“按转写铺字幕”用audio_subtitle；要求“对白精剪/只留对白”用dialogue_cut；要求“成片速剪/压缩节奏”用quick_cut；要求“高光合集/只留高光”用highlight_cut；要求“引流剪辑/钩子剪辑/预告片/抓开头”用hook_cut并选择策略：conflict_3s（3秒进冲突）、climax_only（只留高潮）、quote_open（金句开场）、ending_hook（结尾悬念）、trailer（预告片）。用户没说明具体方式时先问一个问题，不要替用户选。这些策略会重建画面与配音轨，必须先生成提案并等待授权，不能自行判断已执行。editor_read返回的基础理解摘要（对白镜头数、对白秒数、高光候选及依据）来自分镜与配音文本；如果analysis.understanding.status为succeeded或partial，说明用户已在剪辑页运行过「视频理解」，可引用其中逐镜画面描述与镜头信息，但要说明这是关键帧画面理解，不含音轨转写。status为missing或failed时不要声称看过画面，可建议用户先点「视频理解」。授权清单里的“画面理解”理由来自该结果。audio_subtitle只用已完成的音轨转写证据：analysis.transcript.status为succeeded或partial才有段落可用；为missing、stale、empty或failed时不得生成音轨字幕，也不得把剧本对白冒充转写结果，应说明原因并建议用户先在剪辑页点「转写音频」。用户只咨询时正常回答；执行状态以工作台实际返回为准。"""})
                 if native_active:
                     messages.append({"role": "system", "content": "本轮已启用原生工具调用：直接调用 editor_read 和 propose_edit，不需要输出 JSON envelope，也不要复述上面的 JSON 示例；同一轮可以返回多个工具调用。"})
             # Preserve confirmed answers and artifact summaries beyond the recent

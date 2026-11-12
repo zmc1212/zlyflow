@@ -85,7 +85,7 @@ def face_aspect_ratio(width: int, height: int) -> str:
     return FACE_ASPECT_SQUARE
 
 
-# class_types the graph relies on that are not part of stock ComfyUI
+# class_types the graph relies on that are not part of stock 视频服务
 FACE_SWAP_CUSTOM_NODES = (
     "H3FaceTrackCrop",
     "H3FaceStitch",
@@ -104,7 +104,7 @@ def _ancestor_closure(graph: dict, root: str) -> set:
     """Node ids reachable from ``root`` by walking input links (``root`` included).
 
     Anything outside this set is not needed to render the deliverable, so the builder
-    drops it before submitting — ComfyUI then cannot execute the long-clip bypass branch.
+    drops it before submitting — 视频服务 then cannot execute the long-clip bypass branch.
     """
     keep = set()
     stack = [root]
@@ -124,10 +124,10 @@ def build_face_swap_workflow(
     crop_factor: float = FACE_CROP_FACTOR, frame_load_cap: int = 240,
     confidence: float = FACE_CROP_CONFIDENCE, aspect_ratio: str | None = None,
 ) -> dict:
-    """Return an executable ComfyUI API graph for single-person face replacement.
+    """Return an executable 视频服务 API graph for single-person face replacement.
 
     ``reference_image`` and ``source_video`` are filenames already uploaded into the remote
-    ComfyUI ``input`` directory. The reference is auto-cropped to a face close-up on the remote
+    视频服务``input`` directory. The reference is auto-cropped to a face close-up on the remote
     via the embedded yolov8 detection subgraph.
     """
     graph = copy.deepcopy(_template())
@@ -190,18 +190,18 @@ def build_face_swap_workflow(
 
 
 def face_swap_missing_message(info: dict, graph: dict) -> str | None:
-    """Return a human-readable blocker if the connected ComfyUI cannot run this graph."""
+    """Return a human-readable blocker if the connected 视频服务 cannot run this graph."""
     missing = sorted({node["class_type"] for node in graph.values()} - set(info))
     if missing:
-        return "当前 ComfyUI 缺少角色替换所需节点：" + "、".join(missing)
+        return "当前视频服务缺少角色替换所需节点：" + "、".join(missing)
     detector_choices = (info.get("H3FaceTrackCrop", {}).get("input", {})
                         .get("required", {}).get("detector", [[]])[0])
     if isinstance(detector_choices, list) and FACE_DETECTOR not in detector_choices:
-        return f"当前 ComfyUI 未发现人脸检测模型：{FACE_DETECTOR}"
+        return f"当前视频服务未发现人脸检测模型：{FACE_DETECTOR}"
     fallback_choices = (info.get("H3FaceTrackCrop", {}).get("input", {})
                         .get("optional", {}).get("fallback_detector", [[]])[0])
     # 仅在远端确实提供了兜底器清单但缺少该模型时拦截；旧版节点无此参数（回退会被忽略）不拦。
     if isinstance(fallback_choices, list) and fallback_choices and FACE_FALLBACK_DETECTOR not in fallback_choices:
-        return (f"当前 ComfyUI 未安装头部兜底检测模型：{FACE_FALLBACK_DETECTOR}"
+        return (f"当前视频服务未安装头部兜底检测模型：{FACE_FALLBACK_DETECTOR}"
                 "（请放入远端 models/ultralytics/segm 目录）")
     return None

@@ -1754,7 +1754,7 @@ class OpenAICompatibleClient:
                     "拉取模型列表成功只说明目录接口可用；测试连接会真实调用当前模型。"
                     "推理模型（如 GPT-5 / DeepSeek-R1）或中转站首字延迟经常需要几十秒。"
                     "若使用 Ollama，通常是模型正在首次加载进显存；请等 `ollama ps` 显示模型已占用 GPU/内存后再点一次测试。"
-                    "若 ComfyUI 正在占满显卡，可先等其空闲。"
+                    "若视频服务正在占满显卡，可先等其空闲。"
                 ) from error
             raise
 

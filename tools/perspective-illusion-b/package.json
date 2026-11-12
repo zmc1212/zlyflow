@@ -1,0 +1,17 @@
+{
+  "name": "perspective-illusion-b",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "B 版：按 simcraft/perspective-illusion 方法独立实现的正交错觉短片",
+  "scripts": {
+    "stills": "node render.mjs --stills 0,1.5,2.6,3.5,4.5,5.8,7.4,8.8,9.8",
+    "preview": "node render.mjs --preview",
+    "final": "node render.mjs --final",
+    "check": "node check.mjs"
+  },
+  "dependencies": {
+    "three": "0.170.0",
+    "playwright-core": "^1.56.0"
+  }
+}

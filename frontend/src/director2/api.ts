@@ -640,6 +640,49 @@ export function listJobs(projectId: string): Promise<Director2Job[]> {
   return requestJson<Director2Job[]>(`/api/projects/${encodeURIComponent(projectId)}/jobs`)
 }
 
+// --- 剧本工作台（只读派生视图） ---
+export type Director2Workbench = import("./workbench-graph").WorkbenchPayload
+export type Director2WorkbenchEpisodeOption = { id: string; number: number; title: string; shots_count: number; status: string }
+export type Director2WorkbenchOverviewEpisode = {
+  id: string
+  number: number
+  title: string
+  status: string
+  beats_total: number
+  prompts_done: number
+  shots_done: number
+  overall_pct: number
+  running: boolean
+  awaiting_refine: boolean
+  failed: boolean
+  episode_video_url: string
+}
+export type Director2WorkbenchOverview = {
+  project: { id: string; name: string; cover_url: string }
+  episodes: Director2WorkbenchOverviewEpisode[]
+  project_progress: { episodes_total: number; beats_total: number; prompts_done: number; shots_done: number; overall_pct: number }
+  next_action: import("./workbench-graph").WorkbenchNextAction
+}
+
+export function getWorkbench(projectId: string, episodeId?: string | null): Promise<Director2Workbench> {
+  const params = new URLSearchParams()
+  if (episodeId) params.set("episode_id", episodeId)
+  return requestJson<Director2Workbench>(
+    `/api/projects/${encodeURIComponent(projectId)}/workbench${params.size ? `?${params.toString()}` : ""}`,
+  )
+}
+
+export function getWorkbenchOverview(projectId: string): Promise<Director2WorkbenchOverview> {
+  return requestJson<Director2WorkbenchOverview>(`/api/projects/${encodeURIComponent(projectId)}/workbench/overview`)
+}
+
+export function listWorkbenchEpisodes(projectId: string): Promise<{ episodes: Director2WorkbenchEpisodeOption[] }> {
+  return requestJson<{ episodes: Director2WorkbenchEpisodeOption[] }>(
+    `/api/projects/${encodeURIComponent(projectId)}/workbench/episodes`,
+  )
+}
+
+
 export function createJob(csrfToken: string, projectId: string, data: Record<string, unknown>): Promise<Director2Job> {
   return requestJson<Director2Job>(
     `/api/projects/${encodeURIComponent(projectId)}/jobs`,

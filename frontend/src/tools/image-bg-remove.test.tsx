@@ -29,10 +29,10 @@ describe("image bg remove landing", () => {
     client.setQueryData(["tool-workflow", IMAGE_BACKGROUND_REMOVE_WORKFLOW], {
       id: IMAGE_BACKGROUND_REMOVE_WORKFLOW,
       available: false,
-      unavailable_reason: "ComfyUI 连接不可用",
+      unavailable_reason: "视频服务连接不可用",
     })
     const html = renderWithClient(<ImageBgRemoveTool csrfToken="" />, client)
-    expect(html).toContain("ComfyUI 连接不可用")
+    expect(html).toContain("视频服务连接不可用")
     client.clear()
   })
 })
@@ -76,7 +76,7 @@ describe("image bg remove canvas editor", () => {
       id: "job-2",
       mode: IMAGE_BACKGROUND_REMOVE_WORKFLOW,
       status: "failed",
-      error: "ComfyUI 连接中断",
+      error: "视频服务连接中断",
       outputs: [],
     })
     const html = renderToStaticMarkup(

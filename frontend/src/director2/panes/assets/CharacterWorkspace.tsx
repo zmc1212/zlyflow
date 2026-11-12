@@ -5,6 +5,7 @@ import { Maximize2, Mic, Plus, Shirt, Sparkles, Trash2, User } from "lucide-reac
 import { useEffect, useState } from "react"
 import { listVoiceBank, type Director2Asset } from "../../api"
 import { hasSourceReferences } from "../../asset-source-references"
+import { searchFilterOption } from "../../../search-match"
 import { groupedVoicePresetOptions, type VoicePreset } from "../../voice-bank"
 import {
   INDEXTTS_EMOTIONS,
@@ -365,7 +366,7 @@ export default function CharacterWorkspace({
               loading={applyingVoicePreset}
               disabled={!onApplyVoicePreset}
               showSearch
-              optionFilterProp="label"
+              filterOption={searchFilterOption}
               size="small"
               style={{ width: "100%" }}
             />

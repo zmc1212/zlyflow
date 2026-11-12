@@ -117,9 +117,9 @@ export default function AssetPickerModal({
       destroyOnHidden
     >
       {jobsQuery.isLoading ? (
-        <div className="grid min-h-[220px] place-items-center"><Spin tip="正在读取资产" /></div>
+        <div className="grid min-h-[220px] w-full place-items-center"><Spin tip="正在读取资产" /></div>
       ) : images.length === 0 ? (
-        <div className="grid min-h-[220px] place-items-center">
+        <div className="grid min-h-[220px] w-full place-items-center">
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有可选取的图片资产，先生成一张或从本地上传" />
         </div>
       ) : (

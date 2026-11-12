@@ -34,12 +34,12 @@ GRS_CONNECT_RETRIES = 1
 GRS_CONNECT_RETRY_DELAY_SECONDS = 0.5
 GRS_BILLING_CAUTION = "为避免重复扣费，请确认后显式重试。"
 GRS_INTERNATIONAL_BASE_URL = "https://grsaiapi.com"
-# GRS serves generated files on *.aitohumanize.com, which may resolve to
+# 图片服务 serves generated files on *.aitohumanize.com, which may resolve to
 # RFC 2544's benchmark range. Keep this exception scoped to that domain so
 # other result URLs cannot be used to reach non-public addresses.
 GRS_BENCHMARK_RESULT_DOMAIN = "aitohumanize.com"
 RFC2544_BENCHMARK_NETWORK = ipaddress.ip_network("198.18.0.0/15")
-# The local proxy resolves GRS file hosts to these reserved ranges.
+# The local proxy resolves 图片服务 file hosts to these reserved ranges.
 GRS_RESULT_PROXY_IPV6_NETWORK = ipaddress.ip_network("fdfe:dcba:9876::/48")
 GRS_RESULT_TRANSLATED_IPV6_NETWORK = ipaddress.ip_network("2001:2::/48")
 GRS_BENCHMARK_RESULT_NETWORKS = (
@@ -65,11 +65,11 @@ class GrsConnectionError(GrsTemporaryError):
 
 
 class GrsUncertainSubmitError(GrsError):
-    """The generate request may have reached GRS; callers must not auto-retry."""
+    """The generate request may have reached 图片服务; callers must not auto-retry."""
 
 
 def with_grs_billing_caution(message: str) -> str:
-    text = (message or "").strip() or "GRS 提交失败"
+    text = (message or "").strip() or "图片服务提交失败"
     if GRS_BILLING_CAUTION in text:
         return text
     return f"{text}；{GRS_BILLING_CAUTION}"
@@ -98,17 +98,17 @@ class GrsClient:
         self, response: requests.Response, action: str, *, allow_client_error: bool = False,
     ) -> dict[str, Any]:
         if response.status_code >= 500 or response.status_code in {408, 425, 429}:
-            raise GrsTemporaryError(f"GRS {action} 暂时不可用（HTTP {response.status_code}）")
+            raise GrsTemporaryError(f"图片服务{action} 暂时不可用（HTTP {response.status_code}）")
         try:
             payload = response.json()
         except ValueError as error:
             if response.status_code >= 400:
-                raise GrsError(f"GRS {action} 失败（HTTP {response.status_code}）") from error
-            raise GrsError(f"GRS {action} 返回了无效 JSON") from error
+                raise GrsError(f"图片服务{action} 失败（HTTP {response.status_code}）") from error
+            raise GrsError(f"图片服务{action} 返回了无效 JSON") from error
         if not isinstance(payload, dict):
-            raise GrsError(f"GRS {action} 返回格式无效")
+            raise GrsError(f"图片服务{action} 返回格式无效")
         if response.status_code >= 400 and not allow_client_error:
-            raise GrsError(f"GRS {action} 失败（HTTP {response.status_code}）")
+            raise GrsError(f"图片服务{action} 失败（HTTP {response.status_code}）")
         return payload
 
     def _host_hint(self, url: str) -> str:
@@ -119,7 +119,7 @@ class GrsClient:
 
     def _connect_error(self, url: str, reason: str) -> GrsConnectionError:
         host = urlparse(url).hostname or self.base_url
-        message = f"无法连接 GRS（{host}）：{reason}。请求尚未发出，不会扣费。"
+        message = f"无法连接图片服务（{host}）：{reason}。请求尚未发出，不会扣费。"
         hint = self._host_hint(url)
         if hint:
             message = f"{message} {hint}"
@@ -137,9 +137,9 @@ class GrsClient:
             except request_exceptions.ReadTimeout as error:
                 if uncertain_on_read:
                     raise GrsUncertainSubmitError(
-                        with_grs_billing_caution(f"GRS {action} 已发出但等待响应超时")
+                        with_grs_billing_caution(f"图片服务{action} 已发出但等待响应超时")
                     ) from error
-                raise GrsTemporaryError(f"GRS {action} 读取超时") from error
+                raise GrsTemporaryError(f"图片服务{action} 读取超时") from error
             except (
                 request_exceptions.ConnectTimeout,
                 request_exceptions.SSLError,
@@ -158,7 +158,7 @@ class GrsClient:
                     reason = "网络连接失败"
                 raise self._connect_error(url, reason) from error
             except request_exceptions.RequestException as error:
-                raise GrsError(f"GRS {action} 网络请求失败") from error
+                raise GrsError(f"图片服务{action} 网络请求失败") from error
         raise self._connect_error(url, "网络连接失败") from last_connect
 
     def submit(
@@ -185,7 +185,7 @@ class GrsClient:
         if remote_id is None and isinstance(payload.get("data"), dict):
             remote_id = self._first(payload["data"], "id", "task_id", "taskId")
         if not remote_id:
-            raise GrsError("GRS 提交成功但未返回远端任务 ID")
+            raise GrsError("图片服务提交成功但未返回远端任务 ID")
         return str(remote_id)
 
     def result(self, remote_task_id: str) -> tuple[str, list[str], str | None]:
@@ -211,7 +211,7 @@ class GrsClient:
             return f"{base}：{detail}" if detail else base
         if detail.casefold() in {"generate image failed", "generate image fail", "generate failed"}:
             return "上游生图失败，请重新生成"
-        return detail or f"GRS 任务失败：{status}"
+        return detail or f"图片服务任务失败：{status}"
 
     def balance(self) -> float:
         response = self._request(
@@ -222,12 +222,12 @@ class GrsClient:
         )
         payload = self._json(response, "余额查询")
         if payload.get("code") not in {None, 0, "0"}:
-            raise GrsError(str(payload.get("msg") or payload.get("message") or "GRS 余额查询失败"))
+            raise GrsError(str(payload.get("msg") or payload.get("message") or "图片服务余额查询失败"))
         data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
         try:
             return float(data["credits"])
         except (KeyError, TypeError, ValueError) as error:
-            raise GrsError("GRS 余额响应缺少 credits") from error
+            raise GrsError("图片服务余额响应缺少 credits") from error
 
     def list_models(self) -> list[str]:
         """OpenAI 兼容的 GET /v1/models：返回平台在售的全部模型 ID（含对话模型）。"""
@@ -238,7 +238,7 @@ class GrsClient:
         payload = self._json(response, "模型目录")
         rows = payload.get("data")
         if not isinstance(rows, list):
-            raise GrsError("GRS 模型目录缺少 data 列表")
+            raise GrsError("图片服务模型目录缺少 data 列表")
         return [
             str(item["id"]).strip()
             for item in rows
@@ -259,11 +259,11 @@ class GrsClient:
         )
         payload = self._json(response, "模型价格")
         if payload.get("code") not in {None, 0, "0"}:
-            raise GrsError(str(payload.get("msg") or payload.get("message") or "GRS 模型价格查询失败"))
+            raise GrsError(str(payload.get("msg") or payload.get("message") or "图片服务模型价格查询失败"))
         data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
         rows = data.get("list")
         if not isinstance(rows, list):
-            raise GrsError("GRS 模型价格响应缺少 list")
+            raise GrsError("图片服务模型价格响应缺少 list")
         costs: dict[str, int] = {}
         for row in rows:
             if not isinstance(row, dict) or str(row.get("type") or "").lower() != "image":
@@ -325,21 +325,21 @@ class GrsClient:
     def _validate_public_https(self, url: str) -> None:
         parsed = urlparse(url)
         if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
-            raise GrsError("GRS 结果必须使用无凭证的 HTTPS 公共地址")
+            raise GrsError("图片服务结果必须使用无凭证的 HTTPS 公共地址")
         hostname = parsed.hostname.lower().rstrip(".")
         try:
             addresses = self.resolver(hostname)
         except OSError as error:
-            raise GrsTemporaryError("无法解析 GRS 图片地址") from error
+            raise GrsTemporaryError("无法解析图片服务地址") from error
         if not addresses:
-            raise GrsError("GRS 图片地址没有可用 IP")
+            raise GrsError("图片服务地址没有可用 IP")
         for address in addresses:
             resolved = ipaddress.ip_address(address)
             if not resolved.is_global and not (
                 is_grs_benchmark_result_host(hostname)
                 and any(resolved in network for network in GRS_BENCHMARK_RESULT_NETWORKS)
             ):
-                raise GrsError(f"GRS 图片地址指向非公共网络，已拒绝下载（{hostname}）")
+                raise GrsError(f"图片服务地址指向非公共网络，已拒绝下载（{hostname}）")
 
     def download_image(self, url: str) -> tuple[str, bytes]:
         current = url
@@ -353,34 +353,34 @@ class GrsClient:
                 target = response.headers.get("Location")
                 response.close()
                 if not target:
-                    raise GrsError("GRS 图片重定向缺少目标地址")
+                    raise GrsError("图片服务重定向缺少目标地址")
                 current = urljoin(current, target)
                 continue
             if response.status_code >= 500 or response.status_code in {408, 425, 429}:
                 response.close()
-                raise GrsTemporaryError(f"GRS 图片下载暂时失败（HTTP {response.status_code}）")
+                raise GrsTemporaryError(f"图片服务下载暂时失败（HTTP {response.status_code}）")
             if response.status_code >= 400:
                 response.close()
-                raise GrsError(f"GRS 图片下载失败（HTTP {response.status_code}）")
+                raise GrsError(f"图片服务下载失败（HTTP {response.status_code}）")
             content_type = response.headers.get("Content-Type", "").split(";", 1)[0].lower()
             if not content_type.startswith("image/"):
                 response.close()
-                raise GrsError("GRS 结果 MIME 不是图片")
+                raise GrsError("图片服务结果 MIME 不是图片")
             declared = response.headers.get("Content-Length")
             if declared and int(declared) > MAX_IMAGE_BYTES:
                 response.close()
-                raise GrsError("GRS 图片超过 50 MB")
+                raise GrsError("图片服务超过 50 MB")
             content = bytearray()
             for chunk in response.iter_content(1024 * 1024):
                 content.extend(chunk)
                 if len(content) > MAX_IMAGE_BYTES:
                     response.close()
-                    raise GrsError("GRS 图片超过 50 MB")
+                    raise GrsError("图片服务超过 50 MB")
             response.close()
             self._validate_signature(bytes(content))
             suffix = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif"}.get(content_type, ".img")
             return f"grs-result{suffix}", bytes(content)
-        raise GrsError("GRS 图片重定向次数过多")
+        raise GrsError("图片服务重定向次数过多")
 
     @staticmethod
     def _validate_signature(content: bytes) -> None:
@@ -391,4 +391,4 @@ class GrsClient:
             len(content) >= 12 and content.startswith(b"RIFF") and content[8:12] == b"WEBP",
         )
         if not any(signatures):
-            raise GrsError("GRS 图片文件签名无效")
+            raise GrsError("图片服务文件签名无效")

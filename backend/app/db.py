@@ -439,6 +439,11 @@ class Database:
             return
         connection.execute(f"CREATE INDEX {name} ON {table} ({columns})")
 
+    def ensure_unique_index(self, connection: DbConnection, table: str, name: str, columns: str) -> None:
+        if self.index_exists(connection, table, name):
+            return
+        connection.execute(f"CREATE UNIQUE INDEX {name} ON {table} ({columns})")
+
     def column_names(self, connection: DbConnection, table: str) -> set[str]:
         raise NotImplementedError
 

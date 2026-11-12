@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """独立 RTX Video Super Resolution API graph。
 
-对照固定 ComfyUI 节点包示例 rtx_video_upscale.json：
+对照固定视频服务节点包示例 rtx_video_upscale.json：
 LoadVideo → GetVideoComponents → RTXVideoSuperResolution → CreateVideo → SaveVideo。
 
 DynamicCombo 按本仓库惯例用点号子键（与 video_depth_workflow 的 output.normalization 相同）。
@@ -33,7 +33,7 @@ UPSCALE_OUTPUT_LABEL = "2x 超分"
 # 两种引擎的输出都算超分结果，找原片时必须一起排除。
 UPSCALE_OUTPUT_LABELS = frozenset({UPSCALE_OUTPUT_LABEL, SEEDVR2_OUTPUT_LABEL})
 VSR_FILENAME_PREFIX = "video/ZLY_AI_VIDEO_STUDIO_RTX_VSR"
-# 卸 H3 后仍要给 CUDA/运行时留余量；真正额度来自当前连接 ComfyUI /system_stats 的 vram_total。
+# 卸 H3 后仍要给 CUDA/运行时留余量；真正额度来自当前连接视频服务/system_stats 的 vram_total。
 VSR_VRAM_RESERVE_BYTES = 2 * 1024 * 1024 * 1024
 VSR_CHANNELS = 3
 VSR_ITEMSIZE = 4
@@ -44,7 +44,7 @@ def build_rtx_vsr_workflow(video_filename: str) -> dict[str, dict[str, Any]]:
     """构建「已上传原片 → RTX 2x ULTRA → SaveVideo」的独立 API graph。"""
     filename = str(video_filename or "").strip()
     if not filename:
-        raise ValueError("超分需要已上传到 ComfyUI 的视频文件名。")
+        raise ValueError("超分需要已上传到视频服务的视频文件名。")
     return {
         VSR_LOAD_NODE: {
             "class_type": "LoadVideo",
@@ -101,9 +101,9 @@ def rtx_vsr_node_missing_message(comfy_url: str = "", device_name: str = "") -> 
     gpu = str(device_name or "").strip()
     extra = f"（{gpu}）" if gpu else ""
     return (
-        f"当前连接的 ComfyUI {where}{extra} 未安装 RTX Video Super Resolution 节点。"
+        f"当前连接的视频服务{where}{extra} 未安装 RTX Video Super Resolution 节点。"
         "请把固定整合包 custom_nodes/Nvidia_RTX_Nodes_ComfyUI 拷到这台机器的 custom_nodes，"
-        "用该 ComfyUI 的 Python 安装 nvidia-vfx 后重启。"
+        "用该视频服务的 Python 安装 nvidia-vfx 后重启。"
     )
 
 
@@ -127,7 +127,7 @@ def explain_comfy_prompt_rejection(
     missing = isinstance(error, dict) and error.get("type") == "missing_node_type"
     if missing and (class_type == RTX_VSR_NODE_TYPE or RTX_VSR_NODE_TYPE in text):
         return rtx_vsr_node_missing_message(comfy_url, device_name)
-    return f"ComfyUI 提交失败，HTTP {status}: {text[:1000]}"
+    return f"视频服务提交失败，HTTP {status}: {text[:1000]}"
 
 
 def wants_upscale(options: dict[str, Any] | None) -> bool:
@@ -185,7 +185,7 @@ def estimate_vsr_vram_bytes(width: int, height: int, frames: int, *, scale: int 
 
 
 def comfy_vram_total_bytes(stats: dict[str, Any] | None) -> int | None:
-    """从 ComfyUI /system_stats 取当前连接 GPU 的总显存（字节）。"""
+    """从视频服务/system_stats 取当前连接 GPU 的总显存（字节）。"""
     totals: list[int] = []
     for device in (stats or {}).get("devices") or []:
         if not isinstance(device, dict):
@@ -236,7 +236,7 @@ def vsr_memory_rejection(
     gpu = f"（{device_name}）" if device_name else ""
     return (
         f"2x 超分预估需要约 {gigabytes:.1f} GB 显存（{width}×{height}、{frames} 帧）。"
-        f"当前连接的 ComfyUI{gpu} 总显存约 {total_gb:.0f} GB，卸模型后可用额度约 {budget_gb:.0f} GB。"
+        f"当前连接的视频服务{gpu} 总显存约 {total_gb:.0f} GB，卸模型后可用额度约 {budget_gb:.0f} GB。"
         "请改用更低分辨率档或缩短时长后再试。"
     )
 

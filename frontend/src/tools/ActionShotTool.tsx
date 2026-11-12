@@ -13,6 +13,7 @@ import {
   ACTION_SHOT_WORKFLOW,
   actionShotPromptTemplate,
   actionShotReferenceError,
+  actionShotSubmitBlockReason,
   insertActionShotPicture,
   missingActionShotPicture,
   type ActionShotAsset,
@@ -24,6 +25,7 @@ import {
   type ToolOptionDefinition,
 } from "../generation/motion-transfer"
 import { createLocalId } from "../lib/utils"
+import { promptAutoSize } from "../prompt-autosize"
 import { generateJobPath } from "../paths"
 import "./motion-transfer-tool.css"
 import "./keyframe-narrative-tool.css"
@@ -127,9 +129,14 @@ export default function ActionShotTool({ csrfToken }: { csrfToken: string }) {
   }
 
   const pictureHint = missingActionShotPicture(prompt, references.length)
-  const ready = references.length >= ACTION_SHOT_MIN_REFERENCES
-    && Boolean(prompt.trim()) && !pictureHint && Boolean(workflowQuery.data)
-    && !submitting
+  const submitBlockReason = actionShotSubmitBlockReason({
+    referenceCount: references.length,
+    prompt,
+    pictureHint,
+    workflowLoaded: Boolean(workflowQuery.data),
+    submitting,
+  })
+  const ready = !submitBlockReason
 
   const submit = async () => {
     if (submissionPending.current) return
@@ -228,7 +235,7 @@ export default function ActionShotTool({ csrfToken }: { csrfToken: string }) {
       </header>
 
       {workflowQuery.isLoading ? (
-        <div className="grid min-h-[220px] place-items-center"><Spin tip="正在读取打斗镜头能力" /></div>
+        <div className="grid min-h-[220px] w-full place-items-center"><Spin tip="正在读取打斗镜头能力" /></div>
       ) : workflowQuery.isError ? (
         <Empty description={`打斗镜头能力读取失败：${apiErrorMessage(workflowQuery.error, "请稍后重试")}`}>
           <Button icon={<RefreshCw size={14} />} onClick={() => void workflowQuery.refetch()}>重新读取</Button>
@@ -293,7 +300,7 @@ export default function ActionShotTool({ csrfToken }: { csrfToken: string }) {
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
                 placeholder="描述动作节拍与镜头，例如：<Picture 1> 与 <Picture 2> 在雨夜废墟近身格斗，先出拳压制，再侧身闪避反击，最后重击收势；镜头跟随，火光飞溅，打击感强。"
-                rows={5}
+                autoSize={promptAutoSize(5)}
                 maxLength={1500}
               />
               {pictureHint && references.length > 0 && prompt.trim() ? <p className="studio-motion-validation" role="alert">{pictureHint}</p> : null}
@@ -301,9 +308,13 @@ export default function ActionShotTool({ csrfToken }: { csrfToken: string }) {
 
             <div className="studio-motion-footer">
               <span className="studio-tool-motion-note">每张参考图不超过 50 MB；时长为 2-10 秒，超过 10 秒远端会拒绝。</span>
-              <Button type="primary" size="large" loading={submitting} disabled={!ready} icon={<Sparkles size={19} />} onClick={() => void submit()}>
-                {submitting ? "提交中" : "开始生成"}
-              </Button>
+              <Tooltip title={submitBlockReason || undefined}>
+                <span className="studio-submit-tooltip-wrap">
+                  <Button type="primary" size="large" loading={submitting} disabled={!ready} aria-label={submitBlockReason ? `开始生成（${submitBlockReason}）` : "开始生成"} icon={<Sparkles size={19} />} onClick={() => void submit()}>
+                    {submitting ? "提交中" : "开始生成"}
+                  </Button>
+                </span>
+              </Tooltip>
             </div>
           </div>
         </section>

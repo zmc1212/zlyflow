@@ -22,6 +22,7 @@ import {
 } from "./canvas-model"
 import { CANVAS_CONNECTION_MODE_OPTIONS, CANVAS_GENERATION_MODE_OPTIONS } from "./canvas-view-modes"
 import { formatCanvasBytes } from "./canvas-save"
+import { promptAutoSize } from "../prompt-autosize"
 import type { CanvasGeneratorLive, CanvasWorkflowMode } from "./canvas-generation"
 import { CanvasGeneratorInspector } from "./CanvasGeneratorInspector"
 import { CanvasNodeInspector } from "./CanvasInspector"
@@ -331,7 +332,7 @@ function CanvasProperties(props: CanvasSidePanelProps) {
             aria-label="全局提示词"
             className="canvas-global-prompt"
             value={settings.globalPrompt}
-            rows={3}
+            autoSize={promptAutoSize(3)}
             maxLength={2000}
             showCount
             placeholder="新建生成节点时自动填入的画风、角色或项目约定…"

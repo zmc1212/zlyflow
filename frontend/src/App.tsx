@@ -1,15 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Button, DatePicker, Drawer, Dropdown, Empty, Input, InputNumber, message, Modal, Pagination, Popover, Select, Slider, Switch, Tabs, Tooltip } from "antd"
 import type { TextAreaRef } from "antd/es/input/TextArea"
+import { searchFilterOption } from "./search-match"
 import {
-  ArrowUp, ArrowUpDown, AudioLines, Check, CheckCircle2, CircleAlert, Coins, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Clock3, FileVideo, Frame,
-  Download, ExternalLink, Filter, FolderOpen, Gauge, HardDrive, History, ImagePlus, LayoutGrid, Link2, ListChecks, LoaderCircle, Maximize2, Mic,
-  Languages, Lightbulb, LockKeyhole, Minus, MoreHorizontal, MoveLeft, MoveRight, Music, PanelLeftClose, PanelLeftOpen, Pencil, Pin, Plus, RotateCw, Search, Send, Settings2, SlidersHorizontal, Sparkles, CircleStop, Trash2, UserRound, Video, WalletCards, WandSparkles, X,
+  ArrowUp, ArrowUpDown, AudioLines, Check, CheckCircle2, CircleAlert, Coins, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Clock3, Frame,
+  Download, ExternalLink, Filter, FolderOpen, Gauge, HardDrive, History, ImagePlus, LayoutGrid, Link2, ListChecks, LoaderCircle, Maximize2,
+  Languages, Lightbulb, LockKeyhole, Minus, MoreHorizontal, Music, PanelLeftClose, PanelLeftOpen, Pencil, Pin, Plus, RotateCw, Search, Send, Settings2, SlidersHorizontal, Sparkles, CircleStop, Trash2, UserRound, Video, WalletCards, WandSparkles, X,
 } from "lucide-react"
 import { Fragment, FormEvent, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { NavLink, useLocation, useNavigate } from "react-router-dom"
+import { submitBlockReason as resolveSubmitBlockReason } from "./generation/submit-requirement"
 import { apiErrorMessage, jsonMutation, notifyUnauthorized, requestJson, User } from "./api"
-import { generateJobPath, isDirectorLegacyStudioPath, isGuestStudioPath, parseGeneratePath, PATHS, studioWorkspaceFromPath, type GenerateMediaType } from "./paths"
+import { PROMPT_INPUT_MAX_ROWS } from "./prompt-autosize"
+import { generateJobPath, isDirectorLegacyStudioPath, isGuestStudioPath, musicChatPath, parseGeneratePath, parseMusicPath, PATHS, studioWorkspaceFromPath, type GenerateMediaType } from "./paths"
+import { musicReadOnlyScope } from "./music/music-library"
 import { elapsedCaption, executionCaption, isLiveStatus, jobElapsedMs, useNow } from "./job-elapsed"
 import type { ImageResult } from "./media/ImageStudioModule"
 import { mediaActions, type MediaActionHost, type MediaActionItem } from "./media/media-actions"
@@ -44,6 +48,7 @@ import { StudioNavigationSymbol } from "./components/StudioSymbols"
 import GenerationHomeSections from "./generation/GenerationHomeSections"
 import MotionTransferReferences from "./generation/MotionTransferReferences"
 import MotionRefVideoReferences from "./generation/MotionRefVideoReferences"
+import { AvatarReferencePanel, ReferencePanel } from "./generation/ReferencePanels"
 import { MOTION_TOOL_WORKFLOWS, motionDurationError, motionImageLimit, motionReferenceError, type MotionReferenceAsset } from "./generation/motion-transfer"
 import { groupTasksByCreatedAt } from "./task-groups"
 import JobErrorNotice from "./director/components/JobErrorNotice"
@@ -65,6 +70,7 @@ const CanvasWorkspace = lazy(() => import("./canvas/CanvasWorkspace"))
 const ToolsWorkspace = lazy(() => import("./tools/ToolsWorkspace"))
 const InspirationWorkspace = lazy(() => import("./inspiration/InspirationWorkspace"))
 const MusicWorkspace = lazy(() => import("./music/MusicWorkspace"))
+const MusicChatRail = lazy(() => import("./music/MusicChatRail"))
 
 type Status = "queued" | "running" | "awaiting_refine" | "succeeded" | "failed" | "interrupted" | "cancelled" | "partial"
 type Output = {
@@ -726,6 +732,8 @@ function AdminUserFilterSelect({
     value={value}
     onChange={onChange}
     className={className}
+    showSearch
+    filterOption={searchFilterOption}
     options={options}
   />
 }
@@ -822,6 +830,7 @@ export default function App({
   const [messageApi, messageContext] = message.useMessage()
   const restoringComposerRef = useRef(false)
   const [adminUserFilter, setAdminUserFilter] = useState<string>("all")
+  const [musicAdminUserFilter, setMusicAdminUserFilter] = useState<string>("all")
   const initializedWorkflowRef = useRef<string | undefined>(undefined)
   useEffect(() => {
     if (user) return
@@ -833,6 +842,7 @@ export default function App({
     setEnglishPromptOpen(false)
     setRenameTarget(null)
     setHistoryOpen(false)
+    setMusicAdminUserFilter("all")
   }, [user])
 
   const modesQuery = useQuery({ queryKey: ["modes", user?.id ?? "guest"], placeholderData: user ? (previous) => previous : undefined, queryFn: async () => {
@@ -890,6 +900,13 @@ export default function App({
     setAdminUserFilter(value)
     setIsSelectedPromptExpanded(false)
     if (selectedJobId) navigate(generateJobPath(mediaType))
+  }
+  const musicInspectedUser = (adminUsersQuery.data ?? []).find((account) => account.id === musicAdminUserFilter)
+  const musicInspectedUserLabel = musicInspectedUser?.display_name || musicInspectedUser?.username || "该用户"
+  const musicReadOnly = musicReadOnlyScope(user?.role, musicAdminUserFilter, user?.id)
+  const changeMusicAdminUserFilter = (value: string) => {
+    setMusicAdminUserFilter(value)
+    if (parseMusicPath(location.pathname).chatId) navigate(musicChatPath())
   }
   const imageGenerationActive = mediaType === "image" && jobs.some((job) => job.status === "queued" || job.status === "running")
   const grsBalanceQuery = useQuery({
@@ -1240,7 +1257,7 @@ export default function App({
     if (workflows.length && !workflows.some((item) => item.id === workflowId)) setWorkflowId(preferredDefaultWorkflow(workflows)?.id ?? FALLBACK_WORKFLOW)
   }, [workflowId, workflows])
   useEffect(() => {
-    setTaskRailCollapsed(workspaceView !== "generate")
+    setTaskRailCollapsed(workspaceView !== "generate" && workspaceView !== "music")
   }, [workspaceView])
   useEffect(() => {
     restoringComposerRef.current = false
@@ -1292,6 +1309,40 @@ export default function App({
   }, [workflow])
   useEffect(() => { referencesRef.current = references }, [references])
   useEffect(() => { motionVideoRef.current = motionVideo }, [motionVideo])
+  // 提示词输入框随内容自适应高度（对齐即梦的输入体验）：先撑到内容高度，超过上限后框内滚动。
+  // 未选中任务（生成首页）与任务对话页共用同一输入框，高度下限由样式给出，这里只管理「被内容撑高」的部分。
+  const resizePromptInput = useCallback(() => {
+    const input = promptRef.current?.resizableTextArea?.textArea
+    if (!input) return
+    if (isComposerCompact) {
+      // 历史浏览时输入框收纳成单行贴边条，高度交回样式表控制。
+      input.style.height = ""
+      input.style.overflowY = ""
+      return
+    }
+    const lineHeight = Number.parseFloat(window.getComputedStyle(input).lineHeight) || 24
+    const maxHeight = Math.round(lineHeight * PROMPT_INPUT_MAX_ROWS)
+    input.style.height = "auto"
+    const contentHeight = input.scrollHeight
+    input.style.height = `${Math.min(contentHeight, maxHeight)}px`
+    input.style.overflowY = contentHeight > maxHeight + 1 ? "auto" : "hidden"
+  }, [isComposerCompact])
+  useLayoutEffect(() => {
+    resizePromptInput()
+  }, [prompt, isComposerCompact, mediaType, workflowId, resizePromptInput])
+  useEffect(() => {
+    // 侧栏收起、窗口缩放都会改变输入框宽度进而改变换行行数：宽度变化后重算一次高度。
+    const host = document.getElementById("studio-composer")
+    if (!host || typeof ResizeObserver === "undefined") return
+    let lastWidth = host.clientWidth
+    const observer = new ResizeObserver(() => {
+      if (Math.abs(host.clientWidth - lastWidth) < 1) return
+      lastWidth = host.clientWidth
+      window.requestAnimationFrame(resizePromptInput)
+    })
+    observer.observe(host)
+    return () => observer.disconnect()
+  }, [resizePromptInput, selectedJobId])
   useEffect(() => () => {
     const assets = [
       ...referencesRef.current,
@@ -1615,6 +1666,34 @@ export default function App({
     && referenceCount >= workflow.min_references && referenceCount <= workflow.max_references
     && (!workflow.accepts_video_reference || (references.length >= 1 && references.length <= motionCharacterLimit && motionVideo))
     && !motionVideoError && !optionError && !createMutation.isPending && !autoOptimizing && !optimizeMutation.isPending)
+  const referenceRequirement = {
+    referenceMode: workflow?.reference_mode ?? "none" as const,
+    minReferences: workflow?.min_references ?? 0,
+    maxReferences: workflow?.max_references ?? 0,
+    referenceCount,
+    imageCount: references.length,
+    hasAudioReference: Boolean(avatarAudio),
+    hasVideoReference: Boolean(motionVideo),
+    referenceLabels: workflow?.reference_labels,
+    acceptsAudioReference: workflow?.accepts_audio_reference,
+    acceptsVideoReference: workflow?.accepts_video_reference,
+  }
+  /** 按钮已禁用时唯一需要告诉用户的原因。 */
+  const submitBlockReason = resolveSubmitBlockReason({
+    ...referenceRequirement,
+    loading: !workflow,
+    available: workflow?.available,
+    unavailableReason: workflow?.unavailable_reason,
+    prompt,
+    defaultPrompt: workflow?.default_prompt,
+    motionVideoError,
+    optionError,
+    pending: createMutation.isPending,
+    optimizing: autoOptimizing || optimizeMutation.isPending,
+    inspectingOtherUser: isInspectingOtherUser,
+  })
+  const submitDisabled = Boolean(user) && !canSubmit
+  const submitActionLabel = autoOptimizing ? "正在润色…" : mediaType === "image" ? "开始生图" : "开始生成"
   const referenceHint = workflow?.accepts_audio_reference
     ? "形象图 1 张 + 口播音频 ≤5 秒"
     : workflow?.accepts_video_reference
@@ -1622,7 +1701,7 @@ export default function App({
         ? `角色图 ${references.length} / ${motionCharacterLimit} 张 + 动作视频 · 顺序对应表演者`
         : "角色图 + 动作视频 · 留空提示词自动迁移"
       : workflow?.reference_mode === "collection"
-      ? `已添加 ${referenceCount} / ${workflow.max_references} 张`
+      ? `已添加 ${referenceCount} / ${workflow.max_references} 张${referenceCount < workflow.min_references ? `（至少 ${workflow.min_references} 张）` : ""}`
       : workflow?.reference_mode === "keyframes" ? "首帧必填更稳定，尾帧用于锁定结尾" : ""
 
   const downloadOutput = (job: Job, outputIndex: number, output: Output) => {
@@ -2125,7 +2204,7 @@ export default function App({
     title: "停止生成？",
     content: job.media_type === "image"
       ? "工作台将停止等待结果。云端任务可能仍会继续计费，尚未取回的图片不会自动拉取。"
-      : "将中断 ComfyUI 当前推理并取消排队。未完成的视频无法续跑，也不会自动重新提交。",
+      : "将中断视频服务当前推理并取消排队。未完成的视频无法续跑，也不会自动重新提交。",
     okText: "停止生成",
     cancelText: "继续生成",
     okButtonProps: { danger: true },
@@ -2397,7 +2476,7 @@ export default function App({
         compact={false}
         user={user}
         onRequestLogin={() => onRequestLogin()}
-        provider={workspaceView === "music" ? "音乐服务" : headerUsesGrs ? "GRS" : "ComfyUI"}
+        provider={workspaceView === "music" ? "音乐服务" : headerUsesGrs ? "图片服务" : "视频服务"}
         providerStatus={workspaceView === "music"
           ? musicStatusQuery.isPending ? "checking" : !musicStatusQuery.isError && musicStatusQuery.data?.configured ? "online" : "offline"
           : healthQuery.isPending ? "checking" : (headerUsesGrs ? healthQuery.data?.grs?.available : healthQuery.data?.comfy?.reachable) ? "online" : "offline"}
@@ -2410,7 +2489,7 @@ export default function App({
         logoutPending={logoutPending}
       />
 
-      <div className={`studio-workspace studio-floating-workspace relative mt-14 flex min-h-[calc(100vh-56px)] bg-[#f8f9fa] ${taskRailCollapsed || workspaceView !== "generate" ? "studio-task-rail-collapsed" : ""} ${workspaceView === "assets" ? "studio-asset-view" : ""} ${workspaceView === "canvas" ? "studio-canvas-view" : ""} ${directorLegacyStudio ? "studio-director-view" : ""} ${workspaceView === "director" && !directorLegacyStudio ? "studio-director2-view" : ""}`}>
+      <div className={`studio-workspace studio-floating-workspace relative mt-14 flex min-h-[calc(100vh-56px)] bg-[#f8f9fa] ${taskRailCollapsed || (workspaceView !== "generate" && workspaceView !== "music") ? "studio-task-rail-collapsed" : ""} ${workspaceView === "assets" ? "studio-asset-view" : ""} ${workspaceView === "canvas" ? "studio-canvas-view" : ""} ${directorLegacyStudio ? "studio-director-view" : ""} ${workspaceView === "director" && !directorLegacyStudio ? "studio-director2-view" : ""}`}>
         <nav className="studio-mobile-nav" aria-label="工作区导航">
           <NavLink to={lastGeneratePathRef.current} className={() => workspaceView === "generate" ? "is-active" : ""}><Sparkles size={16} />生成</NavLink>
           <NavLink onClick={(event) => guardGuestNavigation(event, PATHS.inspiration)} to={PATHS.inspiration} className={() => workspaceView === "inspiration" ? "is-active" : ""}><Lightbulb size={16} />灵感</NavLink>
@@ -2433,7 +2512,8 @@ export default function App({
           {workspaceView === "generate" && taskRailCollapsed ? <Tooltip title="展开任务栏" placement="right"><button type="button" title="展开任务栏" aria-label="展开任务栏" onClick={() => setTaskRailCollapsed(false)} className="studio-task-rail-reopen"><PanelLeftOpen size={17} /></button></Tooltip> : null}
         </aside>
 
-        <aside className={`studio-task-rail fixed bottom-0 left-0 top-14 z-20 hidden w-[240px] flex-col border-r border-black/[0.05] bg-white xl:left-[76px] ${workspaceView === "generate" ? "lg:flex" : "!hidden"}`}>
+        <aside className={`studio-task-rail fixed bottom-0 left-0 top-14 z-20 hidden w-[240px] flex-col border-r border-black/[0.05] bg-white xl:left-[76px] ${workspaceView === "generate" || workspaceView === "music" ? "lg:flex" : "!hidden"}`}>
+          {workspaceView === "music" ? <Suspense fallback={null}><MusicChatRail csrfToken={csrfToken} user={user} adminUserOptions={adminUserOptions} adminUserFilter={musicAdminUserFilter} adminUserName={musicInspectedUserLabel} onAdminUserChange={changeMusicAdminUserFilter} /></Suspense> : <>
           <div className="border-b border-white/[0.08] px-4 pb-3 pt-4">
             <div className="flex items-center justify-between gap-3">
               <div><p className="text-sm font-medium text-[#171a1f]">开启创作</p>{user && <p className="mt-1 text-[11px] text-[#7c8794]">{jobs.length} 个{mediaType === "image" ? "图片" : "视频"}任务</p>}</div>
@@ -2453,6 +2533,7 @@ export default function App({
             </section>}
             {user ? <TaskRailHistory jobs={jobs} selectedJobId={selectedJob?.id} mediaType={mediaType} onSelect={selectJob} onPinToggle={togglePinned} onRename={openRename} onDelete={confirmDelete} onCancel={confirmCancel} /> : <section className="studio-guest-history"><h2>创作记录</h2><LockKeyhole size={16} /><p>登录后查看你的创作记录</p><Button type="link" onClick={() => onRequestLogin()}>登录</Button></section>}
           </div>
+          </>}
         </aside>
 
         {workspaceView === "generate" && (
@@ -2475,7 +2556,7 @@ export default function App({
           ? "director2-workspace-main relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-0"
           : workspaceView === "canvas"
           ? "canvas-workspace-main relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-0"
-          : `relative mx-auto min-h-[calc(100vh-56px)] w-full min-w-0 ${workspaceView === "tools" && location.pathname === PATHS.tools ? "max-w-[1680px]" : "max-w-[1180px]"} px-4 pb-10 pt-[112px] sm:px-8 lg:pt-12 ${workspaceView === "assets" ? "studio-asset-main" : ""} ${workspaceView === "inspiration" ? "studio-inspiration-main" : ""} ${workspaceView === "tools" ? "studio-tools-main" : ""} ${workspaceView === "music" ? "studio-music-main" : ""} ${workspaceView === "generate" ? "studio-generate-main" : ""} ${workspaceView === "generate" && !selectedJob ? "studio-generate-empty" : ""} ${isGenerationHome ? "studio-generation-home" : ""}`
+          : `relative mx-auto min-h-[calc(100vh-56px)] w-full min-w-0 ${workspaceView === "tools" && location.pathname === PATHS.tools ? "max-w-[1680px]" : "max-w-[1180px]"} px-4 pb-10 pt-[112px] sm:px-8 lg:pt-12 ${workspaceView === "assets" ? "studio-asset-main" : ""} ${workspaceView === "inspiration" ? "studio-inspiration-main" : ""} ${workspaceView === "tools" ? "studio-tools-main" : ""} ${workspaceView === "music" ? `studio-music-main ${parseMusicPath(location.pathname).chatId && !musicReadOnly ? "studio-music-chat-open" : "studio-music-home"}` : ""} ${workspaceView === "generate" ? "studio-generate-main" : ""} ${workspaceView === "generate" && !selectedJob ? "studio-generate-empty" : ""} ${isGenerationHome ? "studio-generation-home" : ""}`
         }>
           {directorLegacyStudio ? (
             <Suspense fallback={<div className="py-24 text-center text-sm text-[#6b7280]"><LoaderCircle className="mx-auto mb-3 animate-spin text-[#7047f6]" size={24} />正在加载 AI 导演台...</div>}>
@@ -2503,7 +2584,7 @@ export default function App({
             </Suspense>
           ) : workspaceView === "music" ? (
             <Suspense fallback={<div className="py-24 text-center text-sm text-[#6b7280]"><LoaderCircle className="mx-auto mb-3 animate-spin text-[#7047f6]" size={24} />正在加载音乐工作台...</div>}>
-              <MusicWorkspace csrfToken={csrfToken} />
+              <MusicWorkspace csrfToken={csrfToken} user={user} adminUserFilter={musicAdminUserFilter} adminUserName={musicInspectedUserLabel} />
             </Suspense>
           ) : workspaceView === "assets" ? <section className="studio-asset-library" aria-label="资产">
 
@@ -2904,7 +2985,7 @@ export default function App({
                   ))}
                 </ul>}
 
-                {round.status === "interrupted" && mediaType === "video" && <p className="text-xs leading-5 text-[#4b5563]">ComfyUI 恢复后会按原参数自动重新生成。显存里未完成的推理无法续跑，也可立即手动重新提交。</p>}
+                {round.status === "interrupted" && mediaType === "video" && <p className="text-xs leading-5 text-[#4b5563]">视频服务恢复后会按原参数自动重新生成。显存里未完成的推理无法续跑，也可立即手动重新提交。</p>}
                 {round.status === "cancelled" && mediaType === "video" && <p className="text-xs leading-5 text-[#4b5563]">已停止生成，不会自动重新提交。未完成的推理无法续跑，需要时可手动重新提交。</p>}
                 {round.status === "cancelled" && mediaType === "image" && <p className="text-xs leading-5 text-[#4b5563]">工作台已停止等待。云端任务可能仍会继续计费，尚未取回的图片不会自动拉取。</p>}
                 <div className="studio-round-actions" aria-label={`第 ${round.sequence} 轮操作`}>
@@ -2946,9 +3027,9 @@ export default function App({
             {user && <div className="studio-composer-service-meta absolute -top-8 right-7 flex max-w-[calc(100%-56px)] items-center gap-1.5 text-sm text-[#babac3]">
               <span className="studio-ai-badge grid size-5 shrink-0 place-items-center rounded-full bg-[#7046df] text-[10px] font-semibold text-white">AI</span>
               {mediaType === "image" ? <>
-                <span className="whitespace-nowrap">GRS 云端生图</span>
+                <span className="whitespace-nowrap">图片服务云端生图</span>
                 <Tooltip title={grsBalanceUnavailable ? "余额暂不可用，请稍后重试。" : grsBalanceStale ? "上游余额刷新暂不可用，当前显示上一次查询结果。" : grsBalanceQuery.data?.queried_at ? `最近查询：${formatTime(grsBalanceQuery.data.queried_at)}` : "正在查询上游余额。"}>
-                  <span aria-label="GRS 上游余额" className={`flex min-w-0 items-center gap-1 rounded-md border border-white/[0.1] bg-white/[0.045] px-2 py-0.5 text-xs ${grsBalanceStale ? "text-amber-200" : "text-[#d8d8df]"}`}>
+                  <span aria-label="图片服务上游余额" className={`flex min-w-0 items-center gap-1 rounded-md border border-white/[0.1] bg-white/[0.045] px-2 py-0.5 text-xs ${grsBalanceStale ? "text-amber-200" : "text-[#d8d8df]"}`}>
                     {grsBalanceQuery.isFetching ? <LoaderCircle className="shrink-0 animate-spin text-[#b6a4ff]" size={13} /> : <WalletCards className="shrink-0 text-[#b6a4ff]" size={13} />}
                     <span className="whitespace-nowrap">余额 {grsBalanceUnavailable ? "暂不可用" : formatGrsBalance(grsBalanceQuery.data?.credits)}</span>
                   </span>
@@ -3115,10 +3196,11 @@ export default function App({
                     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
                       event.preventDefault()
                       if (canSubmit || !user) void submitTask()
+                      else if (submitBlockReason) messageApi.warning({ content: submitBlockReason, key: "studio-submit-blocked" })
                     }
                   }}
                   placeholder={workflow?.default_prompt ? "可选：描述角色、场景和氛围；留空会按参考视频迁移动作…" : isGenerationHome ? (workflow?.reference_mode === "none" ? "描述画面、动作和运镜，让想法成为下一帧…" : "描述一个画面，或上传参考图开始创作…") : workflow?.description || "描述镜头、动作、运镜、音效和氛围"}
-                  className="studio-prompt-input h-[76px] w-full resize-none border-0 bg-transparent p-0 text-sm leading-6 text-[#d7d7dc] outline-none placeholder:text-[#777780]"
+                  className="studio-prompt-input w-full resize-none border-0 bg-transparent p-0 text-sm leading-6 text-[#d7d7dc] outline-none placeholder:text-[#777780]"
                 />
                 {isGenerationHome && workflow?.reference_mode !== "none" && !prompt.trim() && <p className="studio-home-upload-hint">{workflow?.accepts_video_reference ? (isMultiMotionWorkflow ? "角色图顺序对应视频中的表演者，可添加 1-6 个角色" : "角色图锁定形象，视频提供动作；建议单人全身、固定镜头") : "支持粘贴图片，或拖入参考图"}</p>}
                 {motionVideoError ? <p role="alert" className="studio-motion-validation">{motionVideoError}</p> : null}
@@ -3134,7 +3216,7 @@ export default function App({
                 </div>
                 <div className="studio-control-shell studio-compact-select" style={{ "--studio-compact-select-width": `${compactSelectWidth([{ label: workflow?.name }])}px` } as CSSProperties}>
                   <Settings2 size={14} className="shrink-0" />
-                  <Select aria-label="选择工作流" value={workflowId} onChange={(value) => selectWorkflow(String(value))} showSearch optionFilterProp="label" className="studio-select min-w-0 flex-1" popupClassName="studio-select-popup studio-workflow-select-popup" popupMatchSelectWidth={360} options={groupedWorkflowOptions(workflows)} optionRender={(option) => <WorkflowOptionRow item={option.data as WorkflowSelectOption} />} />
+                  <Select aria-label="选择工作流" value={workflowId} onChange={(value) => selectWorkflow(String(value))} showSearch filterOption={searchFilterOption} className="studio-select min-w-0 flex-1" popupClassName="studio-select-popup studio-workflow-select-popup" popupMatchSelectWidth={360} options={groupedWorkflowOptions(workflows)} optionRender={(option) => <WorkflowOptionRow item={option.data as WorkflowSelectOption} />} />
                 </div>
                 {primaryValueOptionDefinitions.map(([name, definition]) => <OptionControl
                   key={name}
@@ -3146,7 +3228,7 @@ export default function App({
                   compact
                   onChange={(optionName, value) => setOptionValues((current) => ({ ...current, [optionName]: value }))}
                 />)}
-                {workflow?.accepts_image_size && <div className="studio-control-shell studio-image-size-select"><Maximize2 size={14} className="shrink-0" /><Select aria-label="选择图片尺寸" value={imageSize} onChange={(value) => setImageSize(String(value))} className="studio-select min-w-0 flex-1" popupClassName="studio-select-popup" options={(modesQuery.data?.image_sizes ?? []).map((size) => ({ value: size, label: size }))} /></div>}
+                {workflow?.accepts_image_size && <div className="studio-control-shell studio-image-size-select"><Maximize2 size={14} className="shrink-0" /><Select aria-label="选择图片尺寸" showSearch filterOption={searchFilterOption} value={imageSize} onChange={(value) => setImageSize(String(value))} className="studio-select min-w-0 flex-1" popupClassName="studio-select-popup" options={(modesQuery.data?.image_sizes ?? []).map((size) => ({ value: size, label: size }))} /></div>}
                 {advancedOptionDefinitions.length > 0 && <Popover
                   trigger="click"
                   placement="topLeft"
@@ -3181,15 +3263,18 @@ export default function App({
               </div>
               <div className="studio-composer-actions">
                 {mediaType === "image" && typeof workflow?.credit_cost === "number" ? (
-                  <Tooltip title={`GRS 平台标价：本模型每张消耗 ${workflow.credit_cost} 积分，实际扣费以上游结算为准。`}>
+                  <Tooltip title={`图片服务平台标价：本模型每张消耗 ${workflow.credit_cost} 积分，实际扣费以上游结算为准。`}>
                     <span aria-label="本次生图消耗积分" className="studio-submit-cost flex shrink-0 items-center gap-1 text-xs">
                       <Coins size={13} aria-hidden />
                       {workflow.credit_cost} 积分/张
                     </span>
                   </Tooltip>
                 ) : null}
-                <Tooltip title={!workflow?.available ? workflow?.unavailable_reason : `${autoOptimizing ? "正在润色…" : mediaType === "image" ? "开始生图" : "开始生成"} · Ctrl / ⌘ + Enter`}>
-                  <Button htmlType="submit" type="primary" disabled={Boolean(user) && !canSubmit} aria-label={autoOptimizing ? "正在润色…" : mediaType === "image" ? "开始生图" : "开始生成"} aria-busy={createMutation.isPending || autoOptimizing} className="studio-generate-submit">{(createMutation.isPending || autoOptimizing) ? <LoaderCircle className="animate-spin" size={18} /> : <ArrowUp size={20} />}</Button>
+                <Tooltip title={!workflow?.available ? workflow?.unavailable_reason || "当前工作流暂不可用" : submitDisabled && submitBlockReason ? submitBlockReason : `${submitActionLabel} · Ctrl / ⌘ + Enter`}>
+                  {/* 包一层 span：禁用态的 button 不触发鼠标事件，否则说明禁用原因的 tooltip 无法弹出。 */}
+                  <span className="studio-generate-submit-wrap">
+                    <Button htmlType="submit" type="primary" disabled={submitDisabled} aria-label={submitDisabled && submitBlockReason ? `${submitActionLabel}（${submitBlockReason}）` : submitActionLabel} aria-busy={createMutation.isPending || autoOptimizing} className="studio-generate-submit">{(createMutation.isPending || autoOptimizing) ? <LoaderCircle className="animate-spin" size={18} /> : <ArrowUp size={20} />}</Button>
+                  </span>
                 </Tooltip>
               </div>
             </div>
@@ -3553,109 +3638,4 @@ function DurationControl({
       <ChevronDown size={14} className="shrink-0 text-[#85858d]" />
     </button>
   </Popover>
-}
-
-function AvatarReferencePanel({
-  workflow, portrait, audio, onPickAudio, onRemoveAudio, onReplacePortrait, onRemovePortrait, onPreview,
-}: {
-  workflow: Workflow; portrait?: ReferenceAsset; audio: { file: File; duration: number } | null
-  onPickAudio: (files: FileList | File[] | null) => void; onRemoveAudio: () => void
-  onReplacePortrait: (index: number, files: FileList | null) => void; onRemovePortrait: (index: number) => void
-  onPreview: (index: number) => void
-}) {
-  const [portraitLabel, audioLabel] = workflow.reference_labels?.length === 2 ? workflow.reference_labels : ["人物形象图", "口播音频"]
-  return <div className="studio-reference-panel flex min-h-[106px] flex-col gap-2">
-    <label className={`studio-reference-slot group relative flex h-[54px] min-w-0 flex-1 cursor-pointer items-center gap-2 overflow-hidden rounded-xl border px-2 transition ${portrait ? "border-[#7655ff]/80 bg-[#222329] shadow-[0_8px_22px_rgba(0,0,0,0.2)]" : "border-dashed border-[#565762] bg-[#202126]"} hover:border-[#9b83ff] hover:bg-[#292a31]`}>
-      {portrait
-        ? <button type="button" onClick={(event) => { event.preventDefault(); onPreview(0) }} title="预览形象图" className="h-[42px] w-[42px] shrink-0 overflow-hidden rounded-md"><img src={portrait.preview} alt={portraitLabel} className="h-full w-full object-cover transition duration-200 group-hover:scale-105" /></button>
-        : <span className="grid size-[42px] shrink-0 place-items-center rounded-md bg-[#2b2c33]"><ImagePlus className="text-[#a18cff]" size={18} /></span>}
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[11px] text-[#d3d3da]">{portraitLabel}</span>
-        <span className="block truncate text-[10px] text-[#777780]">{portrait ? "点击放大预览，重新上传可替换" : "正面高清人物图，点击上传"}</span>
-      </span>
-      {portrait && <button type="button" onClick={(event) => { event.preventDefault(); onRemovePortrait(0) }} title="移除形象图" className="absolute right-1 top-1 grid size-5 place-items-center rounded-full border border-white/10 bg-black/65 text-white opacity-0 transition group-hover:opacity-100"><X size={11} /></button>}
-      <input type="file" className="hidden" accept="image/*" onChange={(event) => onReplacePortrait(0, event.target.files)} />
-    </label>
-    <label className={`studio-reference-slot group relative flex h-[46px] min-w-0 flex-1 cursor-pointer items-center gap-2 overflow-hidden rounded-xl border px-2 transition ${audio ? "border-[#7655ff]/80 bg-[#222329] shadow-[0_8px_22px_rgba(0,0,0,0.2)]" : "border-dashed border-[#565762] bg-[#202126]"} hover:border-[#9b83ff] hover:bg-[#292a31]`}>
-      <span className={`grid size-8 shrink-0 place-items-center rounded-md ${audio ? "bg-[#7047ff]/20" : "bg-[#2b2c33]"}`}><Mic className={audio ? "text-[#b5a4ff]" : "text-[#8f78ff]"} size={15} /></span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[11px] text-[#d3d3da]">{audio ? audio.file.name : audioLabel}</span>
-        <span className="block truncate text-[10px] text-[#777780]">{audio ? `${audio.duration > 0 ? `${audio.duration.toFixed(1)} 秒 · ` : ""}数字人口型将与此音频同步` : "WAV / MP3，5 秒以内，点击上传"}</span>
-      </span>
-      {audio && <button type="button" onClick={(event) => { event.preventDefault(); onRemoveAudio() }} title="移除口播音频" className="absolute right-1 top-1 grid size-5 place-items-center rounded-full border border-white/10 bg-black/65 text-white opacity-0 transition group-hover:opacity-100"><X size={11} /></button>}
-      <input type="file" className="hidden" accept="audio/*,.wav,.mp3,.m4a,.aac,.ogg,.flac" onChange={(event) => onPickAudio(event.target.files)} />
-    </label>
-  </div>
-}
-
-function ReferencePanel({
-  workflow, references, onAppend, onReplaceKeyframe, onRemove, onMove, onPreview, fileInputRef,
-}: {
-  workflow?: Workflow; references: ReferenceAsset[]; onAppend: (files: FileList | File[] | null) => void
-  onReplaceKeyframe: (index: number, files: FileList | null) => void; onRemove: (index: number) => void
-  onMove: (index: number, direction: -1 | 1) => void; onPreview: (index: number) => void
-  fileInputRef: React.RefObject<HTMLInputElement | null>
-}) {
-  const [stackExpanded, setStackExpanded] = useState(false)
-  const [hoveredReference, setHoveredReference] = useState<number | null>(null)
-
-  if (!workflow || workflow.reference_mode === "none") return <div className="flex min-h-[106px] flex-col items-center justify-center rounded-xl border border-dashed border-white/[0.12] bg-[#202126]/65 px-3 text-center text-xs leading-5 text-[#85858d]"><FileVideo className="mb-2 text-[#8f78ff]" size={20} /><span>文生视频无需参考图</span></div>
-  if (workflow.reference_mode === "keyframes") return <div className="studio-reference-panel flex gap-2">
-    {[0, 1].map((index) => {
-      const asset = references[index]
-      const disabled = index === 1 && !references[0]
-      return <label key={index} className={`studio-reference-slot group relative flex h-[106px] min-w-0 flex-1 cursor-pointer items-center justify-center overflow-hidden rounded-xl border transition ${asset ? "border-[#7655ff]/80 bg-[#222329] shadow-[0_8px_22px_rgba(0,0,0,0.2)]" : "border-dashed border-[#565762] bg-[#202126]"} ${disabled ? "cursor-not-allowed opacity-35" : "hover:border-[#9b83ff] hover:bg-[#292a31]"}`}>
-        {asset ? <><img src={asset.preview} alt={workflow.reference_labels[index]} className="h-full w-full object-cover transition duration-200 group-hover:scale-105" /><button type="button" onClick={(event) => { event.preventDefault(); onPreview(index) }} className="studio-reference-preview-button absolute inset-0 grid place-items-center bg-black/0 text-white opacity-0 transition group-hover:bg-black/25 group-hover:opacity-100"><Maximize2 size={18} /></button></> : <div className="px-1 text-center"><ImagePlus className="mx-auto mb-1.5 text-[#a18cff]" size={19} /><span className="text-[11px] text-[#d3d3da]">{workflow.reference_labels[index]}</span>{index === 0 && <span className="mt-1 block text-[10px] text-[#777780]">点击上传</span>}</div>}
-        {asset && <button type="button" onClick={(event) => { event.preventDefault(); onRemove(index) }} title="移除参考图" className="studio-reference-remove-button absolute right-1.5 top-1.5 grid size-6 place-items-center rounded-full border border-white/10 bg-black/65 text-white opacity-0 transition group-hover:opacity-100"><X size={12} /></button>}
-        <input type="file" className="hidden" accept="image/*" disabled={disabled} onChange={(event) => onReplaceKeyframe(index, event.target.files)} />
-      </label>
-    })}
-  </div>
-  const stackOffset = (index: number) => stackExpanded ? index * 65 : index * 4
-  const stackWidth = stackExpanded ? Math.max(71, references.length * 65 + 71) : 112
-
-  return <div
-    className="studio-reference-panel relative flex min-h-[106px] items-center overflow-visible"
-    onMouseEnter={() => setStackExpanded(true)}
-    onMouseLeave={() => { setStackExpanded(false); setHoveredReference(null) }}
-    onFocus={() => setStackExpanded(true)}
-    onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) { setStackExpanded(false); setHoveredReference(null) } }}
-  >
-    <div className="relative h-[92px] overflow-visible transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]" style={{ width: stackWidth }}>
-      {references.map((asset, index) => {
-        const hovered = hoveredReference === index
-        const rotation = [-5, 7, -4, 6, -7, 4][index % 6]
-        return <div
-          key={asset.id}
-          role="button"
-          tabIndex={0}
-          aria-label={`预览第 ${index + 1} 张参考图`}
-          className={`group absolute left-0 top-2 h-[78px] w-[61px] cursor-pointer rounded-md border border-[#8b72ff]/80 bg-[#222226] shadow-[0_6px_14px_rgba(0,0,0,0.28)] outline-none transition-[transform,box-shadow] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:z-30 hover:shadow-[0_16px_28px_rgba(0,0,0,0.38)] focus-visible:z-30 focus-visible:ring-2 focus-visible:ring-[#a584ff] ${hovered ? "z-30 shadow-[0_16px_28px_rgba(0,0,0,0.38)]" : ""}`}
-          style={{ transform: `translate3d(${stackOffset(index)}px, ${hovered ? -8 : index % 2 ? -1 : 1}px, 0) rotate(${rotation}deg) scale(${hovered ? 1.08 : 1})`, zIndex: stackExpanded ? index + 1 : index + 2 }}
-          onClick={() => onPreview(index)}
-          onMouseEnter={() => setHoveredReference(index)}
-          onMouseLeave={() => setHoveredReference((current) => current === index ? null : current)}
-          onFocus={() => setHoveredReference(index)}
-          onBlur={() => setHoveredReference((current) => current === index ? null : current)}
-          onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onPreview(index) } }}
-        >
-          <img src={asset.preview} alt={`参考图 ${index + 1}`} className="h-full w-full rounded-[5px] object-cover" />
-          <span aria-hidden className="studio-reference-index absolute left-1 top-1 flex min-w-[18px] items-center justify-center rounded-full border border-white/30 bg-[#17171f]/80 px-1 text-[10px] font-semibold leading-4 text-white">{index + 1}</span>
-          <div className={`absolute inset-x-0 bottom-1 flex justify-center gap-0.5 transition ${stackExpanded ? "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100" : "pointer-events-none opacity-0"}`}>
-            <button type="button" disabled={index === 0} onClick={(event) => { event.stopPropagation(); onMove(index, -1) }} title="向前移动" className="studio-reference-move-button grid size-5 place-items-center rounded-md bg-black/75 text-white hover:bg-black disabled:opacity-30"><MoveLeft size={11} /></button>
-            <button type="button" disabled={index === references.length - 1} onClick={(event) => { event.stopPropagation(); onMove(index, 1) }} title="向后移动" className="studio-reference-move-button grid size-5 place-items-center rounded-md bg-black/75 text-white hover:bg-black disabled:opacity-30"><MoveRight size={11} /></button>
-          </div>
-          <button type="button" aria-label={`移除第 ${index + 1} 张参考图`} onClick={(event) => { event.stopPropagation(); onRemove(index) }} title="移除参考图" className={`studio-reference-remove-button absolute -right-2 -top-2 grid size-6 place-items-center rounded-full border border-white/10 bg-[#414148] text-white shadow-lg transition hover:bg-[#5b5b64] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a584ff] ${stackExpanded ? "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100" : "pointer-events-none opacity-0"}`}><X size={13} /></button>
-        </div>
-      })}
-      {references.length < workflow.max_references && <label
-        title="添加参考图"
-        className="studio-reference-add group absolute left-0 top-2 flex h-[68px] w-[52px] cursor-pointer items-center justify-center rounded-md transition-[transform,background-color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:-translate-y-1"
-        style={{ transform: `translate3d(${stackExpanded ? references.length * 65 : references.length ? Math.max(44, references.length * 4 + 38) : 0}px, 0, 0) rotate(-8deg)`, zIndex: stackExpanded ? references.length + 2 : 20 }}
-      >
-        <Plus className="transition group-hover:scale-110" size={23} /><span className="sr-only">添加参考图</span>
-        <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(event) => onAppend(event.target.files)} />
-      </label>}
-    </div>
-  </div>
 }

@@ -169,6 +169,9 @@ export default function ImageLayerSplitTool({ csrfToken }: { csrfToken: string }
 
   const onLayerPointerDown = (event: React.PointerEvent) => {
     if (!source || splitMode !== "box" || event.button !== 0) return
+    // 画布内的交互元素（如框选上的移除按钮）自行处理指针：
+    // 若让事件冒泡到这里，下面的 preventDefault + setPointerCapture 会吞掉它的 click。
+    if ((event.target as HTMLElement).closest("button")) return
     const point = toNaturalPoint(event)
     if (!point) return
     event.preventDefault()
@@ -256,7 +259,7 @@ export default function ImageLayerSplitTool({ csrfToken }: { csrfToken: string }
       </header>
 
       {workflowQuery.isLoading ? (
-        <div className="grid min-h-[220px] place-items-center"><Spin tip="正在读取图片图层分离能力" /></div>
+        <div className="grid min-h-[220px] w-full place-items-center"><Spin tip="正在读取图片图层分离能力" /></div>
       ) : workflowQuery.isError ? (
         <Empty description={`能力读取失败：${apiErrorMessage(workflowQuery.error, "请稍后重试")}`}>
           <Button icon={<ImageUp size={14} />} onClick={() => void workflowQuery.refetch()}>重新读取</Button>
@@ -311,6 +314,7 @@ export default function ImageLayerSplitTool({ csrfToken }: { csrfToken: string }
                           type="button"
                           className="studio-photo-region-remove is-visible"
                           aria-label="移除框选"
+                          onPointerDown={(event) => event.stopPropagation()}
                           onClick={(event) => {
                             event.stopPropagation()
                             setBox(null)
@@ -335,7 +339,7 @@ export default function ImageLayerSplitTool({ csrfToken }: { csrfToken: string }
                 </div>
               </div>
             ) : restoring || handoffRestoring ? (
-              <div className="grid min-h-[220px] place-items-center"><Spin tip="正在读取图片…" /></div>
+              <div className="grid min-h-[220px] w-full place-items-center"><Spin tip="正在读取图片…" /></div>
             ) : (
               <button type="button" className="studio-photo-stage-empty" onClick={() => inputRef.current?.click()}>
                 <ImageUp size={26} aria-hidden="true" />
@@ -349,7 +353,7 @@ export default function ImageLayerSplitTool({ csrfToken }: { csrfToken: string }
             <span className="studio-ls-toolbar-note">
               {splitMode === "box"
                 ? "在原图上按住拖拽，框住要拆出的主体；重新拖拽即替换当前框选。"
-                : "拆分在当前连接的 ComfyUI 实例上完成，纯本地免费。"}
+                : "拆分在当前连接的视频服务实例上完成，纯本地免费。"}
             </span>
             <span className="studio-photo-toolbar-spacer" />
             <span className="studio-photo-zoom" role="group" aria-label="舞台缩放">

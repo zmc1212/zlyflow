@@ -1,4 +1,5 @@
 import { Button, Input, Modal, Segmented, message } from "antd"
+import { promptAutoSize } from "../prompt-autosize"
 import { useEffect, useMemo, useRef, useState } from "react"
 import {
   OUTPAINT_MAX_SIDE,
@@ -249,7 +250,7 @@ export default function ImageOutpaintEditor({
         </div>
 
         <Input.TextArea
-          rows={2}
+          autoSize={promptAutoSize(2)}
           maxLength={500}
           placeholder="描述想要扩图的内容，不填将基于原图生成"
           value={prompt}

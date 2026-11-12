@@ -14,6 +14,7 @@ from ..services.episode_video_service import EpisodeVideoService
 from ..services.llm_service import LlmService
 from ..services.project_detail_service import ProjectDetailService
 from ..services.project_service import ProjectService
+from ..services.workbench_service import WorkbenchService
 from ..services.ai_generation_service import AiGenerationService
 from ..services.asset_source_references import MAX_SOURCE_REFERENCE_BYTES
 
@@ -593,6 +594,30 @@ def register_project_routes(
             return ProjectDetailService.get_episode_detail(project_id, episode_id)
         except Exception as err:
             raise HTTPException(status_code=400, detail=str(err))
+
+    @app.get("/api/projects/{project_id}/workbench", summary="剧本工作台聚合视图（派生节点图、进度关卡与下一步建议）")
+    def get_project_workbench(
+        project_id: Annotated[str, Path(description="项目 ID")],
+        episode_id: Annotated[str | None, Query(description="分集 ID，缺省取第一集")] = None,
+        user: dict = Depends(current_user),
+    ):
+        try:
+            return WorkbenchService.get_workbench(project_id, episode_id)
+        except ValueError as err:
+            raise HTTPException(status_code=404, detail=str(err))
+
+    @app.get("/api/projects/{project_id}/workbench/overview", summary="剧本工作台项目总览（全部集进度聚合）")
+    def get_project_workbench_overview(project_id: Annotated[str, Path(description="项目 ID")], user: dict = Depends(current_user)):
+        try:
+            return WorkbenchService.project_overview(project_id)
+        except ValueError as err:
+            raise HTTPException(status_code=404, detail=str(err))
+
+    @app.get("/api/projects/{project_id}/workbench/episodes", summary="剧本工作台分集切换选项")
+    def list_workbench_episodes(project_id: Annotated[str, Path(description="项目 ID")], user: dict = Depends(current_user)):
+        if not ProjectService.get_project(project_id):
+            raise HTTPException(status_code=404, detail="项目不存在")
+        return {"episodes": WorkbenchService.list_episode_options(project_id)}
 
     @app.delete("/api/projects/{project_id}/episodes/{episode_id}/beats", summary="批量删除选中片段，至少保留一个")
     def delete_episode_beats(project_id: str, episode_id: str, payload: dict, user: dict = Depends(mutating_user)):

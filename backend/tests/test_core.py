@@ -16,7 +16,7 @@ import local_video_studio as legacy
 from backend.app.auth import AuthStore, LastSuperAdminError, csrf_token, validate_password, verify_password
 from backend.app.config import Settings
 from backend.app.models import JobMode, JobStatus
-from backend.app.main import BROWSER_LOCAL_COMFY_VIEW_URL, DesktopDeliveryTickets, app, browser_direct_view_url, clear_login_failures_for_username, current_user, login_failures, output_response, public_job, _image_media_type
+from backend.app.main import BROWSER_LOCAL_COMFY_VIEW_URL, DesktopDeliveryTickets, app, browser_direct_view_url, clear_login_failures_for_identifiers, clear_login_failures_for_username, current_user, login_failures, output_response, public_job, _image_media_type
 from backend.app.comfy_service import ComfyQueuePrompt, ComfyService, ComfyUnavailable, interpret_comfy_progress, resolve_minimax_picture_prompt, resolve_reference_prompt
 from backend.app import comfy_service as comfy_service_module
 from backend.app.minimax_h3_action_workflow import build_minimax_h3_action_workflow
@@ -666,6 +666,8 @@ class ApiDocumentationTests(unittest.TestCase):
             ("get", "/api/auth/status"),
             ("post", "/api/auth/setup"),
             ("post", "/api/auth/login"),
+            ("post", "/api/auth/password/email-challenge"),
+            ("post", "/api/auth/password/email-reset"),
         }
         for path, path_item in schema["paths"].items():
             for method, operation in path_item.items():
@@ -772,6 +774,7 @@ class ApiDocumentationTests(unittest.TestCase):
                     JobMode.WAN_VACE_DEPTH_V2V.value,
                     JobMode.NVIDIA_RTX_VSR.value,
                     JobMode.SEEDVR2_UPSCALE.value,
+                    JobMode.RELAYVSR_UPSCALE.value,
                     JobMode.KEEP_FACE_RESTORE.value,
                     JobMode.SCAIL2_REPLACEMENT.value,
                     JobMode.STEM_SPLIT.value,
@@ -780,6 +783,12 @@ class ApiDocumentationTests(unittest.TestCase):
                     JobMode.IMAGE_INPAINT.value,
                     JobMode.IMAGE_ERASER.value,
                     JobMode.IMAGE_OUTPAINT.value,
+                    JobMode.CLOUD_KLING_T2V.value,
+                    JobMode.CLOUD_KLING_I2V.value,
+                    JobMode.CLOUD_SEEDANCE_T2V.value,
+                    JobMode.CLOUD_SEEDANCE_I2V.value,
+                    JobMode.CLOUD_HAILUO_T2V.value,
+                    JobMode.CLOUD_HAILUO_I2V.value,
                 }
                 for workflow in WORKFLOWS
             )
@@ -1490,6 +1499,123 @@ class AuthenticationTests(unittest.TestCase):
         self.assertEqual(cleared, 2)
         self.assertEqual(login_failures, {"10.0.0.10:other": [4.0]})
 
+    def test_login_unlock_clears_username_and_bound_email_across_ips(self) -> None:
+        login_failures.clear()
+        self.addCleanup(login_failures.clear)
+        login_failures.update({
+            "10.0.0.10:staff": [1.0, 2.0],
+            "10.0.0.11:staff@example.com": [3.0],
+            "10.0.0.10:other": [4.0],
+        })
+
+        cleared = clear_login_failures_for_identifiers("Staff", "staff@example.com")
+
+        self.assertEqual(cleared, 2)
+        self.assertEqual(login_failures, {"10.0.0.10:other": [4.0]})
+
+    def test_login_block_remaining_seconds_reflects_attempt_window(self) -> None:
+        import time as time_module
+
+        from backend.app.main import (
+            LOGIN_MAX_ATTEMPTS, LOGIN_WINDOW_SECONDS, login_block_remaining_seconds,
+            login_failures, login_failures_lock,
+        )
+
+        with login_failures_lock:
+            login_failures.clear()
+        user = {"username": "staff", "email": "staff@example.com"}
+        try:
+            now = time_module.monotonic()
+            with login_failures_lock:
+                login_failures["10.0.0.1:staff"] = [now] * (LOGIN_MAX_ATTEMPTS - 1)
+            self.assertEqual(login_block_remaining_seconds(user), 0)
+
+            with login_failures_lock:
+                login_failures["10.0.0.2:staff@example.com"] = [now] * LOGIN_MAX_ATTEMPTS
+            remaining = login_block_remaining_seconds(user)
+            self.assertGreater(remaining, 0)
+            self.assertLessEqual(remaining, LOGIN_WINDOW_SECONDS)
+        finally:
+            with login_failures_lock:
+                login_failures.clear()
+
+    def test_unlock_login_endpoint_is_admin_only_and_clears_the_block(self) -> None:
+        import time as time_module
+
+        from fastapi.testclient import TestClient
+
+        from backend.app import main as main_module
+
+        class WorkerStub:
+            def __init__(self, *_args) -> None:
+                pass
+
+            async def start(self) -> None:
+                pass
+
+            async def stop(self) -> None:
+                pass
+
+            async def enqueue(self, job_id: str) -> None:
+                pass
+
+        with tempfile.TemporaryDirectory() as directory:
+            original_settings = main_module.settings
+            original_worker = main_module.JobWorker
+            root = Path(directory)
+            main_module.settings = Settings(workspace_dir=root, data_dir_override=str(root / "data"))
+            main_module.JobWorker = WorkerStub
+            with main_module.login_failures_lock:
+                main_module.login_failures.clear()
+            try:
+                with TestClient(main_module.app) as client:
+                    admin = main_module.app.state.auth_store.create_user(
+                        "unlock-admin", "超管", "secure-pass-123", UserRole.SUPER_ADMIN, must_change_password=False,
+                    )
+                    staff = main_module.app.state.auth_store.create_user(
+                        "unlock-staff", "员工", "secure-pass-123", UserRole.EMPLOYEE, must_change_password=False,
+                    )
+                    admin_token, _ = main_module.app.state.auth_store.create_session(admin["id"])
+                    staff_token, _ = main_module.app.state.auth_store.create_session(staff["id"])
+                    key = "10.9.9.9:unlock-staff"
+                    with main_module.login_failures_lock:
+                        main_module.login_failures[key] = [time_module.monotonic()] * main_module.LOGIN_MAX_ATTEMPTS
+
+                    denied = client.post(
+                        f"/api/admin/users/{staff['id']}/unlock-login",
+                        headers={"X-CSRF-Token": csrf_token(staff_token)},
+                        cookies={main_module.SESSION_COOKIE: staff_token},
+                    )
+                    self.assertEqual(denied.status_code, 403)
+                    self.assertIn(key, main_module.login_failures)
+
+                    listing = client.get("/api/admin/users", cookies={main_module.SESSION_COOKIE: admin_token})
+                    self.assertEqual(listing.status_code, 200)
+                    listed = {item["username"]: item for item in listing.json()}
+                    self.assertTrue(listed["unlock-staff"]["login_blocked"])
+                    self.assertGreater(listed["unlock-staff"]["login_blocked_seconds"], 0)
+                    self.assertFalse(listed["unlock-admin"]["login_blocked"])
+
+                    unlocked = client.post(
+                        f"/api/admin/users/{staff['id']}/unlock-login",
+                        headers={"X-CSRF-Token": csrf_token(admin_token)},
+                        cookies={main_module.SESSION_COOKIE: admin_token},
+                    )
+                    self.assertEqual(unlocked.status_code, 200)
+                    self.assertEqual(unlocked.json()["cleared"], 1)
+                    self.assertNotIn(key, main_module.login_failures)
+
+                    retry = client.post(
+                        "/api/auth/login",
+                        json={"username": "unlock-staff", "password": "secure-pass-123"},
+                    )
+                    self.assertEqual(retry.status_code, 200)
+            finally:
+                main_module.settings = original_settings
+                main_module.JobWorker = original_worker
+                with main_module.login_failures_lock:
+                    main_module.login_failures.clear()
+
     def test_user_password_session_and_revocation_lifecycle(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             auth = AuthStore(Path(directory) / "auth.db")
@@ -2042,7 +2168,7 @@ class WorkerTests(unittest.TestCase):
             job = store.get("job-1")
             self.assertEqual(job["status"], JobStatus.INTERRUPTED)
             self.assertIsNone(job["comfy_prompt_id"])
-            self.assertIn("ComfyUI", job["stage"])
+            self.assertIn("视频服务", job["stage"])
 
     def test_recover_auto_requeues_lost_comfy_job(self) -> None:
         class FakeComfy:
@@ -2076,7 +2202,7 @@ class WorkerTests(unittest.TestCase):
             store = JobStore(Path(directory) / "test.db")
             store.create("job-1", JobMode.MINIMAX_H3_T2V, "prompt", "", None, [])
             store.set_comfy_execution("job-1", "prompt-1", "client-1", "generation")
-            store.update("job-1", status=JobStatus.INTERRUPTED, stage="ComfyUI 连接中断，恢复后将自动重新提交")
+            store.update("job-1", status=JobStatus.INTERRUPTED, stage="视频服务连接中断，恢复后将自动重新提交")
             worker = JobWorker(store, FakeComfy())
             recovered = worker.recover()
             job = store.get("job-1")
@@ -2372,7 +2498,7 @@ class WorkerTests(unittest.TestCase):
 
                 def run(self, *args, **kwargs):
                     store.mark_cancelled("job-1")
-                    raise RuntimeError("ComfyUI 推理失败: interrupted")
+                    raise RuntimeError("视频服务推理失败: interrupted")
 
             asyncio.run(JobWorker(store, FakeComfy()).execute("job-1"))
             job = store.get("job-1")

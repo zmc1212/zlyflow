@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class JobMode(str, Enum):
@@ -44,6 +44,8 @@ class JobMode(str, Enum):
     MINIMAX_H3_AVATAR = "minimax-h3-avatar"
     MINIMAX_H3_LIP_SYNC = "minimax-h3-lip-sync"
     MINIMAX_H3_KEYFRAME = "minimax-h3-keyframe"
+    MINIMAX_H3_IMAGE_T2I = "minimax-h3-image-t2i"
+    MINIMAX_H3_IMAGE_EDIT = "minimax-h3-image-edit"
     GRS_GPT_IMAGE_2 = "grs-gpt-image-2"
     GRS_GPT_IMAGE_2_VIP = "grs-gpt-image-2-vip"
     IMAGE_BACKGROUND_REMOVE = "image-background-remove"
@@ -51,6 +53,13 @@ class JobMode(str, Enum):
     IMAGE_INPAINT = "image-inpaint"
     IMAGE_ERASER = "image-eraser"
     IMAGE_OUTPAINT = "image-outpaint"
+    # 云端视频模型（executor="cloud_video"，直连厂商官方 API）
+    CLOUD_KLING_T2V = "cloud-kling-t2v"
+    CLOUD_KLING_I2V = "cloud-kling-i2v"
+    CLOUD_SEEDANCE_T2V = "cloud-seedance-t2v"
+    CLOUD_SEEDANCE_I2V = "cloud-seedance-i2v"
+    CLOUD_HAILUO_T2V = "cloud-hailuo-t2v"
+    CLOUD_HAILUO_I2V = "cloud-hailuo-i2v"
 
 
 class MediaType(str, Enum):
@@ -87,11 +96,26 @@ class MediaOutput(BaseModel):
     delivered_at: str | None = None
 
 
+REFERENCE_KINDS: tuple[str, ...] = ("image", "video", "audio", "media")
+
+
 class JobReference(BaseModel):
     index: int = Field(ge=1, description="Reference material upload order within the job.")
     url: str = Field(description="Authenticated reference material preview URL.")
-    kind: Literal["image", "video", "audio"] = "image"
+    kind: Literal["image", "video", "audio", "media"] = Field(
+        default="image",
+        description=(
+            "参考素材类型。media 表示「音频或视频」通用槽位（如人声/伴奏分离），"
+            "具体是音频还是视频由客户端按素材本身判定。"
+        ),
+    )
     label: str | None = None
+
+    @field_validator("kind", mode="before")
+    @classmethod
+    def _normalize_kind(cls, value: Any) -> Any:
+        """注册表新增槽位类型时，单条记录不能把整个任务列表打成 500：未知 kind 归一到 media。"""
+        return value if value in REFERENCE_KINDS else "media"
 
 
 class JobRequestParameter(BaseModel):
@@ -197,7 +221,11 @@ class UserResponse(BaseModel):
     role: UserRole
     is_active: bool
     must_change_password: bool
+    email: str | None = None
     created_at: str
+    # 登录失败锁定状态由内存计数实时计算，仅账号列表返回真实值。
+    login_blocked: bool = False
+    login_blocked_seconds: int = 0
     updated_at: str
     last_login_at: str | None = None
 
@@ -213,10 +241,11 @@ class SetupAdminRequest(BaseModel):
     username: str = Field(min_length=3, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")
     display_name: str = Field(min_length=1, max_length=80)
     password: str = Field(min_length=6, max_length=128)
+    email: str | None = Field(default=None, max_length=255)
 
 
 class LoginRequest(BaseModel):
-    username: str = Field(min_length=1, max_length=64)
+    username: str = Field(min_length=1, max_length=255, description="登录账号名，或账号绑定的找回邮箱。")
     password: str = Field(min_length=1, max_length=128)
 
 
@@ -228,18 +257,44 @@ class UpdateUserRequest(BaseModel):
     display_name: str | None = Field(default=None, min_length=1, max_length=80)
     role: UserRole | None = None
     is_active: bool | None = None
+    email: str | None = Field(default=None, max_length=255)
 
 
 class UpdateProfileRequest(BaseModel):
     display_name: str = Field(min_length=1, max_length=80)
+    email: str | None = Field(default=None, max_length=255)
+    current_password: str | None = Field(default=None, max_length=128)
 
 
 class ResetPasswordRequest(BaseModel):
     password: str = Field(min_length=6, max_length=128)
 
 
+class UnlockLoginResponse(BaseModel):
+    ok: bool
+    cleared: int
+    username: str
+    login_blocked_seconds: int = 0
+
+
 class ChangePasswordRequest(BaseModel):
     current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=6, max_length=128)
+
+
+class PasswordEmailChallengeRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+
+
+class PasswordEmailChallengeResponse(BaseModel):
+    sent: bool = Field(description="是否已受理发送请求（不区分邮箱是否存在，避免账号枚举）。")
+    masked_email: str | None = Field(default=None, description="脱敏后的收件邮箱，用于界面提示。")
+    expires_in_minutes: int = Field(description="验证码有效分钟数。")
+
+
+class PasswordEmailResetRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+    code: str = Field(min_length=4, max_length=12)
     new_password: str = Field(min_length=6, max_length=128)
 
 
@@ -1165,6 +1220,82 @@ class MusicProviderResponse(BaseModel):
     last_test_at: str | None = None
 
 
+class CloudVideoProviderUpdateRequest(BaseModel):
+    enabled: bool | None = Field(default=None, description="None 表示不修改启用状态")
+    base_url: str = Field(default="", max_length=500, description="留空表示恢复厂商官方默认地址")
+    api_key: str | None = Field(default=None, max_length=512, description="留空表示保持现有密钥不变")
+    api_secret: str | None = Field(
+        default=None, max_length=512, description="双密钥厂商（可灵 SK / 方舟 SK）使用；留空表示保持现有密钥不变",
+    )
+
+
+class CloudVideoProviderTestRequest(BaseModel):
+    base_url: str | None = Field(default=None, max_length=500)
+    api_key: str | None = Field(default=None, max_length=512, description="留空则使用已保存密钥")
+    api_secret: str | None = Field(default=None, max_length=512, description="留空则使用已保存密钥")
+
+
+class CloudVideoProviderResponse(BaseModel):
+    provider_key: str
+    label: str = ""
+    requires_secret: bool = False
+    api_key_label: str = "API Key"
+    api_secret_label: str = "Secret Key"
+    base_url_hint: str = ""
+    default_base_url: str = ""
+    enabled: bool = False
+    base_url: str = ""
+    effective_base_url: str = ""
+    has_api_key: bool = False
+    api_key_masked: str = ""
+    has_api_secret: bool = False
+    credential_ready: bool = False
+    # 「测试连接」结果字段：必须随 test 响应回传，否则前端会把成功误判为失败（见 MusicProviderResponse 注释）。
+    available: bool = False
+    unavailable_reason: str | None = None
+    last_test_status: str | None = None
+    last_test_message: str | None = None
+    last_test_at: str | None = None
+
+
+class MailProviderUpdateRequest(BaseModel):
+    enabled: bool = True
+    host: str = Field(min_length=1, max_length=255)
+    port: int = Field(ge=1, le=65535)
+    security: str = Field(default="starttls", pattern="^(ssl|starttls|none)$")
+    username: str = Field(default="", max_length=255)
+    password: str | None = Field(default=None, max_length=512, description="留空表示保持现有密码不变")
+    from_address: str = Field(min_length=3, max_length=255)
+    from_name: str = Field(default="ZLY AI Studio", max_length=120)
+
+
+class MailProviderTestRequest(BaseModel):
+    enabled: bool | None = None
+    host: str | None = Field(default=None, max_length=255)
+    port: int | None = Field(default=None, ge=1, le=65535)
+    security: str | None = Field(default=None, pattern="^(ssl|starttls|none)$")
+    username: str | None = Field(default=None, max_length=255)
+    password: str | None = Field(default=None, max_length=512, description="留空则使用已保存密码")
+    from_address: str | None = Field(default=None, max_length=255)
+    from_name: str | None = Field(default=None, max_length=120)
+
+
+class MailProviderResponse(BaseModel):
+    enabled: bool = False
+    host: str = ""
+    port: int = 465
+    security: str = "ssl"
+    username: str = ""
+    from_address: str = ""
+    from_name: str = "ZLY AI Studio"
+    has_password: bool = False
+    credential_ready: bool = False
+    configured: bool = False
+    last_test_status: str | None = None
+    last_test_message: str | None = None
+    last_test_at: str | None = None
+
+
 class MusicVibeRequest(BaseModel):
     description: str = Field(min_length=1, max_length=1000, description="一句话描述想要的歌")
     duration_seconds: int = Field(default=210, ge=10, le=600)
@@ -1200,9 +1331,52 @@ class MusicJobResponse(BaseModel):
     remote_job_id: str | None = None
     remote_song_id: str | None = None
     error_message: str | None = None
+    chat_id: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
     completed_at: str | None = None
+
+
+class MusicChatCreateRequest(BaseModel):
+    anchor_job_id: str | None = None
+
+
+class MusicChatUpdateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=120, description="对话名称")
+
+
+class MusicChatMessageRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=2000, description="对音乐助手说的话")
+    duration_seconds: int | None = Field(default=None, ge=10, le=600, description="composer 选定的目标时长")
+    instrumental: bool | None = Field(default=None, description="composer 选定的人声/纯音乐")
+
+
+class MusicChatGenerateRequest(BaseModel):
+    message_id: str = Field(min_length=1, description="要生成的提案消息 id")
+
+
+class MusicChatResponse(BaseModel):
+    id: str
+    owner_user_id: str
+    title: str = "新对话"
+    anchor_job_id: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+class MusicChatMessageResponse(BaseModel):
+    id: str
+    chat_id: str
+    role: str
+    content: str
+    proposal: dict | None = None
+    job_id: str | None = None
+    created_at: str | None = None
+
+
+class MusicChatDetailResponse(MusicChatResponse):
+    messages: list[MusicChatMessageResponse] = Field(default_factory=list)
+    anchor_job: MusicJobResponse | None = None
 
 
 class MusicLyricLine(BaseModel):

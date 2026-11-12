@@ -46,6 +46,21 @@ export function missingActionShotPicture(prompt: string, referenceCount: number)
   return referenced ? "" : "提示词里需要引用参考图，例如 <Picture 1>"
 }
 
+/** 「开始生成」按钮的禁用原因；为空表示可以提交，与 ready 判定保持同源。 */
+export function actionShotSubmitBlockReason(input: {
+  referenceCount: number
+  prompt: string
+  pictureHint: string
+  workflowLoaded: boolean
+  submitting: boolean
+}): string {
+  if (input.submitting) return "正在提交…"
+  if (!input.workflowLoaded) return "正在读取打斗镜头能力"
+  if (input.referenceCount < ACTION_SHOT_MIN_REFERENCES) return "先添加参考图（至少 1 张），才能开始生成"
+  if (!input.prompt.trim()) return "写一句打斗动作提示词，才能开始生成"
+  return input.pictureHint
+}
+
 /** 一键填入的打斗结构模板：主体关系 → 动作节拍 → 镜头与打击感。 */
 export function actionShotPromptTemplate(referenceCount: number): string {
   const count = Math.max(ACTION_SHOT_MIN_REFERENCES, referenceCount)

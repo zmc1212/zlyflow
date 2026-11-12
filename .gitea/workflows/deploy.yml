@@ -23,8 +23,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # —— 与 ops/gitea/.env 保持一致 ——
-  REGISTRY: 124.70.90.30:3080
+  # —— 与 ops/gitea/.env 保持一致(切换后 Gitea 接管 GitBlit 原 8899 端口)——
+  REGISTRY: 124.70.90.30:8899
   # —— 每个接入的项目需要修改下面 4 行 ——
   DEPLOY_DIR: /opt/zly-ai-video-studio   # 服务器上项目目录(含 compose.yaml 与 .env)
   LOCAL_IMAGE: zly-ai-video-studio:latest

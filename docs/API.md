@@ -1,5 +1,22 @@
 # ZLY AI Video Studio API 文档
 
+## 2026-11-12 剧本工作台聚合视图（只读派生）
+
+- `GET /api/projects/{project_id}/workbench`：登录用户（owner 校验同项目详情中间件）。Query `episode_id` 可选，缺省取第一集；项目不存在或无分集返回 404（「项目不存在」/「该项目还没有分集，请先在剧本阶段完成拆解」）。响应：`project{id,name,cover_url}`、`episode{id,number,title,status,script_text,summary,episode_video_url,episode_video_job_id}`、`assets[]`（仅本集引用到的：`id/kind/name/image_url/ready/ready_label/looks_total/looks_ready/ref_beats`，就绪口径与前端 `assetReadiness` 一致）、`beats[]`（`id/sequence/kind/heading/title/text/speaker/dialogue/character_ids/scene_id/prop_ids/has_prompt/has_video/video_url/video_duration/task_status/awaiting_refine`；`task_status` 从最近 40 条 `video_generation` 任务的 `render_plan.chunks` 提取，已成片一律 `succeeded`）、`edges[]`（`asset→beat` reference / `beat→beat` sequence / `beat→episode-video` output）、`progress{stages{script,assets,prompts,shots{done,total,ratio,status}},overall_pct,...}`、`next_action{kind,label,beat_id?,target}`。**只读端点，不写库**；beats 兜底沿用 `GET /episodes/{id}` 的既有行为。
+- `GET /api/projects/{project_id}/workbench/episodes`：登录用户。返回 `{episodes:[{id,number,title,shots_count,status}]}` 供分集切换。
+- `GET /api/projects/{project_id}/workbench/overview`：登录用户。项目级全部集聚合（轻量，读 `data_json` beats 计数，不触发兜底拆解写库）：`{project, episodes:[{id,number,title,status,beats_total,prompts_done,shots_done,overall_pct,running,awaiting_refine,failed,episode_video_url}]（failed=整任务失败后未出片且非二采待确认的镜头存在）, project_progress{episodes_total,beats_total,prompts_done,shots_done,overall_pct}, next_action{kind,label,episode_id?,target}}`，供工作台「全部集」总览；`kind ∈ wait/confirm/go-episode/compose/go-script`。
+- 兼容性：纯新增只读端点与界面入口；无表结构变更，不改既有 API。实现与回滚见 `docs/ARCHITECTURE.md` 同日章节。
+
+## 2026-11-10 精选音乐（音乐页展示位，管理员发布 / 全员只读）
+
+- `GET /api/featured-music`：登录用户。返回已发布列表，按 `sort_order ASC, published_at DESC`。每项字段：`id`、`job_id`、`owner_user_id`、`title`、`summary`、`style`、`lyrics`、`result_url`、`cover_url`、`duration_seconds`、`result_format`、`sort_order`、`published_at`、`updated_at`。
+- `GET /api/featured-music/{featured_id}`：登录用户。返回同一组字段；不存在或已下架返回 404 `{"detail":"精选音乐不存在或已下架"}`。
+- `POST /api/admin/featured-music`：管理员（`mutating_admin_user`，需 CSRF）。请求体：`{ "job_id": "music-...", "title"?: string, "summary"?: string, "cover_url"?: string, "sort_order"?: 0..999 }`；`title` 缺省取歌曲标题，`summary` 缺省为空。只接受 `status = succeeded` 且 `result_url` 为 `http(s)://` 或 `/` 开头的歌曲，否则 400（「歌曲不存在或已被删除」/「只有生成成功的歌曲才能发布为精选」）。同一 `job_id` 重复发布原地更新并保留首次 `published_at`。返回完整精选对象。
+- `DELETE /api/admin/featured-music/{featured_id}`：管理员（`mutating_admin_user`，需 CSRF）。删除展示行（歌曲本身不受影响），返回 `{"status":"ok","id":"..."}`；不存在返回 404。
+- 快照语义：发布时把标题、推荐语、风格、歌词、音频、封面、时长与格式复制进独立表 `ai_featured_music`，之后删除或修改原歌曲不影响已发布内容；下架只删展示行。表结构见 `sql/027_featured_music.sql`。
+- 兼容性：新增独立表与独立路由，不改 `/api/music/jobs`、音乐对话、供应商配置与既有页签；普通成员只读。
+- 验证：`python -X utf8 -B -m unittest backend.tests.test_featured_music -v`（7 项）；5173 桌面端发布 / 试听 / 更新 / 下架链路实测。
+
 ## 2026-11-06 删除任务级联清理云端产物
 
 - `DELETE /api/jobs/{job_id}` 仍使用登录会话、归属校验与 `X-CSRF-Token`，成功返回 `200 {"id":"..."}`。删除前聚合任务镜像、全部轮次/生成项及二采预览中的云端输出，按 key 去重，清理成功后才提交任务与轮次记录的删除。
@@ -197,7 +214,7 @@ H3 二采任务中 `refine_preview` 由平台托管：`refine_enabled=true` 时�
 | `studio_get_timeline` | `studio:read` | `project_id,sequence_id`；返回 `revision`、名称、设置、总时长、素材、片段和 `analysis`（画面与音轨摘要）。预览/确认前必须先读取。 |
 | `studio_get_transcript` | `studio:read` | `project_id,sequence_id`；返回音轨转写状态、带时间戳段落和摘要，不发起转写。 |
 | `studio_start_transcript` | `studio:edit` | `project_id,sequence_id`，可选 `force`；提取有声素材并提交异步转写，按音频秒数消耗转写服务，调用前需用户同意。 |
-| `studio_preview_edit` | `studio:edit` | `project_id,sequence_id,operation`，可选 `revision,asset_ids,strategy`；生成待确认方案，不写时间线。`operation` 同内置助手：`video_arrange`、`subtitle_arrange`、`audio_subtitle`、`dialogue_cut`、`quick_cut`、`highlight_cut`、`hook_cut`；`asset_ids` 仅用于 `video_arrange`，`strategy` 仅用于 `hook_cut`（`conflict_3s`、`climax_only`、`quote_open`、`ending_hook`、`trailer`）。 |
+| `studio_preview_edit` | `studio:edit` | `project_id,sequence_id,operation`，可选 `revision,asset_ids,strategy`；生成待确认方案，不写时间线。`operation` 同内置助手：`video_arrange`、`subtitle_arrange`、`audio_subtitle`、`subtitle_translate`（字幕翻译）、`dialogue_cut`、`quick_cut`、`highlight_cut`、`hook_cut`；`asset_ids` 仅用于 `video_arrange`，`strategy` 仅用于 `hook_cut`（`conflict_3s`、`climax_only`、`quote_open`、`ending_hook`、`trailer`）。 |
 | `studio_get_edit_action` | `studio:read` | `project_id,sequence_id,action_id`；查询方案清单、状态与结果，仅限本人创建的动作。 |
 | `studio_reorder_edit` | `studio:edit` | `project_id,sequence_id,action_id,asset_ids`；按新顺序调整待确认的智能铺轨清单，不写时间线。 |
 | `studio_confirm_edit` | `studio:edit` | `project_id,sequence_id,action_id`；原子执行方案并写入自己的时间线；幂等，重复确认返回同一结果。 |
@@ -375,6 +392,7 @@ MCP 服务地址为 `<对外 origin>/api/mcp`，使用无状态 Streamable HTTP�
 | `GET/POST` | `/api/admin/users` | 管理员读取或创建员工账号。 |
 | `PATCH` | `/api/admin/users/{user_id}` | 调整姓名、角色或启停账号；角色与启停仍按管理范围限制。 |
 | `POST` | `/api/admin/users/{user_id}/reset-password` | 重置初始密码并撤销该用户会话。 |
+| `POST` | `/api/admin/users/{user_id}/unlock-login` | 立即解除该账号的 15 分钟登录失败锁定，不改密码会话；需管理员，审计记为 `unlock_login`。 |
 | `GET/PUT` | `/api/admin/providers/comfy` | 超级管理员读取或保存 ComfyUI 连接地址。 |
 | `POST` | `/api/admin/providers/comfy/test` | 超级管理员测试当前输入的 ComfyUI 地址，不必先保存。 |
 | `GET` | `/api/modes` | 获取工作流能力注册表、图片尺寸和提示词预设。 |
@@ -879,6 +897,8 @@ POST /api/auth/setup
 
 任何已登录账号都可调用 `PATCH /api/auth/profile`（body `{"display_name":"新姓名"}`）修改自己的显示姓名，响应与登录一致并回传最新 `user` 与 `csrf_token`。管理员和超级管理员也可通过 `PATCH /api/admin/users/{user_id}` 修改任意账号的姓名；角色与启停仍按原有管理范围限制（管理员只能调整员工）。姓名只影响展示，登录账号、密码和会话均不变。
 
+`GET /api/admin/users` 每行额外返回 `login_blocked`（是否处于登录失败锁定）与 `login_blocked_seconds`（剩余锁定秒数），用于管理界面展示；这两个字段由进程内存计数实时计算，不落库。管理员可用 `POST /api/admin/users/{user_id}/unlock-login` 立即解除锁定（无请求体，写操作需 `X-CSRF-Token`），返回 `{"ok":true,"cleared":1,"username":"...","login_blocked_seconds":0}`；管理员只能解除员工账号，被锁定的客户端自身没有解除入口。
+
 任务的每个 `outputs[]` 包含 `delivery_status`。只要输出尚未本地交付（`pending` 或 `cloud`），就会返回短路径 `download_url`，包括部分完成或失败但已落盘的图片；启用七牛云时另有稳定 `cloud_url`（对象域名+键，不含过期签名）。浏览器将响应体写入员工授权目录后调用：
 
 ```text
@@ -892,12 +912,13 @@ X-CSRF-Token: <login response csrf_token>
 
 前缀：`/api/projects/{project_id}/smart-edit/{sequence_id}/actions`，sequence_id为分集ID或`main`。当前账号登录必需，POST沿用CSRF。
 
-- `POST /preview`：`{operation:"video_arrange"|"subtitle_arrange"|"audio_subtitle"|"dialogue_cut"|"quick_cut"|"highlight_cut"|"hook_cut",revision:number,session_id?:string|null,strategy?:string|null,asset_ids?:string[]}`。先保存当前编辑，再以该revision生成清单；不修改时间线。`video_arrange`可用`asset_ids`指定顺序；`hook_cut`必须带`strategy`，取值为`conflict_3s`、`climax_only`、`quote_open`、`ending_hook`、`trailer`，其它操作不得携带。`audio_subtitle`不读取分镜对白，自由剪辑（`main`）同样可用。返回`id,status,operation,project_id,sequence_id,base_revision,items,count,append_at,total_duration,skipped_count,missing_video_count,dropped_count,trimmed_count`；`hook_cut`另返回`strategy,strategy_title,principle`；`audio_subtitle`另返回`inaudible_count,replaced_count`（`replaced_count`为被替换的上一次自动字幕数，`skipped_count`为与手工文字或其它文字片段重叠而未铺设的段落数）。剪辑类`items[]`含`asset_id,beat_id,name,start,duration,action`，并带可选`reason`（逐镜保留理由）；`audio_subtitle`的`items[]`含`asset_id,beat_id,segment_id,name,start,duration,reason,action`，`name`即字幕文本，`reason`记录「已按镜头边界收短」「长句已分行」等处理。`extra.understanding`回显理解状态、模型、素材数、`shot_count/shot_analyzed_count/shot_used_count`与`used_count`，供授权弹窗展示镜头级依据；`extra.transcript`回显`status/model/transcribed_at/transcribed_count/used_count/segment_count/audio_seconds`，供授权弹窗展示音轨依据。无转写证据时`audio_subtitle`按状态返回中文错误（未开始、已过期、无语音、失败），不会退回剧本对白。无可用结果时status=`empty`，否则`pending`。
+- `POST /preview`：`{operation:"video_arrange"|"subtitle_arrange"|"audio_subtitle"|"subtitle_translate"|"dialogue_cut"|"quick_cut"|"highlight_cut"|"hook_cut",revision:number,session_id?:string|null,strategy?:string|null,asset_ids?:string[]}`。先保存当前编辑，再以该revision生成清单；不修改时间线。`video_arrange`可用`asset_ids`指定顺序；`hook_cut`必须带`strategy`，取值为`conflict_3s`、`climax_only`、`quote_open`、`ending_hook`、`trailer`，其它操作不得携带。`audio_subtitle`不读取分镜对白，自由剪辑（`main`）同样可用。返回`id,status,operation,project_id,sequence_id,base_revision,items,count,append_at,total_duration,skipped_count,missing_video_count,dropped_count,trimmed_count`；`hook_cut`另返回`strategy,strategy_title,principle`；`audio_subtitle`另返回`inaudible_count,replaced_count`（`replaced_count`为被替换的上一次自动字幕数，`skipped_count`为与手工文字或其它文字片段重叠而未铺设的段落数）。剪辑类`items[]`含`asset_id,beat_id,name,start,duration,action`，并带可选`reason`（逐镜保留理由）；`audio_subtitle`的`items[]`含`asset_id,beat_id,segment_id,name,start,duration,reason,action`，`name`即字幕文本，`reason`记录「已按镜头边界收短」「长句已分行」等处理。`extra.understanding`回显理解状态、模型、素材数、`shot_count/shot_analyzed_count/shot_used_count`与`used_count`，供授权弹窗展示镜头级依据；`extra.transcript`回显`status/model/transcribed_at/transcribed_count/used_count/segment_count/audio_seconds`，供授权弹窗展示音轨依据。无转写证据时`audio_subtitle`按状态返回中文错误（未开始、已过期、无语音、失败），不会退回剧本对白。无可用结果时status=`empty`，否则`pending`。`subtitle_translate`把文字轨已有字幕的文本翻译成简体中文（含日文假名/谚文或纯拉丁字母的条目；仅 CJK 汉字视为已是中文并计入`skipped_count`），不改时间与样式；`items[]`含`clip_id,name,start,duration,reason(「原文：…」),action:"update"`，`name`即译文；无待翻译条目时`status=empty`且不调用模型。
 - `GET /{action_id}`：查询账号隔离的清单及执行状态；完成后含`snapshot`，结构沿用剪辑GET的document/revision/draft_key/updated_at。
 - `POST /{action_id}/reorder`：仅`video_arrange`，`{asset_ids:[...]}`按新顺序重生成待确认清单。
 - `POST /{action_id}/confirm`：按预览的固定目标与版本执行，返回status=`succeeded`及snapshot；重复确认返回同一记录。文档与记录同一事务提交，版本变化409、目标不存在或非本人记录404、非法动作/策略400。
+- `POST /{action_id}/reapply`：仅`subtitle_translate`且status=`succeeded`的记录，`{revision:number,session_id?:string|null}`。按记录保存的「原文→译文」对照（本功能上线前的旧提案回退用`items[].reason`的原文前缀）匹配当前文字轨同原文的字幕，重新生成待确认清单，不调用模型；返回新提案，`reapplied_from`为来源记录ID，无匹配时status=`empty`；版本变化409、非本人记录404。
 
-助手SessionCreate/AssistantSession新增可选`context:{kind:"smart_edit",sequence_id}`，project_id必填且与分集匹配；旧会话context为空。详情新增`edit_proposals`，消息新增`{type:"edit_action",action_id}`。LLM工具`editor_read {}`返回素材与`analysis`理解摘要（分集含对白镜头数、对白秒数、高光候选与理由；来自分镜/对白文本，非画面识别），并附用户显式触发后的`analysis.understanding`（状态、模型、素材级条目与内部镜头描述/机位/主体、`detected_shot_count/shot_count/shot_analyzed_count`；未触发或已过期时为空）与`analysis.transcript`（`status/model/transcribed_at/stale/message/media_count/transcribed_count/segment_count/audio_seconds/progress`；未转写时`status=missing`且段落数为0）。`propose_edit {operation,strategy?}`只在冻结的剪辑会话内可用；`hook_cut`必须由用户选定策略，工具不能直接执行授权。`hook_cut`/`highlight_cut`评分会并入已成功的画面理解，授权清单的`reason`带「画面理解：…」并显示理解依据；过期或失败的理解不参与加权。system prompt 规定：用户说「按真实声音/原声/配音上字幕」「音轨字幕」「按转写铺字幕」时用`audio_subtitle`，说「自动字幕」时仍用`subtitle_arrange`；`analysis.transcript.status`不是`succeeded`或`partial`不得声称有转写结果，也不得把剧本对白冒充音轨转写。执行记录不提供给其它账号，返回摘要不含内部完整计划。
+助手SessionCreate/AssistantSession新增可选`context:{kind:"smart_edit",sequence_id}`，project_id必填且与分集匹配；旧会话context为空。详情新增`edit_proposals`，消息新增`{type:"edit_action",action_id}`。LLM工具`editor_read {}`返回素材与`analysis`理解摘要（分集含对白镜头数、对白秒数、高光候选与理由；来自分镜/对白文本，非画面识别），并附用户显式触发后的`analysis.understanding`（状态、模型、素材级条目与内部镜头描述/机位/主体、`detected_shot_count/shot_count/shot_analyzed_count`；未触发或已过期时为空）与`analysis.transcript`（`status/model/transcribed_at/stale/message/media_count/transcribed_count/segment_count/audio_seconds/progress`；未转写时`status=missing`且段落数为0）。`propose_edit {operation,strategy?}`只在冻结的剪辑会话内可用；`hook_cut`必须由用户选定策略，工具不能直接执行授权。`hook_cut`/`highlight_cut`评分会并入已成功的画面理解，授权清单的`reason`带「画面理解：…」并显示理解依据；过期或失败的理解不参与加权。system prompt 规定：用户说「按真实声音/原声/配音上字幕」「音轨字幕」「按转写铺字幕」时用`audio_subtitle`，说「自动字幕」时仍用`subtitle_arrange`，说「把字幕翻译成中文/翻译字幕」时用`subtitle_translate`；`analysis.transcript.status`不是`succeeded`或`partial`不得声称有转写结果，也不得把剧本对白冒充音轨转写。执行记录不提供给其它账号，返回摘要不含内部完整计划。
 
 ## 2026-11-03：SCAIL-2 人物动作替换
 

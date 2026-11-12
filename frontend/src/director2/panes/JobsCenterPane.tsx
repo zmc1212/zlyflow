@@ -292,7 +292,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
       preparing: { color: "processing", text: "准备数据" },
       prompt_generation: { color: "processing", text: "生成提示词" },
       uploading: { color: "processing", text: "上传素材" },
-      comfy_queued: { color: "cyan", text: "ComfyUI 排队" },
+      comfy_queued: { color: "cyan", text: "视频服务排队" },
       running: { color: "processing", text: "执行中" },
       awaiting_refine: { color: "gold", text: "一采预览待确认" },
       succeeded: { color: "green", text: "已完成" },
@@ -1078,7 +1078,7 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
             {/* GRS 请求体 */}
             {!isVideoJob(selectedJob) && !isH3PromptJob(selectedJob) && !isShotPlanJob(selectedJob) && !isTtsJob(selectedJob) && selectedJob.job_type !== "asset_extraction" ? (
               <div className="detail-section">
-                <div className="detail-section-title">📤 提交给 GRS 的完整参数</div>
+                <div className="detail-section-title">📤 提交给图片服务的完整参数</div>
                 <div className="prompt-block">
                   <div className="prompt-label">POST /v1/api/generate JSON（images 为参考图 URL，实际上传为 data URI）</div>
                   <pre className="prompt-text">{formatRequestBody(selectedJob)}</pre>

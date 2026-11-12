@@ -1,6 +1,28 @@
 import { describe, expect, it } from "vitest"
-import { buildModelOptions, modelPriceLabel, providerPresetFor, resolveModelFree, sameProviderEndpoint } from "./provider-models"
+import { filterSearchOptions } from "../search-match"
+import {
+  buildModelOptions,
+  filterModelOptions,
+  modelPriceLabel,
+  providerPresetFor,
+  resolveModelFree,
+  sameProviderEndpoint,
+} from "./provider-models"
 import type { OfficialProviderPreset } from "./provider-models"
+
+// 截图里的真实目录：全部“价格未知”。
+const catalog = [
+  "antdigital/Ling-3.1-flash",
+  "cmaas-glm-5.3",
+  "cmaas-qwen3.8-flash",
+  "deepseek-r1-distill-llama-70b",
+  "deepseek-r1-distill-qwen-1.5b",
+  "deepseek-v4-flash-0731",
+  "deepseek-v4-pro",
+  "deepseek-v4-pro-0813",
+].map(id => ({ id, label: `${id} · 价格未知`, free: null }))
+
+const modelOptions = buildModelOptions("https://relay.example/v1", "deepseek-v4-pro", catalog, undefined, [])
 
 const preset: OfficialProviderPreset = {
   key: "zhipu", label: "智谱官方", base_url: "https://open.bigmodel.cn/api/paas/v4",
@@ -60,6 +82,25 @@ describe("provider model selection and pricing", () => {
 
   it("always provides a readable three-state price label", () => {
     expect([true, false, null].map(modelPriceLabel)).toEqual(["免费", "付费", "价格未知"])
+  })
+
+  it("lists everything in original order while the keyword is empty", () => {
+    expect(filterSearchOptions(modelOptions, "")).toEqual(modelOptions)
+    expect(filterSearchOptions(modelOptions, "   ")).toEqual(modelOptions)
+  })
+
+  it("narrows the list as soon as a keyword is typed", () => {
+    // 回归：旧的“输入恰好等于某个选项就全部放行”逻辑会让任何输入都不过滤。
+    const typing = buildModelOptions("https://relay.example/v1", "3.7", catalog, undefined, [])
+    const filtered = filterSearchOptions(typing, "3.7")
+    expect(filtered.map(row => row.value)).toEqual(["3.7"])
+  })
+
+  it("keeps one disabled hint row instead of collapsing the model dropdown", () => {
+    expect(filterModelOptions(modelOptions, "not-a-model")).toEqual([
+      { value: "__no-model-match__not-a-model", label: "无匹配模型，继续输入或用「not-a-model」保存", disabled: true, hint: true },
+    ])
+    expect(filterModelOptions(modelOptions, "glm53").map(row => row.value)).toEqual(["cmaas-glm-5.3"])
   })
 
   it("maps the internai discovery preset to chat and vision defaults", () => {

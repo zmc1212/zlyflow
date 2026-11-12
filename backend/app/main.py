@@ -27,7 +27,10 @@ from fastapi.security import APIKeyCookie
 from fastapi.openapi.utils import get_openapi
 
 from .api_documentation import enrich_openapi_documentation
-from .auth import AuthStore, LastSuperAdminError, SESSION_HOURS, csrf_token
+from .auth import (
+    AuthStore, LastSuperAdminError, RESET_CODE_TTL_MINUTES, SESSION_HOURS, csrf_token,
+    hash_secret, mask_email, normalize_email, validate_email,
+)
 from .cache import EpochCache, TTLCache
 from .comfy_provider import ComfyProviderError, ComfyProviderService
 from .comfy_service import ComfyService
@@ -92,6 +95,7 @@ from .llm_minimax_skills import STAGE_CLARIFY_AGENT_IDS
 from .llm_provider import LlmProviderService
 from .zhipu_catalog import model_provider_presets
 from .tts_provider import TtsProviderService
+from .mail_provider import MailProviderError, MailProviderService
 from .vlm_provider import ANALYSIS_UNAVAILABLE_MESSAGE, VlmProviderService
 from .vision_runtime import llm_status_vision_fields
 from .models import (
@@ -101,8 +105,10 @@ from .models import (
     GrsImageModelsResponse, GrsImageModelsUpdateRequest, GrsProviderResponse, GrsProviderTestRequest, GrsProviderUpdateRequest,
     GrsPlatformModelImportRequest, GrsPlatformModelImportResponse, GrsPlatformModelsResponse,
     LibraryItemResponse, LibraryQueryResponse, LoginRequest, ModeResponse, ModesResponse, ResetPasswordRequest,
+    MailProviderResponse, MailProviderTestRequest, MailProviderUpdateRequest,
+    PasswordEmailChallengeRequest, PasswordEmailChallengeResponse, PasswordEmailResetRequest,
     SetupAdminRequest, UpscaleJobRequest, JobMode, JobStatus,
-    QiniuProviderResponse, QiniuProviderUpdateRequest, StorageCapabilityResponse, UpdateProfileRequest, UpdateUserRequest, UserResponse, UserRole,
+    QiniuProviderResponse, QiniuProviderUpdateRequest, StorageCapabilityResponse, UpdateProfileRequest, UpdateUserRequest, UnlockLoginResponse, UserResponse, UserRole,
     JobMetadataUpdateRequest,
     LlmProviderResponse, LlmProviderUpdateRequest, LlmProviderTestRequest, LlmModelCatalogRequest, LlmModelCatalogResponse, LlmStatusResponse,
     ModelProviderPresetsResponse,
@@ -122,6 +128,9 @@ from .models import (
     TtsProviderResponse, TtsProviderUpdateRequest, TtsProviderTestRequest,
     MusicAdapterUse, MusicJobCreateRequest, MusicJobResponse, MusicLyricsResponse,
     MusicProviderResponse, MusicProviderTestRequest, MusicProviderUpdateRequest, MusicVibeRequest,
+    CloudVideoProviderResponse, CloudVideoProviderTestRequest, CloudVideoProviderUpdateRequest,
+    MusicChatCreateRequest, MusicChatDetailResponse, MusicChatGenerateRequest, MusicChatMessageRequest,
+    MusicChatMessageResponse, MusicChatResponse, MusicChatUpdateRequest,
     DirectorTtsRequest, DirectorMuxRequest, DirectorExportCapabilitiesResponse,
     DirectorTranslatePromptRequest,
     CanvasProjectCreateRequest, CanvasProjectUpdateRequest, CanvasDraftSaveRequest,
@@ -150,6 +159,7 @@ from .canvas_store import (
 from .media_studio.db import ensure_schema
 from .media_studio.routers.project_router import register_project_routes
 from .media_studio.routers.featured_router import register_featured_work_routes
+from .media_studio.routers.featured_music_router import register_featured_music_routes
 from .media_studio.routers.showcase_router import register_showcase_routes
 from .director_assistant.routes import register_assistant_routes
 from .script_diagnosis.routes import register_diagnosis_routes
@@ -164,7 +174,10 @@ from .media_studio.services.project_detail_service import ProjectDetailService
 from .media_studio.services.project_service import ProjectService
 from .media_studio.services.shot_plan_job_service import ShotPlanJobService
 from .media_studio.services.tts_generation_job_service import TtsGenerationJobService
+from .cloud_video.base import CloudVideoError, cloud_video_provider_keys
+from .cloud_video_service import CloudVideoService
 from .music_job_service import MusicJobService, MusicServiceError
+from .music_chat import MusicChatError, MusicChatNotFoundError, generate_from_proposal, create_chat as create_music_chat_record, send_music_chat_message, stream_music_chat_message
 from .music_lyrics import MusicLyricsBusy, music_lyrics_status, start_music_lyrics
 from .music_yue2_client import YuE2Error
 from .qiniu_provider import QiniuProviderService
@@ -187,8 +200,8 @@ from .seedvr2_upscale_workflow import (
 from .relay_vsr_workflow import relay_vsr_memory_rejection
 from .workflow_registry import (
     AVATAR_MAX_SCENE_SECONDS, LIPSYNC_SOURCE_MAX_SECONDS, LIPSYNC_SOURCE_MIN_SECONDS, WORKFLOWS,
-    comfy_ram_total_bytes, is_composite_image_workflow, is_depth_workflow, is_grs_image_workflow,
-    is_h3_workflow, is_image_workflow, is_lip_sync_workflow, is_local_comfy_job,
+    comfy_ram_total_bytes, is_cloud_video_workflow, is_composite_image_workflow, is_depth_workflow,
+    is_grs_image_workflow, is_h3_workflow, is_image_workflow, is_lip_sync_workflow, is_local_comfy_job,
     is_motion_ref_video_workflow, is_relayvsr_upscale_workflow, is_rtx_vsr_workflow, is_seedvr2_upscale_workflow,
     is_upscale_workflow, normalize_options, option_visible, quality_for_megapixels, set_catalog_lookup,
     set_hardware_profile_resolver, validate_option_relationships, validate_references, workflow_for,
@@ -272,7 +285,7 @@ def streamed_output_response(output: dict) -> StreamingResponse:
     try:
         response = app.state.worker.comfy.open_output_stream(source_info)
     except Exception as error:
-        raise HTTPException(status_code=502, detail=f"ComfyUI 输出暂时不可读取: {error}") from error
+        raise HTTPException(status_code=502, detail=f"视频服务输出暂时不可读取: {error}") from error
 
     headers = {
         name: value
@@ -373,7 +386,7 @@ def output_exposes_download(output: dict) -> bool:
 def browser_direct_view_url(source_info: dict) -> str:
     source = ComfyService.output_source_info(source_info)
     if source["type"] != "output":
-        raise HTTPException(status_code=409, detail="Only ComfyUI output resources support browser direct delivery")
+        raise HTTPException(status_code=409, detail="Only video service output resources support browser direct delivery")
     return f"{BROWSER_LOCAL_COMFY_VIEW_URL}?{urlencode(source)}"
 
 
@@ -460,7 +473,7 @@ def rate_limit_key(request: Request, username: str) -> str:
     return f"{client_ip(request)}:{username.strip().lower()}"
 
 
-def enforce_login_limit(key: str) -> None:
+def enforce_login_limit(key: str, *, detail: str = "登录失败次数过多，请 15 分钟后再试") -> None:
     cutoff = time.monotonic() - LOGIN_WINDOW_SECONDS
     with login_failures_lock:
         attempts = [value for value in login_failures.get(key, []) if value > cutoff]
@@ -470,7 +483,7 @@ def enforce_login_limit(key: str) -> None:
             # Drop empty keys so failed-login bookkeeping cannot grow unbounded.
             login_failures.pop(key, None)
         if len(attempts) >= LOGIN_MAX_ATTEMPTS:
-            raise HTTPException(status_code=429, detail="登录失败次数过多，请 15 分钟后再试")
+            raise HTTPException(status_code=429, detail=detail)
 
 
 def record_login_failure(key: str) -> None:
@@ -483,13 +496,52 @@ def clear_login_failure_key(key: str) -> None:
         login_failures.pop(key, None)
 
 
-def clear_login_failures_for_username(username: str) -> int:
-    suffix = f":{username.strip().lower()}"
+def clear_login_failures_for_identifiers(*identifiers: str) -> int:
+    """Clear failed-login counters for every identifier an account can be typed as.
+
+    A blocked account is keyed by ``<client ip>:<typed identifier>``, and the login
+    form accepts either the username or the bound email, so both must be cleared.
+    """
+    suffixes = tuple(
+        f":{value.strip().lower()}" for value in identifiers if value and value.strip()
+    )
+    if not suffixes:
+        return 0
     with login_failures_lock:
-        keys = [key for key in login_failures if key.endswith(suffix)]
+        keys = [key for key in login_failures if key.endswith(suffixes)]
         for key in keys:
             login_failures.pop(key, None)
     return len(keys)
+
+
+def clear_login_failures_for_username(username: str) -> int:
+    return clear_login_failures_for_identifiers(username)
+
+
+def login_identifiers(user: dict) -> list[str]:
+    return [
+        str(value) for value in (user.get("username"), user.get("email")) if value and str(value).strip()
+    ]
+
+
+def login_block_remaining_seconds(user: dict) -> int:
+    """Seconds until the account can try again, across every source address."""
+    suffixes = tuple(f":{value.strip().lower()}" for value in login_identifiers(user))
+    if not suffixes:
+        return 0
+    now = time.monotonic()
+    cutoff = now - LOGIN_WINDOW_SECONDS
+    remaining = 0
+    with login_failures_lock:
+        for key, values in login_failures.items():
+            if not key.endswith(suffixes):
+                continue
+            attempts = sorted(value for value in values if value > cutoff)
+            if len(attempts) >= LOGIN_MAX_ATTEMPTS:
+                # The block lifts as soon as fewer than LOGIN_MAX_ATTEMPTS remain in the window.
+                unlock_at = attempts[len(attempts) - LOGIN_MAX_ATTEMPTS] + LOGIN_WINDOW_SECONDS
+                remaining = max(remaining, max(1, math.ceil(unlock_at - now)))
+    return remaining
 
 
 def job_or_404(store: JobStore, job_id: str, user: dict, *, include_references: bool = False) -> dict:
@@ -805,6 +857,7 @@ async def lifespan(app: FastAPI):
     llm_provider = LlmProviderService(store, settings.credential_key)
     vlm_provider = VlmProviderService(store, settings.credential_key)
     tts_provider = TtsProviderService(store, settings.credential_key)
+    mail_provider = MailProviderService(store, settings.credential_key)
     comfy_provider = ComfyProviderService(store, settings.comfy_url)
     comfy = ComfyService(settings, resource_storage, url_resolver=comfy_provider.current_url)
     worker = JobWorker(store, comfy, grs_provider, resource_storage)
@@ -839,9 +892,12 @@ async def lifespan(app: FastAPI):
     app.state.llm_provider = llm_provider
     app.state.vlm_provider = vlm_provider
     app.state.tts_provider = tts_provider
+    app.state.mail_provider = mail_provider
     app.state.comfy_provider = comfy_provider
     MusicJobService.configure(store, settings.credential_key, resource_storage)
     app.state.music_jobs = MusicJobService
+    CloudVideoService.configure(store, settings.credential_key, resource_storage)
+    app.state.cloud_video = CloudVideoService
     app.state.worker = worker
     director_operations = DirectorOperationService(
         store,
@@ -920,6 +976,12 @@ register_featured_work_routes(
     current_user=current_user,
     mutating_admin_user=mutating_admin_user,
     canvas_store=lambda: app.state.canvas_store,
+    resource_storage=lambda: getattr(app.state, "resource_storage", None),
+)
+register_featured_music_routes(
+    app,
+    current_user=current_user,
+    mutating_admin_user=mutating_admin_user,
 )
 register_showcase_routes(
     app,
@@ -987,7 +1049,7 @@ def setup_admin(payload: SetupAdminRequest, request: Request, response: Response
     try:
         user = auth_store.create_user(
             payload.username, payload.display_name, payload.password,
-            UserRole.SUPER_ADMIN, must_change_password=False,
+            UserRole.SUPER_ADMIN, must_change_password=False, email=payload.email,
         )
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
@@ -1001,7 +1063,7 @@ def setup_admin(payload: SetupAdminRequest, request: Request, response: Response
     return auth_payload(user, token)
 
 
-@app.post("/api/auth/login", response_model=AuthStatusResponse, tags=["账号"], summary="账号登录")
+@app.post("/api/auth/login", response_model=AuthStatusResponse, tags=["账号"], summary="账号登录（支持账号名或绑定邮箱）")
 def login(payload: LoginRequest, request: Request, response: Response) -> dict:
     auth_store: AuthStore = app.state.auth_store
     if auth_store.setup_required():
@@ -1012,7 +1074,7 @@ def login(payload: LoginRequest, request: Request, response: Response) -> dict:
     if user is None:
         record_login_failure(key)
         auth_store.audit(
-            "login_failed", "session", detail=f"username={payload.username.strip().lower()}",
+            "login_failed", "session", detail=f"identifier={payload.username.strip().lower()}",
             ip_address=client_ip(request),
         )
         raise HTTPException(status_code=401, detail="账号或密码错误")
@@ -1049,25 +1111,130 @@ def change_password(
     return auth_payload(updated, token)
 
 
-@app.patch("/api/auth/profile", response_model=AuthStatusResponse, tags=["账号"], summary="修改当前账号姓名")
+@app.patch("/api/auth/profile", response_model=AuthStatusResponse, tags=["账号"], summary="修改当前账号姓名与找回邮箱")
 def update_profile(
     payload: UpdateProfileRequest, request: Request,
     user: Annotated[dict, Depends(csrf_user)],
 ) -> dict:
+    auth_store: AuthStore = app.state.auth_store
+    update_email = payload.email is not None
+    normalized_email: str | None = None
+    if update_email:
+        email_text = (payload.email or "").strip()
+        if email_text:
+            try:
+                normalized_email = validate_email(email_text)
+            except ValueError as error:
+                raise HTTPException(status_code=422, detail=str(error)) from error
+        if normalized_email != (user.get("email") or None):
+            if not payload.current_password or auth_store.verify_credentials(
+                user["username"], payload.current_password,
+            ) is None:
+                raise HTTPException(status_code=422, detail="修改找回邮箱需要验证当前密码")
     try:
-        updated = app.state.auth_store.update_user(user["id"], display_name=payload.display_name)
+        updated = auth_store.update_user(
+            user["id"], display_name=payload.display_name,
+            email=normalized_email, update_email=update_email,
+        )
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    app.state.auth_store.audit(
+    auth_store.audit(
         "update_profile", "user", actor_user_id=user["id"], target_id=user["id"],
-        ip_address=client_ip(request),
+        detail=f"email={'set' if update_email else 'unchanged'}", ip_address=client_ip(request),
     )
     return auth_payload(updated, request.state.session_token)
 
 
+@app.post(
+    "/api/auth/password/email-challenge",
+    response_model=PasswordEmailChallengeResponse,
+    tags=["账号"],
+    summary="忘记密码：向绑定邮箱发送重置验证码",
+)
+async def password_email_challenge(payload: PasswordEmailChallengeRequest, request: Request) -> dict:
+    auth_store: AuthStore = app.state.auth_store
+    mail_provider: MailProviderService = app.state.mail_provider
+    if auth_store.setup_required():
+        raise HTTPException(status_code=409, detail="请先在工作站本机完成管理员初始化")
+    available, reason = mail_provider.availability()
+    if not available:
+        raise HTTPException(status_code=503, detail=reason or "邮件服务尚未配置，请联系管理员重置密码")
+    normalized_email = normalize_email(payload.email)
+    key = f"mail-send:{rate_limit_key(request, normalized_email)}"
+    enforce_login_limit(key, detail="验证码发送过于频繁，请稍后再试")
+    masked = mask_email(normalized_email)
+    user = auth_store.get_user_by_email(normalized_email)
+    if user is None:
+        # 不暴露账号是否存在：统一返回已受理，实际不发送邮件。
+        record_login_failure(key)
+        return {"sent": True, "masked_email": masked, "expires_in_minutes": RESET_CODE_TTL_MINUTES}
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    auth_store.set_password_reset_code(user["id"], code)
+    try:
+        await asyncio.to_thread(
+            mail_provider.send_password_reset,
+            to=str(user.get("email") or normalized_email),
+            code=code,
+            display_name=user.get("display_name"),
+            ttl_minutes=RESET_CODE_TTL_MINUTES,
+        )
+    except MailProviderError as error:
+        record_login_failure(key)
+        auth_store.clear_password_reset_code(user["id"])
+        auth_store.audit(
+            "password_reset_email_failed", "user", target_id=user["id"],
+            detail=str(error)[:200], ip_address=client_ip(request),
+        )
+        raise HTTPException(status_code=502, detail="验证码邮件发送失败，请稍后重试或联系管理员") from error
+    auth_store.audit(
+        "password_reset_email_sent", "user", target_id=user["id"], ip_address=client_ip(request),
+    )
+    return {"sent": True, "masked_email": masked, "expires_in_minutes": RESET_CODE_TTL_MINUTES}
+
+
+@app.post(
+    "/api/auth/password/email-reset",
+    response_model=AuthStatusResponse,
+    tags=["账号"],
+    summary="忘记密码：校验邮箱验证码并重置密码",
+)
+def password_email_reset(
+    payload: PasswordEmailResetRequest, request: Request, response: Response,
+) -> dict:
+    auth_store: AuthStore = app.state.auth_store
+    normalized_email = normalize_email(payload.email)
+    key = f"mail-verify:{rate_limit_key(request, normalized_email)}"
+    enforce_login_limit(key, detail="验证码错误次数过多，请重新获取验证码")
+    user = auth_store.get_user_by_email(normalized_email)
+    if user is None or not auth_store.consume_password_reset_code(user["id"], payload.code.strip()):
+        record_login_failure(key)
+        auth_store.audit(
+            "password_reset_failed", "session", detail=f"email={normalized_email}",
+            ip_address=client_ip(request),
+        )
+        raise HTTPException(status_code=400, detail="验证码不正确或已过期")
+    try:
+        updated = auth_store.set_password(user["id"], payload.new_password, must_change_password=False)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    clear_login_failure_key(key)
+    token, _ = auth_store.create_session(updated["id"])
+    set_session_cookie(response, token)
+    auth_store.audit(
+        "password_reset", "user", actor_user_id=updated["id"], target_id=updated["id"],
+        detail="via email code", ip_address=client_ip(request),
+    )
+    return auth_payload(updated, token)
+
+
 @app.get("/api/admin/users", response_model=list[UserResponse], tags=["管理后台"], summary="列出员工账号")
 def list_users(_: Annotated[dict, Depends(admin_user)]) -> list[dict]:
-    return app.state.auth_store.list_users()
+    users = app.state.auth_store.list_users()
+    for user in users:
+        blocked_seconds = login_block_remaining_seconds(user)
+        user["login_blocked"] = blocked_seconds > 0
+        user["login_blocked_seconds"] = blocked_seconds
+    return users
 
 
 def ensure_manageable_role(actor: dict, role: UserRole) -> None:
@@ -1082,7 +1249,8 @@ def create_user(
     ensure_manageable_role(actor, payload.role)
     try:
         user = app.state.auth_store.create_user(
-            payload.username, payload.display_name, payload.password, payload.role, must_change_password=True,
+            payload.username, payload.display_name, payload.password, payload.role,
+            must_change_password=True, email=payload.email,
         )
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
@@ -1105,7 +1273,7 @@ def update_user(
     if (
         actor["role"] == UserRole.ADMIN.value
         and target["role"] != UserRole.EMPLOYEE.value
-        and (payload.role is not None or payload.is_active is not None)
+        and (payload.role is not None or payload.is_active is not None or payload.email is not None)
     ):
         raise HTTPException(status_code=403, detail="管理员只能管理员工账号")
     if payload.role is not None:
@@ -1119,9 +1287,17 @@ def update_user(
         raise HTTPException(status_code=409, detail="不能停用或降级最后一个超级管理员")
     if actor["id"] == user_id and payload.is_active is False:
         raise HTTPException(status_code=409, detail="不能停用当前登录账号")
+    update_email = payload.email is not None
+    normalized_email: str | None = None
+    if update_email and (payload.email or "").strip():
+        try:
+            normalized_email = validate_email(payload.email or "")
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
     try:
         updated = app.state.auth_store.update_user(
             user_id, display_name=payload.display_name, role=payload.role, is_active=payload.is_active,
+            email=normalized_email, update_email=update_email,
         )
     except LastSuperAdminError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
@@ -1158,6 +1334,37 @@ def reset_user_password(
         detail=f"cleared_login_blocks={cleared_login_blocks}", ip_address=client_ip(request),
     )
     return updated
+
+
+@app.post(
+    "/api/admin/users/{user_id}/unlock-login", response_model=UnlockLoginResponse,
+    tags=["管理后台"], summary="解除员工登录失败锁定",
+)
+def unlock_user_login(
+    user_id: str, request: Request, actor: Annotated[dict, Depends(mutating_admin_user)],
+) -> dict:
+    """Clear the 15-minute failed-login block without touching the password.
+
+    Only administrators may clear it: the block exists to slow down password guessing,
+    so letting the blocked client lift it would defeat the purpose.
+    """
+    try:
+        target = app.state.auth_store.get_user(user_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="账号不存在") from error
+    if actor["role"] == UserRole.ADMIN.value and target["role"] != UserRole.EMPLOYEE.value:
+        raise HTTPException(status_code=403, detail="管理员只能管理员工账号")
+    cleared = clear_login_failures_for_identifiers(*login_identifiers(target))
+    app.state.auth_store.audit(
+        "unlock_login", "user", actor_user_id=actor["id"], target_id=user_id,
+        detail=f"cleared_login_blocks={cleared}", ip_address=client_ip(request),
+    )
+    return {
+        "ok": True,
+        "cleared": cleared,
+        "username": target["username"],
+        "login_blocked_seconds": login_block_remaining_seconds(target),
+    }
 
 
 @app.get("/api/storage", response_model=StorageCapabilityResponse, tags=["资源"], summary="获取资源交付能力")
@@ -1201,6 +1408,15 @@ def mode_payload(definition) -> dict:
     payload = definition.payload()
     if is_grs_image_workflow(definition.id):
         available, reason = app.state.grs_provider.availability(definition.id)
+        payload["available"] = available
+        payload["unavailable_reason"] = reason
+    elif is_cloud_video_workflow(definition.id):
+        available, reason = False, "云端视频服务尚未初始化。"
+        if definition.cloud_provider and hasattr(app.state, "cloud_video"):
+            try:
+                available, reason = CloudVideoService.instance().availability(definition.cloud_provider)
+            except CloudVideoError as error:
+                available, reason = False, str(error)
         payload["available"] = available
         payload["unavailable_reason"] = reason
     return payload
@@ -1655,11 +1871,78 @@ async def test_tts_provider(
     return result
 
 
+# ------------------------------ 邮件服务（SMTP 找回密码） ------------------------------
+
+
+@app.get("/api/admin/providers/mail", response_model=MailProviderResponse, tags=["管理后台"], summary="获取邮件服务配置")
+def get_mail_provider(_: Annotated[dict, Depends(super_admin_user)]) -> dict:
+    return app.state.mail_provider.public_config()
+
+
+@app.put("/api/admin/providers/mail", response_model=MailProviderResponse, tags=["管理后台"], summary="更新邮件服务配置")
+def update_mail_provider(
+    payload: MailProviderUpdateRequest,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_super_admin_user)],
+) -> dict:
+    try:
+        result = app.state.mail_provider.update(payload.model_dump())
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "update_mail_provider", "provider", actor_user_id=user["id"], target_id="mail",
+        ip_address=client_ip(request),
+    )
+    return result
+
+
+@app.post("/api/admin/providers/mail/test", response_model=MailProviderResponse, tags=["管理后台"], summary="测试邮件服务连接")
+async def test_mail_provider(
+    request: Request,
+    user: Annotated[dict, Depends(mutating_super_admin_user)],
+    payload: MailProviderTestRequest | None = None,
+) -> dict:
+    arguments = None if payload is None else payload.model_dump(exclude_none=True)
+    try:
+        result = await asyncio.to_thread(app.state.mail_provider.test, arguments)
+    except Exception as error:
+        app.state.auth_store.audit(
+            "test_mail_provider_failed", "provider", actor_user_id=user["id"], target_id="mail",
+            detail=str(error)[:200], ip_address=client_ip(request),
+        )
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "test_mail_provider", "provider", actor_user_id=user["id"], target_id="mail",
+        ip_address=client_ip(request),
+    )
+    return result
+
+
 # ------------------------------ 音乐生成（远端 YuE2 Studio） ------------------------------
 
 
 def _music_job_response(record: dict) -> dict:
     return MusicJobResponse(**record).model_dump()
+
+
+def _music_scope_owner_id(user: dict, user_id: str | None) -> str | None:
+    """音乐任务/对话列表的归属作用域。
+
+    管理员可传 `user_id`（具体账号 id 或 `all`）查看其他用户数据；普通账号始终只看本人。
+    """
+    if user["role"] in {"admin", "super_admin"} and user_id is not None:
+        return None if user_id == "all" else user_id
+    return user["id"]
+
+
+def _music_read_owner_id(user: dict) -> str | None:
+    """单项读取（任务详情、歌词、对话详情）的归属过滤：管理员可只读访问任意账号，普通账号仅限本人。"""
+    return None if user["role"] in {"admin", "super_admin"} else user["id"]
+
+
+def _music_retry_owner_id(user: dict) -> str | None:
+    """重试的归属过滤：管理员可跨账号重试失败任务，普通账号仅限本人。"""
+    return None if user["role"] in {"admin", "super_admin"} else user["id"]
 
 
 @app.get("/api/admin/providers/music", response_model=MusicProviderResponse, tags=["管理后台"], summary="获取音乐生成服务配置")
@@ -1712,17 +1995,86 @@ def music_status(user: Annotated[dict, Depends(current_user)]) -> dict:
     return {"configured": config["configured"], "base_url": config["base_url"], "credential_ready": config["credential_ready"]}
 
 
+@app.get(
+    "/api/admin/providers/cloud-video",
+    response_model=list[CloudVideoProviderResponse],
+    tags=["管理后台"],
+    summary="获取云端视频供应商配置列表（可灵/方舟/海螺）",
+)
+def get_cloud_video_providers(_: Annotated[dict, Depends(super_admin_user)]) -> list[dict]:
+    return CloudVideoService.instance().public_configs()
+
+
+@app.put(
+    "/api/admin/providers/cloud-video/{provider_key}",
+    response_model=CloudVideoProviderResponse,
+    tags=["管理后台"],
+    summary="更新云端视频供应商配置",
+)
+def update_cloud_video_provider(
+    provider_key: Annotated[str, ApiPath(description="云端视频供应商标识（kling / jimeng / hailuo）")],
+    payload: CloudVideoProviderUpdateRequest,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_super_admin_user)],
+) -> dict:
+    if provider_key not in cloud_video_provider_keys():
+        raise HTTPException(status_code=404, detail="云端视频供应商不存在")
+    try:
+        result = CloudVideoService.instance().update_provider(provider_key, payload.model_dump(exclude_unset=True))
+    except (CloudVideoError, ValueError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "update_cloud_video_provider", "provider", actor_user_id=user["id"],
+        target_id=f"cloud-video:{provider_key}", ip_address=client_ip(request),
+    )
+    return result
+
+
+@app.post(
+    "/api/admin/providers/cloud-video/{provider_key}/test",
+    response_model=CloudVideoProviderResponse,
+    tags=["管理后台"],
+    summary="测试云端视频供应商连接",
+)
+async def test_cloud_video_provider(
+    provider_key: Annotated[str, ApiPath(description="云端视频供应商标识（kling / jimeng / hailuo）")],
+    request: Request,
+    user: Annotated[dict, Depends(mutating_super_admin_user)],
+    payload: CloudVideoProviderTestRequest | None = None,
+) -> dict:
+    arguments = payload or CloudVideoProviderTestRequest()
+    if provider_key not in cloud_video_provider_keys():
+        raise HTTPException(status_code=404, detail="云端视频供应商不存在")
+    try:
+        result = await asyncio.to_thread(
+            CloudVideoService.instance().test_provider, provider_key,
+            base_url=arguments.base_url, api_key=arguments.api_key, api_secret=arguments.api_secret,
+        )
+    except Exception as error:
+        app.state.auth_store.audit(
+            "test_cloud_video_provider_failed", "provider", actor_user_id=user["id"],
+            target_id=f"cloud-video:{provider_key}", detail=str(error)[:200], ip_address=client_ip(request),
+        )
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "test_cloud_video_provider", "provider", actor_user_id=user["id"],
+        target_id=f"cloud-video:{provider_key}", ip_address=client_ip(request),
+    )
+    return result
+
+
 @app.get("/api/music/config", tags=["音乐"], summary="音乐创建表单的远端能力快照（LoRA 适配器）")
 async def music_config(user: Annotated[dict, Depends(current_user)]) -> dict:
     return await asyncio.to_thread(app.state.music_jobs.remote_config)
 
 
-@app.get("/api/music/jobs", response_model=list[MusicJobResponse], tags=["音乐"], summary="我的音乐任务列表")
+@app.get("/api/music/jobs", response_model=list[MusicJobResponse], tags=["音乐"], summary="音乐任务列表（管理员可查全部用户）")
 def list_music_jobs(
     user: Annotated[dict, Depends(current_user)],
     limit: int = Query(default=100, ge=1, le=200),
+    user_id: str | None = Query(default=None, description="管理员查看指定账号（或 all）的音乐任务"),
 ) -> list[dict]:
-    rows = app.state.store.list_music_jobs(user["id"], limit=limit)
+    rows = app.state.store.list_music_jobs(_music_scope_owner_id(user, user_id), limit=limit)
     return [_music_job_response(row) for row in rows]
 
 
@@ -1780,23 +2132,192 @@ async def create_music_from_vibe(
     return _music_job_response(record)
 
 
-@app.get("/api/music/jobs/{job_id}", response_model=MusicJobResponse, tags=["音乐"], summary="音乐任务详情")
-def get_music_job(job_id: str, user: Annotated[dict, Depends(current_user)]) -> dict:
-    record = app.state.store.get_music_job(job_id, owner_user_id=user["id"])
+@app.post("/api/music/jobs/{job_id}/retry", response_model=MusicJobResponse, tags=["音乐"], summary="重试失败的音乐任务（优先复用远端已生成的歌曲）")
+async def retry_music_job(job_id: Annotated[str, ApiPath(description="音乐任务 ID")], user: Annotated[dict, Depends(mutating_user)]) -> dict:
+    owner_scope = _music_retry_owner_id(user)
+    record = app.state.store.get_music_job(job_id, owner_user_id=owner_scope)
+    if not record:
+        raise HTTPException(status_code=404, detail="音乐任务不存在")
+    try:
+        record = await asyncio.to_thread(app.state.music_jobs.retry_job, job_id, owner_scope)
+    except MusicServiceError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return _music_job_response(record)
+
+
+def _music_chat_message_response(record: dict) -> dict:
+    return MusicChatMessageResponse(**record).model_dump()
+
+
+def _music_chat_response(record: dict) -> dict:
+    return MusicChatResponse(**record).model_dump()
+
+
+@app.post("/api/music/chats", response_model=MusicChatResponse, tags=["音乐"], summary="新建音乐对话（可锚定已有歌曲迭代）")
+async def create_music_chat(
+    payload: MusicChatCreateRequest,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    try:
+        record = await asyncio.to_thread(
+            create_music_chat_record, app.state.store, user["id"], anchor_job_id=payload.anchor_job_id,
+        )
+    except MusicChatNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return _music_chat_response(record)
+
+
+@app.get("/api/music/chats", response_model=list[MusicChatResponse], tags=["音乐"], summary="音乐对话列表（管理员可查全部用户）")
+def list_music_chats(
+    user: Annotated[dict, Depends(current_user)],
+    user_id: str | None = Query(default=None, description="管理员查看指定账号（或 all）的音乐对话"),
+) -> dict:
+    rows = app.state.store.list_music_chats(_music_scope_owner_id(user, user_id))
+    return [_music_chat_response(row) for row in rows]
+
+
+@app.patch("/api/music/chats/{chat_id}", response_model=MusicChatResponse, tags=["音乐"], summary="重命名音乐对话")
+async def rename_music_chat(
+    chat_id: Annotated[str, ApiPath(description="音乐对话 ID")],
+    payload: MusicChatUpdateRequest,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    chat = app.state.store.get_music_chat(chat_id, owner_user_id=user["id"])
+    if not chat:
+        raise HTTPException(status_code=404, detail="对话不存在")
+    title = payload.title.strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="对话名称不能为空")
+    record = await asyncio.to_thread(app.state.store.update_music_chat, chat_id, title=title)
+    return _music_chat_response(record or chat)
+
+
+@app.get("/api/music/chats/{chat_id}", response_model=MusicChatDetailResponse, tags=["音乐"], summary="音乐对话详情（消息 + 锚点歌曲摘要；管理员可只读查看）")
+def get_music_chat_detail(
+    chat_id: Annotated[str, ApiPath(description="音乐对话 ID")],
+    user: Annotated[dict, Depends(current_user)],
+) -> dict:
+    read_owner = _music_read_owner_id(user)
+    chat = app.state.store.get_music_chat(chat_id, owner_user_id=read_owner)
+    if not chat:
+        raise HTTPException(status_code=404, detail="对话不存在")
+    messages = [_music_chat_message_response(row) for row in app.state.store.list_music_chat_messages(chat_id)]
+    anchor_job_id = str(chat.get("anchor_job_id") or "")
+    anchor = app.state.store.get_music_job(anchor_job_id, owner_user_id=read_owner) if anchor_job_id else None
+    return MusicChatDetailResponse(
+        **_music_chat_response(chat),
+        messages=messages,
+        anchor_job=_music_job_response(anchor) if anchor else None,
+    ).model_dump()
+
+
+@app.post("/api/music/chats/{chat_id}/messages", response_model=MusicChatDetailResponse, tags=["音乐"], summary="音乐对话发消息（返回本轮助手提案）")
+async def send_music_chat_message_endpoint(
+    chat_id: Annotated[str, ApiPath(description="音乐对话 ID")],
+    payload: MusicChatMessageRequest,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    chat = app.state.store.get_music_chat(chat_id, owner_user_id=user["id"])
+    if not chat:
+        raise HTTPException(status_code=404, detail="对话不存在")
+    try:
+        result = await asyncio.to_thread(
+            send_music_chat_message, app.state.store, chat_id, user["id"], payload.content, app.state.llm_provider,
+            duration_seconds=payload.duration_seconds, instrumental=payload.instrumental,
+        )
+    except MusicChatNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except MusicChatError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except LlmError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    chat = app.state.store.get_music_chat(chat_id, owner_user_id=user["id"]) or result["chat"]
+    anchor_job_id = str(chat.get("anchor_job_id") or "")
+    anchor = app.state.store.get_music_job(anchor_job_id, owner_user_id=user["id"]) if anchor_job_id else None
+    return MusicChatDetailResponse(
+        **_music_chat_response(chat),
+        messages=[
+            _music_chat_message_response(result["user_message"]),
+            _music_chat_message_response(result["assistant_message"]),
+        ],
+        anchor_job=_music_job_response(anchor) if anchor else None,
+    ).model_dump()
+
+
+@app.post("/api/music/chats/{chat_id}/messages/stream", tags=["音乐"], summary="音乐对话发消息（SSE 流式：user_message/delta/done/error）")
+async def stream_music_chat_message_endpoint(
+    chat_id: Annotated[str, ApiPath(description="音乐对话 ID")],
+    payload: MusicChatMessageRequest,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> StreamingResponse:
+    chat = app.state.store.get_music_chat(chat_id, owner_user_id=user["id"])
+    if not chat:
+        raise HTTPException(status_code=404, detail="对话不存在")
+    generator = stream_music_chat_message(
+        app.state.store, chat_id, user["id"], payload.content, app.state.llm_provider,
+        duration_seconds=payload.duration_seconds, instrumental=payload.instrumental,
+    )
+    return StreamingResponse(
+        generator,
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/api/music/chats/{chat_id}/generate", response_model=MusicJobResponse, tags=["音乐"], summary="把对话提案入队生成（幂等）")
+async def generate_music_chat_proposal(
+    chat_id: Annotated[str, ApiPath(description="音乐对话 ID")],
+    payload: MusicChatGenerateRequest,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    try:
+        record = await asyncio.to_thread(
+            generate_from_proposal, app.state.store, chat_id, user["id"], payload.message_id,
+        )
+    except MusicChatNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except MusicChatError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except MusicServiceError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except YuE2Error as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    return _music_job_response(record)
+
+
+@app.delete("/api/music/chats/{chat_id}", tags=["音乐"], summary="删除音乐对话")
+async def delete_music_chat(
+    chat_id: Annotated[str, ApiPath(description="音乐对话 ID")],
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    chat = app.state.store.get_music_chat(chat_id, owner_user_id=user["id"])
+    if not chat:
+        raise HTTPException(status_code=404, detail="对话不存在")
+    await asyncio.to_thread(app.state.store.delete_music_chat, chat_id, user["id"])
+    return {"ok": True}
+
+
+@app.get("/api/music/jobs/{job_id}", response_model=MusicJobResponse, tags=["音乐"], summary="音乐任务详情（管理员可只读查看）")
+def get_music_job(job_id: Annotated[str, ApiPath(description="音乐任务 ID")], user: Annotated[dict, Depends(current_user)]) -> dict:
+    record = app.state.store.get_music_job(job_id, owner_user_id=_music_read_owner_id(user))
     if not record:
         raise HTTPException(status_code=404, detail="音乐任务不存在")
     return _music_job_response(record)
 
 
-@app.get("/api/music/jobs/{job_id}/lyrics", response_model=MusicLyricsResponse, tags=["音乐"], summary="获取歌曲歌词时间轴")
-def get_music_lyrics(job_id: str, user: Annotated[dict, Depends(current_user)]) -> MusicLyricsResponse:
-    if not app.state.store.get_music_job(job_id, owner_user_id=user["id"]):
+@app.get("/api/music/jobs/{job_id}/lyrics", response_model=MusicLyricsResponse, tags=["音乐"], summary="获取歌曲歌词时间轴（管理员可只读查看）")
+def get_music_lyrics(job_id: Annotated[str, ApiPath(description="音乐任务 ID")], user: Annotated[dict, Depends(current_user)]) -> MusicLyricsResponse:
+    if not app.state.store.get_music_job(job_id, owner_user_id=_music_read_owner_id(user)):
         raise HTTPException(status_code=404, detail="音乐任务不存在")
     return music_lyrics_status(app.state.store, job_id)
 
 
 @app.post("/api/music/jobs/{job_id}/lyrics", response_model=MusicLyricsResponse, tags=["音乐"], summary="对齐歌曲歌词")
-def align_music_lyrics(job_id: str, user: Annotated[dict, Depends(mutating_user)]) -> MusicLyricsResponse:
+def align_music_lyrics(job_id: Annotated[str, ApiPath(description="音乐任务 ID")], user: Annotated[dict, Depends(mutating_user)]) -> MusicLyricsResponse:
     record = app.state.store.get_music_job(job_id, owner_user_id=user["id"])
     if not record:
         raise HTTPException(status_code=404, detail="音乐任务不存在")
@@ -1810,7 +2331,7 @@ def align_music_lyrics(job_id: str, user: Annotated[dict, Depends(mutating_user)
 
 @app.delete("/api/music/jobs/{job_id}", tags=["音乐"], summary="删除音乐任务记录")
 async def delete_music_job(
-    job_id: str,
+    job_id: Annotated[str, ApiPath(description="音乐任务 ID")],
     user: Annotated[dict, Depends(mutating_user)],
 ) -> dict:
     record = app.state.store.get_music_job(job_id, owner_user_id=user["id"])
@@ -4664,7 +5185,17 @@ async def submit_generation(
     if is_grs_image_workflow(mode):
         available, reason = app.state.grs_provider.availability(mode)
         if not available:
-            raise HTTPException(status_code=409, detail=reason or "GRS 图片能力不可用")
+            raise HTTPException(status_code=409, detail=reason or "图片服务能力不可用")
+
+    if is_cloud_video_workflow(mode):
+        available, reason = False, "云端视频服务尚未初始化。"
+        if definition.cloud_provider and hasattr(app.state, "cloud_video"):
+            try:
+                available, reason = CloudVideoService.instance().availability(definition.cloud_provider)
+            except CloudVideoError as error:
+                available, reason = False, str(error)
+        if not available:
+            raise HTTPException(status_code=409, detail=reason or "云端视频服务不可用")
 
     source: dict | None = None
     if source_job_id:
@@ -4767,7 +5298,16 @@ async def create_job_round(
     if is_grs_image_workflow(mode):
         available, reason = app.state.grs_provider.availability(mode)
         if not available:
-            raise HTTPException(status_code=409, detail=reason or "GRS 图片能力不可用")
+            raise HTTPException(status_code=409, detail=reason or "图片服务能力不可用")
+    if is_cloud_video_workflow(mode):
+        available, reason = False, "云端视频服务尚未初始化。"
+        if definition.cloud_provider and hasattr(app.state, "cloud_video"):
+            try:
+                available, reason = CloudVideoService.instance().availability(definition.cloud_provider)
+            except CloudVideoError as error:
+                available, reason = False, str(error)
+        if not available:
+            raise HTTPException(status_code=409, detail=reason or "云端视频服务不可用")
     sequence = len(existing["rounds"]) + 1
     upload_dir = settings.uploads_dir / user["id"] / job_id / f"round-{sequence}"
     upload_dir.mkdir(parents=True, exist_ok=True)
@@ -4911,7 +5451,7 @@ async def retry_job(job_id: str, user: Annotated[dict, Depends(mutating_user)]) 
         raise HTTPException(status_code=409, detail="当前工作流不支持重新提交")
     job = app.state.store.retry_terminal(job_id)
     if job is None:
-        raise HTTPException(status_code=409, detail="仅已中断、已停止或失败且未在 ComfyUI 执行的任务可以重新提交")
+        raise HTTPException(status_code=409, detail="仅已中断、已停止或失败且未在视频服务执行的任务可以重新提交")
     await app.state.worker.enqueue(job_id)
     return public_job(job)
 
@@ -5129,14 +5669,14 @@ def upscale_capabilities(user: Annotated[dict, Depends(current_user)]) -> dict:
         if comfy is None:
             return {
                 "engines": [
-                    {"id": engine_id, "label": label, "available": False, "reason": "ComfyUI 未配置"}
+                    {"id": engine_id, "label": label, "available": False, "reason": "视频服务未配置"}
                     for engine_id, label in UPSCALE_ENGINES.items()
                 ],
                 "default": UPSCALE_ENGINE_RTX,
             }
         health = comfy.health()
         if not health.get("reachable"):
-            reason = f"ComfyUI 连接失败：{health.get('error') or health.get('url')}"
+            reason = f"视频服务连接失败：{health.get('error') or health.get('url')}"
             return {
                 "engines": [
                     {"id": engine_id, "label": label, "available": False, "reason": reason}
@@ -5390,7 +5930,7 @@ def confirm_output_delivered(
     if output.get("delivery_status") == "local":
         return public_job(job)
     if not app.state.worker.comfy.finalize_output_source(output.get("_comfy_source")):
-        raise HTTPException(status_code=500, detail="ComfyUI 原始输出清理失败，服务器暂存已保留，请重试")
+        raise HTTPException(status_code=500, detail="视频服务原始输出清理失败，服务器暂存已保留，请重试")
     persistent = app.state.resource_storage.persistent_outputs
     if not persistent:
         deleted = app.state.resource_storage.delete(output["path"])
@@ -5504,7 +6044,7 @@ def confirm_generation_output_delivered(
     if output.get("delivery_status") == "local":
         return public_job(job)
     if not app.state.worker.comfy.finalize_output_source(output.get("_comfy_source")):
-        raise HTTPException(status_code=500, detail="ComfyUI 原始输出清理失败，服务器暂存已保留")
+        raise HTTPException(status_code=500, detail="视频服务原始输出清理失败，服务器暂存已保留")
     persistent = app.state.resource_storage.persistent_outputs
     if not persistent:
         deleted = app.state.resource_storage.delete(output["path"])

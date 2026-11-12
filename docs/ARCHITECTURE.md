@@ -1,5 +1,111 @@
 # ZLY AI Video Studio 架构快照
 
+## 2026-11-12：智能剪辑助手新增「字幕翻译」（subtitle_translate）
+
+- 变更原因：智能剪辑原有 7 个动作都不能处理「把已有字幕翻译成中文」——字幕语言跟随来源（`subtitle_arrange` 按分集剧本对白铺字，剧本是日文就铺出日文字幕）；用户输入「把字幕转成中文」时无对应能力，模型只复述了系统提示词里铺轨请求的输出示例（「请核对待铺视频清单，确认后追加到主轨。」）且未携带工具调用，流程停住。本次新增第 8 个动作 `subtitle_translate`，并修复示例话术泄漏。
+- 当前基线：
+  - `editing.py`：`OPERATION_TITLES` 注册「字幕翻译」；`_needs_chinese_translation()` 判定待翻译文本（含日文假名/谚文或纯拉丁字母 → 翻译；仅 CJK 汉字 → 视为已是中文跳过；纯标点数字跳过）；`subtitle_translation_targets()` 收集文字轨待翻译片段；`translate_subtitles()` 生成只改 `text` 的方案（start/duration/样式不变，items 带 `clip_id`、译文 `name` 与「原文：…」`reason`、`action:"update"`）；`make_subtitle_translator(llm)` 用 `chat_json`（默认对话模型，temperature 0.2，每批 ≤40 条）批量翻译并校验条数一致，失败转「字幕翻译暂时失败 / 结果不完整 / 能力未启用」中文错误。`EditingActions` 构造函数新增可选 `llm`。
+  - `preview()` 接线：`subtitle_translate` 不读 sources/beats/转写；无待翻译条目时返回 `status="empty"`（不调用模型）；确认走既有 confirm 的 revision CAS 原子写回与幂等。
+  - 协议与提示词：`protocol.py` 的 `EditDraft`/`EDIT_OPERATION_ENUM`/原生工具 enum 加入 `subtitle_translate`，SYSTEM_PROMPT 修正为「除字幕译文由默认对话模型生成外，方案由工作台确定性生成」；`service.py` 智能剪辑提示词加入字幕翻译路由词（把字幕翻译成中文/字幕换成中文/翻译字幕），并在铺轨输出示例后明确「该示例仅适用于铺轨类请求，其他请求禁止照搬示例话术」。
+  - 入口：助手对话（`propose_edit`）、助手字幕工具组新按钮「字幕翻译」、REST `/smart-edit/{sequence}/actions/preview` 与 MCP `studio_preview_edit` 同一实现。
+  - 前端：`EditingOperation` 联合类型与 items `clip_id/action:"update"`；授权弹窗文案「将把文字轨 N 条字幕翻译成简体中文，只改文本、不动时间：」，行内显示译文与「原文：…」对照；成功反馈「已把 N 条字幕翻译成中文，剪辑已保存」+「跳过 N 条已是中文」；空清单提示「文字轨没有需要翻译成中文的字幕。」
+  - 复用与重新应用：字幕翻译提案落库时保存完整「原文→译文」对照（`translations`）；已执行的记录在助手聊天卡片上提供「重新应用字幕」按钮，调用 `POST /smart-edit/{sequence}/actions/{action_id}/reapply`（`EditingActions.reapply`）按原文精确匹配当前文字轨（撤销、重铺自动字幕、精剪重建后片段 ID 变化也能按文本匹配），重新生成待授权清单，不再调用模型；无匹配时返回空提案并提示；本功能上线前的旧提案回退用 `items[].reason` 的「原文：」前缀匹配。
+- 受影响文件：`backend/app/director_assistant/{editing,protocol,service}.py`、`backend/app/media_studio/routers/smart_edit_router.py`、`backend/app/mcp_gateway/routes.py`、`backend/tests/test_editing_assistant.py`；前端 `frontend/src/director2/smart-edit/api.ts`、`frontend/src/director2/assistant/{editing-tools.ts,DirectorAssistant.tsx,editing-tools.test.ts}`；文档 `docs/{ARCHITECTURE.md,API.md}`、`README.md`、`功能说明与扩展指南.md`、`docs/智能剪辑助手开发计划.md`。
+- 兼容性：既有 7 个动作语义、参数与提案数据结构不变；无新表、无迁移，提案仍存 `ai_assistant_records.edit_proposal`；未配置大模型时仅该动作报「字幕翻译能力未启用」。翻译在预览阶段同步调用模型（超时上限 300 秒），失败不产生提案记录、时间线不受影响。
+- 验证命令：`<ComfyUI Python> -m unittest discover -s backend/tests -t . -p test_editing_assistant.py`（47 项通过，含重新应用 4 项）；后端全量 `python -m unittest discover -s backend/tests -t .`（1941 项通过）；`pnpm --dir frontend exec vitest run src/director2/assistant/editing-tools.test.ts`（4 项通过）；`pnpm --dir frontend build`；5173 端到端实测：对「断臂真相·黑猿」第 1 集（43 片段、17 条日文字幕）在助手会话发送「把字幕转成中文」→ 模型 editor_read 后正确路由 subtitle_translate 并生成 17 条「译文+原文对照」待授权提案（count=17/skipped=0/base_rev=3）→ 授权确认后 revision 3→4，文字轨 17 条全部为简体中文、无日文残留。
+- 回滚方式：撤销上述后端四处与前端三处改动即可；`subtitle_translate` 提案记录无人读取即失效，已翻译字幕可在时间线一次撤销，无数据迁移。
+
+## 2026-11-12：开发库 ai-media 迁移到 192.168.10.200:3307（源库磁盘写满导致后端无法启动）
+
+- 变更原因：源 MySQL `192.168.10.125:3306` 数据盘写满，binlog 写入持续报 `OS errno 28 - No space left on device`，提交线程卡在 `waiting for handler commit`；后端 lifespan 初始化 `AuthStore.initialize()` 建表时连接超时，7865 起不来，5173 所有 `/api` 代理 `ECONNREFUSED`。用户选择迁移到 `192.168.10.200`；迁移验证完成后，旧库 `ai-media` 已于同日删除（见下节）。
+- 当前基线：
+  - 目标实例为独立 Docker 容器 `ai-media-mysql`（`mysql:8.0.46`），宿主 `3307` → 容器 `3306`，数据目录 `/opt/ai-media-mysql/data`，配置 `/opt/ai-media-mysql/conf/my.cnf`（utf8mb4 / utf8mb4_unicode_ci、`+08:00`、`max_connections=300`、`innodb_buffer_pool_size=512M`、`skip-log-bin`、`mysql_native_password`），`--restart unless-stopped`。同机 3306 上原有的 MySQL 5.7 业务实例与其数据目录 `/qk/mysql` 未被触碰。
+  - 迁移方式：源库以 `mysqldump --single-transaction --skip-lock-tables --quick --set-gtid-purged=OFF --routines --triggers --events` 导出一致性快照（157 MB，`--no-create-db`），恢复到目标库 `ai-media`；目标侧另建最小权限账号 `ai_media_app`（仅 `ai-media.*`），密码记录在 `docs/存储配置.md`，不使用 SSH root 口令。
+  - 数据校验：57 张表全部 InnoDB，逐表 `COUNT(*)` 与源库完全一致（10744 行）；后端启动后 `users` 11 行、`ai_project_jobs` 1422 行未漂移，登录写回 `last_login_at` 证明新库可写。
+  - 配置读取顺序不变：进程环境变量（`ZLY_MYSQL_*` > `MYSQL_*`，由 `backend/.env.dev` 注入）优先于 `docs/存储配置.md`；`APP_ENV` 未显式指定时仍默认 dev。
+  - 源库下线（同日完成）：确认源库迁移后无新写入（逐表 `COUNT(*)` 与迁移快照完全一致，最终导出与首次导出除注释外逐字节一致）后，先 `KILL` 本机 `192.168.10.111` 遗留的 70 个泄漏会话（65 个卡在 `Opening tables` 的建表重试、3 个卡在 `SHOW BINARY LOGS`、2 个 `waiting for handler commit`），再 `DROP DATABASE ai-media`；同实例 `media22`、`wlkfpt_dev`、`zhxxpt` 未触碰。
+- 受影响文件：`backend/.env.dev`（MySQL 四项）、`docs/存储配置.md`、`backend/tests/test_db.py`（配置断言同步）。
+- 兼容性：库结构、表名、字段、任务协议、`sql/*.sql` 建表逻辑与业务代码零改动；仅连接目标变化，历史任务、项目、资产、账号数据随快照完整迁移。源库已删除，回退改为从最终快照恢复（见下节）。
+- 验证命令：`python -m unittest backend.tests.test_db -v`（8 项通过）；`curl http://127.0.0.1:7865/api/health` 与 `http://127.0.0.1:5173/api/health` 均 200；经 5173 代理登录、`/api/auth/status`、`/api/modes`、`/api/projects` 均 200 且返回迁移库中的真实项目数据。
+- 回滚方式：把 `backend/.env.dev` 与 `docs/存储配置.md` 的 MySQL 四项改回可用的 MySQL 8 实例并重启后端；目标实例执行 `docker stop ai-media-mysql`（数据目录保留，便于再次切换）。源库已删除，如需回到旧数据，用最终快照 `source-final-20261112.sql` 在任一 MySQL 8 实例恢复 `ai-media` 即可。
+
+## 2026-11-12：源库 192.168.10.125 上的 ai-media 已删除（旧库下线）
+
+- 变更原因：开发库已完整迁移到 `192.168.10.200:3307` 并验证，用户确认旧服务器上的数据可删除。源库磁盘写满的根因是 24 个 binlog 共约 22.6 GB 且 `expire_logs_days=0`，叠加迁移前重试循环留下的 70 个泄漏会话，卡住建表与事务提交。
+- 执行步骤：
+  - 删除前导出最终一致性快照 `source-final-20261112.sql`（158,557,505 B，sha256 `7817775df5ec9a524d7448ab0303fa42c4de991070f7fa77839b35c7713aa4bc`），与迁移时快照除注释外逐字节一致，证明源库迁移后无新写入；本地 `tmp/mysql-migration-20261112/` 与目标机 `/opt/zly-ai-video-studio/backups/source-final-20261112.sql`（600 权限）各存一份。
+  - 先 `KILL` 70 个来自 `192.168.10.111`（本机）的 `ai-media` 会话，等待线程全部退出（先显示 `Killed`，约 20 秒后消失），再执行 `DROP DATABASE ai-media`。
+  - 只删除 `ai-media`；同实例的 `media22`、`wlkfpt_dev`、`zhxxpt`、`mysql`、`sys` 保持原样，源库实例本身未停止、配置未改动。
+- 当前基线：源库 `SHOW DATABASES` 为 `media22 / wlkfpt_dev / zhxxpt / mysql / sys / performance_schema / information_schema`；会话数从 72 降到 2（守护线程 + 本次排查连接），不再出现连接排队或临时表写满报错。目标库 `ai-media` 保持 57 张表，删除后即时 10,825 行（较迁移快照多 81 行，来自工作台迁移后的正常使用），`last_login_at` 持续写回。
+- binlog 清理（用户选定「只留重启后」）：已执行 `PURGE BINARY LOGS BEFORE '2026-11-12 16:54:00'`，删除 `binlog.000029`–`binlog.000051` 共 23 个文件、释放约 22.57 GB，仅保留重启后新建的当前文件 `binlog.000052`（0 MB）。该操作不可逆，同实例 `media22 / wlkfpt_dev / zhxxpt` 不再具备 2026-11-12 16:54 之前的 binlog 时间点恢复能力，只能依赖各自常规备份。随后用 `SET PERSIST binlog_expire_logs_seconds = 604800` 把自动过期从 30 天缩短为 **7 天**（写入 `mysqld-auto.cnf`，重启后仍生效；`binlog_expire_logs_auto_purge=ON`，超期文件在轮转时自动清理）。
+- 受影响文件：仅文档（`docs/ARCHITECTURE.md`、`功能说明与扩展指南.md`、`docs/存储配置.md`）；代码、表结构、接口零改动。
+- 兼容性：工作台与新库不受影响，7865 与 5173 的 `/api/health` 均 200；已无实例连接源库，历史导出与备份保留。
+- 验证命令：源库 `SHOW DATABASES` / `SHOW FULL PROCESSLIST`；目标库逐表 `COUNT(*)`；`curl http://127.0.0.1:7865/api/health`（200）。
+- 回滚方式：在任一 MySQL 8 实例创建 `ai-media` 并用 `source-final-20261112.sql` 恢复，再把 `backend/.env.dev` 与 `docs/存储配置.md` 指回该实例；源库 binlog 不再可查，但业务数据已由最终快照完整保留。
+
+## 2026-11-12：接入 MiniMax H3 Image 开源图像模型（文生图 + 最多 16 张参考图编辑，远端 ComfyUI 升级 0.45.0）
+
+- 变更原因：用户要求接入博主演示的「H3 图像新模型，16 张图参考」能力——MiniMax H3 Image 开源图像模型（同一套权重同时支持文生图与最多 16 张参考图编辑，提示词用 `<Picture n>` 引用第 n 张图，6 步蒸馏直出最高约 16MP 图片）。按「代码先行、最后统一动远端」推进：先完成工作台全链路与单测，再升级远端 ComfyUI、下载模型权重、真实出片验收。
+- 当前基线：
+  - 注册表（`workflow_registry.py`）：`JobMode.MINIMAX_H3_IMAGE_T2I`（`minimax-h3-image-t2i`，文生图，0 张参考）与 `JobMode.MINIMAX_H3_IMAGE_EDIT`（`minimax-h3-image-edit`，多参考编辑，1-16 张，`result_compare="overlay"` 与第 1 张参考图叠层对比）。两条 `WorkflowDefinition` 均 `media_type="image"`、`executor="comfyui"`、`catalog_group=CATALOG_GROUP_IMAGE`（生成页图片页签「图片生成」分组）。`H3_IMAGE_WORKFLOWS` / `H3_IMAGE_WORKFLOW_IDS` / `is_h3_image_workflow()`；`is_local_comfy_job()` 纳管（占用串行视频 worker，与 H3 视频任务互斥，避免 16GB 显卡显存互相挤爆）。
+  - 参数分层：`h3_image_option_schema(edit_mode)` 生成两份 schema——primary 仅三项：`aspect_ratio`（画面比例；T2I 无 auto 默认 1:1，EDIT 多「自动（跟随第 1 张参考图）」默认 auto）、`quality`（输出清晰度：standard 4MP / high 9MP / ultra 16MP，`megapixels_by_quality` 联动）、`prompt_expander`（提示词扩写开关，默认开）；advanced 仅 `seed`（`randomize_when_zero=True`，0=随机）；internal 托管 `width/height/megapixels/steps/cfg/sampler/scheduler`。`normalize_options` 新增 `is_h3_image_workflow` 分支（schema 归一 + `h3_image_dimensions()` 算画布：MP 按 1024² 计、两边对齐 32 像素网格，`auto` 返回 (0,0) 交给节点自适应）。
+  - Graph builder（`minimax_h3_image_workflow.py`，新增）：对照 ComfyUI 官方模板 `image_minimax_h3_image_t2i` / `image_minimax_h3_image_edit`（Comfy-Org/workflow_templates）逐节点复刻——`UNETLoader(minimax_h3_image_pruned_int8_convrot)` → `MiniMaxH3ImageConditioning(clip, vae, prompt, width, height, images.image_1..N autogrow)` → `KSampler(6 步 / CFG 1 / euler / simple / denoise 1)`（负面走 `ConditioningZeroOut`，latent 由条件节点输出）→ `VAEDecode` → `SaveImage`（节点 `9`，`H3_IMAGE_OUTPUT_NODE`）。参考图为每张一个 `LoadImage`（节点 20 起）接入 `images.image_N`；width/height 传 0 时节点自动跟随 image_1 缩放尺寸（无参考图 2048×2048）。提示词扩写（PE）分支：`CLIPLoader(qwen3.5_9b_w4a8_gptq)` → `TextGenerateV2`（官方模板 widgets 原样：max_length 8196、sampling_mode "on" + 点号子键（`sampling_mode.temperature` 等）、thinking=true、mtp=auto）→ `JsonExtractString(key="expanded_caption")` 接入条件节点 prompt；关闭 PE 时用户提示词直通。PE 用户输入按官方占位符契约组装：编辑模式 `User Editing Instruction: …` + `User Aspect Ratio Selection: W:H|adaptive`，文生图模式追加 `Target canvas ratio: W:H (fixed).`。
+  - 提示词常量（`minimax_h3_image_prompts.py`，新增）：PE 的 system_prompt 与两份用户提示词模板（edit 38KB / t2i 15KB）**逐字**从官方模板 JSON 提取（脚本生成，占位符 `{input text}`），不手工转写。
+  - 执行与回显（`comfy_service.py`）：`run()` 在 `is_comfy_image_workflow` 之后、`H3_WORKFLOWS` 之前新增 `H3_IMAGE_WORKFLOWS` 分支 → `_run_h3_image()`（`normalize_options` → 编辑模式 `resolve_minimax_picture_prompt` 注入 `<Picture n>` 与越界校验 → 逐张 `upload_image` → 建图 → `run_workflow("正在生成图片")`）；种子取 `seed` 选项（0 时 `secrets.randbits(63)`）。`completed_outputs()` 恢复分支与 `_h3_image_outputs()`（`SaveImage` 节点 9 → `output_payload(output, "image", "生成图片")`）支持断线后回显。
+  - 前端：**零改动**。上传/16 张上限/排序/`<Picture n>` 标签行/primary 与「更多设置」分组/图片结果展示全部由 `/api/modes` 注册表驱动（`max_references` 驱动上传上限、`media_type=image` 进图片页签、输出 `kind:"image"` 走 ImageStudioModule）。5173 桌面端已实测两个工作流的表单渲染与切换。
+  - 远端 ComfyUI 0.43.0 → 0.45.0 升级（`D:\ZlyFlow-ComfyUI-Portable-20260827-152136`，无 git 的便携包，源码覆盖法）：官方 master 即 0.45.0，`ComfyUI-master` tarball 覆盖 `Comfyui/` 目录（保留 `user/ custom_nodes/ disabled_custom_nodes/ input/ output/ models/ extra_model_paths.yaml extra_tools/ comfyui_integrate_v1/ PortableGit/`）；pip 升级 `comfyui-embedded-docs==0.5.16`、`comfy-kitchen==0.2.41`，补装 LayerStyle 缺失的 `blend_modes`。**`comfyui-workflow-templates` 仍停留在 0.11.27**：0.11.106 的子依赖 `comfyui-workflow-templates-media-assets-02==0.1.31` 要求 Python≥3.12（远端 3.10.11），模板包只影响 UI 模板菜单、不影响节点执行，H3 Image 工作流为程序生成 graph 不依赖模板包。H3 Image 所需节点 `MiniMaxH3ImageConditioning` / `TextGenerateV2` / `JsonExtractString` 在 0.45 core（`comfy_extras/nodes_minimax_h3.py`、`nodes_textgen.py`、`nodes_string.py`）全部就位，`/object_info` 输入 schema 与 builder 逐字段核对一致。重启通过一次性计划任务 `ZlyFlowComfyUI45`（`restart_comfyui_45.bat`，SSH 断开不挂）。
+  - 模型权重（HF 被墙，本机 hf-mirror 中转 + 内网 scp；远端直连 hf-mirror 不通）：`diffusion_models/minimax_h3_image_pruned_int8_convrot.safetensors`（21GB）、`vae/minimax_h3_image_vae_fp16.safetensors`（1.17GB）、`text_encoders/qwen3.5_9b_w4a8_gptq.safetensors`（7.34GB）落到 `D:\ComfyUI-Models\` 对应子目录（`extra_model_paths.yaml` 的 `minimax_h3.base_path`）；文本编码器复用已有 `qwen3vl_32b_minimax_h3_int8_convrot`（与 H3 视频工作流共用）。
+- 受影响文件：新增 `backend/app/minimax_h3_image_workflow.py`、`backend/app/minimax_h3_image_prompts.py`、`backend/tests/test_h3_image_workflow.py`；修改 `backend/app/models.py`（2 个 JobMode）、`backend/app/workflow_registry.py`（schema/definitions/sets/normalize/h3_image_dimensions/is_local_comfy_job）、`backend/app/comfy_service.py`（imports/run 分支/_run_h3_image/_h3_image_outputs/completed_outputs 分支）、`docs/{ARCHITECTURE.md,README.md}`、`功能说明与扩展指南.md`。前端无改动。
+- 兼容性：纯新增工作流与远端模型文件；既有 H3 视频工作流、GRS 生图、音乐、超分链路不受影响（注册表新增条目，节点 ID 零改动）；ComfyUI 0.45 覆盖升级保留全部用户数据与自定义节点，H3 视频节点在 0.45 全部保留。`is_local_comfy_job` 纳管意味着生图与视频任务共用串行队列（16GB 显卡下互相排队属预期行为）。
+- 验证命令：`python -m pytest backend/tests/test_h3_image_workflow.py -q`（18 项通过）；`python -m pytest backend/tests -q`（既有 2 项失败 `test_mode_parameter_schema_is_derived_from_the_registry` / `test_openapi_has_chinese_operation_and_field_documentation` 为云端视频分支的既有漂移，与本变更无关，未修复）；`pnpm --dir frontend build`（通过）；5173 桌面端 `/generate/image` 自查（工作流选择器出现「H3 图像 文生图 / H3 图像 多参考编辑」，两表单 primary 分层、自动比例、更多设置种子、上传约束文案正确）；远端 `/system_stats` version=0.45.0、`/object_info` 含 3 个新节点。**E2E 真实出片全部通过**：H3 视频回归 `LVSo8T3jFzDC`（T2V 5s，0.45 上 30 秒出片，升级无回归）；H3 Image 文生图 `AhGVPwa49fVZ`（1:1 4MP 2048×2048，约 115 秒含首次模型加载，PE 开启，橘猫窗台语义与提示词一致）；H3 Image 多参考编辑 `O4pn8Xh24RzR`（2 张参考图 + auto 比例输出 1536×1024 跟随底图 3:2，红色小车成功换成粉色冰淇淋车且场景/机位/光影保留），产物均落七牛。
+- 回滚方式：工作台侧删除 `minimax_h3_image_workflow.py` / `minimax_h3_image_prompts.py` / `backend/tests/test_h3_image_workflow.py`，还原 `models.py` 2 个枚举、`workflow_registry.py` 与 `comfy_service.py` 的对应新增块即可（前端零改动无需回滚）；远端模型删除 `D:\ComfyUI-Models` 下 3 个新增文件即可。ComfyUI 0.45 为文件级覆盖（旧目录未被整体改名备份），回滚需用 ComfyUI v0.43.0 官方源码重新覆盖并 pip 降级 `comfyui-embedded-docs==0.5.15` / `comfy-kitchen==0.2.40`；`Comfyui_0.45.0_new` 暂留作 0.45 干净副本，确认稳定后可删。
+
+## 2026-11-12：导演台新增「工作台」阶段（剧本流程节点派生图 + 进度关卡，只读聚合）
+
+- 变更原因：剧集工坊三阶段（剧本→制作资产→分镜）缺少全局进度视图与「下一步该干嘛」引导，运营要在多页间来回切换；且镜头链天然是一张「资产→镜头→成片」的图，适合做可视化驾驶舱。方案论证见 `docs/剧本工作台分析与优化方案.md`。
+- 当前基线：
+  - 后端聚合端点 `GET /api/projects/{project_id}/workbench?episode_id=`（单集派生图）与 `GET /api/projects/{project_id}/workbench/episodes`：由 `backend/app/media_studio/services/workbench_service.py` 只读派生——分集 beats（复用 `ProjectDetailService.get_episode_detail`，含兜底拆解的既有行为）、本集引用资产（id 引用 + 旧数据按名字回退）、派生边（`asset→beat` 引用 / `beat→beat` 顺序 / `beat→episode-video` 汇聚）、四关进度（script/assets/prompts/shots 的 done/total/ratio/status）与 `next_action` 主线建议（go-script/fix-assets/make-prompt/wait/confirm/render/compose）。任务实时状态从最近 40 条 `video_generation` 任务的 `render_plan.chunks` 提取（对齐 `job_payload._CHUNK_SHOT_STATUS`），有成片的 beat 一律显示 succeeded。**不写库、不新增表、不双写业务数据**。
+  - 项目总览端点 `GET /api/projects/{project_id}/workbench/overview`：轻量聚合全部集进度——直接读 `ai_project_episodes.data_json` 的 beats 计数（**不触发** `get_episode_detail` 的兜底拆解写库），逐集返回 `beats_total/prompts_done/shots_done/overall_pct/running/awaiting_refine/episode_video_url`，项目级 `project_progress` 与 `next_action`（wait/confirm/go-episode/compose/go-script）；工作台路由不带 episodeId 时默认进入总览，点集卡下钻单集派生图，chips 行常驻「全部集」入口。
+  - 前端项目壳新增一级阶段「工作台」（`ProjectFlowShell.tsx` STAGES，位于「分镜」后），路由 `/director/projects/:projectId/workbench[/:episodeId]`：`paths.ts`（ROUTE_PATTERNS.directorProjectWorkbench + STUDIO_ROUTE_PATHS）、`director2/paths.ts`（menu 联合类型/MENU_SEGMENTS/parse/构造）、`project-flow.ts`（menus 集合、`projectStageAccess.workbench=produced`、位置记忆）三处联动登记；`paths.test.ts` 补断言。`Director2App` 无需改动（project 路由照常落入 `ProjectFlowShell`）。
+  - 工作台面板 `frontend/src/director2/panes/WorkbenchPane.tsx`（lazy 加载）：ReactFlow 派生图（四类自定义节点 `wb-script/wb-asset/wb-beat/wb-episode`，Handle 仅作连线渲染不可交互，同 FeaturedProcessPage 模式）；顶栏四关卡 chip + antd Progress 总进度 + 「下一步」主线任务卡（一键直达：去剧本/去补素材/生成指令/开始出片/去确认/去合成）；分集切换 chips；镜头节点内聚「生成指令（h3-prompt）/出片（复用 `ensureWorkshopShootReady` 前置守卫 + 默认配方参数 `DIRECTOR2_DEFAULT_VIDEO_WORKFLOW`）/在工坊打开」，点击节点正文开 Drawer 详情；轮询 `listJobs`（活跃 1.5s / 空闲 5s）经 `mapWorkshopVideoProgress` + `applyLiveBeatStatus` 盖章实时状态，任务终态后自动刷新派生图。
+  - 图派生与布局纯函数 `frontend/src/director2/workbench-graph.ts`：三列自动布局（左剧本+资产 → 中镜头链每列 4 行 → 右成片）、`smoothstep` 边样式分三类、拖拽坐标存 localStorage（`workbench-layout-v1:{projectId}:{episodeId}`，带「恢复默认布局」按钮）。样式 `workbench.css` 全量使用 `--studio-*` 语义变量双主题。
+- 受影响文件：新增 `backend/app/media_studio/services/workbench_service.py`、`backend/tests/test_workbench_service.py`、`frontend/src/director2/{workbench-graph.ts,workbench-graph.test.ts,workbench.css,panes/WorkbenchPane.tsx,panes/workbench-nodes.tsx}`、`docs/剧本工作台分析与优化方案.md`；修改 `backend/app/media_studio/routers/project_router.py`、`frontend/src/{paths.ts,paths.test.ts}`、`frontend/src/director2/{paths.ts,project-flow.ts,api.ts,ProjectFlowShell.tsx}`、`docs/{API.md,README.md,导演台流程与界面结构.md}`。
+- 兼容性：纯新增端点与界面入口；不新增数据表、不改既有 API 行为；分集 beats 仍由 `get_episode_detail` 的既有兜底逻辑产出（工作台与工坊看到同一份）；布局只存浏览器本地，清缓存仅丢失自定义拖拽位置。
+- 验证命令：`python -X utf8 -m unittest backend.tests.test_workbench_service`（22 项通过）；后端全量 `python -X utf8 -m unittest discover -s backend/tests -t .`（1928 项；6 个 error 均为跑批后期 C 盘临时空间耗尽的 `sqlite3.OperationalError: database or disk is full`，单独复跑即绿，与本变更无关）；`pnpm --dir frontend exec tsc -b`；`pnpm --dir frontend test`（963+ 项通过）；`pnpm --dir frontend build`；5173 桌面端自查 `/director/projects/:id/workbench`（总览/单集/明暗主题/抽屉/拖拽/复位）。
+- 回滚方式：删除 `workbench_service.py` 与 `project_router.py` 中两条 workbench 路由及测试文件；前端还原 `paths.ts`/`paths.test.ts`/`director2/paths.ts`/`project-flow.ts`/`api.ts`/`ProjectFlowShell.tsx` 并删除新增五个前端文件即可；localStorage 键残留无害。
+
+## 2026-11-12：接入云端视频模型执行器（可灵 / 即梦 Seedance / 海螺，直连厂商官方 API）
+
+- 变更原因：工作台视频生成此前是纯本地 ComfyUI 链路（单 worker 串行、占本地显卡）。需要在不替换本地链路的前提下并行接入云端视频模型（按次计费、不占显卡），覆盖创作页与导演台。
+- 当前基线：
+  - 新执行器 `executor="cloud_video"`：注册表新增 6 条工作流——`cloud-kling-t2v/i2v`（可灵）、`cloud-seedance-t2v/i2v`（火山方舟）、`cloud-hailuo-t2v/i2v`（海螺），归 `CATALOG_GROUP_CLOUD_VIDEO`（「云端视频模型」分组，order 40）。T2V `reference_mode=none`；I2V `keyframes`（首帧必填；可灵/方舟尾帧可选，海螺仅首帧）。`WorkflowDefinition` 新增 `cloud_provider` / `cloud_model` 内部字段（payload 时剔除，不透出前端）；模型版本作为 `advanced` 选项开放（`cloud_model_for()` 优先取 options.model）。
+  - 供应商适配层 `backend/app/cloud_video/`：`base.py`（`CloudVideoAdapter` 协议 + 异常分级 + 状态归一 + 三厂商 spec）、`http.py`（错误分级 HTTP 客户端，语义对齐 GrsClient）、`kling.py`（ak/sk 手写 HS256 JWT；`/v1/videos/text2video|image2video`；远端 ID 编码 `t2v:`/`i2v:` 前缀以区分查询端点）、`jimeng.py`（方舟 Bearer Ark API Key；`/api/v3/contents/generations/tasks`；Seedance 参数以 `--ratio/--duration/--resolution` 命令后缀拼进 text；首尾帧 `role=first_frame/last_frame` 的 data URI）、`hailuo.py`（Bearer；`/v1/video_generation` + `/v1/query/video_generation` + `/v1/files/retrieve` 两段取片）。异常分级：连接未发出可重试 / 提交不确定禁止自动重试（附扣费警示）/ 临时错误退避。
+  - 共享执行服务 `cloud_video_service.py`：类级单例 `configure(store, credential_key, resource_storage)`；`availability` / `public_config` / `update_provider` / `test_provider`（回写 `last_test_*`）；`submit_generation` / `wait_for_task`（6s 轮询、45min 超时、临时错误退避）/ `resume_snapshot` / `download_and_store`（mp4/mkv 魔数校验、1GB 上限、`store_bytes` 落七牛）。参考图统一 data URI（复用 `GrsClient.data_uri`）。
+  - worker 执行分支：`enqueue()` 按 `executor` 分流到 `execute_cloud_video()`（镜像 `execute_image`：可用性预检 → 本机参考校验 → `claim_generation` → 提交 → `remote_task_id` 持久化 → 轮询 → 下载落七牛 → SUCCEEDED）。独立信号量 `cloud_video_semaphore`（`ZLY_AI_VIDEO_STUDIO_CLOUD_VIDEO_MAX_CONCURRENCY`，默认 2），与 ComfyUI 串行队列并行、不占 GPU。启动恢复：`recoverable_generation_items("cloud_video")`——有 `remote_task_id` 继续轮询，无则重排队；提交不确定 → `INTERRUPTED` + 扣费警示，不自动重提。
+  - 存储层：新表 `cloud_video_provider_settings`（多行表，每厂商一行：`provider_key` PK、`enabled`、`base_url` NULL=厂商默认、`api_key_encrypted` + `api_secret_encrypted`（双密钥先例同 qiniu）、`last_test_*`）；MySQL DDL 在 `sql/028_cloud_video.sql`，SQLite 内联 DDL 在 `storage.initialize()`；行缺失由 getter ensure-row 补齐。
+  - 管理端：`/api/admin/providers/cloud-video` GET（三厂商列表）/ `PUT /{provider_key}` / `POST /{provider_key}/test`（`asyncio.to_thread` + 审计；test 响应必含 `available/unavailable_reason`）；`mode_payload()` 对云端工作流透出 `available/unavailable_reason`；`submit_generation` 与追加轮次路径都做 409 预检。
+  - 导演台：`director_workflow_families()` 对云端工作流按厂商分族（`cloud_video:kling/jimeng/hailuo`，标签「云端 · 可灵」等），避免同分组三厂商路由互相覆盖；`create_queued_job()` 对云端工作流统一 `clamp_cloud_video_options()` 裁剪——丢弃 H3 专属参数（quality/speed/weight_profile）、比例/时长夹到该工作流允许档位（批量台/Recipe 镜头渲染透传的 H3 语义参数因此无需逐调用点改造）。
+  - 前端：生成页/画布/参数表单/参考图面板零改动自动生效（注册表驱动）；新增 `admin/CloudVideoProviderSettings.tsx`（三厂商卡片，复刻 MusicProviderSettings 范式：密钥留空不改、credential_ready 告警、last_test 侧栏），挂进 AdminSettings「AI 供应商」tab。
+  - 边界：剧集工坊「视频工作流」下拉按 `reference_mode=collection && max_references>=3` 过滤，三家厂商的 T2V/I2V 天然不出现（无误导入口）；AI 工具页现有视频工具（打斗镜头等多参考 R2V 语义）与三家厂商 T2V/I2V API 无法 1:1 映射，留待接入 R2V 能力云端模型（如 Vidu）后做引擎选择器。云端视频工作流不在 `is_local_comfy_job()` 白名单内，不占用串行 worker；MCP 能力边界按注册表推导自动排除视频参考工作流，行为不变。
+- 受影响文件：新增 `sql/028_cloud_video.sql`、`backend/app/cloud_video/{__init__,base,http,kling,jimeng,hailuo}.py`、`backend/app/cloud_video_service.py`、`backend/tests/test_cloud_video.py`、`frontend/src/admin/CloudVideoProviderSettings.tsx`；修改 `backend/app/{models,config,storage,worker,main,workflow_registry}.py`、`backend/app/director_jobs.py`、`frontend/src/admin/AdminSettings.tsx`。
+- 兼容性：纯新增执行器与表；本地 ComfyUI 链路、GRS 生图、音乐、超分等既有链路不受影响；`generation_items` 复用既有 `executor/remote_task_id/remote_status` 列无 DDL 变更；未配置任何云端 Key 时新工作流在下拉中置灰（`available=false` + 原因），不影响其他工作流。
+- 验证命令：`python -X utf8 -B -m unittest backend.tests.test_cloud_video`（32 项通过）；`python -X utf8 -B -m unittest discover backend/tests`；`pnpm --dir frontend build`；桌面端 5173 自查（云端分组下拉置灰、管理设置三厂商卡片、保存/测试连接）。
+- 回滚方式：删除 `cloud_video/` 包、`cloud_video_service.py`、`sql/028_cloud_video.sql`、注册表 6 条工作流与 `JobMode` 6 个枚举、worker 云端分支、main.py 管理端点与预检、前端设置卡与挂载即可；`cloud_video_provider_settings` 表保留无害，`generation_items` 无结构变更，历史任务不受影响。
+
+## 2026-11-10：登录弹窗「记住账号密码」（浏览器本地凭据，AES-GCM + 非安全上下文混淆回退）
+
+- 变更原因：会话 12 小时过期或主动退出后，重开登录框都要手输账号密码；希望按用户显式勾选在当前浏览器记住并自动回填。
+- 当前基线：
+  - 存储模块 `frontend/src/auth/remembered-login.ts`：localStorage 两个键——`zly-ai-video-studio.remembered-login`（`version=1`、明文 `username`、受保护 `password`）与 `zly-ai-video-studio.remembered-login.key`（32 字节随机设备密钥）。安全上下文（localhost / HTTPS）用 `crypto.subtle` AES-GCM-256 加密密码（每次保存新随机 12 字节 IV，`scheme:"aes-gcm"`）；局域网 `http://<IPv4>` 非安全上下文没有 `crypto.subtle`，退回「与设备密钥重复 XOR」混淆（`scheme:"obfuscated"`），密码均不明文落盘。读取时 JSON 损坏、版本不符、解密失败或缺设备密钥都会自动清掉两个键；所有 storage 访问 try/catch（隐私模式），保存失败返回 `false` 由 UI 提示。
+  - 安全边界：设备密钥与密文同存于同一浏览器 localStorage，只防「明文直接可读」与跨设备/跨浏览器明文泄露，不防能读取该浏览器 profile 的本机攻击者；UI 勾选时明确提示「只加密保存在此浏览器，公用设备请勿勾选」。
+  - 交互（`LoginModal.tsx`）：密码框下新增 antd `Checkbox`「记住账号密码」（默认不勾，显式开启）；勾选登录成功才写入，取消勾选登录会清除旧凭据；有已存凭据时出现「清除已保存」（`Popconfirm` 二次确认）；回填的旧凭据登录返回 401 时自动清除并清空密码框（应对管理员/自助改密）；自助重置密码成功也会清除。底部提示随勾选态切换。
+  - 表单保持挂载：登录面板在「忘记密码」往返时不再卸载（改 `display:none` 隐藏），避免 rc-field-form 卸载清 store 叠加 StrictMode 双调用把回填值清掉；重置密码面板标题改用独立 id `studio-recover-title`，Modal `aria-labelledby` 随模式切换。
+  - 样式：`login-modal.css` 按 antd v6 真实 DOM（`.ant-checkbox` 即视觉框、无 `.ant-checkbox-inner`）主题化勾选框，暗色用 `--login-accent` 薄荷绿、浅色 `#0baf97`，对勾用深色墨 `--login-accent-ink` 保证对比。
+- 受影响文件：新增 `frontend/src/auth/remembered-login.ts`、`frontend/src/auth/remembered-login.test.ts`；`frontend/src/auth/LoginModal.tsx`、`frontend/src/auth/login-modal.css`；`README.md`、`功能说明与扩展指南.md`。
+- 兼容性：纯前端新增，不改后端接口、数据库与任务链路；不勾选时行为与旧版完全一致；无 `crypto.subtle` 的浏览器自动走混淆回退，隐私模式存不下只提示不阻断登录。
+- 验证命令：`pnpm --dir frontend exec vitest run src/auth/remembered-login.test.ts`（15 项通过）；`pnpm --dir frontend exec tsc -b`；`pnpm --dir frontend build`；5173 真实页面无头 Chrome + CDP 全链路 37 项断言通过（勾选登录→加密落盘→退出重开回填→忘记密码往返→二次确认清除→取消勾选清除→双主题→1100px 窄桌面→键盘焦点）。
+- 回滚方式：删除 `remembered-login.ts` 与其测试、还原 `LoginModal.tsx` 的勾选/回填/清除逻辑与 `login-modal.css` 的勾选框样式即可；已写入用户浏览器的两个 localStorage 键在回滚后残留但不再被读取，清站点数据可彻底去掉。
+
 ## 2026-11-10：新增 RelayVSR 细节超分引擎（2x，社区节点）
 
 - 变更原因：希望给「视频超清」补一个介于 RTX（秒级、纯放大）与 SeedVR2（生成式、分钟级）之间的细节重建引擎。先在远端只读探测：`192.168.10.54:8188` 已装 bbaudio 的 Comfyui-Relay-VSR（`RelayVSRModelLoader` / `RelayVSRUpscale` / `RelayVSRUpscaleStreaming`）且 `RelayVSR_X2` 权重就位；`RelayVSR_X4` 与 FL-RelayVSR（要求 Python 3.11+，远端为 3.10.11）不可用。
@@ -27,6 +133,93 @@
 - 验证命令：`python -X utf8 -B -m unittest backend.tests.test_relay_vsr backend.tests.test_rtx_vsr`（29 项通过）；实测导演台镜头（864×480、294 帧、12.25s）经上传入口提交 RelayVSR，208 秒出 1728×960、保留原音轨。
 - 回滚方式：恢复 `submit_generation` 的无条件 422、删除 `_prepare_uploaded_upscale` 与三处 `reference_slots`、还原 `public_reference` 早退条件；已生成任务与产物保留。
 
+## 2026-11-10：管理员可跨账号重试失败的音乐任务（删除仍只读）
+
+- 变更原因：管理员在音乐页切换查看他人/全部用户时只能浏览，遇到用户的音乐任务因七牛上传等原因失败，无法代为重试；原实现把重试与删除共用同一个「本人可管理」门禁，后端也固定按当前管理员 id 过滤，导致管理员调用重试返回 404。
+- 当前基线：
+  - 后端：`main._music_retry_owner_id()` 对 `admin` / `super_admin` 返回 `None`（不限制归属），普通账号返回本人 id；`POST /api/music/jobs/{job_id}/retry` 与 `MusicJobService.retry_job(job_id, owner_user_id: str | None)` 使用该作用域。`None` 表示任意归属，仅用于管理员重试；重试不转移任务归属，仍按原 `owner_user_id` 上传与记账，并保留 `remote_job_id` 以优先复用远端成品。仅 `failed` 可重试；`queued` / `running` 与 `succeeded` 仍返回 409。
+  - 前端：`music-library.ts` 新增 `musicAdminViewingOthers()`（管理员且作用域非本人）与 `musicCanRetry(job, ...)`（仅 `failed`；本人可管理或管理员跨账号）；`MusicWorkspace` 生成独立 `canRetryJob` 并传给 `MusicJobList` / `MusicConversation`。`MusicJobList` 的「重试」菜单改由 `canRetry` 控制，删除仍由 `canManage` 控制；`MusicConversation` 的失败提案重试也走 `canRetry`。
+  - 只读边界：管理员在「全部用户」或具体他人作用域下，仅失败任务出现「重试」；删除、对话重命名、新建对话、改词生成仍按 `musicCanManage()` 限本人，跨账号写操作继续 404。
+- 受影响文件：`backend/app/main.py`、`backend/app/music_job_service.py`、`backend/tests/test_music_provider.py`；`frontend/src/music/{MusicWorkspace,MusicJobList,MusicConversation}.tsx`、`frontend/src/music/music-library.ts`、`frontend/src/music/music-library.test.ts`；`README.md`、`功能说明与扩展指南.md`。
+- 兼容性：普通账号行为不变；管理员查看本人时行为不变。接口路径、请求体、响应模型、数据库表与任务链路无变化；管理员跨账号重试仍保留原任务归属，删除等操作仍返回 404。`musicCanRetry` 为新增导出，`MusicJobList.canRetry` / `MusicConversation.canRetry` 均为可选属性，旧调用缺省回退到原门禁。
+- 验证命令：`python -X utf8 -B -m unittest backend.tests.test_music_provider.MusicEndpointTests -q`（16 项通过）；`pnpm --dir frontend exec tsc -b`；`pnpm --dir frontend exec vitest run src/music`（18 项通过）。全量回归以本次交付记录为准。
+- 回滚方式：恢复 `main.py` 的重试作用域为 `user["id"]`、`MusicJobService.retry_job` 的 `owner_user_id: str` 与前端 `manageable && failed` 的重试条件，删除 `_music_retry_owner_id`、`musicAdminViewingOthers`、`musicCanRetry` 及对应测试；无数据迁移。
+
+## 2026-11-09：七牛大文件上传改为 1 MiB 分片 + 备用上传域名（修复音乐写超时）
+
+- 变更原因：线上音乐任务仍报 `七牛云上传失败: ... The write operation timed out`（七牛 `ResponseInfo` status -1，TCP 写阻塞）。核对当天构建的镜像已包含上一版「120s 超时 + 4 次重试」，可排除旧代码；剩余风险在音乐路径仍用 4 MiB 分片且只声明一个上传域名，慢链路或单入口故障时单次写阻塞过长、失败后没有备用主机可切。
+- 当前基线：`backend/app/qiniu_storage.py` 与 `backend/app/media_studio/services/qiniu_service.py` 统一为：>8 MiB 走七牛 v2 分片，`part_size=1 MiB`；单次连接 15s / 读取 180s（`(15, 180)`，音乐与媒体两条路径共用同一进程级默认值，避免后初始化者覆盖）；区域同时声明主入口 `up-<region>.qiniup.com` 与备用入口 `upload-<region>.qiniup.com`，由 SDK 重试策略切换；`QiniuStorage.__init__` 显式把默认 zone 固定为 HTTPS，避免 `preferred_scheme` 回退端口 80；上层保留 4 次指数退避重试（同一对象 key，SDK 断点记录可续传），失败信息附带文件大小与尝试次数。
+- 受影响文件：`backend/app/qiniu_storage.py`、`backend/app/media_studio/services/qiniu_service.py`、`backend/tests/test_qiniu_upload.py`。
+- 兼容性：不改数据库、路由、任务协议与对象键格式；≤8 MiB 仍走 `put_data`；已上传对象不受影响。
+- 验证命令：`python -m pytest backend/tests/test_qiniu_upload.py backend/tests/test_music_provider.py -q`（48 项通过）；镜像内 `qiniu==7.16.0` 以 `python -m unittest backend.tests.test_qiniu_upload` 复跑（12 项通过）；真实配置上传 10 MiB 用时 22.8s 并删除探针对象。若线上仍出现同类写超时，应先在服务器容器内测试到七牛上传域名的实际上行（脚本见功能说明同日条目），排查服务器出网 MTU / 代理 / 带宽，而不是继续加重试。
+- 回滚方式：恢复 4 MiB 分片、120s 超时与单一 `up_host`，删除 `QINIU_UPLOAD_BACKUP_HOSTS` 与对应测试；无需数据迁移。
+
+## 2026-11-09：忘记密码改为邮箱验证码自助重置（新增找回邮箱字段与 SMTP 邮件服务）
+
+- 变更原因：账号只有用户名/密码，忘记密码只能由管理员后台重置，员工无法自助找回。原讨论过的密保问题方案可靠性差已放弃，改为更通用的「邮箱一次性验证码」：账号绑定找回邮箱，忘记密码时输入邮箱收取 6 位验证码即可重设并直接登录。
+- 当前基线：
+  - 账号：`users` 新增可空 `email` 列（大小写不敏感唯一索引 `uk_users_email`），不参与登录。管理员在「管理设置 → 账号管理」创建/编辑账号时填写；本人可在账号菜单「编辑账号资料」修改（邮箱变化时必须校验当前密码）。SQLite 建表直接含列并对老库用 `ensure_column` + `ensure_unique_index` 平滑升级；MySQL 侧同样走运行时 `ensure_column`（`sql/026_account_security.sql` 不含 ALTER，避免重复执行报错）。
+  - 邮件服务：新增 `MailProviderService`（`backend/app/mail_provider.py`）+ `mail_provider_settings` 表（SQLite/MySQL 种子行 id=1）。字段：enabled / host / port / security(ssl|starttls|none) / username / password_encrypted（Fernet 加密，主密钥同其它供应商）/ from_address / from_name / last_test_*。配置入口「管理设置 → 邮件服务」，SMTP 密码支持「复制已保存」（`provider_secret` 新增 `mail:(password,)`）。测试连接只建连+登录，不发信。
+  - 重置码：新增 `password_reset_codes` 表（`user_id` 主键，`code_hash` scrypt、`expires_at`、`attempts`、时间戳）。`AuthStore.set_password_reset_code` / `consume_password_reset_code`（一次性消费，过期或超 5 次尝试即清除）。TTL 15 分钟，`RESET_CODE_TTL_MINUTES`/`RESET_CODE_MAX_ATTEMPTS`/`RESET_CODE_LENGTH` 常量集中管理。
+  - 登录：`POST /api/auth/login` 的 username 字段可填**账号名或账号绑定的找回邮箱**（两者都能登录）。`AuthStore.authenticate` 先按账号名匹配（`verify_credentials`），失败再按邮箱匹配（`verify_credentials_by_email`，大小写不敏感）；邮箱登录要求账号已绑定邮箱且启用。`LoginRequest.username` 上限放宽到 255（兼容邮箱长度）。
+  - 端点：公开 `POST /api/auth/password/email-challenge`（按邮箱发码；邮件服务未配置返回 503；为避免账号枚举，邮箱不存在也返回「已受理」且不发信；发送限流 15 分钟 5 次）与 `POST /api/auth/password/email-reset`（校验码，错误/过期返回 400，成功后 `set_password(must_change_password=False)`、换发会话 Cookie 实现免密直达工作台，并撤销全部旧会话）。二者已加入 OpenAPI `PUBLIC_PATHS`（文档中不标注会话安全）。
+  - 前端：`LoginModal` 增加「忘记密码」两步骤（输邮箱 → 输验证码+新密码 → 自动登录）；`RenameUserModal` 升级为账号资料编辑（姓名+找回邮箱，本人改邮箱需当前密码）；管理后台新增「邮件服务」标签页 `MailProviderSettings.tsx`，账号管理创建/编辑支持邮箱。
+- 受影响文件：`backend/app/{auth,db,models,main,storage,provider_secret,api_documentation}.py`、新增 `backend/app/mail_provider.py`、新增 `sql/026_account_security.sql`、新增 `backend/tests/test_password_reset.py`、`backend/tests/test_core.py`（公开接口清单）、`frontend/src/{api.ts,paths.ts}`、`frontend/src/auth/LoginModal.tsx`、`frontend/src/auth/login-modal.css`、`frontend/src/components/RenameUserModal.tsx`、`frontend/src/admin/{AdminSettings.tsx,MailProviderSettings.tsx,FieldCopy.tsx}`。
+- 兼容性：纯新增列/表/端点与界面入口。`email` 可空、旧账号默认未绑定（忘记密码时提示联系管理员）；未配置邮件服务时新端点返回 503，不影响登录与管理员重置密码。`UpdateProfileRequest` 新增可选 `email`/`current_password`，仅在提交 email 时才校验。
+- 验证命令：`python -X utf8 -m unittest backend.tests.test_password_reset backend.tests.test_accounts -v`；`python -X utf8 backend/tests/test_core.py`；`pnpm --dir frontend exec tsc -b`；`pnpm --dir frontend test`。已针对运行中的后端验证 `/api/openapi.json` 含新端点且公开端点无 security、临时实例下 `email-challenge` 在未配置邮件时返回 503。
+- 回滚方式：删除新端点/模块/测试与前端入口即可；`users.email` 列、`mail_provider_settings`、`password_reset_codes` 三处可保留（无副作用）。停用功能只需关闭邮件服务开关。
+
+## 2026-11-09：音乐页支持管理员查看全部用户数据（对齐生成页，只读）
+
+- 变更原因：`/music` 此前只用本人会话查询 `music-jobs` / `music-chats`，管理员无法像生成页那样切换到「全部用户」或具体账号排查他人的音乐任务与对话。本次把生成页/i讯飞既有的「管理员用户下拉 + `user_id` 作用域 + 切到他人只读」范式补齐到音乐页。
+- 当前基线：
+  - 列表作用域：`GET /api/music/jobs` 与 `GET /api/music/chats` 新增可选 `user_id` 查询参数。仅 `admin` / `super_admin` 生效：传具体账号 id 看该账号，传 `all` 看全部账号；普通账号忽略该参数，仍只看本人，未带参数时管理员也只看本人（与生成页 `GET /api/jobs` 完全一致）。实现入口 `main._music_scope_owner_id()`，`JobStore.list_music_jobs()` / `list_music_chats()` 的 `owner_user_id` 改为可空（`None` = 全部账号，不拼 `WHERE`）。
+  - 单项只读：`GET /api/music/jobs/{id}`、`GET /api/music/jobs/{id}/lyrics`、`GET /api/music/chats/{id}` 允许管理员跨账号只读访问（`main._music_read_owner_id()` 对管理员返回 `None`、普通账号返回本人），与生成页“管理员可读任意任务”一致。所有写操作中除重试外的部分（删除任务/对话、重命名、歌词对齐、发消息、生成提案、新建）仍严格归属本人，管理员对他人数据返回 404；重试已于 2026-11-10 单独放开给管理员跨账号。
+  - 前端：`MusicChatRail` 顶部新增管理员用户下拉（复用生成页 `studio-task-user-select` 与 `AdminUserFilterSelect` 同款 `aria-label="切换查看用户"`），`MusicWorkspace` 主区按同一作用域取数；`App.tsx` 新增 `musicAdminUserFilter` 状态与 `musicInspectedUserLabel`，两组件共用同一作用域与「只读」判定（`music-library.ts` 的 `musicScopedUserId` / `musicReadOnlyScope` / `musicCanManage`）。
+  - 只读行为：切到具体他人（或「全部用户」下打开归属他人的对话/歌曲）时，隐藏新建对话、composer、对话重命名/删除、歌曲重试/删除/新建对话、歌词对齐等写入口，保留浏览、试听、下载、看歌词；受影响的写入组件为 `MusicWorkspace` / `MusicChatRail` / `MusicConversation` / `MusicJobList`（新增 `canManage`）/ `MusicLyricsPanel`（新增 `readOnly`）。
+- 受影响文件：`backend/app/{main,storage}.py`、`backend/tests/test_music_provider.py`、`frontend/src/{App.tsx,music/api.ts,music/music-library.ts,music/music-library.test.ts,music/MusicChatRail.tsx,music/MusicWorkspace.tsx,music/MusicConversation.tsx,music/MusicJobList.tsx,music/MusicLyricsPanel.tsx,music/music.css}`、新增 `frontend/src/music/music-admin-scope.test.tsx`。
+- 兼容性：`user_id` 为可选参数，普通账号与未带参数的管理员行为不变；音乐任务/对话表结构、路由语义、任务链路、播放与歌词时间轴均无迁移。仅新增一个只读跨越维度的授权分支。
+- 验证命令：`python -X utf8 -B -m unittest backend.tests.test_music_provider backend.tests.test_music_chat`（52 项通过）；`pnpm --dir frontend exec tsc -b`；`pnpm --dir frontend exec vitest run`（900 项通过）；对运行中的后端实测 `/api/openapi.json` 两个列表端点已含 `user_id`，管理员会话下 `GET /api/music/jobs?user_id=all` 与 `/api/music/chats?user_id=all` 正常返回。
+- 回滚方式：还原 `main.py` 两处 `_music_scope_owner_id` / `_music_read_owner_id` 与 storage 可空签名，前端撤销 `musicAdminUserFilter` 接线与各组件 `readOnly` / `canManage` 门控即可；无数据迁移，`music_jobs`/`music_chats` 数据保留。
+
+## 2026-11-08：音乐页改造为整窗对话式工作区（对齐图片生成页布局）
+
+- 变更原因：音乐对话助手最初是「顶部 vibe 表单 + 右侧 Drawer」形态，用户反馈 vibe 表单鸡肋、对话应以整窗形式呈现，要求对齐图片生成页的「左栏对话列表 + 主区对话流 + 底部停靠 composer」布局。
+- 当前基线：
+  - 布局：复用 App 共享外壳——`div.studio-workspace` 在 music 工作区不再强制折叠（`setTaskRailCollapsed` 与包裹类条件都放行 music），共享 `aside.studio-task-rail` 在 music 时渲染惰性加载的 `MusicChatRail`（240px：新对话/搜索/`groupTasksByCreatedAt` 时间分组/行悬停重命名与删除，锚点歌曲缩略图+状态点）；`main` 带 `studio-music-home` / `studio-music-chat-open` 状态类。composer 复用生成页 `.studio-composer-form` 定位（home 内联 `studio-composer-inline`，对话态底部停靠；播放条可见时经 `has-player` 上移让位；宽度按剩余空间收窄 `min(1080px, calc(100vw - 364px))` 防溢出）。
+  - 路由：`ROUTE_PATTERNS.musicChat = "/music/:chatId"` 已登记 `STUDIO_ROUTE_PATHS`；`parseMusicPath` / `musicChatPath`（paths.ts）；曲库页签用 `?view=library`；`/music` = 对话首页（问候语+内联 composer+氛围卡+最近歌曲 8 张），`/music/:chatId` = 对话流（自动滚底、乐观插入用户气泡）。
+  - 页签：「对话创作 / 我的歌曲」Segmented；曲库保留全量能力（搜索/筛选/网格列表/播放器/versionLabels 版本链）。
+  - composer：「更多设置」弹 Modal 内嵌 `MusicCreateForm`（新增 `onCreated` 回调）直出高级生成；对话发送把 composer 工具栏的人声/纯音乐与时长作为 `duration_seconds`/`instrumental` 透传给 `POST /api/music/chats/{id}/messages`，后端注入本轮上下文提示（不写入落库正文）。
+  - 新增 `PATCH /api/music/chats/{id}`（重命名，`MusicChatUpdateRequest` title≤120）。
+  - 删除 `MusicChatPanel.tsx`（Drawer 形态退役，逻辑并入 `MusicConversation.tsx`）；新增 `MusicChatRail.tsx` / `MusicConversation.tsx` / `MusicComposer.tsx`。
+- 受影响文件：`frontend/src/{paths.ts,App.tsx}`、`frontend/src/music/{MusicChatRail,MusicConversation,MusicComposer,MusicWorkspace,MusicCreateForm,api,music-library,music-paths.test}.(tsx|ts|css)`、删除 `MusicChatPanel.tsx`、`backend/app/{main,models,music_chat}.py`、`backend/tests/test_music_chat.py`。
+- 兼容性：路由新增但 `/music` 语义不变；对话/消息数据结构与既有端点不变（messages 请求体新增两个可选字段）；Drawer 退役无数据迁移；`MusicJobResponse`/任务链路不动。
+- 验证命令：`python -m pytest backend/tests/test_music_chat.py backend/tests/test_music_provider.py -q`（47 项）；`pnpm vitest run src/music`（9 项）；`pnpm --dir frontend build`。5173 桌面端实测：rail 切换/重命名/首页发送/对话流提案与歌曲卡/页签/直出弹窗/播放条共存，双主题通过。
+- 回滚方式：恢复 `MusicChatPanel.tsx` 与旧 MusicWorkspace 布局（git 历史），App shell 三处条件（2413 折叠 / 2436 rail 内容 / main 状态类）还原；PATCH 端点与 messages 可选字段可保留（无副作用）。
+
+## 2026-11-08：音乐对话创作助手（多轮迭代修改 + 提案生成 + 版本链）
+
+- 变更原因：音乐生成此前只有一次性 vibe 输入框，歌生成后想改效果或歌词只能反复从头 vibe 重新生成。新增对话创作面板：像和制作人聊天一样持续迭代一首歌的标题/风格/歌词，提案确认后入队生成，多版本保留成版本链。
+- 当前基线：
+  - LLM：`LlmProviderService.chat_json_messages(messages)`（`backend/app/llm_provider.py`）把 `chat_json` 的解析契约推广到任意消息列表（`chat_json` 改为委托它，签名不变）。
+  - 服务：`backend/app/music_chat.py`——`send_music_chat_message`（用户消息先落库再调 LLM，失败不丢；快照以 anchor 任务行为唯一事实；历史只带 reply 文本，最多 16 条；提案钳制 style≤2000/lyrics≤8000/duration 10-600）、`generate_from_proposal`（幂等：message.job_id 已存在直接返回原任务；cot/adapters 继承锚点任务 params；生成中即可继续对话）、锚点任务被删自动清空视为从零创作。系统提示词 `MUSIC_CHAT_SYSTEM_PROMPT` 约束 changed=false 不动参数、局部修改逐字保留未提及段落。
+  - 存储：新表 `music_chats` / `music_chat_messages`（`sql/025_music_chat.sql` + SQLite executescript，均 CREATE TABLE IF NOT EXISTS）；`music_jobs` 新增 `chat_id` 列（SQLite/MySQL 双路径 `_ensure_column`）；`create_music_job` 支持 `chat_id`，`MusicJobService.enqueue` 增加 `chat_id` 透传。
+  - 端点：`POST/GET /api/music/chats`、`GET /api/music/chats/{id}`（含消息与 anchor_job 摘要）、`POST /api/music/chats/{id}/messages`（同步 LLM 一轮，10-40s）、`POST /api/music/chats/{id}/generate`（幂等入队）、`DELETE /api/music/chats/{id}`。错误映射：MusicChatNotFoundError→404、MusicChatError→422、LlmError→502、MusicServiceError→503。
+  - 前端：`frontend/src/music/MusicChatPanel.tsx`（antd Drawer mask=false 440px 右停靠；乐观插入用户气泡；提案卡含标题/风格/歌词/时长 + 生成按钮或任务状态/试听/重试）；`MusicWorkspace.tsx` 接线（hero「对话创作」入口、详情侧栏与卡片菜单「对话修改/查看对话」）；`buildMusicVersionLabels`（music-library.ts）给同 chat_id 任务链算「对话 vN」标签。
+- 受影响文件：`backend/app/{llm_provider,music_chat,main,models,storage,music_job_service}.py`、`sql/025_music_chat.sql`、`backend/tests/test_music_chat.py`、`frontend/src/music/{api.ts,MusicChatPanel.tsx,MusicWorkspace.tsx,MusicJobList.tsx,music-library.ts,music-library.test.ts,music.css}`。
+- 兼容性：纯新增端点/表/列（带默认值或可空），不改既有音乐任务链路与路由语义；未配置音乐服务/LLM 时在入队或调 LLM 前给出既有引导报错；对话删除级联清消息，已生成歌曲保留。
+- 验证命令：`python -m pytest backend/tests/test_music_chat.py backend/tests/test_music_provider.py -q`（46 项通过）；`pnpm vitest run src/music`（7 项通过）；`pnpm --dir frontend build`。桌面端 5173 实测对话创建→提案→生成→迭代→版本链→试听。
+- 回滚方式：删除 music_chat 相关端点、模块、测试与前端面板/接线即可；`music_chats`/`music_chat_messages` 表与 `music_jobs.chat_id` 列可保留（无副作用）。
+
+## 2026-11-08：音乐任务失败可重试（优先复用远端已生成的歌曲）
+
+- 变更原因：音乐任务在最后一步「上传七牛」失败时整条任务被标记失败，但 YuE2 远端已把歌生成完，此前只能删除后重新生成。
+- 当前基线：`POST /api/music/jobs/{job_id}/retry`（本人任务、失败态才可重试，状态冲突 409）；`MusicJobService.retry_job()` 重置为 queued 并保留 `remote_job_id`；`_run` 重试分支 `_resume_remote_job()` 优先复用远端任务（已完成直接续走下载/上传，仍在生成继续等待，丢失/失败回退 `create_song` 重新生成）。`QiniuStorage` SDK `connection_timeout` 调大至 120s，`store_bytes` 重试 3→4 次；前端失败卡片「…」菜单新增「重试」。
+- 受影响文件：`backend/app/{music_job_service,main,qiniu_storage}.py`、`frontend/src/music/{api.ts,MusicJobList.tsx}`、`backend/tests/test_music_provider.py`（+5 测试）。
+- 兼容性：纯新增端点与菜单项；不改表结构与任务链路；`MusicJobResponse` 无字段变化（`_music_job_response` 透传）。
+- 验证命令：`python -m pytest backend/tests/test_music_provider.py -q`（33 项通过）。
+- 回滚方式：删除 retry 端点与 `retry_job`/`_resume_remote_job`，恢复上传重试参数与前端菜单项。
+
 ## 2026-11-07：修复音乐「测试连接」响应模型漏字段（把成功误报成「未知原因」）
 
 - 变更原因：`/api/admin/providers/music/test` 声明 `response_model=MusicProviderResponse`，而该模型缺 `available` / `unavailable_reason`，FastAPI 会按模型裁剪响应体；前端 `MusicProviderSettings.tsx` 依赖 `data.available` 判定成败，拿不到就永远走 `else`，弹「连接失败：未知原因」。线上工作台因此把探活成功误报为失败，用户误以为 FRP/地址配错。
@@ -39,10 +232,10 @@
 ## 2026-11-07：新增 Gitea CI/CD 部署基线（构建 → 镜像仓库 → SSH 部署/回滚）
 
 - 原因：替代人工 tar 上传部署，建立可复用到其他项目的持续集成基线；目标服务器可出网，走 Gitea 自带镜像仓库而非每次打包 GB 级 tar。
-- 设计要点：`.gitea/workflows/deploy.yml` 在 push master / `v*` 标签 / 手动触发时运行；job 使用 `container: docker:27-cli` 并挂载宿主机 `/var/run/docker.sock`（runner 配置 `valid_volumes` 白名单放行）直接 `docker build/push`，零第三方 action（仅 apk/git/ssh），兼容国内网络。镜像 tag `<sha8>` + `latest` 推到 Gitea Registry（`124.70.90.30:3080/<org>/zly-ai-video-studio`）。部署侧 `ops/deploy/deploy.sh` 与项目无关：登录 registry → `docker pull` 指定 tag → `docker tag` 回 compose 固定的 `zly-ai-video-studio:latest` → `compose up -d --no-build --force-recreate` → `/api/health` 60 秒检查，失败自动回滚 `.deploy-history` 上一版；`rollback.sh --list/--to N` 手动回滚。CI 每次部署先把仓库内 `ops/deploy/*.sh` scp 覆盖到服务器，保证脚本与提交版本一致。
-- GitBlit 无感接入:开发机继续 push 老 GitBlit 地址,`ops/gitea/gitblit-sync.sh` + systemd timer(`ops/gitea/systemd/`)每分钟把增量以真实 `git push --mirror` 同步到 Gitea(仓库名配在 `.env` 的 `SYNC_REPOS`,缺仓自动创建),真实 push 事件确保 Actions 必触发;刻意不用 Gitea 自带 pull 镜像(镜像同步不触发 push 钩子/Actions)。CI 触发延迟 ≤ 同步周期(默认 1 分钟)。
-- 受影响文件：新增 `.gitea/workflows/deploy.yml`、`ops/gitea/{docker-compose.yml,.env.example,runner-config.default.yaml,setup.sh,gitblit-sync.sh,systemd/gitblit-sync.{service,timer}}`、`ops/deploy/{deploy.sh,rollback.sh}`、`docs/CI-CD-Gitea部署指南.md`；`.gitignore` 追加 `ops/gitea/runner-config.yaml`、`.deploy-history`。未改动 `Dockerfile`、`compose.yaml`、`deploy-server-image.sh`。
-- 兼容性：不动现有手工部署链路（`导出服务器部署镜像.bat` / `deploy-server-image.sh`）与任何运行时行为；Gitea 侧要求 CI 机与部署服务器 Docker 配置 `insecure-registries: ["124.70.90.30:3080"]`。
+- 设计要点：`.gitea/workflows/deploy.yml` 在 push master / `v*` 标签 / 手动触发时运行；job 使用 `container: docker:27-cli` 并挂载宿主机 `/var/run/docker.sock`（runner 配置 `valid_volumes` 白名单放行）直接 `docker build/push`，零第三方 action（仅 apk/git/ssh），兼容国内网络。镜像 tag `<sha8>` + `latest` 推到 Gitea Registry（`124.70.90.30:8899/r/zly-ai-video-studio`）。部署侧 `ops/deploy/deploy.sh` 与项目无关：登录 registry → `docker pull` 指定 tag → `docker tag` 回 compose 固定的 `zly-ai-video-studio:latest` → `compose up -d --no-build --force-recreate` → `/api/health` 60 秒检查，失败自动回滚 `.deploy-history` 上一版；`rollback.sh --list/--to N` 手动回滚。CI 每次部署先把仓库内 `ops/deploy/*.sh` scp 覆盖到服务器，保证脚本与提交版本一致。
+- GitBlit 接管式无感迁移（替代早前的定时同步方案——同步意味着两套 git 服务并行）：仓库由 `ops/gitea/gitblit-migrate.sh` 一次性迁入（mirror clone → push --mirror,校验引用数,可断点重跑），用户从 GitBlit `users.conf` 同名迁移（明文密码原样带走，哈希不可逆的列入重置名单；普通用户入 developers 写权限团队、GitBlit 管理员入 Owners）；切换时 GitBlit 挪到 8890、Gitea 绑定原 8899 端口，且 Gitea 组织名取 `r` 使 clone 地址 `/r/<仓库>.git` 与 GitBlit 老 URL 逐字符同形，无需反向代理——开发者 remote/凭据/习惯零改动，push 即秒级真实触发 Actions。已知边界：GitBlit 网页书签（/summary?r=xx）与 Gitea 路径不同需重收藏；其实例 RPC 已关闭（实测 /rpc 404），迁移用手工仓库名清单。
+- 受影响文件：新增 `.gitea/workflows/deploy.yml`、`ops/gitea/{docker-compose.yml,.env.example,runner-config.default.yaml,setup.sh,gitblit-migrate.sh}`、`ops/deploy/{deploy.sh,rollback.sh}`、`docs/CI-CD-Gitea部署指南.md`；`.gitignore` 追加 `ops/gitea/runner-config.yaml`、`.deploy-history`。未改动 `Dockerfile`、`compose.yaml`、`deploy-server-image.sh`。
+- 兼容性：不动现有手工部署链路（`导出服务器部署镜像.bat` / `deploy-server-image.sh`）与任何运行时行为；Gitea 侧要求 CI 机与部署服务器 Docker 配置 `insecure-registries: ["124.70.90.30:8899"]`。
 - 验证命令：CI 服务器 `bash ops/gitea/setup.sh`；推送 master 后在 Gitea Actions 观察两阶段日志；服务器 `bash ops/deploy/rollback.sh --list`。
 - 回滚方式：删除 `.gitea/` 与 `ops/` 即回到纯手工部署；已部署服务器用 `ops/deploy/rollback.sh` 回退旧镜像。
 
@@ -310,6 +503,18 @@
 - 兼容性：v1 快照照常展示（过程页自动走合成视图，无 prompt 的镜头用剧本信息兜底）；复制出的工程与手工新建工程同构，工坊/资产库/剪辑按现有链路继续用；发布重复执行 UPDATE 语义不变；媒体仍是七牛 URL 引用，不复制文件。接口、表结构、端口、工作流协议均无破坏性变更。
 - 验证：`python -m unittest backend.tests.test_featured_works`（14 项通过，含快照 v2 字段、画布捕获、复制服务与 assetId 重映射断言）；后端全量 `unittest discover`（1707 通过 / 1 skipped）；`pnpm --dir frontend build`（824 测试 + tsc + vite build 全过）；5173 桌面端 Playwright 实测（zlyadmin 会话注入）：首页精选卡 → 预览弹层 → 查看创作过程（80 节点合成画布）→ 提示词面板 → 复制项目跳转新工程内容库 → 删除副本清理，浅暗主题截图留存 `test-results/featured-ui/`。
 - 回滚方式：还原上述文件即可；v2 快照字段为纯增量，旧前端/旧后端读到多出的 `prompt`/`canvas` 字段会忽略；copy 接口删除即下线该入口；复制产生的副本工程直接删除，不影响原工程与精选快照。
+
+## 2026-11-09 精选「创作过程」画布媒体地址改为七牛长效地址（修复线上破图）
+
+- 变更原因：线上《工地风云》（`featured-ba083866657a41b3`）的创作过程页提示词卡缩略图破图。排查确认快照 `canvas` 节点冻结的是 `/api/jobs/oFAzZb1wT2kr/generations/.../outputs/0/download`：该地址依赖任务记录、登录态与输出归属，任务记录被清理后接口返回 404「任务不存在」（七牛对象仍在，节点 `resultPath`/`assetPath` 可还原成 `https://img.zlyun168.com/zly-ai-video-studio/minimax_h3/20261105/183547_*.mp4`）；同时前端提示词缩略图用 `inferMediaKind(url, {})` 判断类型，恒判为图片，而真实产物是 5.17 秒 mp4，即使地址有效也会显示破图。
+- 发布侧修复：`featured_works_service.py` 新增 `rewrite_canvas_media_urls` / `_durable_media_url`、`JOB_DOWNLOAD_PATH_RE` 与 `OBJECT_KEY_FIELDS`（`resultPath` / `assetPath` / `path`）。`build_featured_snapshot(..., object_url=...)` 与 `publish(..., object_url=...)` 新增可选解析器；发布时把 `data.url`、`data.resultUrl`、`data.resultHistory[].url` 里的任务下载地址换成 `resource_object_url(app.state.resource_storage, 对象键)` 的长效地址，`cover` 为任务地址时清空；没有对象键或存储不支持公开地址时置空，宁可让前端显示占位也不保留死链。`register_featured_work_routes` 新增 `resource_storage` 惰性 getter，`main.py` 注入 `lambda: getattr(app.state, "resource_storage", None)`。改写只作用于快照画布，不改其它字段。
+- 前端修复：`normalizeRealCanvas` 把 `data.resultKind` 带到提示词节点 `mediaKind`；`ProcessPromptNode` 改用新增导出 `processThumbKind` 选择 `<img>` / `<video>`（无 `resultKind` 时按地址扩展名兜底），视频有封面时用封面；`ProcessMediaNode` 与提示词缩略图加载失败时改为占位图标，不再出现浏览器破图。
+- 画布排布修复（同日，纯前端）：该快照是资产画布，94 个节点里 69 个带 `parentId`、坐标是相对分组的，23 个资产分组沿 x=360…25020 排成一行；`normalizeRealCanvas` 之前直接取原始坐标、丢弃 `parentId`，快照里的 `viewport.x≈-38686` 又指向内容之外，整页只剩一条横线。现在先由 `resolveCanvasPositions` 沿 `parentId` 链合成绝对坐标，再由 `arrangeShowcaseLayout` 按分组包围盒判断版式：宽高比超过 `WIDE_LAYOUT_RATIO=4` 且分组数 ≥6 时重排成网格（最多 6 列、组内相对位置与连线不变，真实数据从 24960×730 变为 5075×4554），紧凑画布原样输出；重排后页面改用 `fitView` 并忽略失效的 `viewport`。快照数据无需修改，重新部署前端即生效。
+- 存量数据：已发布快照不会自动回填。修复后需在后台「更新精选」重新发布，或执行一次性数据修复 `ops/sql/2026-11-09_fix_featured_canvas_media_urls_v2.sql`（只 UPDATE 该行 `snapshot_json`，十六进制负载，幂等）。v1 文件因取数时按 Latin-1 解码导致写库后中文二次编码（`å·¥å°é£äº`），已作废删除；v2 负载由 v1 逐字节还原为正确 UTF-8，媒体地址改写结果不变。放在 `ops/sql/` 而非 `sql/`：`mysql_schema_sql()` 会在启动时全量回放 `sql/*.sql`，数据补丁不能进自动迁移目录。
+- 受影响文件：`backend/app/media_studio/services/featured_works_service.py`、`backend/app/media_studio/routers/featured_router.py`、`backend/app/main.py`、`backend/tests/test_featured_works.py`；`frontend/src/director2/FeaturedProcessPage.tsx`、`frontend/src/director2/featured-process-graph.test.ts`。
+- 兼容性：快照版本仍为 v2；只改写快照里的媒体 URL，不改表结构、接口路径、复制语义与画布结构；旧快照按原样展示（破图地址仍存在，直到重新发布或执行修复 SQL）；`object_url` 缺省时行为与修复前一致。
+- 验证：`python -X utf8 -m unittest backend.tests.test_featured_works -v`（19 项通过）；后端全量 `python -X utf8 -m unittest discover -s backend/tests -t . -q`；`pnpm --dir frontend build`（894 项测试 + `tsc -b` + `vite build` 通过）；画布排布修复后 `featured-process-graph.test.ts` 增至 9 项（父级坐标合成、一行画布重排、紧凑画布不变）。
+- 回滚方式：还原上述文件即可；已执行 SQL 的库可用执行前备份表 `bak_ai_featured_works_20261109` 恢复；无表结构与迁移变化。
 
 ## 2026-11-04 图片编辑结果的「原图对比」契约（`result_compare`）与透明棋盘格
 
@@ -4962,3 +5167,38 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：不传 `aspect_ratio` 的 identity 请求行为不变（16:9 / 2K / 2048×1152）；非 identity 槽位的 `payload.model` / `aspect_ratio` 逻辑无改动。无端口、数据库、任务队列与节点变更。
 - 验证命令：`python -m pytest backend/tests/test_asset_canvas_upload.py backend/tests/test_asset_source_references.py backend/tests/test_canvas_character_design.py`。
 - 回滚方式：还原 `asset_image_prompts.py` 与 `project_detail_service.py` 中 identity 分支的对应改动并移除新增测试即可，无数据迁移。
+
+## 2026-11-10 参考素材 kind 新增 media（修 /api/jobs 500）与图层分离框选移除修复
+
+- 变更原因：`GET /api/jobs`（无 `limit`）返回 500，生成页显示「最近创作加载失败」，工具页「从资产选取」同步失败。定位：`limit=50` 正常、`limit=56` 起失败，第 56 条 `tWYiCt3Dh2ah`（`stem-split`）单条也 500。根因链为注册表 `reference_slots=("media",)` → `WorkflowDefinition.reference_kind()` 原样返回 `"media"` → `main.public_reference()` 写入响应 → `models.JobReference.kind` 只允许 `image | video | audio` → 响应校验失败，一条记录打挂整个列表（全库仅 `stem-split` 命中）。另修复用户反馈的「图片图层分离」框选后点 X 无法关闭。
+- 当前基线（协议）：`JobReference.kind` 为 `Literal["image", "video", "audio", "media"]`，`media` 表示「音频或视频」通用槽位（客户端按素材本身判定实际类型），并带 `mode="before"` 校验器把未知 kind 归一到 `media`，使单条脏记录不再让整个列表 500。`api_documentation.py` 的 `kind` / `reference_slots` 字段说明同步。前端 `ReferenceKind` 增加 `media`；`reference-assets.sniffMediaKind()` 先信声明 MIME、再按容器/编码魔数（ftyp、EBML、RIFF+WAVE、fLaC、OggS、ID3、裸 MPEG 帧同步并排除 JPEG `FF D8`）判定音频或视频；`fileFromReferenceBlob(..., "media")` 据此落成可上传文件；`media/VideoRoundHeader.tsx` 的 `referencePreview()` 对 video/audio/media 只渲染图标，`media` 不再落到 `<img>`（避免碎图）。
+- 界面修复：`tools/ImageLayerSplitTool.tsx` 的框选移除按钮补 `onPointerDown` 阻断冒泡，画布 `onLayerPointerDown` 增加 `closest("button")` 早退——原先画布的 `preventDefault()` + `setPointerCapture()` 会吞掉子按钮的 `click`（同款写法见 `PhotoEditTool.tsx`）。
+- 排查结论（工具族点击可用性）：全仓 11 处 `setPointerCapture` / 25 处 `onPointerDown` 中，仅「图片编辑」「图层分离」是「容器捕获指针 + 内部按钮」形态；30 条路由逐元素命中测试（含滚动复测）0 处遮挡与 `pointer-events:none`；画布工具与结果卡真实鼠标事件回归 30 项全通过。
+- 受影响文件：`backend/app/models.py`、`backend/app/api_documentation.py`、`backend/tests/test_stem_split.py`；`frontend/src/reference-assets.ts`、`frontend/src/reference-assets.test.ts`、`frontend/src/media/VideoRoundHeader.tsx`、`frontend/src/media/video-round-header.test.tsx`（新）、`frontend/src/tools/ImageLayerSplitTool.tsx`。
+- 兼容性：`media` 为新增枚举值，既有 `image/video/audio` 响应与各前端分支（重新编辑还原、`image-compare` 等）行为不变；不改任务表结构、工作流图、节点 ID、模型路径、端口与队列语义，无数据迁移。
+- 验证命令：`python -X utf8 -m unittest discover -s backend/tests -t . -p "test_*.py"`（1846 OK / 1 skip）；`pnpm --dir frontend test`（136 文件 / 929 项）、`pnpm --dir frontend exec tsc -b`；只读脚本对真实库最近 100 条任务逐条 `JobResponse` 校验 0 失败；5173 实测 `GET /api/jobs` 200、生成页列表与画廊恢复、`tWYiCt3Dh2ah` 参考素材为中性图标无 `<img>`、`/tools/stem-split?job=tWYiCt3Dh2ah` 带回素材、图层分离框选 X 与芯片移除均生效。
+- 回滚方式：把 `JobReference.kind` 收回、删除校验器与前端 `media` 分支、撤掉移除按钮的 `onPointerDown` 与 `closest("button")` 早退即可；届时需同步处理 `stem-split` 的注册表槽位或该条历史记录，否则列表会再次 500。
+
+
+## 2026-11-10 音乐页新增「精选音乐」（管理员发布 + 全员只读）
+
+- 变更原因：音乐页只有「对话创作 / 我的歌曲」两个页签，管理员缺少像导演台「精选作品」那样面向全体成员的展示位；生成成功的歌曲也只能留在各自账号的曲库里，无法由管理员挑选推荐。本轮新增独立的精选音乐展示能力，不改动原歌曲与归属。
+- 数据：`sql/027_featured_music.sql` 新增 `ai_featured_music`（`id` / `job_id` 唯一 / `owner_user_id` / `title` / `summary` / `style` / `lyrics` / `result_url` / `cover_url` / `duration_seconds` / `result_format` / `sort_order` / `status` / `published_by` / `published_at` / `updated_at`）。表内只保留已发布行（下架即删除），`status` 固定 `published`，列表按 `sort_order ASC, published_at DESC`。`storage.py` 同步 SQLite 建表，并把 `result_url` / `cover_url` 纳入 `job_media_in_use` 引用扫描，避免清理任务媒体时误删精选仍引用的音频或封面。若线上库尚未建表，启动时 `mysql_schema_sql()` 回放 `sql/` 会自动创建。
+- 快照与应用：`media_studio/services/featured_music_service.py` 的 `FeaturedMusicService.publish` 只接受 `music_jobs.status = succeeded` 且 `result_url` 为 `http(s)://` 或 `/` 开头的歌曲；发布时把标题（缺省取歌曲标题，最长 255）、推荐语（最长 500）、风格（2000）、歌词（8000）、音频、封面、时长、格式和 `sort_order`（0–999）复制进独立表，之后原任务删除或修改都不影响已发布内容；同一 `job_id` 再次发布执行 UPDATE 并保留首次 `published_at`。`unpublish` 只删除 `status = published` 的展示行。
+- 接口（`media_studio/routers/featured_music_router.py`，`main.py` 通过 `register_featured_music_routes` 注册）：`GET /api/featured-music` 与 `GET /api/featured-music/{featured_id}` 供登录用户浏览；`POST /api/admin/featured-music` 与 `DELETE /api/admin/featured-music/{featured_id}` 需 `mutating_admin_user`（`admin` / `super_admin`），员工只读。接口标签沿用「音乐」。
+- 前端：`music/api.ts` 新增 `FeaturedMusic` 类型与读取 / 发布 / 下架函数；`music-library.ts` 新增 `featuredMusicAsJob` / `featuredMusicJobId` / `isFeaturedMusicJobId`，把只读快照投影成播放器可用的 `MusicJob`（合成 ID `featured:<id>`，与原任务 ID 隔离）。`MusicWorkspace` 新增第三个页签「精选音乐」，普通成员与管理员都可见；`FeaturedMusicGrid` 渲染精选卡（封面、精选角标、播放、标题、风格、推荐语、时长），管理员卡右上角「更多」可取消精选。管理员在「我的歌曲」卡片菜单看到「发布为精选 / 更新精选」，发布弹层可改标题、推荐语、封面地址与排序；发布、更新、下架后刷新 `["music-featured"]`。精选歌曲播放复用底部播放条，上一首/下一首只在精选集合内切换；精选快照没有可对齐的原任务，因此播放时不显示逐行歌词入口，歌词在详情弹窗查看。样式全部走 `--studio-*` / `--studio-music-*` 语义变量，浅色与暗色主题成对验证。
+- 受影响文件：`sql/027_featured_music.sql`（新）、`backend/app/{storage,main}.py`、`backend/app/media_studio/services/featured_music_service.py`（新）、`backend/app/media_studio/routers/featured_music_router.py`（新）、`backend/tests/test_featured_music.py`（新）、`frontend/src/music/{api.ts,music-library.ts,music-library.test.ts,MusicWorkspace.tsx,MusicJobList.tsx,FeaturedMusicGrid.tsx（新）,music.css}`、本快照、`README.md`、`功能说明与扩展指南.md`。
+- 兼容性：新增独立表、独立接口与第三个页签，不改 `music_jobs` / 音乐对话 / 音乐供应商配置；既有两个页签行为不变，普通成员只多一个只读入口。无端口、工作流、ComfyUI 节点或模型路径变化；历史音乐任务无需迁移。
+- 验证：`python -X utf8 -B -m unittest backend.tests.test_featured_music backend.tests.test_featured_works -v`（服务层发布校验、快照字段、重复发布保留 `published_at`、下架、MySQL schema 回放）；后端全量 `python -X utf8 -B -m unittest discover -s backend/tests -t . -p "test_*.py"`；`pnpm --dir frontend exec tsc -b`；`pnpm --dir frontend exec vitest run src/music`；`pnpm --dir frontend build`。5173 桌面端以 `zlyadmin` 实测：精选页签显示精选卡与推荐语，点击封面可播放（音频 1.3 秒进度、播放条接管、逐行歌词入口隐藏），「我的歌曲」卡片菜单含「更新精选 / 取消精选」，发布弹层字段完整，浅色与暗色均正常；截图在 `test-results/featured-music/`（gitignore）。
+- 回滚方式：还原上述代码文件并删除 `sql/027_featured_music.sql`、`featured_music_service.py`、`featured_music_router.py` 与新增测试；线上库如需彻底回滚执行 `DROP TABLE ai_featured_music`（只影响精选展示，不影响音乐任务与曲库）。
+
+## 2026-11-11 登录失败锁定可由管理员手动解除
+
+- 变更原因：`enforce_login_limit` 的 15 分钟窗口过去只在重置密码时被动清理。员工连错 5 次后，即使随后输对密码也必须等满窗口，管理员在界面上既没有主动解除入口，也看不到「谁正被锁定」。
+- 后端：新增 `login_block_remaining_seconds(user)`，按 `<客户端IP>:<标识>` 的全部键统计剩余锁定秒数（窗口内第 `len - LOGIN_MAX_ATTEMPTS` 条尝试过期时解锁），`GET /api/admin/users` 为每行追加 `login_blocked` / `login_blocked_seconds`；新增 `POST /api/admin/users/{user_id}/unlock-login`（`mutating_admin_user`，管理员只能解除员工账号），复用新增的 `clear_login_failures_for_identifiers` 同时清理用户名与绑定邮箱两类键（登录表单两者都接受），并写入 `unlock_login` 审计（`detail=cleared_login_blocks=N`）。原 `clear_login_failures_for_username` 保留为薄封装，重置密码原有清理行为不变。
+- 安全边界：锁定计数仍在进程内存 `login_failures` 中，重启即清空，不落库；解除入口只对管理员开放，被锁定的客户端自己无法解除，避免绕过登录限流。
+- 前端：管理设置 → 员工账号的状态列显示「登录锁定 · 还剩 N 分钟」，锁定行出现「解除登录限制」按钮，成功后 toast 提示并刷新列表；表头新增「刷新状态」用于重新读取实时锁定状态（锁定状态不做轮询）。
+- 受影响文件：`backend/app/models.py`、`backend/app/main.py`、`backend/tests/test_core.py`、`frontend/src/api.ts`、`frontend/src/admin/AdminSettings.tsx`、本快照、`docs/API.md`、`README.md`、`功能说明与扩展指南.md`。
+- 兼容性：纯加法。`UserResponse` 新增两个带默认值的字段，旧客户端忽略即可；不新增数据表，不改会话与密码存储，`/api/auth/login` 的 429 文案与 5 次 / 15 分钟阈值不变。
+- 验证：`python -m unittest backend.tests.test_core.AuthenticationTests -v`；后端全量 `python -m unittest discover -s backend/tests -p test_core.py`（129 项通过）；`pnpm --dir frontend build`。
+- 回滚方式：还原上述文件；解除操作只影响内存计数，不涉及数据迁移。

@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 import uuid
 
 from .repository import AssistantConflict, AssistantNotFound, dumps
@@ -15,6 +16,7 @@ OPERATION_TITLES = {
     "video_arrange": "智能铺轨",
     "subtitle_arrange": "自动字幕",
     "audio_subtitle": "音轨字幕",
+    "subtitle_translate": "字幕翻译",
     "dialogue_cut": "对白精剪",
     "quick_cut": "成片速剪",
     "highlight_cut": "高光合集",
@@ -39,6 +41,17 @@ AUDIO_CAPTION_MAX_CHARS = 30
 AUDIO_CAPTION_MAX_SECONDS = 5.0
 AUDIO_CAPTION_MIN_CHARS = 4
 AUDIO_CAPTION_MIN_SECONDS = 0.35
+SUBTITLE_TRANSLATE_BATCH = 40
+SUBTITLE_TRANSLATE_SYSTEM = (
+    "你是专业的影视字幕译者。把输入 JSON 中 lines 数组里的每条字幕文本翻译成简体中文："
+    "忠实原意、口语自然、适合直接显示在视频画面上；保留说话人前缀和语气，人名使用通行中文译名；"
+    "不添加解释、注释或多余引号；不合并、不拆分、不遗漏条目；"
+    '只输出一个 JSON 对象 {"lines":["第一条译文","第二条译文"]}，条数和顺序与输入完全一致。'
+)
+_KANA_RE = re.compile(r"[\u3040-\u30ff\u31f0-\u31ff]")
+_HANGUL_RE = re.compile(r"[\uac00-\ud7af]")
+_CJK_RE = re.compile(r"[\u3400-\u9fff]")
+_LATIN_RE = re.compile(r"[A-Za-z]")
 TRANSCRIPT_MISSING_FALLBACK = "没有可用的音轨转写结果，请先转写音频并等待完成"
 TRANSCRIPT_MISSING_MESSAGES = {
     "missing": "还没有音轨转写结果，请先转写音频后再生成音轨字幕",
@@ -71,6 +84,15 @@ def _line_seconds(line: dict) -> float:
     if not math.isfinite(value) or value <= 0:
         value = max(0.8, len(_line_text(line)) / 4.5)
     return min(30.0, max(0.4, value))
+
+
+def _needs_chinese_translation(text: str) -> bool:
+    """Japanese/Korean and latin-only captions need translating; CJK-only lines are already Chinese."""
+    if _KANA_RE.search(text) or _HANGUL_RE.search(text):
+        return True
+    if _CJK_RE.search(text):
+        return False
+    return bool(_LATIN_RE.search(text))
 
 
 def _beat_duration(beat: dict) -> float:
@@ -423,6 +445,103 @@ def place_audio_subtitles(document: dict, evidence: dict[str, dict]) -> dict:
             "total_duration": round(sum(item["duration"] for item in items), 3)}
 
 
+def subtitle_translation_targets(document: dict) -> list[dict]:
+    """Collect caption texts that are not Simplified Chinese yet, keyed by their clip id."""
+    doc = validate_document(document)
+    targets = []
+    for clip in doc["clips"]:
+        if clip["track"] != "text":
+            continue
+        text = str(clip.get("text") or "").strip()
+        if text and _needs_chinese_translation(text):
+            targets.append({"clip_id": clip["id"], "text": text})
+    return targets
+
+
+def translate_subtitles(document: dict, translations: dict[str, str], *, strict: bool = True) -> dict:
+    """Replace caption texts with translations; timing, layout and style stay untouched."""
+    doc = validate_document(document)
+    items, applied, skipped = [], [], 0
+    for clip in doc["clips"]:
+        if clip["track"] != "text":
+            continue
+        text = str(clip.get("text") or "").strip()
+        if not text:
+            continue
+        if not _needs_chinese_translation(text):
+            skipped += 1
+            continue
+        translated = str(translations.get(clip["id"]) or "").strip()
+        if not translated:
+            if strict:
+                raise ValueError("部分字幕没有拿到翻译结果，请重试")
+            skipped += 1
+            continue
+        clip["text"] = translated[:200]
+        items.append({"clip_id": clip["id"], "name": clip["text"], "start": clip["start"],
+                      "duration": clip["duration"], "reason": f"原文：{text[:120]}", "action": "update"})
+        applied.append({"clip_id": clip["id"], "original": text, "translated": clip["text"]})
+    return {"document": validate_document(doc), "items": items, "count": len(items),
+            "skipped_count": skipped, "total_duration": round(sum(item["duration"] for item in items), 3),
+            "translations": applied}
+
+
+def _proposal_translation_map(record: dict) -> dict[str, str]:
+    """Original text -> translated text stored on a succeeded subtitle_translate proposal."""
+    entries = record.get("translations") or []
+    mapping: dict[str, str] = {}
+    if isinstance(entries, list):
+        for entry in entries:
+            if isinstance(entry, dict) and entry.get("original") and entry.get("translated"):
+                mapping[str(entry["original"])] = str(entry["translated"])
+    if not mapping:
+        # Proposals created before the reuse feature only kept the truncated
+        # original inside items.reason; recover whatever is still matchable.
+        for item in record.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            reason = str(item.get("reason") or "")
+            if reason.startswith("原文：") and item.get("name"):
+                mapping[reason[3:]] = str(item["name"])
+    return mapping
+
+
+def subtitle_reapply_targets(document: dict, mapping: dict[str, str]) -> dict[str, str]:
+    """Match current caption texts against a previous translation mapping."""
+    doc = validate_document(document)
+    targets: dict[str, str] = {}
+    for clip in doc["clips"]:
+        if clip["track"] != "text":
+            continue
+        text = str(clip.get("text") or "").strip()
+        if text and text in mapping:
+            targets[clip["id"]] = mapping[text]
+    return targets
+
+
+def make_subtitle_translator(llm):
+    """Wrap the default chat model into a batched line translator for subtitle_translate."""
+    def translate(texts: list[str]) -> list[str]:
+        chat_json = getattr(llm, "chat_json", None)
+        if not callable(chat_json):
+            raise ValueError("字幕翻译能力未启用，请先在管理设置检查大模型配置")
+        results: list[str] = []
+        for index in range(0, len(texts), SUBTITLE_TRANSLATE_BATCH):
+            batch = texts[index:index + SUBTITLE_TRANSLATE_BATCH]
+            try:
+                payload = chat_json(SUBTITLE_TRANSLATE_SYSTEM, dumps({"lines": batch}),
+                                    temperature=0.2, max_tokens=8192)
+            except Exception as error:
+                raise ValueError("字幕翻译暂时失败，请稍后重试") from error
+            lines = payload.get("lines") if isinstance(payload, dict) else None
+            if (not isinstance(lines, list) or len(lines) != len(batch)
+                    or not all(isinstance(line, str) and line.strip() for line in lines)):
+                raise ValueError("字幕翻译模型返回的结果不完整，请重试")
+            results.extend(line.strip() for line in lines)
+        return results
+    return translate
+
+
 def _hook_plan(meta: list[dict], strategy: str) -> tuple[list[dict], int, int]:
     if strategy not in HOOK_STRATEGIES:
         raise ValueError("请选择引流剪辑策略：3秒进冲突、只留高潮、金句开场、结尾悬念或预告片")
@@ -616,10 +735,11 @@ def rebuild_cut(document: dict, sources: list[dict], beats: list[dict], operatio
 
 
 class EditingActions:
-    def __init__(self, repo, understanding=None, transcription=None):
+    def __init__(self, repo, understanding=None, transcription=None, llm=None):
         self.repo = repo
         self.understanding = understanding
         self.transcription = transcription
+        self.translate = make_subtitle_translator(llm) if llm is not None else None
 
     @staticmethod
     def public(record: dict, *, result=False) -> dict:
@@ -697,7 +817,7 @@ class EditingActions:
         if revision is not None and revision != snapshot["revision"]:
             raise AssistantConflict("剪辑已变化，请保存后重新预览")
         sources = smart_edit_service.project_sources(project, sequence)
-        beats = [] if sequence == "main" or operation in {"video_arrange", "audio_subtitle"} else sorted(
+        beats = [] if sequence == "main" or operation in {"video_arrange", "audio_subtitle", "subtitle_translate"} else sorted(
             ProjectDetailService.get_episode_detail(project, sequence).get("beats") or [],
             key=lambda beat: int(beat.get("sequence") or 0))
         evidence, evidence_meta = ({}, {"status": "missing", "used_count": 0, "shot_used_count": 0})
@@ -717,9 +837,17 @@ class EditingActions:
             plan = place_subtitles(snapshot["document"], beats)
         elif operation == "audio_subtitle":
             plan = place_audio_subtitles(snapshot["document"], transcript)
+        elif operation == "subtitle_translate":
+            if self.translate is None:
+                raise ValueError("字幕翻译能力未启用，请先在管理设置检查大模型配置")
+            targets = subtitle_translation_targets(snapshot["document"])
+            translations: dict[str, str] = {}
+            if targets:
+                translated = self.translate([target["text"] for target in targets])
+                translations = {target["clip_id"]: translated[index] for index, target in enumerate(targets)}
+            plan = translate_subtitles(snapshot["document"], translations)
         else:
             plan = rebuild_cut(snapshot["document"], sources, beats, operation, strategy, evidence)
-        after = plan.pop("document")
         extra = {"strategy": strategy, "strategy_title": HOOK_STRATEGIES[strategy]["label"],
                  "principle": HOOK_STRATEGIES[strategy]["principle"]} if operation == "hook_cut" else {}
         if operation in CUT_OPERATIONS:
@@ -727,6 +855,9 @@ class EditingActions:
                                       "shot_used_count": plan.pop("understanding_shots_used", 0)}
         if operation == "audio_subtitle":
             extra["transcript"] = transcript_meta
+        return self._store_proposal(owner, project, sequence, snapshot, operation, session_id, run_id, extra=extra, **plan)
+
+    def _store_proposal(self, owner, project, sequence, snapshot, operation, session_id, run_id, *, extra=None, **plan):
         with self.repo.transaction() as conn:
             if session_id:
                 session = self.repo.get(owner, session_id, "session", conn=conn, lock=True)
@@ -738,7 +869,7 @@ class EditingActions:
             proposal = self.repo.insert(owner, "edit_proposal", {"operation": operation, "title": OPERATION_TITLES[operation],
                 "project_id": project, "sequence_id": sequence, "session_id": session_id,
                 "base_revision": snapshot["revision"], "_base_hash": document_hash(snapshot["document"]),
-                "_document": after, **plan, **extra},
+                "_document": plan.pop("document"), **plan, **(extra or {})},
                 parent=session_id or snapshot["draft_key"], status="pending" if plan["count"] else "empty", conn=conn)
             if session_id and not run_id:
                 self._message(owner, session, proposal["id"], conn)
@@ -775,6 +906,25 @@ class EditingActions:
         with self.repo.store.connection() as conn:
             self.target(conn, project, sequence)
         return self.public(record, result=True)
+
+    def reapply(self, owner, project, sequence, action_id, *, revision=None, session_id=None, run_id=None):
+        """Rebuild a subtitle_translate proposal from a succeeded record's original->translation mapping."""
+        record = self.repo.get(owner, action_id, "edit_proposal")
+        if record["project_id"] != project or record["sequence_id"] != sequence:
+            raise AssistantNotFound("翻译记录不属于当前工程或分集")
+        if record["status"] != "succeeded" or record["operation"] != "subtitle_translate":
+            raise ValueError("只有已执行的字幕翻译可以重新应用")
+        mapping = _proposal_translation_map(record)
+        if not mapping:
+            raise ValueError("该记录没有可复用的翻译对照，请重新执行字幕翻译")
+        with self.repo.store.connection() as conn:
+            self.target(conn, project, sequence)
+            snapshot = self.snapshot(conn, owner, project, sequence)
+        if revision is not None and revision != snapshot["revision"]:
+            raise AssistantConflict("剪辑已变化，请保存后重新应用")
+        plan = translate_subtitles(snapshot["document"], subtitle_reapply_targets(snapshot["document"], mapping), strict=False)
+        return self._store_proposal(owner, project, sequence, snapshot, "subtitle_translate", session_id, run_id,
+                                    extra={"reapplied_from": action_id}, **plan)
 
     def confirm(self, owner, project, sequence, action_id):
         with self.repo.transaction() as conn:

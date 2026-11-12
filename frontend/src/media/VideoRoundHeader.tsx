@@ -1,13 +1,24 @@
 import { Button, Collapse, Dropdown, Popover } from "antd"
-import { CheckCircle2, ChevronDown, Clapperboard, FileVideo, Mic } from "lucide-react"
+import { AudioLines, CheckCircle2, ChevronDown, Clapperboard, FileVideo, Mic } from "lucide-react"
 import { useId, type ReactNode } from "react"
 import { videoDeliveryLabel, videoResultKey, videoVersions, type VideoResult } from "./video-result-model"
-import type { ReferenceSource } from "../reference-assets"
+import type { ReferenceKind, ReferenceSource } from "../reference-assets"
 import "./video-results.css"
 
 type Parameter = {
   name: string; label: string; value: string | number | boolean; unit?: string | null
   visibility?: "primary" | "advanced" | "internal"
+}
+
+/**
+ * 参考素材缩略图：非图片类型只给图标，避免通用「音频或视频」槽位被当成图片渲染出碎图。
+ * media 是音频与视频共用的槽位（如人声/伴奏分离），接口不下发具体类型，故用中性图标。
+ */
+function referencePreview(reference: ReferenceSource, size: number) {
+  if (reference.kind === "video") return <FileVideo size={size} />
+  if (reference.kind === "audio") return <Mic size={size} />
+  if (reference.kind === "media") return <AudioLines size={size} />
+  return <img src={reference.url} alt="" loading="lazy" />
 }
 
 export default function VideoRoundHeader({
@@ -23,7 +34,7 @@ export default function VideoRoundHeader({
   results: VideoResult[]; selected?: VideoResult; onSelect: (key: string) => void
   detailsOpen: boolean; runtimeExpanded: boolean
   onDetailsChange: (open: boolean, runtime: boolean) => void
-  onReferencePreview: (index: number, url: string, kind: "image" | "video" | "audio", label?: string | null) => void
+  onReferencePreview: (index: number, url: string, kind: ReferenceKind, label?: string | null) => void
 }) {
   const versionMenuId = useId()
   // The model name already identifies the workflow, so its raw id is not repeated.
@@ -43,12 +54,12 @@ export default function VideoRoundHeader({
       content={<div className="studio-video-reference-list">{references.map((reference) => (
         <Button key={reference.index} type="text" className="studio-video-reference-item"
           onClick={() => onReferencePreview(reference.index, reference.url, reference.kind || "image", reference.label)}>
-          {reference.kind === "video" ? <FileVideo size={24} /> : reference.kind === "audio" ? <Mic size={24} /> : <img src={reference.url} alt="" loading="lazy" />}<span>{reference.label || `参考图 ${reference.index}`}</span>
+          {referencePreview(reference, 24)}<span>{reference.label || `参考图 ${reference.index}`}</span>
         </Button>
       ))}</div>}>
       <Button type="text" className="studio-video-reference-stack" aria-label={`查看 ${references.length} 份参考素材`}>
         {references.slice(0, 5).map((reference, index) => <span key={reference.index} className="studio-video-reference-mini">
-          {reference.kind === "video" ? <FileVideo size={18} /> : reference.kind === "audio" ? <Mic size={18} /> : <img src={reference.url} alt="" loading="lazy" />}
+          {referencePreview(reference, 18)}
           {index === Math.min(4, references.length - 1) ? <span className="studio-video-reference-count">{references.length}</span> : null}
         </span>)}
       </Button>

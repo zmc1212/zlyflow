@@ -107,7 +107,7 @@ export default function StemSplitTool({ csrfToken }: { csrfToken: string }) {
       </header>
 
       {restoring ? (
-        <div className="grid min-h-[220px] place-items-center"><Spin tip="正在恢复分离素材" /></div>
+        <div className="grid min-h-[220px] w-full place-items-center"><Spin tip="正在恢复分离素材" /></div>
       ) : (
         <section className="studio-motion-card" aria-label="人声/伴奏分离创作">
           <div className="studio-tool-motion-materials">

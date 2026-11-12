@@ -3,8 +3,8 @@ import { Copy } from "lucide-react"
 import { useState } from "react"
 import { jsonMutation, requestJson } from "../api"
 
-export type SecretProvider = "llm" | "vlm" | "tts" | "grs" | "qiniu"
-export type SecretField = "api_key" | "access_key" | "secret_key"
+export type SecretProvider = "llm" | "vlm" | "tts" | "grs" | "qiniu" | "mail"
+export type SecretField = "api_key" | "access_key" | "secret_key" | "password"
 
 type Props = {
   /** 出现在提示与「XX已复制」里的字段名。 */

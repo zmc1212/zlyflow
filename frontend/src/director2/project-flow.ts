@@ -5,7 +5,7 @@ import { director2ProjectPath, type Director2Route } from "./paths"
 export type ProjectMenu = Extract<Director2Route, { kind: "project" }>["menu"]
 export type ProjectPosition = { menu: ProjectMenu; episodeId: string | null; search?: string }
 export type ProjectFlow = { documents: Director2Document[]; assets: Director2Asset[]; episodes: Director2Episode[] }
-const menus = new Set<ProjectMenu>(["content", "assets", "workshop", "edit", "jobs"])
+const menus = new Set<ProjectMenu>(["content", "assets", "workshop", "workbench", "edit", "jobs"])
 const key = (projectId: string) => `director-project-position-v1:${projectId}`
 
 export function readProjectPosition(projectId: string): ProjectPosition | null {
@@ -19,7 +19,7 @@ export function parseProjectPosition(raw: string | null): ProjectPosition | null
     const params = new URLSearchParams(typeof value.search === "string" ? value.search : "")
     const search = new URLSearchParams()
     for (const name of ["doc", "section", "asset", "tab"]) if (params.get(name)) search.set(name, params.get(name)!)
-    return { menu: value.menu, episodeId: ["workshop", "edit"].includes(value.menu) && typeof value.episodeId === "string" ? value.episodeId : null, search: search.toString() }
+    return { menu: value.menu, episodeId: ["workshop", "workbench", "edit"].includes(value.menu) && typeof value.episodeId === "string" ? value.episodeId : null, search: search.toString() }
   } catch { return null }
 }
 
@@ -30,7 +30,7 @@ export function rememberProjectPosition(projectId: string, position: ProjectPosi
 export function projectStageAccess(flow: ProjectFlow) {
   const script = flow.documents.some(doc => !!doc.raw_text?.trim())
   const produced = flow.assets.length > 0 || flow.episodes.length > 0
-  return { content: true, assets: script || produced, workshop: produced, edit: true, jobs: true }
+  return { content: true, assets: script || produced, workshop: produced, workbench: produced, edit: true, jobs: true }
 }
 
 /** Only resume positions that still exist in this project's current server data. */

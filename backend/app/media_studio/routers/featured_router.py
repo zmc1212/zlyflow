@@ -4,6 +4,7 @@ from typing import Any, Callable
 
 from fastapi import Depends, HTTPException, Path
 
+from ...resource_storage import resource_object_url
 from ..services.featured_works_service import FeaturedWorksService
 
 
@@ -13,12 +14,19 @@ def register_featured_work_routes(
     current_user: Callable,
     mutating_admin_user: Callable,
     canvas_store: Any = None,
+    resource_storage: Any = None,
 ) -> None:
     """首页「精选作品」：登录用户只读 + 可复制到我的短剧，管理员发布/下架。
 
-    canvas_store 在 lifespan 里才挂到 app.state，这里接受惰性 getter 以免模块导入期取值。
+    canvas_store 与 resource_storage 都在 lifespan 里才挂到 app.state，这里接受惰性 getter
+    以免模块导入期取值。
     """
     canvas_store_getter = canvas_store if callable(canvas_store) else (lambda: canvas_store)
+    storage_getter = resource_storage if callable(resource_storage) else (lambda: resource_storage)
+
+    def durable_object_url(key: str) -> str | None:
+        """发布快照用的长效对象地址；存储不支持公开地址时返回 None，快照会丢弃该媒体。"""
+        return resource_object_url(storage_getter(), key)
 
     @app.get("/api/featured-works", summary="获取精选作品列表")
     def list_featured_works(user: dict = Depends(current_user)):
@@ -41,7 +49,7 @@ def register_featured_work_routes(
     @app.post("/api/admin/featured-works", summary="发布或更新精选作品")
     def publish_featured_work(payload: dict | None = None, user: dict = Depends(mutating_admin_user)):
         try:
-            return FeaturedWorksService.publish(payload or {}, user["id"])
+            return FeaturedWorksService.publish(payload or {}, user["id"], object_url=durable_object_url)
         except ValueError as err:
             raise HTTPException(status_code=400, detail=str(err)) from err
 

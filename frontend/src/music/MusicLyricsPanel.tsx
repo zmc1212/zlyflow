@@ -6,13 +6,15 @@ import { alignMusicLyrics, fetchMusicLyrics, type MusicJob } from "./api"
 import { MusicArtwork, MusicEqualizer } from "./MusicJobList"
 import { musicLyricCursor, musicLyricText, musicStyleTags } from "./music-library"
 
-export default function MusicLyricsPanel({ job, csrfToken, currentTime, playing, onSeek, onClose }: {
+export default function MusicLyricsPanel({ job, csrfToken, currentTime, playing, onSeek, onClose, readOnly = false }: {
   job: MusicJob
   csrfToken: string
   currentTime: number
   playing: boolean
   onSeek: (seconds: number) => void
   onClose: () => void
+  /** 管理员只读查看他人歌曲时，不触发歌词对齐（写操作），仅展示已对齐结果或原歌词。 */
+  readOnly?: boolean
 }) {
   const queryClient = useQueryClient()
   const queryKey = ["music-lyrics", job.id]
@@ -31,8 +33,8 @@ export default function MusicLyricsPanel({ job, csrfToken, currentTime, playing,
   })
   const status = lyrics.data?.status
   useEffect(() => {
-    if (status === "idle" && mayAutoAlign) align()
-  }, [align, mayAutoAlign, status])
+    if (!readOnly && status === "idle" && mayAutoAlign) align()
+  }, [align, mayAutoAlign, readOnly, status])
 
   const timedLines = status === "ready" ? lyrics.data?.lines : undefined
   const lines = timedLines ?? text.map((line) => ({ text: line, start_seconds: null, end_seconds: null }))
@@ -50,7 +52,7 @@ export default function MusicLyricsPanel({ job, csrfToken, currentTime, playing,
     container.scrollTo({ top, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" })
   }, [cursor, following, timedLines])
 
-  const pending = !lyrics.isError && !requestError && (requesting || status === "aligning" || status === "idle" || lyrics.isPending)
+  const pending = !readOnly && !lyrics.isError && !requestError && (requesting || status === "aligning" || status === "idle" || lyrics.isPending)
   const error = (lyrics.isError ? lyrics.error.message : null) ?? requestError?.message ?? lyrics.data?.message
 
   return <aside id="music-live-lyrics" className={"studio-music-live-lyrics" + (playing ? " is-playing" : "")} aria-labelledby="music-live-lyrics-title" onKeyDown={(event) => {
@@ -94,6 +96,7 @@ export default function MusicLyricsPanel({ job, csrfToken, currentTime, playing,
       <footer className="studio-music-lyric-footer">
         {pending ? <span role="status"><Spin size="small" />正在对齐歌词</span>
           : timedLines ? <span>点击已对齐的歌词可跳到对应位置</span>
+          : readOnly ? <span>{text.length ? "该歌曲尚未对齐歌词时间轴" : ""}</span>
           : <><span>{error}</span><Button type="link" size="small" onClick={() => { if (lyrics.isError) void lyrics.refetch(); else align() }}>重新对齐</Button></>}
       </footer>
     </>}

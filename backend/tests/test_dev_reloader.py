@@ -124,6 +124,7 @@ class WorkerStopTests(unittest.IsolatedAsyncioTestCase):
         worker = JobWorker.__new__(JobWorker)
         worker.STOP_TIMEOUT_SECONDS = 0.2
         worker.image_tasks = set()
+        worker.cloud_video_tasks = set()
         worker.background_tasks = set()
         worker.watch_task = None
 

@@ -5,6 +5,7 @@ import {
   Sparkles, Square, Type, Video,
 } from "lucide-react"
 import { useId, useMemo } from "react"
+import { searchFilterOption } from "../search-match"
 import type { CanvasMediaPreview } from "./CanvasNodes"
 import {
   canvasImageReferenceUrl,
@@ -133,7 +134,7 @@ export function CanvasGeneratorInspector({
             aria-label="生成工作流"
             className="w-full"
             showSearch
-            optionFilterProp="label"
+            filterOption={searchFilterOption}
             value={workflow?.id}
             loading={modesLoading}
             disabled={locked || modesLoading}

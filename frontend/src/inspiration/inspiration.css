@@ -257,7 +257,26 @@
 .inspiration-thread { display: flex; flex: 1; flex-direction: column; gap: 12px; min-height: 0; padding: 4px 16px 12px; overflow-y: auto; }
 
 .inspiration-msg-images { display: flex; gap: 8px; align-self: flex-end; flex-wrap: wrap; justify-content: flex-end; }
-.inspiration-msg-images img { width: 88px; height: 88px; object-fit: cover; border-radius: 12px; background: #111; }
+/* 参考图缩略：Ant Design Image 承载点击放大，外层按原 88px 方形裁切保持视觉不变 */
+.inspiration-msg-images .ant-image {
+  flex: none;
+  width: 88px;
+  height: 88px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #111;
+  cursor: zoom-in;
+}
+.inspiration-msg-images .inspiration-msg-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 12px;
+  background: #111;
+  cursor: zoom-in;
+}
+.inspiration-msg-images .ant-image-cover { border-radius: 12px; font-size: 12px; }
 
 .inspiration-msg-user {
   align-self: flex-end;

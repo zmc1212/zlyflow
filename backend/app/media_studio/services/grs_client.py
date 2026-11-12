@@ -1,5 +1,5 @@
 """
-GRS 极速生图客户端
+图片服务极速生图客户端
 参考 source1/app/grs_client.py 实现
 支持：提交任务 → 轮询结果（同步阻塞）
 """
@@ -76,21 +76,21 @@ class GrsClient:
                 timeout=GRS_SUBMIT_TIMEOUT,
             )
         except requests.RequestException as e:
-            raise GrsError(f"GRS 提交失败: {e}") from e
+            raise GrsError(f"图片服务提交失败: {e}") from e
 
         if resp.status_code >= 500:
-            raise GrsError(f"GRS 服务暂时不可用 (HTTP {resp.status_code})")
+            raise GrsError(f"图片服务暂时不可用 (HTTP {resp.status_code})")
         try:
             data = resp.json()
         except ValueError as e:
-            raise GrsError("GRS 提交返回了无效 JSON") from e
+            raise GrsError("图片服务提交返回了无效 JSON") from e
 
         remote_id = (
             self._first(data, "id", "task_id", "taskId")
             or self._first(data.get("data") or {}, "id", "task_id", "taskId")
         )
         if not remote_id:
-            raise GrsError(f"GRS 提交成功但未返回任务 ID，响应：{data}")
+            raise GrsError(f"图片服务提交成功但未返回任务 ID，响应：{data}")
         return str(remote_id)
 
     # ------------------------------------------------------------------ #
@@ -106,12 +106,12 @@ class GrsClient:
                 timeout=GRS_RESULT_TIMEOUT,
             )
         except requests.RequestException as e:
-            raise GrsError(f"GRS 结果查询失败: {e}") from e
+            raise GrsError(f"图片服务结果查询失败: {e}") from e
 
         try:
             payload = resp.json()
         except ValueError as e:
-            raise GrsError("GRS 结果返回了无效 JSON") from e
+            raise GrsError("图片服务结果返回了无效 JSON") from e
 
         data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
         default_status = "failed" if resp.status_code >= 400 else "processing"
@@ -162,19 +162,19 @@ class GrsClient:
 
             if status in SUCCESS_STATUSES:
                 if not urls:
-                    raise GrsError("GRS 任务完成但未返回图片 URL")
+                    raise GrsError("图片服务任务完成但未返回图片 URL")
                 return urls[0]
 
             if status in FAILED_STATUSES:
                 detail = (error_msg or "").strip()
                 if status == "violation":
-                    raise GrsError(f"GRS 内容审核未通过：{detail}")
-                raise GrsError(f"GRS 生图失败 [{status}]：{detail or '未知原因'}")
+                    raise GrsError(f"图片服务内容审核未通过：{detail}")
+                raise GrsError(f"图片服务生图失败 [{status}]：{detail or '未知原因'}")
 
             # 还在处理中，继续轮询
             continue
 
-        raise GrsError(f"GRS 生图超时（超过 {GRS_POLL_MAX_WAIT}s）")
+        raise GrsError(f"图片服务生图超时（超过 {GRS_POLL_MAX_WAIT}s）")
 
     # ------------------------------------------------------------------ #
     # 工具方法
@@ -214,24 +214,24 @@ class GrsClient:
         return f"data:{mime};base64,{base64.b64encode(content).decode('ascii')}"
 
     def download_image(self, url: str) -> tuple[str, bytes]:
-        """下载 GRS 临时结果图，返回 (filename, bytes)。仅允许 HTTPS。"""
+        """下载图片服务临时结果图，返回 (filename, bytes)。仅允许 HTTPS。"""
         parsed = urlparse(url)
         if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
-            raise GrsError("GRS 结果必须使用无凭证的 HTTPS 公共地址")
+            raise GrsError("图片服务结果必须使用无凭证的 HTTPS 公共地址")
         try:
             resp = self._session.get(url, timeout=GRS_DOWNLOAD_TIMEOUT, stream=True)
         except requests.RequestException as e:
-            raise GrsError(f"GRS 图片下载失败: {e}") from e
+            raise GrsError(f"图片服务下载失败: {e}") from e
         if resp.status_code >= 400:
             resp.close()
-            raise GrsError(f"GRS 图片下载失败（HTTP {resp.status_code}）")
+            raise GrsError(f"图片服务下载失败（HTTP {resp.status_code}）")
         content_type = (resp.headers.get("Content-Type") or "").split(";", 1)[0].lower()
         declared = resp.headers.get("Content-Length")
         if declared:
             try:
                 if int(declared) > MAX_IMAGE_BYTES:
                     resp.close()
-                    raise GrsError("GRS 图片超过 50 MB")
+                    raise GrsError("图片服务超过 50 MB")
             except ValueError:
                 pass
         content = bytearray()
@@ -239,7 +239,7 @@ class GrsClient:
             for chunk in resp.iter_content(1024 * 1024):
                 content.extend(chunk)
                 if len(content) > MAX_IMAGE_BYTES:
-                    raise GrsError("GRS 图片超过 50 MB")
+                    raise GrsError("图片服务超过 50 MB")
         finally:
             resp.close()
         data = bytes(content)
@@ -249,7 +249,7 @@ class GrsClient:
             or data.startswith((b"GIF87a", b"GIF89a"))
             or (len(data) >= 12 and data.startswith(b"RIFF") and data[8:12] == b"WEBP")
         ):
-            raise GrsError("GRS 结果不是有效图片")
+            raise GrsError("图片服务结果不是有效图片")
         suffix = {
             "image/jpeg": ".jpg",
             "image/png": ".png",

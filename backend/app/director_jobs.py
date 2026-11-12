@@ -21,7 +21,7 @@ from .director_compiler import (
     shot_take_generation_record,
     validate_h3_polished_prompt,
 )
-from .workflow_registry import resolve_director_workflow
+from .workflow_registry import clamp_cloud_video_options, is_cloud_video_workflow, resolve_director_workflow
 from .director_recipe import (
     PAYLOAD_KIND_RECIPE,
     active_rendition_version,
@@ -66,7 +66,7 @@ def default_image_workflow_id(grs_provider: Any) -> str:
     """
     entries = [_workflow_image_entry(item) for item in (grs_provider.enabled_image_workflows() or [])]
     if not entries:
-        raise ValueError("没有可用的 GRS 生图工作流，请在管理设置中启用图片模型。")
+        raise ValueError("没有可用的图片服务生图工作流，请在管理设置中启用图片模型。")
     return next((item[0] for item in entries if item[1] and item[0]), entries[0][0])
 
 
@@ -280,7 +280,7 @@ def revert_orphaned_shot_submissions(
 ) -> dict[str, Any]:
     """Clear queued/running snapshots that never received a backend job.
 
-    Render preparation can persist an intermediate queued state before ComfyUI
+    Render preparation can persist an intermediate queued state before 视频服务
     submission; cancel or failure mid-flight leaves the shot stuck forever.
     """
     wanted = {item for item in (shot_ids or []) if item}
@@ -461,6 +461,9 @@ def create_queued_job(
     if not prompt:
         raise ValueError("请填写创作提示词")
     workflow_for(mode)
+    if is_cloud_video_workflow(mode):
+        # 导演链路透传 H3 语义参数（quality/speed 等），云端工作流按自身 schema 裁剪档位
+        options = clamp_cloud_video_options(mode, options)
     refs = list(references or [])
     validate_references(mode, refs)
     generation_options = normalize_options(mode, options or {})
@@ -698,7 +701,7 @@ def generate_recipe_assets(
 ) -> tuple[dict[str, Any], list[str]]:
     available, reason = grs_provider.availability()
     if not available:
-        raise ValueError(reason or "GRS 图片能力不可用")
+        raise ValueError(reason or "图片服务能力不可用")
     workflow_id = default_image_workflow_id(grs_provider)
     if not is_image_workflow(workflow_id):
         raise ValueError("当前默认工作流不是图片生成")
@@ -816,7 +819,7 @@ def generate_recipe_stills(
 ) -> tuple[dict[str, Any], list[str]]:
     available, reason = grs_provider.availability()
     if not available:
-        raise ValueError(reason or "GRS 图片能力不可用")
+        raise ValueError(reason or "图片服务能力不可用")
     workflow_id = default_image_workflow_id(grs_provider)
     if not is_image_workflow(workflow_id):
         raise ValueError("当前默认工作流不是图片生成")

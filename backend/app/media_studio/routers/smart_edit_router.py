@@ -22,7 +22,7 @@ class SaveEditRequest(BaseModel):
 
 
 class EditActionRequest(BaseModel):
-    operation: str = Field(default="video_arrange", description="剪辑动作：video_arrange 智能铺轨、subtitle_arrange 自动字幕（按分集对白）、audio_subtitle 音轨字幕（按已完成的音轨转写）、dialogue_cut 对白精剪、quick_cut 成片速剪、highlight_cut 高光合集、hook_cut 引流剪辑。")
+    operation: str = Field(default="video_arrange", description="剪辑动作：video_arrange 智能铺轨、subtitle_arrange 自动字幕（按分集对白）、audio_subtitle 音轨字幕（按已完成的音轨转写）、subtitle_translate 字幕翻译（把文字轨已有字幕翻成简体中文，只改文本）、dialogue_cut 对白精剪、quick_cut 成片速剪、highlight_cut 高光合集、hook_cut 引流剪辑。")
     revision: int = Field(ge=0, description="已保存的剪辑版本；版本过期需重新预览。")
     session_id: str | None = Field(default=None, max_length=96, description="可选的当前分集剪辑助手会话，用于保存动作消息。")
     asset_ids: list[str] | None = Field(default=None, max_length=200, description="可选：按给定顺序铺轨的视频素材 ID，仅用于 video_arrange。")
@@ -31,6 +31,11 @@ class EditActionRequest(BaseModel):
 
 class ReorderEditRequest(BaseModel):
     asset_ids: list[str] = Field(min_length=1, max_length=200, description="按目标顺序排列的视频素材 ID。")
+
+
+class ReapplyEditRequest(BaseModel):
+    revision: int = Field(ge=0, description="已保存的剪辑版本；版本过期需重新应用。")
+    session_id: str | None = Field(default=None, max_length=96, description="可选的当前分集剪辑助手会话，用于保存动作消息。")
 
 
 class UnderstandingRequest(BaseModel):
@@ -129,6 +134,10 @@ def register_smart_edit_routes(app, *, current_user: Callable, mutating_user: Ca
     @app.post(prefix + "/{sequence_id}/actions/{action_id}/reorder", tags=["智能剪辑"], summary="按用户调整后的顺序重新生成待确认的铺轨清单")
     def reorder_action(project_id: str, sequence_id: str, action_id: str, body: ReorderEditRequest, user: dict = Depends(mutating_user)):
         return editing_call("reorder", str(user["id"]), project_id, sequence_id, action_id, body.asset_ids)
+
+    @app.post(prefix + "/{sequence_id}/actions/{action_id}/reapply", tags=["智能剪辑"], summary="按已执行的字幕翻译记录对当前时间线重新生成待确认清单")
+    def reapply_action(project_id: str, sequence_id: str, action_id: str, body: ReapplyEditRequest, user: dict = Depends(mutating_user)):
+        return editing_call("reapply", str(user["id"]), project_id, sequence_id, action_id, revision=body.revision, session_id=body.session_id)
 
     @app.post(prefix + "/{sequence_id}/actions/{action_id}/confirm", tags=["智能剪辑"], summary="确认并幂等执行剪辑方案，原子保存剪辑文档与执行结果")
     def confirm_action(project_id: str, sequence_id: str, action_id: str, user: dict = Depends(mutating_user)):

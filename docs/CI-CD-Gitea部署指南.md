@@ -1,126 +1,131 @@
-# CI/CD 部署指南(Gitea 自建方案)
+# CI/CD 部署指南(Gitea 自建方案 · GitBlit 接管式无感迁移)
 
-> 目标:推代码(或一键手动触发)→ 自动构建 Docker 镜像 → 推送镜像仓库 → SSH 部署到服务器 → 健康检查,失败自动回滚。
-> 替代原来的手工链路:`导出服务器部署镜像.bat` 导出 tar → 人工上传 → 服务器执行 `deploy-server-image.sh`。
-> 旧链路仍保留可用,两者互不影响。
+> 目标:把 GitBlit 的仓库与账号**全量迁入 Gitea**,然后让 Gitea **接管原来的 8899 端口与 `/r/` 地址形状**——
+> 开发者的 git 远端地址、账号密码、使用习惯**零改动**,服务器上只跑一套 git 服务,push 即秒级触发构建部署,失败自动回滚。
+> 替代原来的手工链路:`导出服务器部署镜像.bat` 导出 tar → 人工上传 → 服务器执行 `deploy-server-image.sh`(旧链路保留可用)。
 
-## 0. 总体架构
+## 0. 总体架构与「无感」原理
 
 ```
-开发机                    CI 服务器(如 124.70.90.30)                        部署服务器
-──────                   ─────────────────────────────                     ──────────
-git push ──▶ GitBlit(老地址,零改动)
-             │ gitblit-sync.timer 每分钟增量同步(git push --mirror)
-             ▼
-           Gitea ──push 事件──▶ act_runner
-           (git + CI +            │ docker build(Dockerfile 多阶段)
-            自带镜像仓库)◀── push 镜像 <sha8>/latest
-                   │                                   │
-                   │                        SSH(deploy.sh,CI 自动执行)
-                   │                                   ▼
-                   └────────────── docker pull ◀── compose.yaml(image 固定
-                                    本地打 tag      zly-ai-video-studio:latest)
-                                    compose up -d
-                                    /api/health 检查,失败自动回滚
+开发机(一切照旧)                CI 服务器(如 124.70.90.30)                     部署服务器
+──────────────                  ─────────────────────────────                  ──────────
+git push http://124.70.90.30:8899/r/<仓库>.git    ←—— 老 GitBlit 地址,切换后原样生效
+                                              │
+                                   Gitea(接管 8899;组织名 = r)
+                                   git 托管 + Actions CI + 自带镜像仓库
+                                              │ push 事件(秒级)
+                                              ▼
+                                          act_runner ── docker build(Dockerfile 多阶段)
+                                              │ push 镜像 <sha8>/latest → Gitea Registry(同端口)
+                                              │
+                                              │ SSH(ops/deploy/deploy.sh,CI 自动执行)
+                                              ▼
+                                部署服务器 docker pull → compose up -d → /api/health 检查,失败自动回滚
 ```
 
-- **Gitea**:自建 git 托管 + Actions CI + 容器镜像仓库(Registry)三合一,SQLite 存储,百 MB 级内存占用。
-- **act_runner**:Gitea 的 CI 执行器,跑在同一台机器,通过宿主机 Docker 构建/推送镜像。
-- **gitblit-sync(老地址无感)**:CI 机上的 systemd timer 每分钟把 GitBlit 的增量提交以真实 `git push` 同步到 Gitea——团队 push 老 GitBlit 地址即可,约 1 分钟内触发 CI。刻意不用 Gitea 自带的 pull 镜像,因为镜像同步不触发 push 钩子/Actions(已知行为),真实 push 才能保证 CI 必触发。
-- **ops/deploy/**:项目无关的服务器端部署/回滚脚本,每个项目复制一份,CI 每次部署会自动用仓库里的最新版覆盖。
-- 保留 GitBlit 也不用迁移公司其他团队;只是本团队项目把 Gitea 当远端。
+无感的三个支点:
 
-**机器要求**:CI 服务器 2C4G 更稳(构建期峰值内存较高,1C2G 建议加 2G swap);部署服务器即现有运行 Docker 的服务器。
+- **URL 同形,不需要反向代理**:GitBlit 仓库地址是 `http://IP:8899/r/<仓库>.git`;把 Gitea 的**组织名建为 `r`** 后,Gitea 原生 clone 地址 `http://IP:8899/r/<仓库>.git` 与老地址**逐字符相同**——老 remote 直接指向 Gitea,git 协议原生兼容。
+- **端口接管**:8899 上只能有一个服务。切换时刻把 GitBlit 挪到 8890(或退役),Gitea 绑定 8899。迁移期 GitBlit 继续在 8899 服务,业务零中断;Gitea 先跑在 3080 上完成迁移与验证。
+- **账号同源**:`gitblit-migrate.sh` 从 GitBlit 的 `users.conf` 迁移**同名账号**;明文密码原样带走,哈希存储的密码不可逆、需按迁移报告重置一次(见 FAQ)。
 
----
+已知边界:GitBlit 的网页是 `/summary?r=xx` 这类查询参数式 URL,Gitea 用 `/owner/repo` 路径——**git 操作完全无感,浏览器书签需要重新收藏**。
 
-## 1. 安装 Gitea + act_runner(一次性,约 10 分钟)
+机器要求:CI 服务器 2C4G 更稳(构建期峰值内存较高,1C2G 建议加 2G swap);部署服务器即现有运行 Docker 的服务器。若 GitBlit 与 Gitea 同机,注意迁移期两者并存时的内存。
+
+## 1. 安装 Gitea + act_runner(迁移期先跑 3080)
 
 在 CI 服务器(Linux)上执行:
 
 ```bash
-# 把仓库里的 ops/gitea 拷到服务器(scp / sftp 均可)
+# 把仓库里的 ops/gitea 拷到服务器
 scp -r ops/gitea user@124.70.90.30:/opt/zly-ci
 
 ssh user@124.70.90.30
 cd /opt/zly-ci
 cp .env.example .env
-vi .env          # ① 改 GITEA_ADMIN_PASSWORD ② 确认 GITEA_DOMAIN/PORT/ROOT_URL
+vi .env          # ① 改 GITEA_ADMIN_PASSWORD(建议与 GitBlit 管理员同名,如 zlyadmin)
+                 # ② 迁移期 GITEA_PORT 保持 3080(8899 还被 GitBlit 占着)
 bash setup.sh    # 幂等,失败排查后可重跑
 ```
 
 `setup.sh` 会:启动 Gitea → 创建管理员 → 生成 runner 注册 token → 启动 act_runner → 检查 Docker 的 `insecure-registries` 配置。
 
-**关键一步(HTTP 私有仓库)**:CI 服务器与每台部署服务器的 Docker 都要把 Gitea 声明为 insecure registry,否则拉/推镜像会报 `server gave HTTP response to HTTPS client`:
+**提前配置 insecure-registries(关键)**:切换后 CI 机与每台部署服务器的 Docker 都要把 `124.70.90.30:8899` 声明为 HTTP 私有仓库,否则推/拉镜像报 `server gave HTTP response to HTTPS client`:
 
 ```bash
 # /etc/docker/daemon.json(已有其他键时合并进去)
-{ "insecure-registries": ["124.70.90.30:3080"] }
+{ "insecure-registries": ["124.70.90.30:8899"] }
 sudo systemctl restart docker
 ```
 
 验证:浏览器打开 `http://124.70.90.30:3080`,用 .env 里的管理员登录;「管理后台 → Actions → Runners」能看到 `zly-runner-1` 且在线。
 
----
+## 2. 初始化:ci-bot 机器人账号 + 令牌(一次性)
 
-## 2. 初始化:组织 + 机器人账号(一次性)
+登录 Gitea(3080)后:
 
-登录 Gitea 后:
+1. 组织 `r` 若尚未由迁移脚本创建,手动创建(右上角 + → 新建组织,名为 `r`)。
+2. **创建机器人账号**:管理后台 → 用户管理 → 创建 `ci-bot`(邮箱随意)。
+3. 把 `ci-bot` 加入组织 `r`,角色 **Owner**(需要写镜像仓库与读代码权限)。
+4. **生成令牌**:`ci-bot` → 设置 → 应用 → 生成新令牌,勾选 `repository: read` 与 `package: write`。**令牌只显示一次,先存好**。
 
-1. **创建组织**(右上角 + → 新建组织),如 `zly`。组织级 Secrets/仓库都放这里,方便多项目复用。
-2. **创建机器人账号**:管理员 → 管理后台 → 用户管理 → 创建用户 `ci-bot`(不需要登录界面,邮箱可随意)。
-3. 把 `ci-bot` 加入组织,角色 **Owner**(需要有写包和读仓库权限)。
-4. **生成令牌**:`ci-bot` 登录(或管理员代操作)→ 右上角头像 → 设置 → 应用 → 生成新令牌,勾选 `repository: read` 与 `package: write`(可再加 `user: read`)。**令牌只显示一次,先存好**。
+> 令牌在 Gitea 重启/换端口后依然有效,无需因切换重新生成。
 
----
+## 3. 迁移与切换(GitBlit → Gitea,一次性核心步骤)
 
-## 3. 接入仓库:老地址无感(推荐)/ 一次性切换(可选)
+### 阶段一:迁移数据(老地址仍由 GitBlit 服务,业务零中断)
 
-### 方式 A:GitBlit 老地址无感(推荐——真正的无感迁移)
-
-团队什么都不用改:继续 push 老 GitBlit 地址,同步定时器把增量推到 Gitea 并触发 CI。
-
-1. 在 CI 机的 `/opt/zly-ci/.env` 里配置同步来源:
+1. **拷贝用户文件**:从 GitBlit 服务器把 `users.conf` 拷到 CI 机(位置:GitBlit 安装目录的 `data/users.conf`,或启动参数 `--baseFolder` 指定目录下):
 
    ```bash
-   GITEA_ORG=zly
-   GITBLIT_BASE=http://124.70.90.30:8899/r        # 以实际 GitBlit 地址为准
-   GITBLIT_USER=                                  # GitBlit 私有仓库才填,匿名可读留空
-   GITBLIT_PASSWORD=
-   SYNC_REPOS=zly-ai-video-studio                 # 空格分隔,要接几个填几个
+   scp gitblit-admin@<gitblit服务器>:/path/to/gitblit/data/users.conf /opt/users.conf
    ```
 
-2. 安装同步定时器(每 1 分钟增量同步;Gitea 侧缺仓库会自动创建):
+2. **配置迁移参数**(`/opt/zly-ci/.env` 追加/确认):
 
    ```bash
-   cp systemd/gitblit-sync.service systemd/gitblit-sync.timer /etc/systemd/system/
-   systemctl daemon-reload
-   systemctl enable --now gitblit-sync.timer
-   journalctl -u gitblit-sync -f          # 观察首次全量同步
+   GITBLIT_URL=http://124.70.90.30:8899
+   GITBLIT_SERVLET=r
+   GITBLIT_ADMIN_USER=<gitblit管理员>     # 可选:克隆私有仓库/自动列举需要
+   GITBLIT_ADMIN_PASSWORD=<gitblit密码>
+   GITBLIT_REPOS=zly-ai-video-studio      # 空格分隔;你们的 RPC 已关闭(实测 /rpc 404),必须手工填
+   GITBLIT_USERS_CONF=/opt/users.conf
    ```
 
-3. 验证:Gitea 上出现 `zly/zly-ai-video-studio` 且分支/标签齐全;之后 GitBlit 收到新 push,约 1 分钟内 Gitea 仓库 → Actions 自动出现任务。
+3. **执行迁移**(可重复运行,断点续迁):
 
-行为说明:
+   ```bash
+   bash gitblit-migrate.sh
+   ```
 
-- 同步是「GitBlit → Gitea」单向覆盖:**不要往 Gitea 上的这些仓库 push**,会被下一次同步覆盖。
-- CI 触发延迟 ≤ 同步周期(默认 1 分钟);改 `/etc/systemd/system/gitblit-sync.timer` 的 `OnUnitActiveSec` 后 `systemctl daemon-reload` 即可调整。
-- 将来想切换正式地址:把仓库名从 `SYNC_REPOS` 移除并 `systemctl restart gitblit-sync`,然后每人一条 `git remote set-url origin http://124.70.90.30:3080/zly/<仓库>.git`,Gitea 仓库转为正常可写仓库,CI 触发从分钟级变秒级。
+   脚本行为:自动建组织 `r` → 逐仓 mirror 克隆 + `push --mirror` 到 Gitea → 校验两边引用数一致 → 从 users.conf 建同名用户(明文密码原样带;哈希密码生成随机值并列入重置名单)→ 普通用户入 `developers` 团队(写权限)、GitBlit 管理员入 `Owners` → 输出 `migrate-report.txt`。
 
-### 方式 B:直接切换地址(一次性)
+4. **抽查**:对比两边引用与最近提交:
 
-```bash
-git remote add gitea http://124.70.90.30:3080/zly/zly-ai-video-studio.git
-git push gitea --all --tags
-```
+   ```bash
+   git ls-remote http://<gitea管理员>:<密码>@124.70.90.30:3080/r/zly-ai-video-studio.git | head
+   ```
 
-适合没有「地址必须不变」约束的项目:Gitea 网页「迁移外部仓库 → Git」也能从 GitBlit 迁入(填 `http://124.70.90.30:8899/r/<仓库>.git` 与凭据,分支/标签/历史全保留),迁移后 GitBlit 侧设为只读存档。方式 A/B 共用同一套 CI 文件,随时可互转。
+### 阶段二:切换端口(分钟级,唯一的老地址停机窗口)
 
----
+5. **GitBlit 挪出 8899**:在 GitBlit 服务器上编辑其配置(`data/gitblit.properties` 或安装目录的 `gitblit.properties`),把 `server.httpPort=8899` 改为 `8890`,重启 GitBlit 服务。(若决定彻底退役 GitBlit,此步改为停止服务。)
+6. **Gitea 接管 8899**:CI 机 `.env` 改两行——`GITEA_PORT=8899`、`GITEA_ROOT_URL=http://124.70.90.30:8899/`,然后 `docker compose up -d`(重建,runner 与令牌不受影响)。
+7. **验证老地址已被 Gitea 服务**:
+
+   ```bash
+   git ls-remote http://124.70.90.30:8899/r/zly-ai-video-studio.git   # 老地址,无任何改动
+   ```
+
+   浏览器打开 `http://124.70.90.30:8899` 应显示 Gitea 界面(用原 GitBlit 账号登录)。
+
+8. **团队**:不做任何操作。若有人 push 报 401,说明该账号密码未能原样迁移(哈希不可逆),按 `migrate-report.txt` 重置为新密码——只需输一次,凭据管理器会记住。
+
+> 如果公司决定**不动 8899**(GitBlit 必须原地继续服务),则"地址不变"无法实现(端口只有一个),只能退回到"每人一条 `git remote set-url` 切到 Gitea 新地址"的方案——届时本指南第 1 步的端口直接用最终值即可。
 
 ## 4. 配置 Actions Secrets(组织级,一次配置全项目复用)
 
-Gitea → 组织 `zly` → 设置 → Actions → 添加 Secret:
+Gitea → 组织 `r` → 设置 → Actions → 添加 Secret:
 
 | Secret 名称 | 值 | 说明 |
 |---|---|---|
@@ -131,11 +136,7 @@ Gitea → 组织 `zly` → 设置 → Actions → 添加 Secret:
 | `DEPLOY_SSH_KEY` | 私钥全文(含 BEGIN/END 行) | 专用部署密钥:`ssh-keygen -t ed25519 -f deploy_key -N ""` |
 | `DEPLOY_PORT` | `22`(可选) | 默认 22 |
 
-把私钥对应的公钥(`deploy_key.pub`)追加到部署服务器 `~/.ssh/authorized_keys`,并在服务器上手动验证一次 `ssh -i deploy_key <user>@<host>` 免密可用。
-
-> Secret 的值在日志中会被自动打码;令牌/密码建议保持「无空格、无引号」的 token 形式。
-
----
+把私钥公钥追加到部署服务器 `~/.ssh/authorized_keys`,并手动验证一次免密登录。
 
 ## 5. 部署服务器准备(每个项目一次)
 
@@ -143,43 +144,35 @@ Gitea → 组织 `zly` → 设置 → Actions → 添加 Secret:
 
 ```
 /opt/zly-ai-video-studio/
-├── compose.yaml          # 从仓库复制(或由 CI 同步);image 固定 zly-ai-video-studio:latest
+├── compose.yaml          # 从仓库复制;image 固定 zly-ai-video-studio:latest
 ├── .env                  # 服务器专属配置(ZLY_AI_VIDEO_STUDIO_COMFY_URL、MySQL 密码等),不进 Git
 ├── ops/
-│   ├── deploy.sh         # 首次手动复制过去,之后 CI 每次部署自动用仓库版覆盖
+│   ├── deploy.sh         # 首次手动复制,之后 CI 每次部署自动用仓库版覆盖
 │   └── rollback.sh
 └── .deploy-history       # 自动生成,记录版本历史
 ```
 
-```bash
-mkdir -p /opt/zly-ai-video-studio/ops
-# 从仓库复制 ops/deploy/*.sh、compose.yaml;手工创建/迁移现有 .env
-```
-
-- compose.yaml 里 `build:` 段在服务器上无效也无害;部署脚本用 `--no-build`,只按镜像名更新。
-- 前置:服务器 Docker 已配置 insecure-registries(见第 1 步),并能访问 `124.70.90.30:3080`。
-- 手动试拉验证:`docker login 124.70.90.30:3080`(ci-bot 账号)→ `docker pull 124.70.90.30:3080/zly/zly-ai-video-studio:latest`(首次部署成功后才有镜像)。
-
----
+- 前置:部署服务器 Docker 已按第 1 步配置 insecure-registries(目标值 `124.70.90.30:8899`),能访问 CI 机。
+- 手动试拉(切换后):`docker login 124.70.90.30:8899`(ci-bot)→ `docker pull 124.70.90.30:8899/r/zly-ai-video-studio:latest`(首次 CI 成功后才有镜像)。
 
 ## 6. 首次部署验证
 
-先把 CI 文件提交并推送(方式 A 推到 GitBlit 老地址,由同步定时器搬运;方式 B 直接推 Gitea):
+把 CI 文件提交并推送到**老地址**(此刻它已经是 Gitea):
 
 ```bash
 git add .gitea ops docs/CI-CD-Gitea部署指南.md
 git commit -m "ci: 接入 Gitea 自动构建部署"
-git push origin master        # 方式 A;方式 B 改为 git push gitea master
+git push origin master       # origin = 原 GitBlit 地址,现在由 Gitea 直接接收,秒级触发
 ```
 
 1. Gitea → 仓库 → **Actions**:出现 `build-and-deploy` 运行,看两步日志(`构建并推送镜像` → `部署到服务器`)。
-2. 构建产物:仓库 → **软件包**(Packages)里出现 `zly-ai-video-studio`,tag 为 `<sha8>` 和 `latest`。
-3. 服务器:`docker ps` 看容器重建时间;`curl http://127.0.0.1:18189/api/health` 正常返回。
-4. 之后每次推 master 自动构建部署;也可在 Actions 页右上角「运行工作流」手动触发(选分支 master)。
+2. 仓库 → **软件包**(Packages)出现 `zly-ai-video-studio`,tag 为 `<sha8>` 与 `latest`。
+3. 服务器:`curl http://127.0.0.1:18189/api/health` 正常;`docker ps` 看容器重建时间。
 
 ## 7. 日常操作
 
-- **看当前版本**:服务器 `tail -5 /opt/zly-ai-video-studio/.deploy-history`,或 Actions 历史里最近一次成功运行的提交号。
+- **发版** = `git push origin master`(老地址,秒级触发);或 Actions 页手动「运行工作流」;发版定版可打 `v*` 标签。
+- **看当前版本**:`tail -5 /opt/zly-ai-video-studio/.deploy-history`。
 - **手动回滚**(服务器上):
 
   ```bash
@@ -189,40 +182,40 @@ git push origin master        # 方式 A;方式 B 改为 git push gitea master
   bash ops/rollback.sh --to 3      # 回滚到列表第 3 条
   ```
 
-  回滚会重打本地 tag 并重启服务,同样做健康检查;若旧镜像已不在本地会先尝试从仓库拉取。
-
-- **部署失败自动回滚**:deploy.sh 健康检查 60 秒不过 → 输出容器日志 → 自动切回上一版镜像;CI 的 deploy 步骤会标红,但服务器保持可用旧版。
+- **失败自动回滚**:deploy.sh 健康检查 60 秒不过 → 输出容器日志 → 自动切回上一版镜像,服务器保持可用旧版。
 
 ## 8. 接入新项目(约 5 分钟/项目)
 
-前置:第 1、2 步全公司只做一次;组织 Secrets(第 4 步)全项目共享。
+前置:第 1、2 步全公司只做一次;组织 Secrets 全项目共享。
 
-1. 项目根目录放入与本项目相同的两个脚本目录(可直接复制):`ops/deploy/{deploy,rollback}.sh`、`.gitea/workflows/deploy.yml`。
-2. 只改 `deploy.yml` 顶部 `env:` 的 4 行:`DEPLOY_DIR`、`LOCAL_IMAGE`、`SERVICE_NAME`、`HEALTH_URL`(`REGISTRY` 全公司一致)。
-3. 项目要有 Dockerfile,`LOCAL_IMAGE` 与 compose.yaml 的 `image:` 一致。
-4. 服务器准备第 5 步的项目目录 + `.env` + insecure-registries(已在第 1 步做过则跳过)。
-5. 代码接入:CI 机 `.env` 的 `SYNC_REPOS` 追加仓库名并 `systemctl restart gitblit-sync`(老地址无感),或按第 3 节方式 B 直接迁移。
+1. **建仓**:Gitea 网页在组织 `r` 下新建空仓库——clone 地址自动就是老地址形状 `http://124.70.90.30:8899/r/<新仓库>.git`;已有 GitBlit 仓库则把名字加进 `.env` 的 `GITBLIT_REPOS` 后重跑 `gitblit-migrate.sh`。
+2. 项目根目录放入 `ops/deploy/{deploy,rollback}.sh` 与 `.gitea/workflows/deploy.yml`(可直接复制)。
+3. 只改 `deploy.yml` 顶部 `env:` 的 4 行:`DEPLOY_DIR`、`LOCAL_IMAGE`、`SERVICE_NAME`、`HEALTH_URL`(`REGISTRY` 全公司一致)。
+4. 项目要有 Dockerfile,`LOCAL_IMAGE` 与 compose.yaml 的 `image:` 一致。
+5. 服务器准备第 5 步的项目目录 + `.env`。
 6. 推 master 即自动部署;部署/回滚脚本零修改。
 
 ## 9. 常见问题
 
 | 现象 | 原因与处理 |
 |---|---|
-| `server gave HTTP response to HTTPS client` | Docker 未把 `124.70.90.30:3080` 加入 `insecure-registries` 或改完没 `systemctl restart docker` |
-| push 镜像 `unauthorized` / `denied` | `CI_TOKEN` 过期或未勾 `package: write`;重新生成令牌并更新组织 Secret |
-| Actions 页没有 runner / 任务一直排队 | runner 未注册成功:查看 `docker logs zly-act-runner`;token 失效时重跑 `setup.sh` 或手动重新注册 |
-| 「运行工作流」按钮不出现 | Gitea 需 ≥ 1.22 才支持 `workflow_dispatch`(本安装包为 1.24) |
-| 构建阶段 OOM / 被杀 | CI 机加 swap,或把 `runner-config.yaml` 的 `capacity` 保持为 1 排队执行 |
+| 切换后 push 报 401 | 该账号密码未能原样迁移(哈希不可逆):管理后台重置密码;Windows 用户若凭据管理器存了旧凭据,先「Windows 凭据管理器 → 删除对应普通凭据」再输入新密码 |
+| 匿名 clone 失败 | 迁移后仓库可见性由 `MIGRATE_REPO_PRIVATE` 决定;GitBlit 原来匿名可读的仓库请保持 `false` |
+| 迁移脚本报 RPC 404 | 你们 GitBlit 的 rpc.enabled 已关闭——在 `.env` 的 `GITBLIT_REPOS` 手工填仓库名即可 |
+| 迁移脚本找不到 users.conf | 位置在 GitBlit 安装目录 `data/users.conf`(或 `--baseFolder` 下);没有则跳过用户迁移、手工建账号 |
+| 仓库名带子目录(如 `teamA/app`) | Gitea 仓库不含斜杠,脚本自动展平为 `teamA-app`,报告中有映射表 |
+| 推镜像 `server gave HTTP response to HTTPS client` | Docker 未把 `124.70.90.30:8899` 加入 insecure-registries 或改完没 `systemctl restart docker` |
+| 推镜像 `unauthorized` / `denied` | `CI_TOKEN` 过期或未勾 `package: write`;重新生成并更新组织 Secret |
+| Actions 页没有 runner / 任务一直排队 | runner 未注册成功:看 `docker logs zly-act-runner`;token 失效时重跑 `setup.sh` |
+| 切换后 Gitea 起不来(端口占用) | GitBlit 没挪走:确认 `server.httpPort=8890` 已改并重启 GitBlit,`ss -lntp \| grep 8899` 检查占用 |
+| 构建阶段 OOM / 被杀 | CI 机加 swap;`runner-config.yaml` 的 `capacity` 保持 1 排队执行 |
 | 拉不动 `docker:27-cli` / `gitea/gitea` 镜像 | CI 机配置 Docker Hub 镜像加速(registry-mirrors)或手动导入 |
-| git push 401 | 令牌无 `read:repository`,或账号被禁用 |
-| 推了代码但 Actions 没动静 | `journalctl -u gitblit-sync -n 50` 看同步日志;确认 Gitea 仓库的 Actions 单元已启用;确认改动推到了 master/main |
-| gitblit-sync 克隆/拉取失败 | `GITBLIT_BASE` 上下文路径不对(默认 `/r`),或 GitBlit 私有仓库缺 `GITBLIT_USER/GITBLIT_PASSWORD` |
-| 同步后 Gitea 仓库被"回退" | 有人直接往 Gitea 上的被同步仓库 push 了——同步是单向覆盖,不要往 Gitea 推这些仓库 |
-| 部署步骤卡在健康检查 | 服务器内 `curl http://127.0.0.1:18189/api/health` 与 `docker compose logs` 定位;注意 compose 的 `.env` 是否齐全(如 `ZLY_AI_VIDEO_STUDIO_COMFY_URL`) |
+| 浏览器书签 404 | GitBlit 网页 URL(`/summary?r=xx`)与 Gitea 路径不同,按 Gitea 的新路径重新收藏 |
+| 部署步骤卡在健康检查 | 服务器内 `curl http://127.0.0.1:18189/api/health` 与 `docker compose logs` 定位;检查 compose 的 `.env` 是否齐全(如 `ZLY_AI_VIDEO_STUDIO_COMFY_URL`) |
 
 ## 10. 安全建议
 
-- Gitea 当前为 HTTP + 公网端口:建议防火墙限制 3080 端口来源(公司出口/VPN),或后续加 Nginx HTTPS 反代(`runner-config.yaml` 的 `insecure` 与 `GITEA_ROOT_URL` 需同步改)。
-- `DEPLOY_SSH_KEY` 使用专用密钥对,服务器上可进一步用 `command=""` 限制该公钥只能执行部署脚本。
-- `ci-bot` 令牌只给 `read:repository + write:package`,不给 admin;定期轮换。
-- `ops/gitea/.env` 已被 `.gitignore` 忽略,严禁提交真实密码/令牌到仓库。
+- 8899 当前为 HTTP:与原 GitBlit 的传输方式一致(未降级);建议防火墙限制来源(公司出口/VPN),后续加 Nginx HTTPS 反代时同步改 `GITEA_ROOT_URL` 与 Docker registry 配置。
+- `DEPLOY_SSH_KEY` 使用专用密钥对;服务器上可用 `command=""` 限制该公钥只能执行部署脚本。
+- `ci-bot` 令牌只给 `read:repository + write:package`;定期轮换。
+- `ops/gitea/.env`、`migrate-report.txt`(含临时密码记录)已加入 `.gitignore`,严禁提交真实密码/令牌;迁移完成后建议删除 `.migrate-cache` 与报告文件。

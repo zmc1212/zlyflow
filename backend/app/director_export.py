@@ -95,7 +95,7 @@ class SystemFfmpegRunner:
     def require(self) -> tuple[str, str]:
         if not self.ffmpeg or not self.ffprobe:
             raise DirectorExportError(
-                "未找到 ffmpeg/ffprobe。请安装 ffmpeg 并加入 PATH 后重试。成片合成不会改动 ComfyUI 端口。"
+                "未找到 ffmpeg/ffprobe。请安装 ffmpeg 并加入 PATH 后重试。成片合成不会改动视频服务端口。"
             )
         return self.ffmpeg, self.ffprobe
 

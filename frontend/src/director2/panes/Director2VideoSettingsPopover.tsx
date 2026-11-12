@@ -1,6 +1,7 @@
 import { Button, Collapse, Popover, Select, Space, Switch } from "antd"
 import { SlidersHorizontal } from "lucide-react"
 import { useMemo, useState } from "react"
+import { searchFilterOption } from "../../search-match"
 import {
   episodeVideoRenderMode,
   formatRefineDuration,
@@ -104,6 +105,8 @@ export default function Director2VideoSettingsPopover({
           <span>视频工作流</span>
           <Select
             aria-label="视频工作流"
+            showSearch
+            filterOption={searchFilterOption}
             value={workflowId}
             options={workflowOptions}
             onChange={(next) => onWorkflowChange(String(next))}

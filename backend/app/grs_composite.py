@@ -1,9 +1,9 @@
-"""GRS 图片复合管线：局部重绘 / 消除笔 / 扩图的纯函数处理逻辑。
+"""图片服务复合管线：局部重绘 / 消除笔 / 扩图的纯函数处理逻辑。
 
-这三个工作流由「GRS 指令生成 + 本地 PIL 合成」组成：
-- 局部重绘 / 消除笔：原图 + 白色遮罩图交给 GRS 指令改图，返回结果按遮罩
+这三个工作流由「图片服务指令生成 + 本地 PIL 合成」组成：
+- 局部重绘 / 消除笔：原图 + 白色遮罩图交给图片服务指令改图，返回结果按遮罩
   与原图合成，遮罩外像素与原图完全一致（羽化过渡）。
-- 扩图：原图按目标画幅等比垫入扩展画布（拉伸模糊底），GRS 补全扩展区，
+- 扩图：原图按目标画幅等比垫入扩展画布（拉伸模糊底），图片服务补全扩展区，
   回来后把原图按位置贴回，原区域像素完全一致。
 
 合成逻辑全部是纯 PIL 函数，便于单元测试；执行器接线在 worker.py。
@@ -25,7 +25,7 @@ COMPOSITE_IMAGE_MODES = {
     JobMode.IMAGE_OUTPAINT.value,
 }
 
-# 注册表 internal 默认：走 GRS 指令改图能力最好的模型。
+# 注册表 internal 默认：走图片服务指令改图能力最好的模型。
 DEFAULT_COMPOSITE_PROVIDER_MODEL = "nano-banana-2"
 
 # 遮罩合成默认羽化半径（按原图短边自适应夹取）。
@@ -90,7 +90,7 @@ def feather_alpha_for(image: Image.Image, feather_px: int) -> int:
 def composite_masked(
     original: Image.Image, generated: Image.Image, mask: Image.Image, feather_px: int = DEFAULT_FEATHER_PX,
 ) -> Image.Image:
-    """按遮罩把 GRS 结果贴回原图：遮罩外与原图逐像素一致，遮罩内羽化过渡。"""
+    """按遮罩把图片服务结果贴回原图：遮罩外与原图逐像素一致，遮罩内羽化过渡。"""
     if original.size != generated.size:
         generated = generated.resize(original.size, Image.LANCZOS)
     if original.size != mask.size:
@@ -176,7 +176,7 @@ def outpaint_offset(
 
 
 # ---------------------------------------------------------------------------
-# GRS 指令模板
+# 图片服务指令模板
 # ---------------------------------------------------------------------------
 
 def composite_prompt(mode: JobMode | str, user_prompt: str, target_aspect: str | None = None) -> str:
@@ -214,7 +214,7 @@ def composite_images(
     mask: Image.Image | None, position: tuple[int, int] | None, feather_px: int,
     outpaint_target_size: tuple[int, int] | None = None,
 ) -> Image.Image:
-    """按模式把 GRS 结果合成为最终交付图。"""
+    """按模式把图片服务结果合成为最终交付图。"""
     key = mode.value if isinstance(mode, JobMode) else str(mode)
     if key in {JobMode.IMAGE_INPAINT.value, JobMode.IMAGE_ERASER.value}:
         if mask is None:
@@ -235,7 +235,7 @@ def composite_outpaint_canvas(
 ) -> Image.Image:
     """扩图合成：生成结果先对齐垫图画布尺寸，再把原图带羽化贴回原位。
 
-    GRS 会按自己的分辨率返回同比例结果（如 1376x768），必须先缩放回
+    图片服务会按自己的分辨率返回同比例结果（如 1376x768），必须先缩放回
     垫图画布尺寸，position 才与原图对齐。
     """
     output = generated.convert("RGB")
@@ -271,7 +271,7 @@ def _resolve_reference_paths(uploads_root: Path, context: dict) -> list[Path]:
 def build_composite_inputs(uploads_root: Path, mode: JobMode | str, context: dict) -> tuple[
     Image.Image, dict, str, list[str],
 ]:
-    """加载并预处理复合工作流素材：返回 (原图, options, GRS 指令, 输入 data URI 列表)。"""
+    """加载并预处理复合工作流素材：返回 (原图, options, 图片服务指令, 输入 data URI 列表)。"""
     key = mode.value if isinstance(mode, JobMode) else str(mode)
     options = context.get("options") or {}
     paths = _resolve_reference_paths(uploads_root, context)
@@ -311,7 +311,7 @@ def build_composite_inputs(uploads_root: Path, mode: JobMode | str, context: dic
 def compose_final(
     uploads_root: Path, mode: JobMode | str, context: dict, generated_bytes: bytes,
 ) -> bytes:
-    """把 GRS 返回图与原素材合成最终交付图，返回 PNG 字节。"""
+    """把图片服务返回图与原素材合成最终交付图，返回 PNG 字节。"""
     key = mode.value if isinstance(mode, JobMode) else str(mode)
     options = context.get("options") or {}
     raw_feather = options.get("feather")
@@ -322,7 +322,7 @@ def compose_final(
         generated = Image.open(BytesIO(generated_bytes))
         generated.load()
     except Exception as error:  # noqa: BLE001
-        raise CompositeImageError(f"GRS 返回结果无法解析：{error}") from error
+        raise CompositeImageError(f"图片服务返回结果无法解析：{error}") from error
     mask = None
     position = None
     if key in {JobMode.IMAGE_INPAINT.value, JobMode.IMAGE_ERASER.value}:

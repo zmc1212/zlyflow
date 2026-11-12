@@ -6,6 +6,7 @@ import { useMemo, useState } from "react"
 import { Navigate, useLocation, useNavigate } from "react-router-dom"
 import { canvasProjectPath, PATHS } from "../paths"
 import { useStudioTheme } from "../ThemeProvider"
+import { searchFilterOption } from "../search-match"
 import {
   createCanvasProject,
   deleteCanvasProject,
@@ -406,6 +407,8 @@ function CanvasProjectList({ csrfToken }: { csrfToken: string }) {
               value={tagFilter ?? undefined}
               placeholder="全部标签"
               aria-label="按标签筛选"
+              showSearch
+              filterOption={searchFilterOption}
               options={tagOptions.map((tag) => ({ label: tag, value: tag }))}
               onChange={(value) => setTagFilter(value ?? null)}
             />}

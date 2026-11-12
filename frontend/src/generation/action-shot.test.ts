@@ -4,6 +4,7 @@ import {
   actionShotPictureToken,
   actionShotPromptTemplate,
   actionShotReferenceError,
+  actionShotSubmitBlockReason,
   insertActionShotPicture,
   missingActionShotPicture,
 } from "./action-shot"
@@ -54,5 +55,23 @@ describe("action-shot", () => {
     expect(actionShotReferenceError(fakeFile({ size: ACTION_SHOT_MAX_BYTES + 1 }), 0)).toBe("参考图 1 不能超过 50 MB")
     expect(actionShotReferenceError(fakeFile({ size: 0 }), 0)).toBe("参考图 1 不能为空文件")
     expect(actionShotReferenceError(fakeFile({ name: "clip.mp4", type: "video/mp4" }), 2)).toBe("参考图 3 必须是 PNG / JPG / WebP 图片")
+  })
+
+  it("explains why the submit button is disabled", () => {
+    const base = {
+      referenceCount: 0,
+      prompt: "",
+      pictureHint: "请先添加至少 1 张参考图",
+      workflowLoaded: true,
+      submitting: false,
+    }
+    expect(actionShotSubmitBlockReason(base)).toBe("先添加参考图（至少 1 张），才能开始生成")
+    expect(actionShotSubmitBlockReason({ ...base, referenceCount: 1, pictureHint: "", prompt: "   " }))
+      .toBe("写一句打斗动作提示词，才能开始生成")
+    expect(actionShotSubmitBlockReason({ ...base, referenceCount: 1, prompt: "两人对打", pictureHint: missingActionShotPicture("两人对打", 1) }))
+      .toBe("提示词里需要引用参考图，例如 <Picture 1>")
+    expect(actionShotSubmitBlockReason({ ...base, referenceCount: 1, prompt: "<Picture 1> 侧身反击", pictureHint: "" })).toBe("")
+    expect(actionShotSubmitBlockReason({ ...base, workflowLoaded: false })).toBe("正在读取打斗镜头能力")
+    expect(actionShotSubmitBlockReason({ ...base, submitting: true })).toBe("正在提交…")
   })
 })

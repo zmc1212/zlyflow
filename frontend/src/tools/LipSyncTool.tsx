@@ -28,6 +28,7 @@ import {
   type ToolOptionDefinition,
 } from "../generation/motion-transfer"
 import { createLocalId } from "../lib/utils"
+import { promptAutoSize } from "../prompt-autosize"
 import { generateJobPath } from "../paths"
 import { useMediaHandoffPrefill } from "../media-handoff-prefill"
 import "./lip-sync-tool.css"
@@ -207,7 +208,7 @@ export default function LipSyncTool({ csrfToken }: { csrfToken: string }) {
       </header>
 
       {workflowQuery.isLoading ? (
-        <div className="grid min-h-[220px] place-items-center"><Spin tip="正在读取口型同步能力" /></div>
+        <div className="grid min-h-[220px] w-full place-items-center"><Spin tip="正在读取口型同步能力" /></div>
       ) : workflowQuery.isError ? (
         <Empty description={`口型同步能力读取失败：${apiErrorMessage(workflowQuery.error, "请稍后重试")}`}>
           <Button icon={<RefreshCw size={14} />} onClick={() => void workflowQuery.refetch()}>重新读取</Button>
@@ -285,7 +286,7 @@ export default function LipSyncTool({ csrfToken }: { csrfToken: string }) {
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
                 placeholder={"可补充画面与人物描述；口型与身份由原视频自动保持\n\n例如：演播室采访场景，人物上半身特写，正面机位"}
-                rows={4}
+                autoSize={promptAutoSize(4)}
                 maxLength={1500}
               />
             </div>

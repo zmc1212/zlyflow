@@ -13,6 +13,7 @@ from typing import Any
 from urllib.parse import quote
 
 from .grs_catalog import (
+
     builtin_catalog_records,
     builtin_entry,
     catalog_record,
@@ -20,6 +21,7 @@ from .grs_catalog import (
     validate_provider_model,
     workflow_id_for,
 )
+from .cloud_video.base import cloud_video_provider_defaults, cloud_video_provider_keys
 from .config import settings
 from .db import Database, DbConnection, IntegrityError, Row, open_database
 from .models import JobMode, JobStatus
@@ -146,6 +148,7 @@ class JobStore:
                     "use_llm_credentials",
                     "TINYINT(1) NOT NULL DEFAULT 0",
                 )
+                self._ensure_column(connection, "music_jobs", "chat_id", "VARCHAR(64) NULL")
                 self._seed_runtime_defaults(connection, migrate_legacy=False)
                 return
             connection.execute(
@@ -343,6 +346,35 @@ class JobStore:
                     updated_at TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS cloud_video_provider_settings (
+                    provider_key TEXT PRIMARY KEY,
+                    enabled INTEGER NOT NULL DEFAULT 0,
+                    base_url TEXT,
+                    api_key_encrypted TEXT,
+                    api_secret_encrypted TEXT,
+                    extra_config_json TEXT,
+                    last_test_status TEXT,
+                    last_test_message TEXT,
+                    last_test_at TEXT,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS mail_provider_settings (
+                    id INTEGER PRIMARY KEY CHECK(id = 1),
+                    enabled INTEGER NOT NULL DEFAULT 0,
+                    host TEXT NOT NULL DEFAULT '',
+                    port INTEGER NOT NULL DEFAULT 465,
+                    security TEXT NOT NULL DEFAULT 'ssl',
+                    username TEXT NOT NULL DEFAULT '',
+                    password_encrypted TEXT,
+                    from_address TEXT NOT NULL DEFAULT '',
+                    from_name TEXT NOT NULL DEFAULT 'ZLY AI Studio',
+                    last_test_status TEXT,
+                    last_test_message TEXT,
+                    last_test_at TEXT,
+                    updated_at TEXT NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS music_jobs (
                     id TEXT PRIMARY KEY,
                     owner_user_id TEXT NOT NULL,
@@ -359,6 +391,7 @@ class JobStore:
                     remote_job_id TEXT,
                     remote_song_id TEXT,
                     error_message TEXT,
+                    chat_id TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     completed_at TEXT
@@ -372,6 +405,27 @@ class JobStore:
                     lease_until INTEGER NOT NULL DEFAULT 0,
                     payload_json TEXT
                 );
+
+                CREATE TABLE IF NOT EXISTS music_chats (
+                    id TEXT PRIMARY KEY,
+                    owner_user_id TEXT NOT NULL,
+                    title TEXT NOT NULL DEFAULT '新对话',
+                    anchor_job_id TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_music_chats_owner ON music_chats(owner_user_id, updated_at DESC);
+
+                CREATE TABLE IF NOT EXISTS music_chat_messages (
+                    id TEXT PRIMARY KEY,
+                    chat_id TEXT NOT NULL REFERENCES music_chats(id) ON DELETE CASCADE,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    proposal_json TEXT,
+                    job_id TEXT,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_music_chat_messages_chat ON music_chat_messages(chat_id, created_at);
 
                 CREATE TABLE IF NOT EXISTS director_projects (
                     id TEXT PRIMARY KEY,
@@ -489,6 +543,27 @@ class JobStore:
                 CREATE INDEX IF NOT EXISTS idx_featured_status_order
                     ON ai_featured_works(status, sort_order, published_at);
 
+                CREATE TABLE IF NOT EXISTS ai_featured_music (
+                    id TEXT PRIMARY KEY,
+                    job_id TEXT NOT NULL UNIQUE,
+                    owner_user_id TEXT,
+                    title TEXT NOT NULL,
+                    summary TEXT NOT NULL DEFAULT '',
+                    style TEXT NOT NULL,
+                    lyrics TEXT NOT NULL,
+                    result_url TEXT NOT NULL,
+                    cover_url TEXT,
+                    duration_seconds INTEGER,
+                    result_format TEXT,
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    status TEXT NOT NULL DEFAULT 'published',
+                    published_by TEXT,
+                    published_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_featured_music_status_order
+                    ON ai_featured_music(status, sort_order, published_at);
+
                 CREATE TABLE IF NOT EXISTS ai_showcase_items (
                     id TEXT PRIMARY KEY,
                     slug TEXT NOT NULL UNIQUE,
@@ -546,6 +621,7 @@ class JobStore:
                 "use_llm_credentials",
                 "INTEGER NOT NULL DEFAULT 0",
             )
+            self._ensure_column(connection, "music_jobs", "chat_id", "TEXT")
             self._ensure_job_list_indexes(connection)
             self._seed_runtime_defaults(connection, migrate_legacy=True)
 
@@ -591,6 +667,12 @@ class JobStore:
             (id, base_url, updated_at)
             VALUES (1, ?, ?)""",
             (settings.music_url, now()),
+        )
+        connection.execute(
+            """INSERT OR IGNORE INTO mail_provider_settings
+            (id, enabled, host, port, security, username, from_address, from_name, updated_at)
+            VALUES (1, 0, '', 465, 'ssl', '', '', 'ZLY AI Studio', ?)""",
+            (now(),),
         )
         if migrate_legacy:
             self._migrate_legacy_jobs(connection)
@@ -1550,6 +1632,7 @@ class JobStore:
             "ai_project_jobs": ("result_url", "payload_json"),
             "ai_smart_edit_documents": ("document_json",),
             "ai_featured_works": ("cover_url", "snapshot_json"),
+            "ai_featured_music": ("result_url", "cover_url"),
             "ai_showcase_items": ("source_job_id", "cover_url", "media_url", "references_json", "options_json"),
         }
         exclusions = {
@@ -1826,6 +1909,97 @@ class JobStore:
             connection.execute(f"UPDATE music_provider_settings SET {assignment} WHERE id = 1", tuple(updates.values()))
         return self.get_music_settings()
 
+    # ------------------------------------------------------------------
+    # 云端视频供应商设置（多行表：可灵/方舟/海螺各一行；行缺失时补默认行）
+    # ------------------------------------------------------------------
+
+    def get_cloud_video_settings(self, provider_key: str) -> dict:
+        key = str(provider_key or "").strip()
+        if not key:
+            raise ValueError("云端视频供应商 provider_key 不能为空")
+        defaults = cloud_video_provider_defaults(key)
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM cloud_video_provider_settings WHERE provider_key = ?", (key,)
+            ).fetchone()
+            if row is None:
+                connection.execute(
+                    "INSERT INTO cloud_video_provider_settings (provider_key, enabled, updated_at) VALUES (?, ?, ?)",
+                    (key, defaults["enabled"], now()),
+                )
+                row = connection.execute(
+                    "SELECT * FROM cloud_video_provider_settings WHERE provider_key = ?", (key,)
+                ).fetchone()
+        settings = dict(row) if row else {}
+        return {**defaults, **settings}
+
+    def list_cloud_video_settings(self) -> list[dict]:
+        rows: list[dict] = []
+        for provider_key in cloud_video_provider_keys():
+            rows.append(self.get_cloud_video_settings(provider_key))
+        return rows
+
+    def update_cloud_video_settings(self, provider_key: str, values: dict | None = None, **kwargs: Any) -> dict:
+        allowed = {
+            "enabled", "base_url", "api_key_encrypted", "api_secret_encrypted",
+            "extra_config_json",
+            "last_test_status", "last_test_message", "last_test_at",
+        }
+        merged = dict(values) if isinstance(values, dict) else {}
+        merged.update(kwargs)
+        updates = {key: value for key, value in merged.items() if key in allowed}
+        # ensure-row：update 前保证行存在
+        self.get_cloud_video_settings(provider_key)
+        updates["updated_at"] = now()
+        assignment = ", ".join(f"{key} = ?" for key in updates)
+        parameters = tuple(updates.values()) + (str(provider_key).strip(),)
+        with self.connection() as connection:
+            connection.execute(
+                f"UPDATE cloud_video_provider_settings SET {assignment} WHERE provider_key = ?", parameters,
+            )
+        return self.get_cloud_video_settings(provider_key)
+
+
+    def get_mail_settings(self) -> dict:
+        with self.connection() as connection:
+            row = connection.execute("SELECT * FROM mail_provider_settings WHERE id = 1").fetchone()
+        if not row:
+            return {
+                "id": 1,
+                "enabled": 0,
+                "host": "",
+                "port": 465,
+                "security": "ssl",
+                "username": "",
+                "password_encrypted": None,
+                "from_address": "",
+                "from_name": "ZLY AI Studio",
+                "last_test_status": None,
+                "last_test_message": None,
+                "last_test_at": None,
+                "updated_at": now(),
+            }
+        data = dict(row)
+        data["enabled"] = bool(data["enabled"])
+        return data
+
+    def update_mail_settings(self, values: dict | None = None, **kwargs: Any) -> dict:
+        allowed = {
+            "enabled", "host", "port", "security", "username", "password_encrypted",
+            "from_address", "from_name",
+            "last_test_status", "last_test_message", "last_test_at",
+        }
+        merged = dict(values) if isinstance(values, dict) else {}
+        merged.update(kwargs)
+        updates = {key: value for key, value in merged.items() if key in allowed}
+        if "enabled" in updates:
+            updates["enabled"] = int(bool(updates["enabled"]))
+        updates["updated_at"] = now()
+        assignment = ", ".join(f"{key} = ?" for key in updates)
+        with self.connection() as connection:
+            connection.execute(f"UPDATE mail_provider_settings SET {assignment} WHERE id = 1", tuple(updates.values()))
+        return self.get_mail_settings()
+
     @staticmethod
     def _music_job_from_row(row: Row | dict) -> dict[str, Any]:
         data = dict(row)
@@ -1857,6 +2031,7 @@ class JobStore:
             "remote_job_id": record.get("remote_job_id"),
             "remote_song_id": record.get("remote_song_id"),
             "error_message": record.get("error_message"),
+            "chat_id": record.get("chat_id"),
             "created_at": record["created_at"],
             "updated_at": record["updated_at"],
             "completed_at": record.get("completed_at"),
@@ -1880,12 +2055,16 @@ class JobStore:
             row = connection.execute(query, tuple(args)).fetchone()
         return self._music_job_from_row(row) if row else None
 
-    def list_music_jobs(self, owner_user_id: str, limit: int = 100) -> list[dict[str, Any]]:
+    def list_music_jobs(self, owner_user_id: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+        """按归属列出音乐任务；owner_user_id 为 None 时返回全部账号（管理员查看用）。"""
+        if owner_user_id is None:
+            sql = "SELECT * FROM music_jobs ORDER BY created_at DESC, id DESC LIMIT ?"
+            args: tuple[Any, ...] = (int(limit),)
+        else:
+            sql = "SELECT * FROM music_jobs WHERE owner_user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?"
+            args = (owner_user_id, int(limit))
         with self.connection() as connection:
-            rows = connection.execute(
-                "SELECT * FROM music_jobs WHERE owner_user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
-                (owner_user_id, int(limit)),
-            ).fetchall()
+            rows = connection.execute(sql, args).fetchall()
         return [self._music_job_from_row(row) for row in rows]
 
     def list_active_music_jobs(self) -> list[dict[str, Any]]:
@@ -1917,6 +2096,129 @@ class JobStore:
                 "DELETE FROM music_jobs WHERE id = ? AND owner_user_id = ?", (job_id, owner_user_id),
             )
         return bool(cursor.rowcount)
+
+    # ------------------------------------------------------------------ #
+    # 音乐对话（创建 + 迭代修改）
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _music_chat_from_row(row: Row | dict) -> dict[str, Any]:
+        return dict(row)
+
+    @staticmethod
+    def _music_chat_message_from_row(row: Row | dict) -> dict[str, Any]:
+        data = dict(row)
+        raw_proposal = data.pop("proposal_json", None)
+        if raw_proposal:
+            try:
+                parsed = json.loads(raw_proposal)
+            except json.JSONDecodeError:
+                parsed = None
+            data["proposal"] = parsed if isinstance(parsed, dict) else None
+        else:
+            data["proposal"] = None
+        return data
+
+    def create_music_chat(self, record: dict[str, Any]) -> dict[str, Any]:
+        columns = {
+            "id": record["id"],
+            "owner_user_id": record["owner_user_id"],
+            "title": record.get("title") or "新对话",
+            "anchor_job_id": record.get("anchor_job_id"),
+            "created_at": record["created_at"],
+            "updated_at": record["updated_at"],
+        }
+        assignment = ", ".join(columns)
+        placeholders = ", ".join("?" for _ in columns)
+        with self.connection() as connection:
+            connection.execute(
+                f"INSERT INTO music_chats ({assignment}) VALUES ({placeholders})",
+                tuple(columns.values()),
+            )
+        return self.get_music_chat(record["id"], owner_user_id=record["owner_user_id"])
+
+    def get_music_chat(self, chat_id: str, owner_user_id: str | None = None) -> dict[str, Any] | None:
+        sql = "SELECT * FROM music_chats WHERE id = ?"
+        parameters: tuple[Any, ...] = (chat_id,)
+        if owner_user_id is not None:
+            sql += " AND owner_user_id = ?"
+            parameters += (owner_user_id,)
+        with self.connection() as connection:
+            row = connection.execute(sql, parameters).fetchone()
+        return self._music_chat_from_row(row) if row else None
+
+    def list_music_chats(self, owner_user_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+        """按归属列出音乐对话；owner_user_id 为 None 时返回全部账号（管理员查看用）。"""
+        if owner_user_id is None:
+            sql = "SELECT * FROM music_chats ORDER BY updated_at DESC, id DESC LIMIT ?"
+            args: tuple[Any, ...] = (int(limit),)
+        else:
+            sql = "SELECT * FROM music_chats WHERE owner_user_id = ? ORDER BY updated_at DESC, id DESC LIMIT ?"
+            args = (owner_user_id, int(limit))
+        with self.connection() as connection:
+            rows = connection.execute(sql, args).fetchall()
+        return [self._music_chat_from_row(row) for row in rows]
+
+    def update_music_chat(self, chat_id: str, **values: Any) -> dict[str, Any] | None:
+        allowed = {"title", "anchor_job_id"}
+        updates = {key: value for key, value in values.items() if key in allowed}
+        updates["updated_at"] = now()
+        assignment = ", ".join(f"{key} = ?" for key in updates)
+        with self.connection() as connection:
+            connection.execute(f"UPDATE music_chats SET {assignment} WHERE id = ?", tuple(updates.values()) + (chat_id,))
+        return self.get_music_chat(chat_id)
+
+    def delete_music_chat(self, chat_id: str, owner_user_id: str) -> bool:
+        with self.connection() as connection:
+            cursor = connection.execute(
+                "DELETE FROM music_chats WHERE id = ? AND owner_user_id = ?", (chat_id, owner_user_id),
+            )
+        return bool(cursor.rowcount)
+
+    def append_music_chat_message(self, record: dict[str, Any]) -> dict[str, Any]:
+        columns = {
+            "id": record["id"],
+            "chat_id": record["chat_id"],
+            "role": record["role"],
+            "content": record.get("content") or "",
+            "proposal_json": json.dumps(record["proposal"], ensure_ascii=False) if record.get("proposal") else None,
+            "job_id": record.get("job_id"),
+            "created_at": record["created_at"],
+        }
+        assignment = ", ".join(columns)
+        placeholders = ", ".join("?" for _ in columns)
+        with self.connection() as connection:
+            connection.execute(
+                f"INSERT INTO music_chat_messages ({assignment}) VALUES ({placeholders})",
+                tuple(columns.values()),
+            )
+        return self.get_music_chat_message(record["id"])
+
+    def get_music_chat_message(self, message_id: str) -> dict[str, Any] | None:
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM music_chat_messages WHERE id = ?", (message_id,),
+            ).fetchone()
+        return self._music_chat_message_from_row(row) if row else None
+
+    def list_music_chat_messages(self, chat_id: str, limit: int = 200) -> list[dict[str, Any]]:
+        with self.connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM music_chat_messages WHERE chat_id = ? ORDER BY created_at ASC, id ASC LIMIT ?",
+                (chat_id, int(limit)),
+            ).fetchall()
+        return [self._music_chat_message_from_row(row) for row in rows]
+
+    def update_music_chat_message(self, message_id: str, **values: Any) -> dict[str, Any] | None:
+        allowed = {"job_id"}
+        updates = {key: value for key, value in values.items() if key in allowed}
+        if not updates:
+            return self.get_music_chat_message(message_id)
+        assignment = ", ".join(f"{key} = ?" for key in updates)
+        with self.connection() as connection:
+            connection.execute(
+                f"UPDATE music_chat_messages SET {assignment} WHERE id = ?", tuple(updates.values()) + (message_id,),
+            )
+        return self.get_music_chat_message(message_id)
 
     def get_music_lyrics(self, job_id: str) -> dict[str, Any] | None:
         with self.connection() as connection:

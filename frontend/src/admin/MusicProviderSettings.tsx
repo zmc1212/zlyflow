@@ -51,7 +51,7 @@ export default function MusicProviderSettings({ csrfToken }: { csrfToken: string
   const error = save.error ?? test.error ?? query.error
 
   return (
-    <main className="mx-auto max-w-[1020px] px-5 py-6 lg:px-8">
+    <main className="studio-admin-panel max-w-[1180px] px-5 py-6 lg:px-8">
       <div className="flex items-start gap-4 border-b border-black/[0.06] pb-5">
         <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-[#7047f6]/10 text-[#7047f6]">
           <Music size={22} />
@@ -100,7 +100,7 @@ export default function MusicProviderSettings({ csrfToken }: { csrfToken: string
             />
           </div>
           {error ? <Alert type="error" showIcon message={error.message} /> : null}
-          <div className="flex flex-wrap gap-3 pt-2">
+          <div className="studio-admin-actions">
             <Button type="primary" loading={save.isPending} onClick={() => save.mutate()}>保存配置</Button>
             <Button loading={test.isPending} onClick={() => test.mutate()} icon={<CheckCircle2 size={15} />}>测试连接</Button>
           </div>

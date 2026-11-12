@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { Button, ColorPicker, Radio, Select, Tabs, Tooltip } from "antd"
 import { Modal } from "antd"
 import { RotateCcw, UserRound, Layers } from "lucide-react"
+import { searchFilterOption } from "../../../search-match"
 import catalog from "../../character-design-presets.json"
 import type { CharacterDesign } from "../../asset-canvas-creative"
 import "./character-design.css"
@@ -27,7 +28,7 @@ export default function CharacterDesignModal({ open, value, onCancel, onSave }: 
       {catalog.find(item => item.id === tab)?.groups.map(group => {
         const isColor = ["肤色", "发色"].includes(group.label)
         const options = [...new Set(group.options)]
-        return <div className="ac-design-row" key={group.label}><label className={group.label === "区域 / 文化背景" || group.label.includes("（可选）") ? "is-two-line" : undefined}>{group.label === "区域 / 文化背景" ? "区域 / 文化\n背景" : group.label.includes("（可选）") ? group.label.replace("（可选）", "\n（可选）") : group.label}</label><div>{group.control === "region_select" ? <Select variant="filled" aria-label="地区细分" disabled={!draft["区域 / 文化背景"]} placeholder={draft["区域 / 文化背景"] ? "不特别指定" : "请先选择大区"} value={draft[group.label] || undefined} onChange={value => change(group.label, value || "")} allowClear showSearch optionFilterProp="label" options={["不特别指定", ...(regions[draft["区域 / 文化背景"]] || [])].map(label => ({ label, value: label === "不特别指定" ? "" : label }))}/> : <>
+        return <div className="ac-design-row" key={group.label}><label className={group.label === "区域 / 文化背景" || group.label.includes("（可选）") ? "is-two-line" : undefined}>{group.label === "区域 / 文化背景" ? "区域 / 文化\n背景" : group.label.includes("（可选）") ? group.label.replace("（可选）", "\n（可选）") : group.label}</label><div>{group.control === "region_select" ? <Select variant="filled" aria-label="地区细分" disabled={!draft["区域 / 文化背景"]} placeholder={draft["区域 / 文化背景"] ? "不特别指定" : "请先选择大区"} value={draft[group.label] || undefined} onChange={value => change(group.label, value || "")} allowClear showSearch filterOption={searchFilterOption} options={["不特别指定", ...(regions[draft["区域 / 文化背景"]] || [])].map(label => ({ label, value: label === "不特别指定" ? "" : label }))}/> : <>
           <Radio.Group className={`ac-design-choices${isColor ? " is-colors" : ""}`} aria-label={group.label} value={draft[group.label]} onChange={event => change(group.label, event.target.value)}>
             {options.filter(item => item !== "自定义").map((label, i) => <Radio.Button key={label} value={label} onClick={() => { if (draft[group.label] === label) change(group.label, "") }} title={label}>{isColor ? <span className="ac-design-swatch" style={{ background: (group.label === "肤色" ? skinColors : hairColors)[i] || label }}/>: label}</Radio.Button>)}
           </Radio.Group>{isColor && <ColorPicker value={draft[group.label]?.startsWith("#") ? draft[group.label] : "#c8a581"} onChangeComplete={color => change(group.label, color.toHexString())}><Button className={draft[group.label]?.startsWith("#") ? "is-selected" : ""}>自定义</Button></ColorPicker>}

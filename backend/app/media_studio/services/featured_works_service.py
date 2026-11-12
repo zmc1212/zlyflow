@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
-from typing import Any
+from typing import Any, Callable
 
 from ..db import execute_sql, now_str, query_all, query_one
 from ..models import ProjectCreateRequest
@@ -13,6 +14,10 @@ FEATURED_SNAPSHOT_VERSION = 2
 MAX_MEDIA_URL_LENGTH = 2048
 MAX_DOCUMENT_CHARS = 200_000
 MAX_PROMPT_CHARS = 4_000
+# 任务下载地址绑定任务记录、登录态和输出归属，冻结进精选快照后必然失效，发布时要换成对象存储长效地址。
+JOB_DOWNLOAD_PATH_RE = re.compile(r"^/api/jobs/[^/]+(?:/generations/[^/]+)?/outputs/\d+/download(?:[?#].*)?$")
+# 画布节点里保存对象键的字段：生成结果用 resultPath，视频/图片节点用 assetPath，历史版本用 path。
+OBJECT_KEY_FIELDS = ("resultPath", "assetPath", "path")
 DISPLAY_BEAT_FIELDS = (
     "heading",
     "speaker",
@@ -124,6 +129,66 @@ def _remap_canvas_asset_ids(canvas: dict[str, Any], asset_id_map: dict[str, str]
     return {"nodes": remapped, "edges": edges, "viewport": viewport}
 
 
+def _durable_media_url(object_url: Callable[[str], str | None] | None, *keys: Any) -> str:
+    """按对象键取长期有效的存储地址；取不到时返回空串，宁可让前端显示占位也不留死链。"""
+    if not callable(object_url):
+        return ""
+    for key in keys:
+        object_key = _clean_text(key).lstrip("/")
+        if not object_key:
+            continue
+        try:
+            url = _media_url(object_url(object_key))
+        except Exception:  # 存储未配置或对象键非法时不阻断发布
+            url = ""
+        if url:
+            return url
+    return ""
+
+
+def rewrite_canvas_media_urls(canvas: dict[str, Any], object_url: Callable[[str], str | None] | None) -> dict[str, Any]:
+    """把只读画布里依赖任务记录的媒体地址换成长效对象地址（发布快照固定调用）。
+
+    只改写 ``/api/jobs/.../outputs/N/download`` 这类同源下载地址：它要求登录并校验输出归属，
+    任务记录被清理后直接 404，精选作品对所有其他账号也不可用。对象键取不到时置空，
+    让前端渲染占位，而不是保留一个必然破图的地址。
+    """
+    if not isinstance(canvas, dict) or not callable(object_url):
+        return canvas
+    nodes = canvas.get("nodes")
+    if not isinstance(nodes, list) or not nodes:
+        return canvas
+    rewritten: list[Any] = []
+    for raw in nodes:
+        if not isinstance(raw, dict) or not isinstance(raw.get("data"), dict):
+            rewritten.append(raw)
+            continue
+        data = dict(raw["data"])
+        changed = False
+        for field in ("url", "resultUrl"):
+            value = _clean_text(data.get(field))
+            if not JOB_DOWNLOAD_PATH_RE.match(value):
+                continue
+            data[field] = _durable_media_url(object_url, *(data.get(key) for key in OBJECT_KEY_FIELDS))
+            changed = True
+        if JOB_DOWNLOAD_PATH_RE.match(_clean_text(data.get("cover"))):
+            data["cover"] = ""
+            changed = True
+        history = data.get("resultHistory")
+        if isinstance(history, list):
+            history_items: list[Any] = []
+            for entry in history:
+                if isinstance(entry, dict) and JOB_DOWNLOAD_PATH_RE.match(_clean_text(entry.get("url"))):
+                    entry = {**entry, "url": _durable_media_url(
+                        object_url, entry.get("path"), *(data.get(key) for key in OBJECT_KEY_FIELDS))}
+                    changed = True
+                history_items.append(entry)
+            if changed:
+                data["resultHistory"] = history_items
+        rewritten.append({**raw, "data": data} if changed else raw)
+    return {**canvas, "nodes": rewritten}
+
+
 def _clean_canvas_content(content: Any) -> dict[str, Any] | None:
     """提取绑定画布草稿的只读内容；画布为空或结构异常时返回 None。"""
     data = content if isinstance(content, dict) else _json_dict(content)
@@ -143,6 +208,7 @@ def build_featured_snapshot(
     episodes: list[dict[str, Any]],
     assets: list[dict[str, Any]],
     canvas_content: Any = None,
+    object_url: Callable[[str], str | None] | None = None,
 ) -> dict[str, Any]:
     """只保留展示需要的字段，发布后不再依赖原项目的实时编辑状态。"""
     asset_items = [_display_asset(item) for item in assets]
@@ -185,7 +251,7 @@ def build_featured_snapshot(
     }
     canvas = _clean_canvas_content(canvas_content)
     if canvas:
-        snapshot["canvas"] = canvas
+        snapshot["canvas"] = rewrite_canvas_media_urls(canvas, object_url)
     return snapshot
 
 
@@ -218,7 +284,12 @@ class FeaturedWorksService:
         return item
 
     @staticmethod
-    def publish(payload: dict[str, Any], actor_user_id: str) -> dict[str, Any]:
+    def publish(
+        payload: dict[str, Any],
+        actor_user_id: str,
+        *,
+        object_url: Callable[[str], str | None] | None = None,
+    ) -> dict[str, Any]:
         project_id = _clean_text(payload.get("project_id"))
         if not project_id:
             raise ValueError("请选择要发布的短剧")
@@ -250,7 +321,9 @@ class FeaturedWorksService:
         if canvas_row:
             draft_row = query_one("SELECT content FROM canvas_drafts WHERE canvas_id = %s", (canvas_row["id"],))
             canvas_content = _json_dict(draft_row.get("content")) if draft_row else {}
-        snapshot = build_featured_snapshot(project, documents, episodes, assets, canvas_content=canvas_content)
+        snapshot = build_featured_snapshot(
+            project, documents, episodes, assets, canvas_content=canvas_content, object_url=object_url,
+        )
         has_script = any(item["raw_text"].strip() for item in snapshot["documents"]) or any(
             episode["script_text"].strip() or episode["beats"] for episode in snapshot["episodes"]
         )

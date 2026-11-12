@@ -17,6 +17,7 @@ import {
 import { generateJobPath } from "../paths"
 import { useMediaHandoffPrefill } from "../media-handoff-prefill"
 import { createLocalId } from "../lib/utils"
+import { promptAutoSize } from "../prompt-autosize"
 import { restoreReferenceFiles, roundReferenceSources, type ReferenceSource } from "../reference-assets"
 import "./motion-transfer-tool.css"
 
@@ -243,8 +244,8 @@ export default function PartialRetakeTool({ csrfToken }: { csrfToken: string }) 
         )
       ) : (
         <div className="studio-motion-material-empty">
-          <Paintbrush size={22} aria-hidden="true" />
-          <span>{labels[0]}</span>
+          {kind === "mask" ? <Paintbrush size={22} aria-hidden="true" /> : <Video size={22} aria-hidden="true" />}
+          <span>{labels[kind === "mask" ? 0 : 1]}</span>
         </div>
       )}
       <div className="studio-motion-material-actions">
@@ -271,7 +272,7 @@ export default function PartialRetakeTool({ csrfToken }: { csrfToken: string }) 
       </header>
 
       {workflowQuery.isLoading ? (
-        <div className="grid min-h-[220px] place-items-center"><Spin tip="正在读取局部重绘能力" /></div>
+        <div className="grid min-h-[220px] w-full place-items-center"><Spin tip="正在读取局部重绘能力" /></div>
       ) : workflowQuery.isError ? (
         <Empty description={`局部重绘能力读取失败：${apiErrorMessage(workflowQuery.error, "请稍后重试")}`}>
           <Button icon={<RefreshCw size={14} />} onClick={() => void workflowQuery.refetch()}>重新读取</Button>
@@ -312,7 +313,7 @@ export default function PartialRetakeTool({ csrfToken }: { csrfToken: string }) 
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
               placeholder="描述修复目标，例如：清除画面中的路人；把被遮挡的天空补完整；修复晃动的水印区域。"
-              rows={4}
+              autoSize={promptAutoSize(4)}
               maxLength={1500}
             />
           </div>

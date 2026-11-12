@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 import qiniu
 
-QINIU_REQUEST_TIMEOUT = (10, 120)
+QINIU_REQUEST_TIMEOUT = (15, 180)
 
 # put_data/put_stream read preferred_scheme from the SDK default zone, even
 # when each explicit region has scheme="https". Keep the actual uploads HTTPS.
@@ -26,9 +26,18 @@ QINIU_UPLOAD_HOSTS = {
     "na0": "up-na0.qiniup.com",
     "as0": "up-as0.qiniup.com",
 }
+# 源站上传域名作为备用入口：主入口写超时后由 SDK 换主机重试。
+QINIU_UPLOAD_BACKUP_HOSTS = {
+    "z0": "upload-z0.qiniup.com",
+    "cn-east-2": "upload-cn-east-2.qiniup.com",
+    "z1": "upload-z1.qiniup.com",
+    "z2": "upload-z2.qiniup.com",
+    "na0": "upload-na0.qiniup.com",
+    "as0": "upload-as0.qiniup.com",
+}
 LARGE_UPLOAD_BYTES = 8 * 1024 * 1024
 UPLOAD_PART_BYTES = 1024 * 1024
-UPLOAD_ATTEMPTS = 3
+UPLOAD_ATTEMPTS = 4
 
 
 class QiniuService:
@@ -161,7 +170,11 @@ class QiniuService:
         auth = qiniu.Auth(cfg["access_key"], cfg["secret_key"])
         token = auth.upload_token(cfg["bucket"], key, 3600)
         region = cfg["region"] if cfg["region"] in QINIU_UPLOAD_HOSTS else "z0"
-        regions = [qiniu.Region(up_host=QINIU_UPLOAD_HOSTS[region], scheme="https")]
+        regions = [qiniu.Region(
+            up_host=QINIU_UPLOAD_HOSTS[region],
+            up_host_backup=QINIU_UPLOAD_BACKUP_HOSTS[region],
+            scheme="https",
+        )]
         last_info: object | None = None
         for attempt in range(UPLOAD_ATTEMPTS):
             try:

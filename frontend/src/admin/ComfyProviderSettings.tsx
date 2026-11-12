@@ -52,7 +52,7 @@ export default function ComfyProviderSettings({ csrfToken }: { csrfToken: string
   const statusClass = lastStatus === "success" ? "text-emerald-600" : lastStatus === "failed" ? "text-red-600" : "text-[#111827]"
 
   return (
-    <main className="mx-auto max-w-[1020px] px-5 pt-6 lg:px-8">
+    <main className="studio-admin-panel max-w-[1180px] px-5 pt-6 lg:px-8">
       <section className="rounded-2xl border border-black/[0.06] bg-white p-6 shadow-sm">
         <div className="flex items-start gap-4 border-b border-black/[0.06] pb-5">
           <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-[#7047f6]/10 text-[#7047f6]">
@@ -101,7 +101,7 @@ export default function ComfyProviderSettings({ csrfToken }: { csrfToken: string
 
             {error ? <Alert type="error" showIcon message={error.message} /> : null}
 
-            <div className="flex flex-wrap gap-3 pt-1">
+            <div className="studio-admin-actions">
               <Button type="primary" loading={save.isPending} onClick={() => save.mutate()}>
                 保存配置
               </Button>

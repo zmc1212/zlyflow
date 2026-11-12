@@ -92,7 +92,7 @@ class ComfyVideoClient:
             self._system_stats = payload if isinstance(payload, dict) else {}
         except requests.RequestException as err:
             self._system_stats = None
-            raise ValueError(f"无法连接 ComfyUI {self.base_url}: {err}") from err
+            raise ValueError(f"无法连接视频服务{self.base_url}: {err}") from err
         except ValueError:
             self._system_stats = {}
 
@@ -119,7 +119,7 @@ class ComfyVideoClient:
             )
             payload = response.json() if response.ok else {}
         except requests.RequestException as err:
-            raise ValueError(f"无法连接 ComfyUI {self.base_url}: {err}") from err
+            raise ValueError(f"无法连接视频服务{self.base_url}: {err}") from err
         except ValueError:
             payload = {}
         if not comfy_has_rtx_vsr_node(payload if isinstance(payload, dict) else {}):
@@ -132,7 +132,7 @@ class ComfyVideoClient:
                 response = self.session.get(f"{self.base_url}/object_info/{class_type}", timeout=12)
                 payload = response.json() if response.ok else {}
             except requests.RequestException as err:
-                raise ValueError(f"无法连接 ComfyUI {self.base_url}: {err}") from err
+                raise ValueError(f"无法连接视频服务{self.base_url}: {err}") from err
             except ValueError:
                 payload = {}
             if isinstance(payload, dict):
@@ -151,12 +151,12 @@ class ComfyVideoClient:
             )
             info_response.raise_for_status()
         except requests.RequestException as err:
-            raise ValueError(f"无法连接 ComfyUI {self.base_url}: {err}") from err
+            raise ValueError(f"无法连接视频服务{self.base_url}: {err}") from err
         info = info_response.json().get("MiniMaxH3Director") or {}
         choices = (((info.get("input") or {}).get("required") or {}).get("task_type") or [[]])[0]
         task_type = next((str(item) for item in choices if str(item).startswith(self.TASK_PREFIX)), "")
         if not task_type:
-            raise ValueError("ComfyUI MiniMaxH3Director 未提供 r2v/Ref2VA 模式。")
+            raise ValueError("视频服务 MiniMaxH3Director 未提供 r2v/Ref2VA 模式。")
         return task_type
 
     def upload_image(
@@ -194,7 +194,7 @@ class ComfyVideoClient:
         preferred_name: str,
         content_type: str = "image/png",
     ) -> dict[str, str]:
-        """把本地字节（如锚定尾帧 PNG）直接传入 ComfyUI input 目录。"""
+        """把本地字节（如锚定尾帧 PNG）直接传入视频服务 input 目录。"""
         last_error: Exception | None = None
         for _ in range(3):
             try:
@@ -565,9 +565,9 @@ class ComfyVideoClient:
             ))
         data = response.json()
         if data.get("node_errors"):
-            raise RuntimeError("ComfyUI 节点校验失败: " + json.dumps(data["node_errors"], ensure_ascii=False))
+            raise RuntimeError("视频服务节点校验失败: " + json.dumps(data["node_errors"], ensure_ascii=False))
         if not data.get("prompt_id"):
-            raise RuntimeError("ComfyUI 未返回 prompt_id")
+            raise RuntimeError("视频服务未返回 prompt_id")
         return {**data, "client_id": client_id}
 
     def progress_socket(self, client_id: str):
@@ -691,13 +691,13 @@ class ComfyVideoClient:
                     if status.get("completed") and status.get("status_str") == "success":
                         output = self._find_video(history.get("outputs") or {})
                         if not output:
-                            raise RuntimeError("ComfyUI 执行成功，但 SaveVideo 未返回 MP4 输出。")
+                            raise RuntimeError("视频服务执行成功，但 SaveVideo 未返回 MP4 输出。")
                         return history, output
                     if status.get("status_str") in {"error", "failed"}:
                         raise RuntimeError(self._history_error(status))
                 if socket is None:
                     time.sleep(poll_seconds)
-            raise TimeoutError(f"ComfyUI 任务 {prompt_id} 等待超过 {timeout_seconds} 秒")
+            raise TimeoutError(f"视频服务任务 {prompt_id} 等待超过 {timeout_seconds} 秒")
         finally:
             if owned_socket and socket is not None:
                 try:
@@ -737,8 +737,8 @@ class ComfyVideoClient:
                 if isinstance(detail, dict):
                     node = str(detail.get("node_type") or "").strip()
                     location = f"[{node} 节点] " if node else ""
-                    return "ComfyUI 执行失败: " + location + str(detail.get("exception_message") or detail)
-        return "ComfyUI 执行失败: " + json.dumps(status, ensure_ascii=False)[:3000]
+                    return "视频服务执行失败: " + location + str(detail.get("exception_message") or detail)
+        return "视频服务执行失败: " + json.dumps(status, ensure_ascii=False)[:3000]
 
     def view_url(self, output: dict[str, str]) -> str:
         return f"{self.base_url}/view?{urlencode(output)}"
@@ -767,7 +767,7 @@ class ComfyVideoClient:
             if busy is False:
                 return
             time.sleep(1)
-        raise TimeoutError("ComfyUI 队列仍忙，无法开始 2x 超分")
+        raise TimeoutError("视频服务队列仍忙，无法开始 2x 超分")
 
     def free_resources(self, *, force: bool = True) -> bool:
         busy = self.queue_busy()
@@ -845,7 +845,7 @@ class ComfyVideoClient:
     ) -> dict[str, str]:
         """Replay a stored Director graph that already carries the second pass.
 
-        ComfyUI caches nodes by input hash, so an identical seeded graph whose first
+        视频服务 caches nodes by input hash, so an identical seeded graph whose first
         pass is still resident runs only the refine; after an eviction or restart both
         passes run again and reproduce the same take.
         """

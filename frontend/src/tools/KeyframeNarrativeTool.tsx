@@ -24,6 +24,7 @@ import {
 } from "../generation/keyframe"
 import { generateJobPath } from "../paths"
 import { createLocalId } from "../lib/utils"
+import { promptAutoSize } from "../prompt-autosize"
 import { restoreReferenceFiles, roundReferenceSources, type ReferenceSource } from "../reference-assets"
 import "./motion-transfer-tool.css"
 import "./keyframe-narrative-tool.css"
@@ -330,7 +331,7 @@ export default function KeyframeNarrativeTool({ csrfToken }: { csrfToken: string
       </header>
 
       {workflowQuery.isLoading ? (
-        <div className="grid min-h-[220px] place-items-center"><Spin tip="正在读取关键帧叙事能力" /></div>
+        <div className="grid min-h-[220px] w-full place-items-center"><Spin tip="正在读取关键帧叙事能力" /></div>
       ) : workflowQuery.isError ? (
         <Empty description={`关键帧叙事能力读取失败：${apiErrorMessage(workflowQuery.error, "请稍后重试")}`}>
           <Button icon={<RefreshCw size={14} />} onClick={() => void workflowQuery.refetch()}>重新读取</Button>
@@ -391,7 +392,7 @@ export default function KeyframeNarrativeTool({ csrfToken }: { csrfToken: string
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
                 placeholder="描述关键帧之间的叙事与过渡，例如：清晨的薄雾中，小船缓缓驶过湖面，最终停在山脚下的渡口，运镜平缓，电影感打光。"
-                rows={4}
+                autoSize={promptAutoSize(4)}
                 maxLength={1500}
               />
             </div>

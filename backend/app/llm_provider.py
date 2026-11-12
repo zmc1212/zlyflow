@@ -126,6 +126,16 @@ class LlmProviderService:
             api_key = "ollama"
         return api_key
 
+    def _missing_key_message(self, base_url: str, action: str) -> str:
+        """无 Key 可沿用时区分场景：切到从未保存过凭据的服务要提示先粘贴一次。"""
+        same_endpoint = str(base_url or "").rstrip("/") == str(self.store.get_llm_settings()["base_url"]).rstrip("/")
+        if not same_endpoint and not is_local_base_url(base_url or "") and not self._stored_api_key(base_url):
+            return (
+                f"{action}前请先粘贴一次该服务的 API Key：该服务还没有保存过凭据，"
+                "保存后会自动记住，之后切换供应商会自动带出。"
+            )
+        return f"{action}需要提供有效的 API Key / Token"
+
 
     @staticmethod
     def _mask_key(api_key: str | None) -> str | None:
@@ -290,22 +300,106 @@ class LlmProviderService:
 
     def chat_json(self, system_prompt: str, user_content: str, *, temperature: float = 0.7, max_tokens: int = 4096) -> dict[str, Any]:
         """One-shot JSON chat with the default chat model, for domain flows that need structured output."""
-        from .director_agents import parse_json_object
-        from .llm_client import LlmError
-
-        client, model = self._chat_client()
-        raw = client.chat_completion(
+        return self.chat_json_messages(
             [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content},
             ],
-            model=model,
             temperature=temperature,
             max_tokens=max_tokens,
-            timeout=(15, 300),
-            stream=False,
+        )
+
+    def _json_chat_call(
+        self,
+        client: OpenAICompatibleClient,
+        messages: list[dict],
+        model: str,
+        *,
+        temperature: float,
+        max_tokens: int,
+        stream: bool,
+        on_delta: Any = None,
+    ) -> str:
+        """chat_json_* 专用调用：优先开 JSON 模式（response_format=json_object）。
+
+        弱模型遇到“只改音色”这类小修改时会无视“只输出 JSON”的提示词、直接回散文
+        （实测 deepseek-v4-flash 连续复现），导致“大模型未返回有效的 JSON”；
+        JSON 模式由服务端强制约束输出格式，是唯一可靠的解法。
+        上游拒绝该字段时按能力降级记忆退回普通调用，与 assistant_chat_with_meta 同一惯用法。"""
+        key = _capability_key(self.store.get_llm_settings()["base_url"], model)
+        use_json_mode = "response_format" not in _degraded_capabilities(key)
+        while True:
+            try:
+                result = client.chat_completion_result(
+                    messages,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    timeout=(15, 300),
+                    stream=stream,
+                    on_delta=on_delta,
+                    response_format={"type": STRUCTURED_OBJECT} if use_json_mode else None,
+                )
+                return result.content
+            except LlmCapabilityError as error:
+                if error.field != "response_format" or not use_json_mode:
+                    raise
+                _remember_degraded(key, "response_format")
+                use_json_mode = False
+
+    def chat_json_messages(self, messages: list[dict], *, temperature: float = 0.7, max_tokens: int = 4096) -> dict[str, Any]:
+        """Multi-turn JSON chat with the default chat model; same parsing contract as chat_json."""
+        from .director_agents import parse_json_object
+        from .llm_client import LlmError
+
+        client, model = self._chat_client()
+        raw = self._json_chat_call(
+            client, messages, model,
+            temperature=temperature, max_tokens=max_tokens, stream=False,
         )
         parsed = parse_json_object(raw)
+        if not isinstance(parsed, dict):
+            raise LlmError("大模型未返回有效的 JSON，请重试")
+        return parsed
+
+    def chat_json_messages_stream(
+        self, messages: list[dict], on_chunk: Any = None, *, temperature: float = 0.7, max_tokens: int = 4096,
+    ) -> dict[str, Any]:
+        """Streaming variant of chat_json_messages: on_chunk receives the accumulated raw
+        text so far (for partial-JSON previews); the parsed dict is returned on completion.
+
+        预览走 on_delta 钩子逐 token 累积（on_chunk 的 1.5s/400 字符节流会把短回复合并成一段）。"""
+        from .director_agents import parse_json_object
+        from .llm_client import LlmError, LlmTemporaryError
+
+        client, model = self._chat_client()
+        pieces: list[str] = []
+
+        def on_delta(kind: str, piece: str) -> None:
+            if kind == "content" and piece and on_chunk:
+                pieces.append(piece)
+                on_chunk("".join(pieces))
+
+        try:
+            raw = self._json_chat_call(
+                client, messages, model,
+                temperature=temperature, max_tokens=max_tokens, stream=True, on_delta=on_delta,
+            )
+        except LlmTemporaryError:
+            # 免费通道常在 SSE 结束后不关流；降级一次非流式重试
+            raw = self._json_chat_call(
+                client, messages, model,
+                temperature=temperature, max_tokens=max_tokens, stream=False,
+            )
+        try:
+            parsed = parse_json_object(raw)
+        except Exception:
+            # 流式通道偶发吐垃圾/限流文案；换非流式整段重试一次
+            raw = self._json_chat_call(
+                client, messages, model,
+                temperature=temperature, max_tokens=max_tokens, stream=False,
+            )
+            parsed = parse_json_object(raw)
         if not isinstance(parsed, dict):
             raise LlmError("大模型未返回有效的 JSON，请重试")
         return parsed
@@ -448,7 +542,7 @@ class LlmProviderService:
         api_key = self._resolve_request_key(base_url, submitted_key)
 
         if not api_key:
-            raise ValueError("测试连接需要提供有效的 API Key / Token")
+            raise ValueError(self._missing_key_message(base_url, "测试连接"))
         if not base_url:
             raise ValueError("Base URL 不能为空")
         if not model:
@@ -482,7 +576,7 @@ class LlmProviderService:
         submitted_key = normalize_api_key(payload.get("api_key")) if payload else None
         api_key = self._resolve_request_key(base_url, submitted_key)
         if not api_key:
-            raise LlmError("拉取模型目录需要提供有效的 API Key / Token")
+            raise LlmError(self._missing_key_message(base_url, "拉取模型目录"))
         if not base_url:
             raise LlmError("Base URL 不能为空")
         free_only = True if payload is None else bool(payload.get("free_only", True))

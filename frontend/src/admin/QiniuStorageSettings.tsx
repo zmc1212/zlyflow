@@ -4,6 +4,7 @@ import { CheckCircle2, CloudCog, KeyRound, ShieldCheck } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { jsonMutation, requestJson } from "../api"
 import { CopyFieldButton } from "./FieldCopy"
+import { searchFilterOption } from "../search-match"
 
 type QiniuConfig = {
   enabled: boolean; bucket: string; region: string; domain: string; object_prefix: string
@@ -75,7 +76,7 @@ export default function QiniuStorageSettings({ csrfToken }: { csrfToken: string 
   const error = query.error ?? save.error ?? test.error
 
   return (
-    <main className="mx-auto max-w-[1020px] px-5 py-6 lg:px-8">
+    <main className="studio-admin-panel max-w-[1180px] px-5 py-6 lg:px-8">
       <div className="flex items-start gap-4 border-b border-black/[0.06] pb-5">
         <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-cyan-500/10 text-cyan-600">
           <CloudCog size={22} />
@@ -152,6 +153,8 @@ export default function QiniuStorageSettings({ csrfToken }: { csrfToken: string 
                 className="mt-1.5 w-full"
                 value={region}
                 onChange={setRegion}
+                showSearch
+                filterOption={searchFilterOption}
                 options={regionOptions}
               />
             </div>
@@ -181,7 +184,7 @@ export default function QiniuStorageSettings({ csrfToken }: { csrfToken: string 
 
           {error ? <Alert type="error" showIcon message={error.message} /> : null}
 
-          <div className="flex flex-wrap gap-3 pt-2">
+          <div className="studio-admin-actions">
             <Button type="primary" loading={save.isPending} onClick={() => save.mutate()}>
               保存配置
             </Button>

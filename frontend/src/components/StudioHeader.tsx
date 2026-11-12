@@ -13,7 +13,7 @@ type StudioHeaderProps = {
   compact?: boolean
   user: User | null
   onRequestLogin?: () => void
-  provider: "ComfyUI" | "GRS" | "音乐服务"
+  provider: "视频服务" | "图片服务" | "音乐服务"
   providerStatus: "checking" | "online" | "offline"
   providerStatusLabel?: string
   providerMessage?: string | null
@@ -34,7 +34,7 @@ export default function StudioHeader({
   const items: MenuProps["items"] = [
     { key: "theme", icon: mode === "dark" ? <Sun size={16} /> : <Moon size={16} />, label: mode === "dark" ? "浅色外观" : "暗色外观" },
     { type: "divider" },
-    { key: "profile", icon: <UserRound size={16} />, label: "修改姓名" },
+    { key: "profile", icon: <UserRound size={16} />, label: "个人资料" },
     { key: "mcp", icon: <Link2 size={16} />, label: "MCP 连接" },
     ...(onOpenAdmin ? [{ key: "admin", icon: <Users size={16} />, label: "管理设置" }] : []),
     { key: "docs", icon: <BookOpen size={16} />, label: <span className="studio-header-menu-label"><span>使用文档</span><ExternalLink size={14} aria-hidden="true" /></span> },

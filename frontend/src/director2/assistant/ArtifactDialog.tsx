@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { Alert, Button, Input, Modal, Select, Space, Table, message } from "antd"
 import { Copy, Download, FolderPlus } from "lucide-react"
+import { searchFilterOption } from "../../search-match"
 import Markdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { createProject, director2ErrorDetail, listAssets, listDocuments, listEpisodes, listProjects, type Director2Asset, type Director2Document, type Director2Episode, type Director2Project } from "../api"
@@ -87,14 +88,14 @@ export default function ArtifactDialog({ artifact, projectId, csrfToken, onClose
       <div className="assistant-artifact-meta">{artifactLabels[artifact.artifact_type]} · {artifact.application_id ? "已采纳" : "会话草稿"}</div>
       <div className="assistant-markdown assistant-artifact-content"><Markdown remarkPlugins={[remarkGfm]} skipHtml disallowedElements={["img"]}>{artifact.content}</Markdown></div>
       {canApply && !artifact.application_id && <div className="assistant-application-target">
-        <label>采纳到工程</label><Select aria-label="采纳目标工程" showSearch optionFilterProp="label" placeholder="选择工程" value={target} disabled={!!projectId || busy} onChange={value => { setTarget(value); setMapping({}); setPreview(null) }} options={projects.map(p => ({ label: p.name, value: p.id }))} />
+        <label>采纳到工程</label><Select aria-label="采纳目标工程" showSearch filterOption={searchFilterOption} placeholder="选择工程" value={target} disabled={!!projectId || busy} onChange={value => { setTarget(value); setMapping({}); setPreview(null) }} options={projects.map(p => ({ label: p.name, value: p.id }))} />
         {!projectId && <div className="assistant-create-target"><Input aria-label="新工程名称" value={newName} onChange={e => setNewName(e.target.value)} maxLength={255} /><Button onClick={createTarget} loading={busy} icon={<FolderPlus size={14} />}>新建工程</Button></div>}
         {target && <>
           {scriptDraft && <div className="assistant-mapping-row"><span>当前剧本</span><span>{mainScript?.filename || "首次采纳后建立主剧本"}</span></div>}
           {artifact.artifact_type === "script" && artifact.data.section !== "setting" && mainScript && <div className="assistant-mapping-row"><span>写入范围</span><Select aria-label="剧本写入方式" disabled={busy || loadingTargets} value={mapping.script_action || "append_episodes"} onChange={v => map("script_action", v)} options={[{ label: "追加新分集（保留已有分集）", value: "append_episodes" }, { label: "更新草稿中的分集（保留其他分集）", value: "update_episodes" }]} /></div>}
-          {artifact.data.assets?.map((a, i) => <div className="assistant-mapping-row" key={i}><span>{a.name}</span><Select aria-label={`资产 ${a.name} 的写入目标`} value={mapping[`asset:${i}`] || ""} onChange={v => map(`asset:${i}`, v)} options={[{ label: "新增资产", value: "" }, ...assets.filter(v => v.kind === a.kind).map(v => ({ label: `更新：${v.name}`, value: v.id }))]} /></div>)}
+          {artifact.data.assets?.map((a, i) => <div className="assistant-mapping-row" key={i}><span>{a.name}</span><Select aria-label={`资产 ${a.name} 的写入目标`} showSearch filterOption={searchFilterOption} value={mapping[`asset:${i}`] || ""} onChange={v => map(`asset:${i}`, v)} options={[{ label: "新增资产", value: "" }, ...assets.filter(v => v.kind === a.kind).map(v => ({ label: `更新：${v.name}`, value: v.id }))]} /></div>)}
           {artifact.artifact_type === "episodes" && <Alert type="info" showIcon title="大纲按集写入当前剧本，已有正文和制作镜头保留" />}
-          {artifact.artifact_type === "storyboard" && artifact.data.episodes?.map(e => <div className="assistant-mapping-row" key={e.episode_num}><span>第{e.episode_num}集 · {e.title}</span><Select aria-label={`第${e.episode_num}集的写入目标`} value={mapping[`episode:${e.episode_num}`] ?? e.episode_id ?? ""} onChange={v => map(`episode:${e.episode_num}`, v)} options={[{ label: "新增分集", value: "" }, ...episodes.map(v => ({ label: `更新：第${v.episode_num}集 · ${v.title}`, value: v.id }))]} /></div>)}
+          {artifact.artifact_type === "storyboard" && artifact.data.episodes?.map(e => <div className="assistant-mapping-row" key={e.episode_num}><span>第{e.episode_num}集 · {e.title}</span><Select aria-label={`第${e.episode_num}集的写入目标`} showSearch filterOption={searchFilterOption} value={mapping[`episode:${e.episode_num}`] ?? e.episode_id ?? ""} onChange={v => map(`episode:${e.episode_num}`, v)} options={[{ label: "新增分集", value: "" }, ...episodes.map(v => ({ label: `更新：第${v.episode_num}集 · ${v.title}`, value: v.id }))]} /></div>)}
         </>}
       </div>}
       {error && <Alert type="error" showIcon title={error} />}

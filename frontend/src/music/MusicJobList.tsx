@@ -1,7 +1,8 @@
+import { useState } from "react"
 import { Button, Dropdown, Empty, Modal, Progress, Slider, Spin, Tag, Tooltip, message } from "antd"
-import { Download, FileText, ListMusic, MoreHorizontal, Pause, Play, SkipBack, SkipForward, Trash2, Volume2, VolumeX, X } from "lucide-react"
+import { Download, EyeOff, FileText, ListMusic, MessagesSquare, MoreHorizontal, Pause, Play, RotateCcw, SkipBack, SkipForward, Sparkles, Trash2, Volume2, VolumeX, X } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
-import { MusicJob, deleteMusicJob, formatMusicDuration } from "./api"
+import { FeaturedMusic, MusicJob, deleteMusicJob, formatMusicDuration, retryMusicJob } from "./api"
 import { musicArtworkUrl, musicDate, musicStyleTags, type MusicView } from "./music-library"
 
 const STATUS_TAGS: Record<MusicJob["status"], { color: string; label: string }> = {
@@ -25,7 +26,7 @@ export function MusicEqualizer() {
 }
 
 /** 曲库数据始终来自工作台任务；筛选与视图不改变播放器的当前歌曲。 */
-export default function MusicJobList({ jobs, csrfToken, loading, player, selectedId, view, emptyText, onToggle, onSelect, onLyrics, onRemoved }: {
+export default function MusicJobList({ jobs, csrfToken, loading, player, selectedId, view, emptyText, versionLabels, canManage, canRetry, featuredByJobId, isAdmin, onPublishFeatured, onUnpublishFeatured, onChat, onToggle, onSelect, onLyrics, onRemoved }: {
   jobs: MusicJob[]
   csrfToken: string
   loading?: boolean
@@ -33,6 +34,17 @@ export default function MusicJobList({ jobs, csrfToken, loading, player, selecte
   selectedId?: string
   view: MusicView
   emptyText: string
+  versionLabels?: Record<string, string>
+  /** 是否允许删除、新建对话等写操作；管理员只读查看他人时不显示。 */
+  canManage?: (job: MusicJob) => boolean
+  /** 是否允许重试失败任务；管理员跨账号查看时单独放开，删除仍由 canManage 控制。 */
+  canRetry?: (job: MusicJob) => boolean
+  /** 已发布精选：按原任务 ID 索引，用于在卡片菜单显示「更新精选 / 取消精选」。 */
+  featuredByJobId?: Map<string, FeaturedMusic>
+  isAdmin?: boolean
+  onPublishFeatured?: (job: MusicJob) => void
+  onUnpublishFeatured?: (song: FeaturedMusic) => void
+  onChat?: (job: MusicJob) => void
   onToggle: (job: MusicJob) => void
   onSelect: (job: MusicJob) => void
   onLyrics: (job: MusicJob) => void
@@ -40,6 +52,20 @@ export default function MusicJobList({ jobs, csrfToken, loading, player, selecte
 }) {
   const queryClient = useQueryClient()
   const [modal, modalContext] = Modal.useModal()
+  const [retryingId, setRetryingId] = useState<string | null>(null)
+  const retry = async (job: MusicJob) => {
+    if (retryingId) return
+    setRetryingId(job.id)
+    try {
+      await retryMusicJob(csrfToken, job.id)
+      await queryClient.invalidateQueries({ queryKey: ["music-jobs"] })
+      message.success("已重新排队，将优先复用已生成的歌曲")
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "重试失败")
+    } finally {
+      setRetryingId(null)
+    }
+  }
   const remove = (job: MusicJob) => {
     modal.confirm({
       title: `删除「${job.title || "未命名歌曲"}」？`, content: "这条音乐任务及其工作台记录将被删除。",
@@ -68,7 +94,10 @@ export default function MusicJobList({ jobs, csrfToken, loading, player, selecte
         const tag = STATUS_TAGS[job.status] ?? STATUS_TAGS.queued
         const title = job.title || "未命名歌曲"
         const playable = job.status === "succeeded" && Boolean(job.result_url)
+        const manageable = canManage ? canManage(job) : true
+        const retryable = canRetry ? canRetry(job) : manageable
         const isPlaying = player.playingId === job.id
+        const featuredSong = featuredByJobId?.get(job.id)
         const duration = player.progress?.id === job.id && player.progress.total ? player.progress.total : job.duration_seconds
         return <li key={job.id} className={`studio-music-card ${isPlaying ? "is-playing" : ""} ${selectedId === job.id ? "is-selected" : ""}`}>
           <div className={`studio-music-card-cover-box ${job.status === "running" ? "is-running" : ""}`}>
@@ -79,10 +108,14 @@ export default function MusicJobList({ jobs, csrfToken, loading, player, selecte
             <Dropdown trigger={["click"]} placement="bottomRight" menu={{
               items: [
                 { key: "lyrics", icon: <FileText size={15} />, label: "查看歌曲详情" },
+                ...(onChat && (job.chat_id || manageable) ? [{ key: "chat", icon: <MessagesSquare size={15} />, label: job.chat_id ? "查看对话" : "对话修改" }] : []),
                 ...(job.result_url ? [{ key: "download", icon: <Download size={15} />, label: <a href={job.result_url} target="_blank" rel="noreferrer" download>下载 {job.result_format?.toUpperCase() || "音频"}</a> }] : []),
-                ...(job.status === "succeeded" || job.status === "failed" ? [{ type: "divider" as const }, { key: "delete", danger: true, icon: <Trash2 size={15} />, label: "删除歌曲" }] : []),
+                ...(retryable && job.status === "failed" ? [{ key: "retry", icon: <RotateCcw size={15} />, disabled: retryingId !== null, label: retryingId === job.id ? "正在重新排队…" : "重试" }] : []),
+                ...(isAdmin && job.status === "succeeded" && job.result_url ? [{ key: "featured", icon: <Sparkles size={15} />, label: featuredSong ? "更新精选" : "发布为精选" }] : []),
+                ...(isAdmin && featuredSong ? [{ key: "unfeatured", danger: true, icon: <EyeOff size={15} />, label: "取消精选" }] : []),
+                ...(manageable && (job.status === "succeeded" || job.status === "failed") ? [{ type: "divider" as const }, { key: "delete", danger: true, icon: <Trash2 size={15} />, label: "删除歌曲" }] : []),
               ],
-              onClick: ({ key }) => { if (key === "lyrics") onLyrics(job); else if (key === "delete") remove(job) },
+              onClick: ({ key }) => { if (key === "lyrics") onLyrics(job); else if (key === "chat") onChat?.(job); else if (key === "retry") void retry(job); else if (key === "featured") onPublishFeatured?.(job); else if (key === "unfeatured" && featuredSong) onUnpublishFeatured?.(featuredSong); else if (key === "delete") remove(job) },
             }}>
               <Button type="text" className="studio-music-card-more" icon={<MoreHorizontal size={20} />} aria-label={`${title}的更多操作`} />
             </Dropdown>
@@ -93,7 +126,7 @@ export default function MusicJobList({ jobs, csrfToken, loading, player, selecte
           <div className="studio-music-card-info">
             <Button type="text" className="studio-music-card-title" title={title} onClick={() => onSelect(job)}>{title}</Button>
             <p className="studio-music-card-style" title={job.style}>{musicStyleTags(job).join(" · ")}</p>
-            <p className="studio-music-card-sub">{[musicDate(job.created_at), job.result_format?.toUpperCase()].filter(Boolean).join(" · ")}</p>
+            <p className="studio-music-card-sub">{[versionLabels?.[job.id], musicDate(job.created_at), job.result_format?.toUpperCase()].filter(Boolean).join(" · ")}</p>
             {job.status === "running" && <Progress className="studio-music-card-progress" percent={Math.max(0, Math.min(100, job.progress || 0))} size="small" strokeColor="var(--studio-music-accent)" />}
             {job.status === "failed" && <Tooltip title={job.error_message}><p className="studio-music-card-error">{job.error_message || "生成失败，请重新创作"}</p></Tooltip>}
           </div>
@@ -103,13 +136,15 @@ export default function MusicJobList({ jobs, csrfToken, loading, player, selecte
   </>
 }
 
-export function MusicPlayerBar({ job, player, volume, previous, next, lyricsOpen, onLyrics, onToggle, onSeek, onVolume, onMute, onPrevious, onNext, onClose }: {
+export function MusicPlayerBar({ job, player, volume, previous, next, lyricsOpen, lyricsAvailable = true, onLyrics, onToggle, onSeek, onVolume, onMute, onPrevious, onNext, onClose }: {
   job: MusicJob
   player: MusicPlayerState
   volume: number
   previous: boolean
   next: boolean
   lyricsOpen: boolean
+  /** 精选快照没有可对齐的原任务，隐藏逐行歌词入口。 */
+  lyricsAvailable?: boolean
   onLyrics: () => void
   onToggle: (job: MusicJob) => void
   onSeek: (job: MusicJob, value: number) => void
@@ -148,7 +183,7 @@ export function MusicPlayerBar({ job, player, volume, previous, next, lyricsOpen
       <Button type="text" icon={volume === 0 ? <VolumeX size={19} /> : <Volume2 size={19} />} onClick={onMute} aria-label={volume === 0 ? "取消静音" : "静音"} />
       <Slider className="studio-music-volume" min={0} max={1} step={0.01} value={volume} onChange={onVolume} tooltip={{ formatter: (value) => `${Math.round(Number(value || 0) * 100)}%` }} ariaLabelForHandle="音量" ariaValueTextFormatterForHandle={(value) => `${Math.round(value * 100)}%`} />
       <span className="studio-music-player-divider" />
-      <Button id="music-player-lyrics-toggle" type="text" className="studio-music-player-lyrics-toggle" icon={<ListMusic size={18} />} onClick={onLyrics} aria-expanded={lyricsOpen} aria-controls={lyricsOpen ? "music-live-lyrics" : undefined}>歌词</Button>
+      {lyricsAvailable && <Button id="music-player-lyrics-toggle" type="text" className="studio-music-player-lyrics-toggle" icon={<ListMusic size={18} />} onClick={onLyrics} aria-expanded={lyricsOpen} aria-controls={lyricsOpen ? "music-live-lyrics" : undefined}>歌词</Button>}
       <Tooltip title="下载音频"><Button type="text" icon={<Download size={19} />} href={job.result_url || undefined} target="_blank" rel="noreferrer" download aria-label="下载当前歌曲" /></Tooltip>
       <Tooltip title="关闭播放条"><Button type="text" icon={<X size={20} />} onClick={onClose} aria-label="关闭播放条" /></Tooltip>
     </div>

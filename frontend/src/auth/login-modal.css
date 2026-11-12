@@ -42,6 +42,30 @@
 .studio-login-form-panel .studio-login-submit.ant-btn { height: 48px; display: flex; gap: 12px; align-items: center; justify-content: center; margin-top: 28px; border: 0; border-radius: 10px; background: var(--login-accent); box-shadow: none; color: var(--login-accent-ink); font-size: 14px; font-weight: 650; }
 .studio-login-form-panel .studio-login-submit.ant-btn:hover { background: var(--login-accent-hover) !important; color: var(--login-accent-ink) !important; }
 .studio-login-submit:focus-visible { outline: 3px solid #0baf97; outline-offset: 3px; }
+.studio-login-options { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: -2px; }
+.studio-login-options-actions { display: flex; flex: none; align-items: center; gap: 14px; }
+.studio-login-options .ant-checkbox { border-color: var(--studio-border-strong, var(--studio-border)); background: var(--studio-surface-raised); }
+.studio-login-options .ant-checkbox-label { color: var(--studio-text-secondary); font-size: 13px; }
+.studio-login-options .ant-checkbox-wrapper:hover .ant-checkbox-label { color: var(--studio-text); }
+.studio-login-options .ant-checkbox-wrapper:hover .ant-checkbox:not(.ant-checkbox-checked) { border-color: #0baf97; }
+.studio-login-options .ant-checkbox-wrapper:focus-within .ant-checkbox { border-color: #0baf97; box-shadow: 0 0 0 3px rgba(11, 175, 151, .2); }
+.studio-login-options .ant-checkbox-checked { border-color: #0baf97; background: #0baf97; }
+.studio-login-options .ant-checkbox-checked::after { border-color: var(--login-accent-ink); }
+:root[data-theme="dark"] .studio-login-options .ant-checkbox-checked { border-color: var(--login-accent); background: var(--login-accent); }
+.studio-login-options .ant-checkbox-wrapper-disabled .ant-checkbox-label { color: var(--studio-text-muted); }
+.studio-login-options .ant-checkbox-disabled { border-color: var(--studio-border); background: var(--studio-hover); }
+.studio-login-options ~ .studio-login-submit.ant-btn { margin-top: 20px; }
 .studio-login-account-note { display: flex; justify-content: center; align-items: center; gap: 7px; margin: 22px 0 0; color: var(--studio-text-secondary); font-size: 12px; line-height: 1.8; }
 .studio-login-browse-note { margin: auto 0 0; padding-top: 24px; text-align: center; color: var(--studio-text-muted); font-size: 12px; line-height: 1.8; }
 .studio-login-error { margin: -4px 0 14px; font-size: 12px; }
+.studio-login-recover-hint { display: flex; align-items: center; gap: 7px; margin: 0 0 18px; padding: 10px 12px; border: 1px solid var(--studio-border); border-radius: 10px; background: var(--studio-surface-raised); color: var(--studio-text-secondary); font-size: 12px; line-height: 1.5; }
+.studio-login-recover-hint svg { flex: none; color: #0baf97; }
+:root[data-theme="dark"] .studio-login-recover-hint svg { color: var(--login-accent); }
+.studio-login-recover-hint strong { color: var(--studio-text); font-weight: 600; }
+.studio-login-recover-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; }
+.studio-login-recover-actions .ant-btn-link,
+.studio-login-options .ant-btn-link { height: auto; padding: 2px 0; color: var(--studio-text-secondary); font-size: 12px; }
+.studio-login-recover-actions .ant-btn-link:hover,
+.studio-login-options .ant-btn-link:hover { color: #0baf97; }
+:root[data-theme="dark"] .studio-login-recover-actions .ant-btn-link:hover,
+:root[data-theme="dark"] .studio-login-options .ant-btn-link:hover { color: var(--login-accent); }

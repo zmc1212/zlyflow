@@ -53,9 +53,9 @@ describe("masked image tools (inpaint / eraser)", () => {
 
   it("shows backend unavailable reason for masked tools", () => {
     const html = renderWithClient(<ImageInpaintTool csrfToken="" />, IMAGE_INPAINT_WORKFLOW, {
-      id: IMAGE_INPAINT_WORKFLOW, available: false, unavailable_reason: "GRS 图片供应商尚未启用，请联系超级管理员。",
+      id: IMAGE_INPAINT_WORKFLOW, available: false, unavailable_reason: "图片服务供应商尚未启用，请联系超级管理员。",
     })
-    expect(html).toContain("GRS 图片供应商尚未启用，请联系超级管理员。")
+    expect(html).toContain("图片服务供应商尚未启用，请联系超级管理员。")
   })
 })
 

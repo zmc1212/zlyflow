@@ -4,6 +4,7 @@ import { CheckCircle2, Cloud, CloudDownload, GripVertical, KeyRound, Plus, Refre
 import { useEffect, useMemo, useState, useRef } from "react"
 import { jsonMutation, requestJson } from "../api"
 import { CopyFieldButton } from "./FieldCopy"
+import { searchFilterOption } from "../search-match"
 import { reorderCatalogRows } from "./grs-catalog-order"
 
 type ProviderConfig = {
@@ -268,7 +269,7 @@ export default function GrsProviderSettings({ csrfToken }: { csrfToken: string }
   })
 
   return (
-    <main className="mx-auto max-w-[1020px] px-5 py-6 lg:px-8">
+    <main className="studio-admin-panel max-w-[1180px] px-5 py-6 lg:px-8">
       <div className="flex items-start gap-4 border-b border-black/[0.06] pb-5">
         <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-[#7047f6]/10 text-[#7047f6]">
           <Cloud size={22} />
@@ -331,7 +332,7 @@ export default function GrsProviderSettings({ csrfToken }: { csrfToken: string }
 
           {error ? <Alert type="error" showIcon message={error.message} /> : null}
 
-          <div className="flex flex-wrap gap-3 pt-2">
+          <div className="studio-admin-actions">
             <Button type="primary" loading={save.isPending} onClick={() => save.mutate()}>
               保存配置
             </Button>
@@ -553,6 +554,8 @@ export default function GrsProviderSettings({ csrfToken }: { csrfToken: string }
               className="mt-1.5 w-full"
               value={newProfile}
               onChange={setNewProfile}
+              showSearch
+              filterOption={searchFilterOption}
               options={catalogQuery.data?.profiles ?? []}
             />
           </div>
@@ -627,6 +630,8 @@ export default function GrsProviderSettings({ csrfToken }: { csrfToken: string }
                     className="w-full"
                     value={drafts[record.provider_model]?.profile}
                     onChange={(next) => updateDraft(record.provider_model, { profile: next })}
+                    showSearch
+                    filterOption={searchFilterOption}
                     options={catalogQuery.data?.profiles ?? []}
                   />
                 )),

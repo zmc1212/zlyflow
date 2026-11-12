@@ -4,7 +4,8 @@ import { CheckCircle2, ExternalLink, Eye, KeyRound, RefreshCw, Sparkles } from "
 import { useEffect, useMemo, useRef, useState } from "react"
 import { jsonMutation, requestJson } from "../api"
 import { CopyFieldButton } from "./FieldCopy"
-import { buildModelOptions, modelPriceLabel, modelPriceTagStyle, providerPresetFor, resolveModelFree, sameProviderEndpoint } from "./provider-models"
+import { buildModelOptions, filterModelOptions, modelPriceLabel, modelPriceTagStyle, providerPresetFor, resolveModelFree, sameProviderEndpoint } from "./provider-models"
+import { searchFilterOption } from "../search-match"
 import type { CatalogModel, CatalogResponse, ProviderPresetsResponse } from "./provider-models"
 
 type VlmConfig = {
@@ -105,6 +106,10 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
   const [selectedPreset, setSelectedPreset] = useState("zhipu")
   const [catalogModels, setCatalogModels] = useState<CatalogModel[]>([])
   const [catalogBaseUrl, setCatalogBaseUrl] = useState("")
+  // 输入框里的搜索词单独记录：展开时列出全部模型，只有真正输入关键字才过滤。
+  const [modelQuery, setModelQuery] = useState("")
+  // 生成候选时用「已确认模型」，不能用正在敲的搜索词，否则每敲一个字候选列表就被这段文本重建。
+  const [optionModel, setOptionModel] = useState(model)
   const autoFetchedFor = useRef("")
   const hydratedConnection = useRef("")
 
@@ -217,16 +222,21 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
   const effectiveBaseUrl = useLlm ? query.data?.llm_base_url ?? baseUrl : baseUrl
   const activeCatalog = useMemo(() => sameProviderEndpoint(effectiveBaseUrl, catalogBaseUrl) ? catalogModels : [], [effectiveBaseUrl, catalogBaseUrl, catalogModels])
   const modelOptions = useMemo(() => {
-    return buildModelOptions(effectiveBaseUrl, model, activeCatalog, currentPreset, officialPresets ?? [])
-  }, [effectiveBaseUrl, model, activeCatalog, currentPreset, officialPresets])
+    return buildModelOptions(effectiveBaseUrl, optionModel, activeCatalog, currentPreset, officialPresets ?? [])
+  }, [effectiveBaseUrl, optionModel, activeCatalog, currentPreset, officialPresets])
+
+  useEffect(() => {
+    if (!modelQuery) setOptionModel(model)
+  }, [model, modelQuery])
   const selectedModelFree = resolveModelFree(effectiveBaseUrl, model, activeCatalog, officialPresets ?? [])
+  const visibleModelOptions = useMemo(() => filterModelOptions(modelOptions, modelQuery), [modelOptions, modelQuery])
   const pricingPreset = officialPresets?.find(preset => sameProviderEndpoint(preset.base_url, effectiveBaseUrl))
   const savedKeyMatches = Boolean(!query.data?.use_llm_credentials && query.data?.has_api_key && sameProviderEndpoint(baseUrl, query.data.base_url))
 
   const error = save.error ?? test.error ?? catalog.error ?? query.error ?? presetsQuery.error
 
   return (
-    <main className="mx-auto max-w-[1020px] px-5 py-6 lg:px-8">
+    <main className="studio-admin-panel max-w-[1180px] px-5 py-6 lg:px-8">
       <div className="flex items-start gap-4 border-b border-black/[0.06] pb-5">
         <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-[#7047f6]/10 text-[#7047f6]">
           <Eye size={22} />
@@ -275,6 +285,8 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
               disabled={useLlm}
               value={selectedPreset}
               onChange={handlePresetChange}
+              showSearch
+              filterOption={searchFilterOption}
               options={providerPresets.map((p) => ({ value: p.value, label: p.label }))}
             />
           </div>
@@ -355,18 +367,15 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
               className="mt-1.5 w-full"
               aria-label="模型名称"
               value={model}
-              options={modelOptions}
+              options={visibleModelOptions}
               defaultActiveFirstOption={false}
               onChange={(value) => setModel(value)}
+              onSearch={(value) => setModelQuery(value)}
+              onSelect={() => setModelQuery("")}
+              onOpenChange={(open) => { if (!open) setModelQuery("") }}
               placeholder="选择或输入 VL / Vision 模型名称"
-              filterOption={(input, option) => {
-                const queryText = (input || "").trim().toLowerCase()
-                if (!queryText) return true
-                const isExactOption = modelOptions.some((row) => row.value.toLowerCase() === queryText)
-                if (isExactOption) return true
-                const haystack = `${option?.value ?? ""} ${option?.label ?? ""}`.toLowerCase()
-                return haystack.includes(queryText)
-              }}
+              // 过滤与排序统一交给 filterSearchOptions，避免再被 rc-select 二次过滤。
+              filterOption={false}
               listHeight={320}
             />
             {pricingPreset ? (
@@ -375,7 +384,7 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
               </p>
             ) : null}
             <p className="mt-1.5 text-[11px] leading-4 text-[#6b7280]">
-              名称须含 VL / Vision / glm-4v 等标记，保存时会校验。也可直接输入模型 ID。
+              名称须含 VL / Vision / glm-4v 等标记，保存时会校验。也可直接输入模型 ID；关键字支持模糊搜索。
             </p>
           </div>
 
@@ -407,7 +416,7 @@ export default function VlmProviderSettings({ csrfToken }: { csrfToken: string }
 
           {error ? <Alert type="error" showIcon message={error.message} /> : null}
 
-          <div className="flex flex-wrap gap-3 pt-2">
+          <div className="studio-admin-actions">
             <Button type="primary" loading={save.isPending} onClick={() => save.mutate()}>
               保存配置
             </Button>

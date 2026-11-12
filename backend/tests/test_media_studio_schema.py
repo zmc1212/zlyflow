@@ -37,6 +37,8 @@ class MediaStudioSchemaTests(unittest.TestCase):
             "canvas_projects": {"tags_json", "is_favorite", "deleted_at", "preview_json", "linked_director_project_id"},
             "generation_items": {"refine_state_json"},
             "job_rounds": {"display_prompt"},
+            # 当前基线 music_jobs 已含 chat_id；本用例只验证 LLM 迁移恰好执行一次。
+            "music_jobs": {"chat_id"},
         }
         database.column_names.side_effect = lambda conn, table: columns[table]
         database.ensure_column.side_effect = lambda *args: Database.ensure_column(database, *args)

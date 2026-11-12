@@ -4,6 +4,7 @@ import { ArrowLeft, ArrowUp, ImageUp, MapPin, Minus, Plus, Redo2, RefreshCw, Und
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { apiErrorMessage, notifyUnauthorized, requestJson as api } from "../api"
+import { searchFilterOption } from "../search-match"
 import {
   PHOTO_EDIT_MAX_REFERENCES,
   PHOTO_EDIT_REGION_MAX,
@@ -355,7 +356,7 @@ export default function PhotoEditTool({ csrfToken }: { csrfToken: string }) {
       </header>
 
       {modesQuery.isLoading ? (
-        <div className="grid min-h-[220px] place-items-center"><Spin tip="正在读取图片编辑能力" /></div>
+        <div className="grid min-h-[220px] w-full place-items-center"><Spin tip="正在读取图片编辑能力" /></div>
       ) : modesQuery.isError ? (
         <Empty description={`能力读取失败：${apiErrorMessage(modesQuery.error, "请稍后重试")}`}>
           <Button icon={<RefreshCw size={14} />} onClick={() => void modesQuery.refetch()}>重新读取</Button>
@@ -435,7 +436,7 @@ export default function PhotoEditTool({ csrfToken }: { csrfToken: string }) {
                 </div>
               </div>
             ) : restoring ? (
-              <div className="grid min-h-[220px] place-items-center"><Spin tip="正在读取图片…" /></div>
+              <div className="grid min-h-[220px] w-full place-items-center"><Spin tip="正在读取图片…" /></div>
             ) : (
               <button type="button" className="studio-photo-stage-empty" onClick={() => originalInputRef.current?.click()}>
                 <ImageUp size={26} aria-hidden="true" />
@@ -520,6 +521,8 @@ export default function PhotoEditTool({ csrfToken }: { csrfToken: string }) {
               <Select
                 aria-label="编辑模型"
                 className="studio-photo-model"
+                showSearch
+                filterOption={searchFilterOption}
                 value={activeWorkflowId ?? undefined}
                 onChange={(next) => setWorkflowId(next)}
                 placeholder="编辑模型"

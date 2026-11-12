@@ -710,7 +710,7 @@ export default function ImageBgRemoveEditor({ csrfToken }: { csrfToken: string }
               type="error"
               showIcon
               message="去背景任务失败"
-              description={job?.error || "请重试；若持续失败请检查当前连接的 ComfyUI 实例。"}
+              description={job?.error || "请重试；若持续失败请检查当前连接的视频服务实例。"}
             />
             <Button type="primary" loading={generating} onClick={() => void submitJob(false)}>重新生成</Button>
           </div>

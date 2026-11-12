@@ -59,13 +59,13 @@ from .voice_profile import (
 # GPT Image 2.5 系列的能力档：线上协议不接受 "1:1" 等比例字符串，必须传像素值或 auto，
 # 映射表与主注册表 grs_request_size 共用（workflow_registry 是能力映射的唯一来源）。
 GPT_IMAGE_25_PROFILES = ("gpt_image_2_5", "gpt_image_2_5_vip")
-# 导演台资产生图默认走 GPT Image 2.5 基础版（1K，GRS 国内节点最便宜档 600 积分/张）。
+# 导演台资产生图默认走 GPT Image 2.5 基础版（1K，图片服务国内节点最便宜档 600 积分/张）。
 ASSET_IMAGE_DEFAULT_MODEL = "gpt-image-2.5"
 ASSET_IMAGE_DEFAULT_PROFILE = "gpt_image_2_5"
 
 
 def grs_wire_aspect_ratio(profile: str | None, aspect_ratio: str, image_size: str | None) -> str:
-    """把注册表口径的比例/分辨率映射成 GRS 线上协议的 aspectRatio 值。"""
+    """把注册表口径的比例/分辨率映射成图片服务线上协议的 aspectRatio 值。"""
     if profile not in GPT_IMAGE_25_PROFILES or aspect_ratio == "auto":
         return aspect_ratio
     sizes = GRS_VIP_SIZES.get(aspect_ratio) or {}
@@ -1399,7 +1399,7 @@ class ProjectDetailService:
         # GPT Image 2.5 系列线上协议要求像素值或 auto（与主注册表 grs_request_size 同一映射）。
         wire_aspect_ratio = grs_wire_aspect_ratio(grs_profile, aspect_ratio, image_size)
 
-        # -------- 严格调用 GRS 极速生图供应商 (对齐 source1) --------
+        # -------- 严格调用图片服务极速生图供应商 (对齐 source1) --------
         grs_row_data = grs_row()
         grs_base_url = grs_row_data.get("base_url") or "https://grsai.dakka.com.cn"
         encrypted_key = grs_row_data.get("api_key_encrypted")
@@ -1407,7 +1407,7 @@ class ProjectDetailService:
         cred = credential_manager()
         api_key = cred.decrypt(encrypted_key) if encrypted_key else None
         if not api_key:
-            raise ValueError("GRS 供应商 API Key 未配置，请前往「系统设置 - GRS 供应商」配置有效 API Key。")
+            raise ValueError("图片服务供应商 API Key 未配置，请前往「系统设置 - 图片服务供应商」配置有效 API Key。")
 
         ts = now_str()
         jid = f"job-{uuid.uuid4().hex[:12]}"
@@ -1471,7 +1471,7 @@ class ProjectDetailService:
             fail_ts = now_str()
             err_text = str(e)
             if isinstance(e, GrsError):
-                err_text = f"GRS 生图失败: {e}"
+                err_text = f"图片服务生图失败: {e}"
             execute_sql(
                 """
                 UPDATE ai_project_jobs
@@ -1485,7 +1485,7 @@ class ProjectDetailService:
             if isinstance(e, RuntimeError):
                 raise ValueError(err_text) from e
             raise
-        # -------- GRS 调用结束 --------
+        # -------- 图片服务调用结束 --------
 
         ts = now_str()
         generation_extra = extra
@@ -2459,7 +2459,7 @@ class ProjectDetailService:
 
     @classmethod
     def recover_interrupted_image_jobs(cls) -> None:
-        """资产形象图在请求线程内同步调 GRS：进程重启后任务行不会再有结果，
+        """资产形象图在请求线程内同步调图片服务：进程重启后任务行不会再有结果，
         留在 running 会一直触发助手媒体提案的 409 保护。
         已下线的镜头生图行（含三联关键帧）没有执行器，按同一条原因收口。"""
         placeholders = ", ".join("%s" for _ in _ASSET_IMAGE_ACTIVE_STATUSES)

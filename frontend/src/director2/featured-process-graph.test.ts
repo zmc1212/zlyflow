@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Director2FeaturedSnapshot } from "./api"
-import { normalizeRealCanvas, synthesizeProcessGraph } from "./FeaturedProcessPage"
+import { normalizeRealCanvas, processThumbKind, synthesizeProcessGraph } from "./FeaturedProcessPage"
 
 const baseSnapshot: Director2FeaturedSnapshot = {
   version: 2,
@@ -46,6 +46,7 @@ describe("normalizeRealCanvas", () => {
     expect(byId.get("n2")!.data.kind).toBe("prompt")
     expect(byId.get("n2")!.data.prompt).toBe("雨夜街头")
     expect(byId.get("n2")!.data.workflowId).toBe("minimax-h3-r2v")
+    expect(byId.get("n2")!.data.mediaKind).toBe("video")
     expect(byId.get("n3")!.data.kind).toBe("text")
     expect(graph!.edges).toHaveLength(1)
     expect(graph!.edges[0].target).toBe("n2")
@@ -72,9 +73,88 @@ describe("normalizeRealCanvas", () => {
     expect(byId.get("w2")!.data.kind).toBe("unknown")
   })
 
+  it("分组画布：子节点坐标按父分组合成为绝对坐标", () => {
+    const snapshot: Director2FeaturedSnapshot = {
+      ...baseSnapshot,
+      canvas: {
+        nodes: [
+          { id: "g1::group", kind: "asset", position: { x: 360, y: 100 }, data: { origin: "asset", assetId: "ast-1", key: "group" } },
+          { id: "g1::definition", kind: "asset", position: { x: 30, y: 45 }, parentId: "g1::group", data: { origin: "asset", assetId: "ast-1", key: "definition" } },
+          { id: "g1::references", kind: "asset", position: { x: 30, y: 405 }, parentId: "g1::group", data: { origin: "asset", assetId: "ast-1", key: "references" } },
+        ],
+        edges: [],
+        viewport: null,
+      },
+    }
+    const graph = normalizeRealCanvas(snapshot)
+    expect(graph).not.toBeNull()
+    const byId = new Map(graph!.nodes.map(node => [node.id, node]))
+    expect(byId.get("g1::group")!.position).toEqual({ x: 360, y: 100 })
+    expect(byId.get("g1::definition")!.position).toEqual({ x: 390, y: 145 })
+    expect(byId.get("g1::references")!.position).toEqual({ x: 390, y: 505 })
+    expect(graph!.reflowed).toBe(false)
+  })
+
+  it("一行排开的资产画布：分组重排成网格，组内相对位置不变", () => {
+    const raw: NonNullable<Director2FeaturedSnapshot["canvas"]>["nodes"] = []
+    for (let index = 0; index < 8; index += 1) {
+      const groupId = `ast-${index}::group`
+      const origin = { origin: "asset", assetId: "ast-1" }
+      raw.push({ id: groupId, kind: "asset", position: { x: 360 + index * 1050, y: 100 }, data: { ...origin, key: "group" } })
+      raw.push({ id: `ast-${index}::definition`, kind: "asset", position: { x: 30, y: 45 }, parentId: groupId, data: { ...origin, key: "definition" } })
+      raw.push({ id: `ast-${index}::look`, kind: "asset", position: { x: 430, y: 100 }, parentId: groupId, data: { ...origin, key: "look" } })
+    }
+    const snapshot: Director2FeaturedSnapshot = {
+      ...baseSnapshot,
+      canvas: { nodes: raw, edges: [], viewport: { x: -38686, y: 115, zoom: 1.6 } },
+    }
+    const graph = normalizeRealCanvas(snapshot)
+    expect(graph).not.toBeNull()
+    expect(graph!.reflowed).toBe(true)
+    const byId = new Map(graph!.nodes.map(node => [node.id, node]))
+    const groupRowTops = new Set(Array.from({ length: 8 }, (_, index) => Math.round(byId.get(`ast-${index}::group`)!.position.y)))
+    expect(groupRowTops.size).toBeGreaterThanOrEqual(3)
+    const firstGroup = byId.get("ast-0::group")!.position
+    const firstDefinition = byId.get("ast-0::definition")!.position
+    const firstLook = byId.get("ast-0::look")!.position
+    expect(firstDefinition).toEqual({ x: firstGroup.x + 30, y: firstGroup.y + 45 })
+    expect(firstLook).toEqual({ x: firstGroup.x + 430, y: firstGroup.y + 100 })
+    expect(firstGroup.x).toBe(0)
+    // 同一行的分组按原顺序等距排列，不在同一位置重叠
+    const rowXs = [0, 1, 2].map(index => byId.get(`ast-${index}::group`)!.position.x)
+    expect(new Set(rowXs).size).toBe(3)
+  })
+
+  it("紧凑画布保持原始坐标，不做重排", () => {
+    const snapshot: Director2FeaturedSnapshot = {
+      ...baseSnapshot,
+      canvas: {
+        nodes: [
+          { id: "c1", kind: "image", position: { x: 0, y: 0 }, data: { url: "https://cdn.example.com/a.png" } },
+          { id: "c2", kind: "video", position: { x: 400, y: 0 }, data: { url: "https://cdn.example.com/a.mp4" } },
+          { id: "c3", kind: "prompt", position: { x: 0, y: 460 }, data: { prompt: "镜头" } },
+        ],
+        edges: [],
+        viewport: { x: 0, y: 0, zoom: 1 },
+      },
+    }
+    const graph = normalizeRealCanvas(snapshot)
+    expect(graph!.reflowed).toBe(false)
+    const byId = new Map(graph!.nodes.map(node => [node.id, node]))
+    expect(byId.get("c2")!.position).toEqual({ x: 400, y: 0 })
+    expect(byId.get("c3")!.position).toEqual({ x: 0, y: 460 })
+  })
+
   it("无画布或空画布返回 null", () => {
     expect(normalizeRealCanvas(baseSnapshot)).toBeNull()
     expect(normalizeRealCanvas({ ...baseSnapshot, canvas: { nodes: [], edges: [], viewport: null } })).toBeNull()
+  })
+
+  it("提示词缩略图优先用 resultKind，没有时按扩展名判断视频", () => {
+    expect(processThumbKind({ kind: "prompt", mediaUrl: "/api/jobs/j/download", mediaKind: "video" })).toBe("video")
+    expect(processThumbKind({ kind: "prompt", mediaUrl: "https://cdn.example.com/clip.mp4" })).toBe("video")
+    expect(processThumbKind({ kind: "prompt", mediaUrl: "https://cdn.example.com/still.png" })).toBe("image")
+    expect(processThumbKind({ kind: "prompt" })).toBe("image")
   })
 })
 

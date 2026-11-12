@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest"
 import {
   MOTION_REF_VIDEO_WORKFLOW,
   MOTION_TOOL_WORKFLOWS,
+  MOTION_TRANSFER_WORKFLOW,
   motionImageLimit,
   motionDurationError,
   motionReferenceError,
   motionToolDefaults,
   motionToolOptions,
   motionToolPayload,
+  motionToolSubmitBlockReason,
   REFERENCE_MAX_BYTES,
   hasSubject,
   hasSubjects,
@@ -52,6 +54,29 @@ describe("motion transfer reference roles", () => {
     expect(hasSubjects([{x:.3,y:.4,exclude:false,subject:0}],2)).toBe(false)
     expect(hasSubjects([{x:.3,y:.4,exclude:false,subject:0},{x:.8,y:.5,exclude:false,subject:1}],2)).toBe(true)
     expect(motionDurationError(undefined, "5s")).toBe("")
+  })
+
+  it("explains why the submit button is disabled", () => {
+    const base = {
+      mode: MOTION_TRANSFER_WORKFLOW,
+      imageCount: 1,
+      hasVideo: true,
+      workflowLoaded: true,
+      subjectsReady: true,
+      durationError: "",
+      submitting: false,
+      restoring: false,
+    }
+    expect(motionToolSubmitBlockReason(base)).toBe("")
+    expect(motionToolSubmitBlockReason({ ...base, imageCount: 0 })).toBe("先上传角色形象图，才能开始生成")
+    expect(motionToolSubmitBlockReason({ ...base, mode: MOTION_REF_VIDEO_WORKFLOW, imageCount: 0 }))
+      .toBe("先添加角色形象图（至少 1 张），才能开始生成")
+    expect(motionToolSubmitBlockReason({ ...base, hasVideo: false })).toBe("先上传动作参考视频，才能开始生成")
+    expect(motionToolSubmitBlockReason({ ...base, durationError: "动作视频只有 3.0 秒，请选择更短的生成时长或更换视频" }))
+      .toBe("动作视频只有 3.0 秒，请选择更短的生成时长或更换视频")
+    expect(motionToolSubmitBlockReason({ ...base, subjectsReady: false })).toBe("先按编号选定形象图和视频中的人物，才能开始生成")
+    expect(motionToolSubmitBlockReason({ ...base, restoring: true })).toBe("正在恢复素材…")
+    expect(motionToolSubmitBlockReason({ ...base, submitting: true })).toBe("正在提交…")
   })
 })
 

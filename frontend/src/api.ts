@@ -7,9 +7,12 @@ export type User = {
   role: UserRole
   is_active: boolean
   must_change_password: boolean
+  email?: string | null
   created_at: string
   updated_at: string
   last_login_at?: string | null
+  login_blocked?: boolean
+  login_blocked_seconds?: number
 }
 
 export type AuthStatus = {

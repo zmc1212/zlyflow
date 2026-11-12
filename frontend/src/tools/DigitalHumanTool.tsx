@@ -22,6 +22,7 @@ import {
   type ToolOptionDefinition,
 } from "../generation/motion-transfer"
 import { createLocalId } from "../lib/utils"
+import { promptAutoSize } from "../prompt-autosize"
 import { generateJobPath } from "../paths"
 import AssetPickerModal from "./AssetPickerModal"
 import "./digital-human-tool.css"
@@ -200,7 +201,7 @@ export default function DigitalHumanTool({ csrfToken }: { csrfToken: string }) {
       </header>
 
       {workflowQuery.isLoading ? (
-        <div className="grid min-h-[220px] place-items-center"><Spin tip="正在读取数字人能力" /></div>
+        <div className="grid min-h-[220px] w-full place-items-center"><Spin tip="正在读取数字人能力" /></div>
       ) : workflowQuery.isError ? (
         <Empty description={`数字人能力读取失败：${apiErrorMessage(workflowQuery.error, "请稍后重试")}`}>
           <Button icon={<RefreshCw size={14} />} onClick={() => void workflowQuery.refetch()}>重新读取</Button>
@@ -280,7 +281,7 @@ export default function DigitalHumanTool({ csrfToken }: { csrfToken: string }) {
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
                 placeholder={"描述人物、场景和氛围；人物形象会与口播音频自动同步\n\n例如：一位友好的主持人面对镜头进行科普讲解，演播室背景，柔和灯光"}
-                rows={4}
+                autoSize={promptAutoSize(4)}
                 maxLength={1500}
               />
             </div>

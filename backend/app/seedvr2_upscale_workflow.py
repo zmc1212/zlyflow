@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""SeedVR2 生成式视频超分 API graph（ComfyUI 原生 SeedVR2 节点）。
+"""SeedVR2 生成式视频超分 API graph（视频服务原生 SeedVR2 节点）。
 
 对照官方模板 utility_seedvr2_3b_int8_upscale_video.json 展开子图：
 LoadVideo → GetVideoComponents → ResizeImageMaskNode(scale by multiplier 2x)
@@ -85,7 +85,7 @@ def build_seedvr2_upscale_workflow(
 ) -> dict[str, dict[str, Any]]:
     filename = str(video_filename or "").strip()
     if not filename:
-        raise ValueError("超分需要已上传到 ComfyUI 的视频文件名。")
+        raise ValueError("超分需要已上传到视频服务的视频文件名。")
     return {
         SEEDVR2_LOAD_NODE: {
             "class_type": "LoadVideo",
@@ -248,19 +248,19 @@ def seedvr2_missing_message(
     missing_nodes = [name for name in SEEDVR2_NODE_TYPES if not isinstance(info.get(name), dict)]
     if missing_nodes:
         return (
-            f"{where} 的 ComfyUI 缺少 SeedVR2 原生节点（{'、'.join(missing_nodes)}）。"
-            "请升级到自带 SeedVR2 原生节点（comfy_extras/nodes_seedvr.py）的 ComfyUI 后再试。"
+            f"{where} 的视频服务缺少 SeedVR2 原生节点（{'、'.join(missing_nodes)}）。"
+            "请升级到自带 SeedVR2 原生节点（comfy_extras/nodes_seedvr.py）的视频服务后再试。"
         )
     if SEEDVR2_MODEL_NAME not in _enum_values(info.get("UNETLoader"), "unet_name"):
         return (
             f"{where} 未找到 SeedVR2 扩散模型 {SEEDVR2_MODEL_NAME}。"
             "请把 Comfy-Org/SeedVR2 的 diffusion_models/seedvr2_3b_int8_convrot.safetensors "
-            "放进该实例的 models/diffusion_models（或 extra_model_paths 指向的目录）后重启 ComfyUI。"
+            "放进该实例的 models/diffusion_models（或 extra_model_paths 指向的目录）后重启视频服务。"
         )
     if SEEDVR2_VAE_NAME not in _enum_values(info.get("VAELoader"), "vae_name"):
         return (
             f"{where} 未找到 SeedVR2 VAE {SEEDVR2_VAE_NAME}。"
             "请把 Comfy-Org/SeedVR2 的 vae/seedvr2_ema_vae_fp16.safetensors "
-            "放进该实例的 models/vae（或 extra_model_paths 指向的目录）后重启 ComfyUI。"
+            "放进该实例的 models/vae（或 extra_model_paths 指向的目录）后重启视频服务。"
         )
     return None

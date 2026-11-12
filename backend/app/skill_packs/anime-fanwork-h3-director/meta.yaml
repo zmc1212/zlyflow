@@ -1,0 +1,32 @@
+# 本地自制配方：面向 IP 二创 / 同人动漫短剧的 MiniMax H3 Ref2VA 写稿合同。
+# 方法论参考 MiniMax-AI/MiniMax-H3 的 h3-prompt-writing（Ref2VA 六段式），见 SOURCE.md；非官方原文。
+id: anime-fanwork-h3-director
+name: 二创动漫·原作风锁定导演
+summary: 专为 IP 二创／同人动漫短剧定制的 MiniMax H3 配方：用角色设定板与场景卡锁定原作画风和人物辨识度，逐镜写中文八块分秒稿与英文六段 Ref2VA，强制 2D 赛璐璐平涂，杜绝写实化、3D 化、形象漂移与漫画截图串味，保证跨镜一致性。
+author: 本地自制（方法论：MiniMax H3 h3-prompt-writing）
+cover: ""
+version: "1.0.0"
+surfaces: [director2, workshop, optimize]
+visual_lock: 2d-cel-anime-fanwork
+director2_overlay:
+  script: inject_craft
+  assets: inject_craft
+  episodes: inject_craft
+  storyboard: inject_craft
+workshop_shot:
+  - write_timestamped_zh_prompt
+  - polish_ref2va
+  - bind_r2v_slots
+r2v_slots:
+  - source: characters
+    role: subject
+  - source: scene
+packing_overrides:
+  allow_timeranges: true
+  allow_multi_camera_path: true
+  faithful_zh_pack: true
+  skip_program_pack: true
+confirm_format:
+  aspect_ratio: "16:9"
+  duration_min: 5
+  duration_max: 15

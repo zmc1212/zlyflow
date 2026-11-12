@@ -18,19 +18,8 @@
   width: 100%;
   min-width: 220px;
 }
-.studio-face-restore-tool .studio-motion-material-row {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-.studio-face-restore-tool .studio-motion-material video {
-  width: 100%;
-  height: 280px;
-  max-height: none;
-  border-radius: 12px;
-  background: var(--studio-media);
-  object-fit: contain;
-}
+/* 素材槽（material-row / material / video / actions）的基础皮肤统一在 motion-transfer-tool.css，
+   此处只保留人脸修复特有的卡片列宽与参数网格。 */
 .studio-face-restore-tool .studio-motion-card {
   grid-template-columns: minmax(460px, 1fr) minmax(280px, .65fr);
 }
@@ -43,9 +32,4 @@
 }
 .studio-face-restore-tool .studio-motion-selection-help {
   font-size: 13px;
-}
-.studio-face-restore-tool .studio-motion-material-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 10px;
 }
