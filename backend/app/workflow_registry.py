@@ -71,6 +71,8 @@ class WorkflowDefinition:
     # 云端视频执行器（executor="cloud_video"）专用：供应商 key 与默认厂商模型。
     cloud_provider: str | None = None
     cloud_model: str | None = None
+    # 导演台分族键（可选）：一个供应商下挂多个模型族时用它区分，缺省回落到 cloud_provider。
+    cloud_family: str | None = None
     catalog_group: str = ""
     hidden_from_catalog: bool = False
     supports_timeline: bool = False
@@ -90,6 +92,8 @@ class WorkflowDefinition:
     is_default: bool = False
     # 图片服务平台标价积分（每张），来自上游价格接口，只用于创作页与管理页展示，不参与提交参数。
     credit_cost: int | None = None
+    # 云端视频计费提示：提交页与任务页展示，不参与提交参数；空值表示不展示。
+    billing_notice: str | None = None
 
     def reference_kind(self, index: int, count: int | None = None) -> str:
         if self.reference_slots and 1 <= index <= len(self.reference_slots):
@@ -110,6 +114,7 @@ class WorkflowDefinition:
         data.pop("grs_profile", None)
         data.pop("cloud_provider", None)
         data.pop("cloud_model", None)
+        data.pop("cloud_family", None)
         data["reference_labels"] = list(self.reference_labels)
         data["parameters"] = parameter_payload(self)
         data["director_controls"] = director_controls(self)
@@ -383,6 +388,23 @@ SEEDANCE_ASPECT_RATIOS = ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9", "9:21"]
 HAILUO_MODEL_T2V_OPTIONS = ["T2V-01", "T2V-01-Director", "MiniMax-Hailuo-02"]
 HAILUO_MODEL_I2V_OPTIONS = ["I2V-01", "I2V-01-live", "MiniMax-Hailuo-02"]
 HAILUO_RESOLUTION_OPTIONS = ["768P", "1080P"]
+# 超算互联网（SCNet）模型服务：三个视频模型共用同一网关与任务接口
+SCNET_H3_MODEL = "MiniMax-H3"
+SCNET_H3_RESOLUTIONS = ["768P", "2K"]
+SCNET_H3_ASPECT_RATIOS = ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"]
+SCNET_SEEDANCE_MODEL = "Seedance2.5"
+SCNET_SEEDANCE_MODEL_OPTIONS = ["Seedance2.5", "Seedance2.0"]
+SCNET_SEEDANCE_RESOLUTIONS = ["480p", "720p", "1080p"]
+SCNET_SEEDANCE_T2V_ASPECT_RATIOS = ["16:9", "9:16", "adaptive"]
+SCNET_SEEDANCE_I2V_ASPECT_RATIOS = ["adaptive", "16:9", "9:16"]
+SCNET_HAPPYHORSE_MODEL = "HappyHorse-1.0-T2V"
+SCNET_HAPPYHORSE_RESOLUTIONS = ["720p", "1080p"]
+SCNET_HAPPYHORSE_ASPECT_RATIOS = ["16:9", "9:16", "1:1", "4:3", "3:4", "4:5", "5:4", "21:9", "9:21"]
+# 超算互联网每个模型每天含 1 次免费生成；额度无法通过网关查询，只能提示用户去控制台核对。
+SCNET_BILLING_NOTICE = (
+    "超算互联网每个模型每天含 1 次免费生成额度；额度用完后按平台价格计费。"
+    "平台暂不提供剩余额度查询，请以超算互联网控制台为准。"
+)
 
 # 云端视频比例标签（ui_control=visual-settings）
 CLOUD_ASPECT_RATIO_UI_OPTIONS = {
@@ -393,6 +415,9 @@ CLOUD_ASPECT_RATIO_UI_OPTIONS = {
     "3:4": "3:4 竖版",
     "21:9": "21:9 超宽屏",
     "9:21": "9:21 超长竖屏",
+    "4:5": "4:5 竖版",
+    "5:4": "5:4 横版",
+    "adaptive": "自适应画面比例",
 }
 
 
@@ -408,6 +433,13 @@ def _cloud_duration_select(durations: list[str], default: str) -> dict[str, Any]
     return option(
         "时长（秒）", "string", default, group="primary", enum=list(durations), ui_control="select",
         ui_options=[{"value": value, "label": f"{value} 秒"} for value in durations],
+    )
+
+
+def _cloud_duration_slider(minimum: int, maximum: int, default: int) -> dict[str, Any]:
+    return option(
+        "时长", "integer", default, group="primary", minimum=minimum, maximum=maximum, step=1,
+        unit="秒", ui_control="duration-slider",
     )
 
 
@@ -456,6 +488,42 @@ def cloud_video_option_schema(mode_id: str) -> dict[str, Any]:
             "分辨率", "string", "768P", group="advanced",
             enum=HAILUO_RESOLUTION_OPTIONS, ui_control="select",
             description="768P 生成更快；1080P 更清晰。部分模型档位不支持 1080P 时将回落 768P。",
+        )
+    elif mode_id.startswith("cloud-scnet-h3"):
+        # MiniMax-H3：文生视频 ratio 必填；图生视频由首帧/尾帧决定比例，不暴露 ratio。
+        if mode_id == "cloud-scnet-h3-t2v":
+            properties["aspect_ratio"] = _cloud_aspect_ratio_option(SCNET_H3_ASPECT_RATIOS)
+        properties["duration"] = _cloud_duration_slider(4, 15, 5)
+        properties["resolution"] = option(
+            "分辨率", "string", "768P", group="advanced",
+            enum=SCNET_H3_RESOLUTIONS, ui_control="select",
+            description="768P 生成更快；2K 更清晰、计费更高。",
+        )
+    elif mode_id.startswith("cloud-scnet-seedance"):
+        t2v = mode_id == "cloud-scnet-seedance-t2v"
+        properties["aspect_ratio"] = _cloud_aspect_ratio_option(
+            SCNET_SEEDANCE_T2V_ASPECT_RATIOS if t2v else SCNET_SEEDANCE_I2V_ASPECT_RATIOS,
+        )
+        properties["duration"] = _cloud_duration_slider(4, 15, 5)
+        properties["resolution"] = option(
+            "分辨率", "string", "720p", group="advanced",
+            enum=SCNET_SEEDANCE_RESOLUTIONS, ui_control="select",
+        )
+        properties["model"] = option(
+            "模型版本", "string", SCNET_SEEDANCE_MODEL, group="advanced",
+            enum=SCNET_SEEDANCE_MODEL_OPTIONS, ui_control="select",
+            description="默认 Seedance2.5；也可切回 Seedance2.0。需账号已开通对应版本。",
+        )
+        properties["generate_audio"] = option(
+            "生成声音", "boolean", True, group="advanced",
+            description="开启后生成与画面同步的环境声/音效；关闭则输出无声视频。",
+        )
+    elif mode_id.startswith("cloud-scnet-happyhorse"):
+        properties["aspect_ratio"] = _cloud_aspect_ratio_option(SCNET_HAPPYHORSE_ASPECT_RATIOS)
+        properties["duration"] = _cloud_duration_slider(3, 15, 5)
+        properties["resolution"] = option(
+            "分辨率", "string", "720p", group="advanced",
+            enum=SCNET_HAPPYHORSE_RESOLUTIONS, ui_control="select",
         )
     return {"type": "object", "properties": properties}
 
@@ -2791,6 +2859,83 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
         cloud_model="I2V-01",
         catalog_group=CATALOG_GROUP_CLOUD_VIDEO,
     ),
+    WorkflowDefinition(
+        JobMode.CLOUD_SCNET_H3_T2V.value,
+        "超算互联网 MiniMax-H3 · 文生视频",
+        "超算互联网模型服务上的 MiniMax-H3，支持 768P/2K 与 4-15 秒；按次计费，不走本地显卡。",
+        "none",
+        0,
+        0,
+        option_schema=cloud_video_option_schema("cloud-scnet-h3-t2v"),
+        executor="cloud_video",
+        cloud_provider="scnet",
+        cloud_model=SCNET_H3_MODEL,
+        cloud_family="scnet-h3",
+        catalog_group=CATALOG_GROUP_CLOUD_VIDEO,
+        billing_notice=SCNET_BILLING_NOTICE,
+    ),
+    WorkflowDefinition(
+        JobMode.CLOUD_SCNET_H3_I2V.value,
+        "超算互联网 MiniMax-H3 · 图生视频",
+        "超算互联网 MiniMax-H3，以首帧图片为起点，可附加尾帧控制结束画面；比例跟随图片；按次计费。",
+        "keyframes",
+        1,
+        2,
+        ("首帧", "尾帧（可选）"),
+        option_schema=cloud_video_option_schema("cloud-scnet-h3-i2v"),
+        executor="cloud_video",
+        cloud_provider="scnet",
+        cloud_model=SCNET_H3_MODEL,
+        cloud_family="scnet-h3",
+        catalog_group=CATALOG_GROUP_CLOUD_VIDEO,
+        billing_notice=SCNET_BILLING_NOTICE,
+    ),
+    WorkflowDefinition(
+        JobMode.CLOUD_SCNET_SEEDANCE_T2V.value,
+        "超算互联网 Seedance · 文生视频",
+        "超算互联网模型服务上的 Seedance2.5（可切回 2.0），支持有声/无声、480p-1080p 与 4-15 秒；按次计费。",
+        "none",
+        0,
+        0,
+        option_schema=cloud_video_option_schema("cloud-scnet-seedance-t2v"),
+        executor="cloud_video",
+        cloud_provider="scnet",
+        cloud_model=SCNET_SEEDANCE_MODEL,
+        cloud_family="scnet-seedance",
+        catalog_group=CATALOG_GROUP_CLOUD_VIDEO,
+        billing_notice=SCNET_BILLING_NOTICE,
+    ),
+    WorkflowDefinition(
+        JobMode.CLOUD_SCNET_SEEDANCE_I2V.value,
+        "超算互联网 Seedance · 图生视频",
+        "超算互联网 Seedance2.5（可切回 2.0），以首帧图片为起点，可附加尾帧；支持有声输出；按次计费。",
+        "keyframes",
+        1,
+        2,
+        ("首帧", "尾帧（可选）"),
+        option_schema=cloud_video_option_schema("cloud-scnet-seedance-i2v"),
+        executor="cloud_video",
+        cloud_provider="scnet",
+        cloud_model=SCNET_SEEDANCE_MODEL,
+        cloud_family="scnet-seedance",
+        catalog_group=CATALOG_GROUP_CLOUD_VIDEO,
+        billing_notice=SCNET_BILLING_NOTICE,
+    ),
+    WorkflowDefinition(
+        JobMode.CLOUD_SCNET_HAPPYHORSE_T2V.value,
+        "超算互联网 HappyHorse · 文生视频",
+        "超算互联网模型服务上的 HappyHorse-1.0-T2V，多画幅、3-15 秒；按次计费，不走本地显卡。",
+        "none",
+        0,
+        0,
+        option_schema=cloud_video_option_schema("cloud-scnet-happyhorse-t2v"),
+        executor="cloud_video",
+        cloud_provider="scnet",
+        cloud_model=SCNET_HAPPYHORSE_MODEL,
+        cloud_family="scnet-happyhorse",
+        catalog_group=CATALOG_GROUP_CLOUD_VIDEO,
+        billing_notice=SCNET_BILLING_NOTICE,
+    ),
 )
 
 WORKFLOW_BY_ID = {definition.id: definition for definition in WORKFLOWS}
@@ -2878,10 +3023,15 @@ def director_workflow_families() -> list[dict[str, Any]]:
             continue
         group_id = definition.catalog_group or definition.id
         if is_cloud_video_workflow(definition.id) and definition.cloud_provider:
-            # 云端视频按厂商分族，避免同一目录分组下三家厂商的路由互相覆盖
-            group_id = f"{definition.catalog_group}:{definition.cloud_provider}"
+            # 云端视频按厂商/模型族分族：同一供应商挂多个模型（如 SCNet）时用 cloud_family 区分，
+            # 避免同一目录分组下的路由互相覆盖。
+            family_key = definition.cloud_family or definition.cloud_provider
+            group_id = f"{definition.catalog_group}:{family_key}"
+            family_label = CLOUD_DIRECTOR_FAMILY_LABELS.get(family_key)
             group_meta = {
-                "label": f"云端 · {CLOUD_PROVIDER_DIRECTOR_LABELS.get(definition.cloud_provider, definition.cloud_provider)}",
+                "label": family_label or (
+                    f"云端 · {CLOUD_PROVIDER_DIRECTOR_LABELS.get(definition.cloud_provider, definition.cloud_provider)}"
+                ),
                 "order": int(group_meta.get("order", 100)),
             }
         entry = grouped.setdefault(group_id, {
@@ -2961,6 +3111,11 @@ CLOUD_VIDEO_WORKFLOW_IDS = {
     JobMode.CLOUD_SEEDANCE_I2V.value,
     JobMode.CLOUD_HAILUO_T2V.value,
     JobMode.CLOUD_HAILUO_I2V.value,
+    JobMode.CLOUD_SCNET_H3_T2V.value,
+    JobMode.CLOUD_SCNET_H3_I2V.value,
+    JobMode.CLOUD_SCNET_SEEDANCE_T2V.value,
+    JobMode.CLOUD_SCNET_SEEDANCE_I2V.value,
+    JobMode.CLOUD_SCNET_HAPPYHORSE_T2V.value,
 }
 
 
@@ -2981,8 +3136,27 @@ def cloud_model_for(mode: JobMode | str, options: dict[str, Any] | None = None) 
     return chosen or definition.cloud_model
 
 
+def cloud_provider_for(mode: JobMode | str) -> str | None:
+    """云端视频工作流对应的供应商 key（kling / jimeng / hailuo / scnet）；非云端返回 None。"""
+    try:
+        definition = workflow_for(mode)
+    except KeyError:
+        return None
+    if not is_cloud_video_workflow(definition.id):
+        return None
+    return definition.cloud_provider
+
+
 # 导演台族标签（按厂商分族用）
-CLOUD_PROVIDER_DIRECTOR_LABELS = {"kling": "可灵", "jimeng": "即梦 Seedance", "hailuo": "海螺"}
+CLOUD_PROVIDER_DIRECTOR_LABELS = {
+    "kling": "可灵", "jimeng": "即梦 Seedance", "hailuo": "海螺", "scnet": "超算互联网",
+}
+# 一个供应商下挂多个模型族时的显式族标签（族键 = WorkflowDefinition.cloud_family）
+CLOUD_DIRECTOR_FAMILY_LABELS = {
+    "scnet-h3": "云端 · 超算互联网 MiniMax-H3",
+    "scnet-seedance": "云端 · 超算互联网 Seedance",
+    "scnet-happyhorse": "云端 · 超算互联网 HappyHorse",
+}
 
 
 def clamp_cloud_video_options(mode: JobMode | str, options: dict[str, Any] | None) -> dict[str, Any]:

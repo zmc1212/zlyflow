@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Alert, Button, Input, Switch, message } from "antd"
+import { Alert, Button, Input, Segmented, Switch, message } from "antd"
 import { CheckCircle2, Clapperboard } from "lucide-react"
 import { useEffect, useState } from "react"
 import { jsonMutation, requestJson } from "../api"
+import { cloudVideoShortLabel, resolveCloudVideoProvider } from "./cloud-video-switch"
 
 type CloudVideoProviderConfig = {
   provider_key: string
@@ -26,12 +27,16 @@ type CloudVideoProviderConfig = {
   last_test_at?: string | null
 }
 
-/** 「AI 供应商」页的云端视频模型卡片：可灵 / 即梦 Seedance（火山方舟）/ 海螺 Hailuo 直连官方 API。 */
+/** 「AI 供应商」页的云端视频模型卡片：可灵 / 即梦 Seedance（火山方舟）/ 海螺 Hailuo / 超算互联网（SCNet）直连官方 API。 */
 export default function CloudVideoProviderSettings({ csrfToken }: { csrfToken: string }) {
   const query = useQuery({
     queryKey: ["cloud-video-providers"],
     queryFn: () => requestJson<CloudVideoProviderConfig[]>("/api/admin/providers/cloud-video"),
   })
+  const providers = query.data ?? []
+  const [activeProvider, setActiveProvider] = useState("")
+  const selectedProvider = resolveCloudVideoProvider(providers, activeProvider)
+  const enabledCount = providers.filter((item) => item.enabled).length
 
   return (
     <main className="studio-admin-panel max-w-[1180px] px-5 py-6 lg:px-8">
@@ -42,7 +47,7 @@ export default function CloudVideoProviderSettings({ csrfToken }: { csrfToken: s
         <div>
           <h2 className="text-base font-semibold text-[#111827]">云端视频模型</h2>
           <p className="mt-1 text-xs leading-5 text-[#4b5563]">
-            直连厂商官方 API 的云端视频生成（可灵 / 即梦 Seedance / 海螺），按次计费，不走本地显卡。
+            直连厂商官方 API 的云端视频生成（可灵 / 即梦 Seedance / 海螺 / 超算互联网），按次计费，不走本地显卡。
             启用后对应工作流出现在创作页「云端视频模型」分组；未启用或密钥缺失时下拉置灰并提示原因。
           </p>
         </div>
@@ -58,9 +63,38 @@ export default function CloudVideoProviderSettings({ csrfToken }: { csrfToken: s
         />
       ) : null}
 
+      {providers.length > 1 ? (
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-black/[0.06] bg-[#f9fafb] px-4 py-3">
+          <Segmented
+            aria-label="切换云端视频厂商"
+            value={selectedProvider}
+            onChange={(value) => setActiveProvider(String(value))}
+            options={providers.map((config) => ({
+              value: config.provider_key,
+              label: (
+                <span className="inline-flex items-center gap-1.5">
+                  <span
+                    className="size-1.5 rounded-full"
+                    style={{ background: config.enabled ? "var(--studio-success)" : "var(--studio-text-muted)" }}
+                    aria-hidden="true"
+                  />
+                  {cloudVideoShortLabel(config.label)}
+                  <span className="sr-only">{config.enabled ? "已启用" : "未启用"}</span>
+                </span>
+              ),
+            }))}
+          />
+          <p className="text-xs text-[#6b7280]">
+            共 {providers.length} 家 · 已启用 <span className="font-medium text-[#374151]">{enabledCount}</span> 家
+          </p>
+        </div>
+      ) : null}
+
       <div className="mt-6 space-y-6">
-        {(query.data ?? []).map((config) => (
-          <CloudVideoProviderCard key={config.provider_key} csrfToken={csrfToken} config={config} />
+        {providers.map((config) => (
+          <div key={config.provider_key} hidden={config.provider_key !== selectedProvider}>
+            <CloudVideoProviderCard csrfToken={csrfToken} config={config} />
+          </div>
         ))}
         {query.isLoading ? <p className="text-xs text-[#6b7280]">加载中…</p> : null}
       </div>

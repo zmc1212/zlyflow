@@ -1,5 +1,30 @@
 # ZLY AI Video Studio 架构快照
 
+## 2026-11-13：云端视频新增「超算互联网（SCNet）」供应商（MiniMax-H3 / Seedance / HappyHorse）
+
+- 变更原因：云端视频执行器原本只接可灵、火山方舟、海螺三家；用户提供超算互联网模型服务的三份视频 API 文档，要求新增一个供应商，覆盖 MiniMax-H3、Seedance、HappyHorse 三个模型，继续走「按次计费、不占本地显卡」的云端出片链路。
+- 当前基线：
+  - 供应商注册：`cloud_video/base.py` 新增 `scnet`（label「超算互联网（SCNet）」），默认网关 `https://api.scnet.cn/api/llm`，单 API Key（Bearer），无余额接口；供应商顺序为 `kling / jimeng / hailuo / scnet`。管理设置卡片、`GET /api/admin/providers/cloud-video`、`PUT /{provider_key}`、`POST /{provider_key}/test` 全部按注册表数据驱动，未新增端点与数据表。
+  - 适配器 `cloud_video/scnet.py`：提交 `POST /v1/videos/generations`（`Authorization: Bearer`、必须带 `X-MultiModal-Async: true`，body 为 `{model, input{prompt, media[]}, parameters{}}`）；首帧/尾帧/参考图映射为 `media[].type=first_frame/last_frame/reference_image`，本地图片走 data URI（当前先按 Base64 验证，暂不改参考图存储链路）；Seedance 按官方示例额外下发 `output_format: mp4`；轮询 `GET /v1/tasks/{task_id}`，`output.task_status` 归一为 pending/running→active、succeeded→completed、failed/cancelled→failed，成片取 `output.results[]`，失败原因取 `output.error_message`；HTTP ≥400 时透出平台 `error.message` / `message` / `error_message`。提交读超时仍抛 `CloudVideoUncertainSubmitError`，绝不自动重提。
+  - 连接自检：`GET /v1/models`（模型列表，免费只读）；401/403 判 API Key 无效，成功时按族回报当前 Key 是否包含 `MiniMax-H3`、`Seedance`（2.5/2.0 任一）、`HappyHorse`，未开通会明确提示。
+  - 工作流注册（`workflow_registry.py`，仍归「云端视频模型」分组）：`cloud-scnet-h3-t2v/i2v`（MiniMax-H3）、`cloud-scnet-seedance-t2v/i2v`（默认 Seedance2.5，可切 2.0）、`cloud-scnet-happyhorse-t2v`（HappyHorse-1.0-T2V）共 5 条；`JobMode` 同步 5 个枚举，`CLOUD_VIDEO_WORKFLOW_IDS` 共 11 条。H3/Seedance 的 I2V 为首帧必填、尾帧可选；HappyHorse 文档只提供文生视频，故只登记 T2V。
+  - 参数分层：H3 T2V primary=画面比例/时长（4-15 秒），advanced=分辨率（768P/2K）；H3 I2V 不暴露比例（比例跟随输入图），primary=时长，advanced=分辨率。Seedance primary=比例（T2V 16:9/9:16/adaptive，I2V adaptive/16:9/9:16）/时长（4-15 秒），advanced=分辨率（480p/720p/1080p）+模型版本（Seedance2.5/2.0，默认 2.5）+生成声音。HappyHorse primary=比例（9 档）/时长（3-15 秒），advanced=分辨率（720p/1080p）。`watermark` 固定 false（HappyHorse 默认 true，适配器已显式关闭）；未开放 `seed`，避免固定种子导致重复画面。
+  - 导演台：`CLOUD_PROVIDER_DIRECTOR_LABELS` 新增 `scnet → 超算互联网`，并通过新增的 `cloud_family` 把 SCNet 拆成三个族「云端 · 超算互联网 MiniMax-H3 / Seedance / HappyHorse」（H3/Seedance 各 T2V+I2V，HappyHorse 仅 T2V），避免同一供应商下三个模型的路由互相覆盖；`clamp_cloud_video_options()` 会丢弃 H3 专属参数并把比例/时长夹到 SCNet 允许档位。同时补齐 `cloud_provider_for()`（既有测试已引用但注册表缺失，本次一并修复）。
+  - 存储：复用 `cloud_video_provider_settings` 多行表，`scnet` 行由 `get_cloud_video_settings()` ensure-row 自动补齐，无 DDL / 迁移；新增 `list_cloud_video_settings()` 按注册表顺序返回全部供应商，供测试与排查使用。
+- 受影响文件：新增 `backend/app/cloud_video/scnet.py`；修改 `backend/app/cloud_video/{__init__,base}.py`、`backend/app/{models,storage,main,workflow_registry}.py`、`frontend/src/admin/CloudVideoProviderSettings.tsx`、`backend/tests/{test_cloud_video,test_core}.py`、`docs/ARCHITECTURE.md`、`README.md`、`功能说明与扩展指南.md`、`docs/导演台流程与界面结构.md`。
+- 兼容性：既有三家供应商、6 条工作流、任务表、worker、七牛产物均不变；新增 5 条工作流仅在 `scnet` 启用并保存 API Key 后可用，否则下拉置灰并显示原因。历史任务、运行参数快照与导演台旧族不受影响；无数据库结构变更。
+- 验证命令：`python -X utf8 -B -m unittest backend.tests.test_cloud_video`（36 项通过，含 SCNet 提交/首尾帧/失败信息/连接自检）；`python -X utf8 -B -m unittest backend.tests.test_core.ApiDocumentationTests.test_mode_parameter_schema_is_derived_from_the_registry`（通过）；`pnpm --dir frontend build`（通过）。后端全量 `python -X utf8 -B -m unittest discover backend/tests` 的未通过项均为既有工作区漂移：`test_gpu_runtime`、`test_rtx_vsr` 两个模块导入失败（缺少 `gpu_owner` / `should_auto_upscale`），`test_media_understanding.test_partial_failure_is_reported_per_shot` 1 项断言失败，与本变更无关。真实出片需在管理设置填入 SCNet API Key 后各提交一条 T2V / I2V。
+- 回滚方式：删除 `backend/app/cloud_video/scnet.py`、`base.py` 中 scnet spec、`__init__.py` 分支、注册表 5 条工作流与 5 个 `JobMode` 枚举、`CLOUD_PROVIDER_DIRECTOR_LABELS` 的 scnet 项、`cloud_provider_for()` / `list_cloud_video_settings()` 及测试新增项即可；`cloud_video_provider_settings` 中的 `scnet` 行保留无害。
+
+## 2026-11-13：管理设置「AI 供应商」改为分类切换（云端视频再按厂商切换）
+
+- 变更原因：「AI 供应商」页把 ComfyUI、GRS 图片、音乐生成、云端视频四块配置纵向堆叠，云端视频又平铺四家厂商卡片，配置时要长距离滚动才能找到目标供应商。
+- 当前基线：新增 `frontend/src/admin/ProviderSettings.tsx`，在「AI 供应商」tab 内用 Ant Design `Segmented` 做二级分类切换（ComfyUI 视频后端 / 云端视频 / GRS 图片 / 音乐生成）；当前分类写入 `?section=comfy|cloud-video|grs|music`（ComfyUI 为缺省值不写参数，`replace` 更新），刷新与分享链接后保持同一分类；切换时回到页顶。四个分类面板保持挂载、仅用 `hidden` 隐藏非当前项，未保存的表单编辑不会因切换丢失。`CloudVideoProviderSettings.tsx` 增加厂商 `Segmented`（标签去掉括号补充，带启用状态点与「共 N 家 · 已启用 M 家」汇总），一次只展示一张厂商卡片；默认选中第一家已启用厂商，全部停用时回退第一家；卡片同样保持挂载。`AdminSettings.tsx` 改为 lazy 加载 `ProviderSettings`。新增 `cloud-video-switch.ts` 及其单测，承载短名称与默认厂商解析。
+- 受影响文件：新增 `frontend/src/admin/{ProviderSettings.tsx,cloud-video-switch.ts,cloud-video-switch.test.ts}`；修改 `frontend/src/admin/{AdminSettings.tsx,CloudVideoProviderSettings.tsx}`、本文件、`功能说明与扩展指南.md`。
+- 兼容性：管理端路由仍为 `/admin/providers`，无 `?section` 的旧链接默认进入 ComfyUI；供应商 API、数据库、工作流注册表、ComfyUI 节点与已保存配置零改动；各厂商仍独立保存，切换只影响展示。
+- 验证命令：`pnpm --dir frontend test`（139 文件 / 967 项通过）、`pnpm --dir frontend exec tsc -b`；5173 桌面端自查 `/admin/providers`：默认只显示 ComfyUI，切换云端视频后 URL 为 `?section=cloud-video`、仅显示可灵卡片，四家厂商标签可切换，其余面板从可访问性树隐藏。
+- 回滚方式：删除 `ProviderSettings.tsx` 与 `cloud-video-switch*.ts`，恢复 `AdminSettings.tsx` 原四面板直接挂载及 `CloudVideoProviderSettings.tsx` 原卡片列表；无数据库或供应商配置回滚。
+
 ## 2026-11-13：智能剪辑 A6「废片清理」+ 画面转场 + 音乐轨（BGM 联动）+ 导出性能
 
 - 变更原因：A6（语义分段与废片识别）是 `docs/智能剪辑助手开发计划.md` 既定下一步——画面理解此前只给高光加分，不参与删镜头决策；同时时间线缺画面转场与独立音乐轨（BGM 无法与配音并行）、导出为「分段 + 成片」两遍 x264 编码且 512MB 上传整读内存。本批一次交付四项：`remove_waste` 动作、片段级转场、音乐轨与 BGM 素材接入、渲染管线提速与上传流式化。

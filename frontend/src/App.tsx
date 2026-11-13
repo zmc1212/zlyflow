@@ -125,6 +125,7 @@ type Workflow = {
   catalog_group?: string; catalog_group_label?: string; catalog_group_order?: number
   is_default?: boolean
   credit_cost?: number | null
+  billing_notice?: string | null
 }
 type OptionDefinition = {
   label: string; type: "string" | "number" | "integer" | "boolean"; default: string | number | boolean
@@ -1391,6 +1392,12 @@ export default function App({
       setIsSelectedPromptExpanded(false)
       queryClient.invalidateQueries({ queryKey: ["jobs", user?.id] })
       setHistoryOpen(false)
+      if (workflow?.billing_notice) {
+        messageApi.info({
+          content: "任务已提交。若本次生成成功，将计入超算互联网该模型当日额度；免费额度用完后按平台价格计费，请以超算互联网控制台为准。",
+          duration: 6,
+        })
+      }
     },
   })
 
@@ -3288,6 +3295,7 @@ export default function App({
               </p>
             ) : null}
             {optionError && <p className="mt-3 text-xs text-amber-200">{optionError}</p>}
+            {workflow?.billing_notice ? <p role="note" className="mt-3 flex items-start gap-2 rounded-lg border border-amber-300/20 bg-amber-300/[0.06] px-3 py-2 text-xs leading-5 text-amber-200"><Coins size={14} className="mt-0.5 shrink-0" aria-hidden />{workflow.billing_notice}</p> : null}
             {!workflow?.available && workflow?.unavailable_reason ? <p className="mt-3 rounded-lg border border-amber-300/20 bg-amber-300/[0.06] px-3 py-2 text-xs leading-5 text-amber-200">{workflow.unavailable_reason}</p> : null}
             {mediaType === "video" && workflow?.reference_mode === "collection" && references.length > 3 && <p className="mt-3 text-xs text-amber-200">较多参考图会显著增加显存和耗时，建议先使用 1K 预览。</p>}
             {createMutation.isError && <p className="mt-3 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-200">{createMutation.error.message}</p>}

@@ -1976,7 +1976,7 @@ def music_status(user: Annotated[dict, Depends(current_user)]) -> dict:
     "/api/admin/providers/cloud-video",
     response_model=list[CloudVideoProviderResponse],
     tags=["管理后台"],
-    summary="获取云端视频供应商配置列表（可灵/方舟/海螺）",
+    summary="获取云端视频供应商配置列表（可灵/方舟/海螺/超算互联网）",
 )
 def get_cloud_video_providers(_: Annotated[dict, Depends(super_admin_user)]) -> list[dict]:
     return CloudVideoService.instance().public_configs()
@@ -1989,7 +1989,7 @@ def get_cloud_video_providers(_: Annotated[dict, Depends(super_admin_user)]) -> 
     summary="更新云端视频供应商配置",
 )
 def update_cloud_video_provider(
-    provider_key: Annotated[str, ApiPath(description="云端视频供应商标识（kling / jimeng / hailuo）")],
+    provider_key: Annotated[str, ApiPath(description="云端视频供应商标识（kling / jimeng / hailuo / scnet）")],
     payload: CloudVideoProviderUpdateRequest,
     request: Request,
     user: Annotated[dict, Depends(mutating_super_admin_user)],
@@ -2014,7 +2014,7 @@ def update_cloud_video_provider(
     summary="测试云端视频供应商连接",
 )
 async def test_cloud_video_provider(
-    provider_key: Annotated[str, ApiPath(description="云端视频供应商标识（kling / jimeng / hailuo）")],
+    provider_key: Annotated[str, ApiPath(description="云端视频供应商标识（kling / jimeng / hailuo / scnet）")],
     request: Request,
     user: Annotated[dict, Depends(mutating_super_admin_user)],
     payload: CloudVideoProviderTestRequest | None = None,

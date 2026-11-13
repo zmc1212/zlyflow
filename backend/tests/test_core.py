@@ -789,6 +789,11 @@ class ApiDocumentationTests(unittest.TestCase):
                     JobMode.CLOUD_SEEDANCE_I2V.value,
                     JobMode.CLOUD_HAILUO_T2V.value,
                     JobMode.CLOUD_HAILUO_I2V.value,
+                    JobMode.CLOUD_SCNET_H3_T2V.value,
+                    JobMode.CLOUD_SCNET_H3_I2V.value,
+                    JobMode.CLOUD_SCNET_SEEDANCE_T2V.value,
+                    JobMode.CLOUD_SCNET_SEEDANCE_I2V.value,
+                    JobMode.CLOUD_SCNET_HAPPYHORSE_T2V.value,
                 }
                 for workflow in WORKFLOWS
             )
@@ -2189,6 +2194,22 @@ class WorkerTests(unittest.TestCase):
             self.assertEqual(job["status"], JobStatus.QUEUED)
             self.assertIsNone(job["comfy_prompt_id"])
             self.assertIn("自动重新提交", job["stage"])
+
+    def test_recover_keeps_cloud_video_job_for_generation_recovery(self) -> None:
+        class FakeComfy:
+            def active_prompts(self):
+                return []
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            store.create("job-1", JobMode.CLOUD_SCNET_H3_I2V, "prompt", "", None, [])
+            store.update("job-1", status=JobStatus.RUNNING, stage="云端正在生成视频")
+            worker = JobWorker(store, FakeComfy())
+
+            self.assertEqual(worker.recover(), [])
+            job = store.get("job-1")
+            self.assertEqual(job["status"], JobStatus.RUNNING)
+            self.assertEqual(job["stage"], "云端正在生成视频")
 
     def test_recover_resumes_interrupted_job_still_in_comfy_queue(self) -> None:
         class FakeComfy:

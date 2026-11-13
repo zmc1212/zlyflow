@@ -9,14 +9,11 @@ import RenameUserModal from "../components/RenameUserModal"
 import ThemeToggle from "../components/ThemeToggle"
 import { adminTabPath, canAccessAdminTab, isAdminTab, PATHS } from "../paths"
 
-const GrsProviderSettings = lazy(() => import("./GrsProviderSettings"))
-const ComfyProviderSettings = lazy(() => import("./ComfyProviderSettings"))
+const ProviderSettings = lazy(() => import("./ProviderSettings"))
 const QiniuStorageSettings = lazy(() => import("./QiniuStorageSettings"))
 const LlmProviderSettings = lazy(() => import("./LlmProviderSettings"))
 const VlmProviderSettings = lazy(() => import("./VlmProviderSettings"))
 const TtsProviderSettings = lazy(() => import("./TtsProviderSettings"))
-const MusicProviderSettings = lazy(() => import("./MusicProviderSettings"))
-const CloudVideoProviderSettings = lazy(() => import("./CloudVideoProviderSettings"))
 const MailProviderSettings = lazy(() => import("./MailProviderSettings"))
 
 const roleLabel: Record<UserRole, string> = {
@@ -312,12 +309,7 @@ export default function AdminSettings({ user, csrfToken }: { user: User; csrfTok
     ) : (
       <Suspense fallback={<CenteredStatus label="正在加载设置" />}>
         {tab === "providers" ? (
-          <>
-            <ComfyProviderSettings csrfToken={csrfToken} />
-            <GrsProviderSettings csrfToken={csrfToken} />
-            <MusicProviderSettings csrfToken={csrfToken} />
-            <CloudVideoProviderSettings csrfToken={csrfToken} />
-          </>
+          <ProviderSettings csrfToken={csrfToken} />
         ) : tab === "llm" ? (
           <LlmProviderSettings csrfToken={csrfToken} />
         ) : tab === "vlm" ? (

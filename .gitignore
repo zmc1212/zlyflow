@@ -184,6 +184,7 @@ backend/tests/test_*.py
 !backend/tests/test_llm_image_transport.py
 !backend/tests/test_llm_image_transport_live.py
 !backend/tests/test_comfy_provider.py
+!backend/tests/test_cloud_video.py
 !backend/tests/test_h3_coverage.py
 !backend/tests/test_skill_packs.py
 !backend/tests/test_director_project_info.py

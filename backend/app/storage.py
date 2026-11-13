@@ -1909,7 +1909,7 @@ class JobStore:
         return self.get_music_settings()
 
     # ------------------------------------------------------------------
-    # 云端视频供应商设置（多行表：可灵/方舟/海螺各一行；行缺失时补默认行）
+    # 云端视频供应商设置（多行表：可灵/方舟/海螺/超算互联网各一行；行缺失时补默认行）
     # ------------------------------------------------------------------
 
     def get_cloud_video_settings(self, provider_key: str) -> dict:
@@ -1931,6 +1931,12 @@ class JobStore:
                 ).fetchone()
         settings = dict(row) if row else {}
         return {**defaults, **settings}
+
+    def list_cloud_video_settings(self) -> list[dict]:
+        """按注册表顺序返回全部云端视频供应商设置（行缺失时 ensure-row），供管理页与测试使用。"""
+        from .cloud_video.base import cloud_video_provider_keys
+
+        return [self.get_cloud_video_settings(key) for key in cloud_video_provider_keys()]
 
     def update_cloud_video_settings(self, provider_key: str, values: dict | None = None, **kwargs: Any) -> dict:
         allowed = {

@@ -1,4 +1,4 @@
-"""云端视频模型供应商适配层（可灵 Kling / 火山方舟 Seedance / MiniMax 海螺）。
+"""云端视频模型供应商适配层（可灵 Kling / 火山方舟 Seedance / MiniMax 海螺 / 超算互联网 SCNet）。
 
 对外入口：``build_adapter`` 按厂商构造已配置的客户端实例；
 连接配置读取与凭据解密在 ``cloud_video_service.CloudVideoService`` 完成。
@@ -32,6 +32,7 @@ from .hailuo import HailuoClient
 from .http import CloudVideoHttpClient
 from .jimeng import JimengClient
 from .kling import KlingClient
+from .scnet import ScnetClient
 
 
 def build_adapter(
@@ -51,6 +52,8 @@ def build_adapter(
         return JimengClient(effective_base, api_key, session=session)
     if spec.key == "hailuo":
         return HailuoClient(effective_base, api_key, session=session)
+    if spec.key == "scnet":
+        return ScnetClient(effective_base, api_key, session=session)
     raise CloudVideoError(f"未知的云端视频供应商: {provider_key}")  # pragma: no cover
 
 
@@ -70,6 +73,7 @@ __all__ = [
     "HailuoClient",
     "JimengClient",
     "KlingClient",
+    "ScnetClient",
     "build_adapter",
     "cloud_video_provider_defaults",
     "cloud_video_provider_keys",

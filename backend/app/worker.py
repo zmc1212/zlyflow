@@ -36,6 +36,7 @@ from .storage import JobStore
 from .workflow_registry import (
     cloud_model_for,
     grs_request_size,
+    is_cloud_video_workflow,
     is_h3_workflow,
     is_image_workflow,
     is_local_comfy_job,
@@ -282,6 +283,10 @@ class JobWorker:
                 supported_jobs.append(job)
                 continue
             if is_image_workflow(job["mode"]):
+                continue
+            # 云端视频任务不占 ComfyUI 队列，由 start() 里的 cloud_video 恢复逻辑
+            # 按 generation_items 续轮询；不能按“本地工作流已下线”直接判失败。
+            if is_cloud_video_workflow(job["mode"]):
                 continue
             self.store.clear_comfy_execution(job["id"])
             self.store.update(

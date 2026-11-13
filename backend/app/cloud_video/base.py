@@ -1,7 +1,7 @@
 """云端视频模型供应商适配层。
 
-统一可灵 Kling、火山方舟（即梦/Seedance）、MiniMax 海螺三家官方 API 的差异：
-- 各厂商 adapter（kling.py / jimeng.py / hailuo.py）实现统一的 ``CloudVideoAdapter`` 协议；
+统一可灵 Kling、火山方舟（即梦/Seedance）、MiniMax 海螺、超算互联网（SCNet）四家官方 API 的差异：
+- 各厂商 adapter（kling.py / jimeng.py / hailuo.py / scnet.py）实现统一的 ``CloudVideoAdapter`` 协议；
 - 异常分级对齐 ``grs_client``：连接未发出（可安全重试）/ 提交结果不确定（禁止自动重试，
   必须带扣费警示文案）/ 临时错误（轮询时退避重试）；
 - 远端任务状态统一归一为 ``active`` / ``completed`` / ``failed``；
@@ -140,10 +140,21 @@ CLOUD_VIDEO_PROVIDERS: dict[str, CloudVideoProviderSpec] = {
             base_url_hint="国内平台 https://api.minimaxi.com，国际平台 https://api.minimax.io",
             supports_balance=True,
         ),
+        CloudVideoProviderSpec(
+            key="scnet",
+            label="超算互联网（SCNet）",
+            default_base_url="https://api.scnet.cn/api/llm",
+            requires_secret=False,
+            api_key_label="SCNet API Key",
+            base_url_hint=(
+                "默认 api.scnet.cn 模型服务网关；API Key 在超算互联网控制台「模型服务 → API Key 管理」创建，"
+                "需账号已开通 MiniMax-H3 / Seedance / HappyHorse 视频模型"
+            ),
+        ),
     )
 }
 
-CLOUD_VIDEO_PROVIDER_ORDER: tuple[str, ...] = ("kling", "jimeng", "hailuo")
+CLOUD_VIDEO_PROVIDER_ORDER: tuple[str, ...] = ("kling", "jimeng", "hailuo", "scnet")
 
 
 def cloud_video_provider_keys() -> tuple[str, ...]:

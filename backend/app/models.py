@@ -60,6 +60,12 @@ class JobMode(str, Enum):
     CLOUD_SEEDANCE_I2V = "cloud-seedance-i2v"
     CLOUD_HAILUO_T2V = "cloud-hailuo-t2v"
     CLOUD_HAILUO_I2V = "cloud-hailuo-i2v"
+    # 超算互联网（SCNet）模型服务：MiniMax-H3 / Seedance / HappyHorse
+    CLOUD_SCNET_H3_T2V = "cloud-scnet-h3-t2v"
+    CLOUD_SCNET_H3_I2V = "cloud-scnet-h3-i2v"
+    CLOUD_SCNET_SEEDANCE_T2V = "cloud-scnet-seedance-t2v"
+    CLOUD_SCNET_SEEDANCE_I2V = "cloud-scnet-seedance-i2v"
+    CLOUD_SCNET_HAPPYHORSE_T2V = "cloud-scnet-happyhorse-t2v"
 
 
 class MediaType(str, Enum):
@@ -359,6 +365,8 @@ class ModeResponse(BaseModel):
     supports_multi_segment: bool = False
     # GRS 生图模型的平台标价积分（每张）；非 GRS 工作流为 null。
     credit_cost: int | None = None
+    # 云端视频计费提示；目前用于超算互联网每日免费额度说明。
+    billing_notice: str | None = None
 
 
 class ComfyHealthResponse(BaseModel):

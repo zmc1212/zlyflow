@@ -1,5 +1,9 @@
 # ZLY AI Studio｜创作工作台
 
+## 2026-11-13：云端视频新增「超算互联网（SCNet）」供应商
+
+创作页「云端视频模型」分组新增 5 条云端工作流：**超算互联网 MiniMax-H3 · 文生/图生视频**、**超算互联网 Seedance · 文生/图生视频**、**超算互联网 HappyHorse · 文生视频**，直连 `api.scnet.cn` 模型服务，按次计费、不占本地显卡，与既有云端/本地工作流共用同一份下拉、同一套进度与产物落七牛体验。图生视频上传首帧即可（H3/Seedance 可加尾帧）；H3 支持 768P/2K 与 4-15 秒，Seedance 支持 480p-1080p、多画幅、有声/无声，并可在「更多设置」选 Seedance2.5（默认）或 Seedance2.0（2.5 需控制台已开通），HappyHorse 提供 9 种画幅与 3-15 秒，画面比例与时长在主区直出，分辨率等放在「更多设置」。管理员在「管理设置 → AI 供应商 → 云端视频 → 超算互联网（SCNet）」填入超算互联网控制台创建的 API Key 并启用；「测试连接」会读取模型列表，并提示账号是否已开通 MiniMax-H3 / Seedance（2.5 或 2.0）/ HappyHorse-1.0-T2V。未启用或密钥缺失时对应工作流在下拉中置灰并显示原因。导演台批量台的「视频工作流」下拉新增「云端 · 超算互联网 MiniMax-H3 / Seedance / HappyHorse」三个族。实现、验证与回滚见[架构快照](docs/ARCHITECTURE.md)同日章节。
+
 ## 2026-11-13：智能剪辑新增「废片清理」、画面转场、音乐轨与导出提速
 
 智能剪辑助手「素材归位」组新增**废片清理**：先点「视频理解」，再点「废片清理」，工作台只依据画面理解给出的明确废片证据（黑场、纯色、静止画面、彩条等）提出移除清单，并在授权弹窗逐条显示「移除多少秒 + 画面证据」；没有证据的镜头一律保留，被移除镜头的配音一并清理，手工文字与音乐轨不受影响，全部画面都被判废片时会拒绝执行以防误删。同时精剪更聪明：画面理解的镜头数、主体数与运镜参与评分，音轨转写的真实发声秒数会参与对白精剪/成片速剪的取舍与保留时长。
@@ -3060,3 +3064,12 @@ H3 Director 加速版「一键生成视频」仍一次出整集成片。镜头�
 - 兼容性：复制片、短视频批量、资产库、艺术风格、工程详情 GET/PUT、SSE 事件流等存活端点全部保留；`POST /api/director/projects` 与 `DELETE /api/director/projects/{id}` 保留；历史导演工程数据不受影响；无端口、数据库或工作流协议变化。
 - 验证命令：`python -m unittest discover -s backend/tests`；`pnpm --dir frontend exec tsc -p tsconfig.app.json --noEmit`；`pnpm --dir frontend test`；`pnpm --dir frontend build`。
 - 回滚方式：还原 `backend/app/main.py`、相关后端模块与前端文件即可；无数据回滚需求。详细记录见 `docs/ARCHITECTURE.md` 同日章节与 `功能说明与扩展指南.md`。
+
+## 2026-11-13 超算互联网额度消耗提示与云端任务恢复修复
+
+- 变更原因：超算互联网每个视频模型每天只有 1 次免费生成额度，额度用完后按平台价格计费；此前创作页只写“按次计费”，用户提交时不知道正在占用免费额度，也无法在工作台查询剩余次数。
+- 用户可见行为：选择超算互联网 MiniMax-H3、Seedance 或 HappyHorse 工作流后，提交区显示“每个模型每天含 1 次免费生成额度；额度用完后按平台价格计费。平台暂不提供剩余额度查询，请以超算互联网控制台为准。”；提交成功后再弹出一次提示，说明本次生成会计入该模型当日额度。提示只随 SCNet 工作流展示，可灵、火山方舟、海螺不受影响。
+- 修复：后端启动恢复逻辑原先把所有非本地、非图片任务都当成“旧工作流已下线”，会误伤正在轮询的云端视频任务；现在云端视频任务交给 `generation_items` 的续轮询逻辑处理，重启时不再被直接判失败。
+- 实现：`WorkflowDefinition` / `ModeResponse` 新增可选 `billing_notice`，由注册表在 5 条 `cloud-scnet-*` 工作流上声明；前端工作流类型与提交区读取该字段。未新增额度查询接口，避免把未知余额当成真实数值。
+- 验证：`python -X utf8 -m pytest backend/tests/test_cloud_video.py -q`（38 项通过）、`python -X utf8 -m pytest backend/tests/test_core.py -q -k "recover_keeps_cloud or schema or mode_response"`（4 项通过）、`pnpm --dir frontend exec tsc -b`（通过）。
+- 回滚方式：删除 `billing_notice` 字段及注册表 5 处声明、前端提示与恢复逻辑的 `is_cloud_video_workflow` 分支即可；无数据库变更。
