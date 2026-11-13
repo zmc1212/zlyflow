@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from collections.abc import Callable
 from copy import deepcopy
@@ -49,6 +50,7 @@ from .llm_minimax_skills import (
 )
 from .script_full_story import normalize_script_full_story, split_story_into_scene_texts
 
+logger = logging.getLogger(__name__)
 
 ChatFn = Callable[[list[dict[str, Any]]], str]
 
@@ -1917,8 +1919,12 @@ def run_agent(
         on_progress(recipe)
 
     def emit() -> None:
-        if on_progress:
+        if not on_progress:
+            return
+        try:
             on_progress(recipe)
+        except Exception:
+            logger.debug("Agent 进度回调失败（不影响主流程）", exc_info=True)
 
     try:
         if agent_id == "research":
@@ -1985,8 +1991,7 @@ def run_agent(
             outlines = _fill_default_episode_shots(outlines, default_shots)
             allow_restructure = bool(_clarified_stage_text(agent_id, clarifications))
             set_agent_status(recipe, agent_id, "running", message="正在拆分分集结构与戏剧节奏")
-            try: emit()
-            except: pass
+            emit()
 
             tracker = _make_agent_tracker(agent_id, on_stream)
             refine: dict[str, Any] | None = None
@@ -2068,8 +2073,7 @@ def run_agent(
                         for idx, scene_text in enumerate(scene_texts):
                             msg = f"{ep_prefix}正在读剧本并构思 ({idx+1}/{len(scene_texts)}) - 剧本较长，AI需阅读约1~2分钟..."
                             set_agent_status(recipe, agent_id, "running", message=msg)
-                            try: emit()
-                            except: pass
+                            emit()
 
                             original_full = script.get("fullStory")
                             script["fullStory"] = scene_text
@@ -2092,12 +2096,11 @@ def run_agent(
                             else:
                                 script.pop("fullStory", None)
 
-                            def local_report(accumulated: str, prefix=ep_prefix, total=len(scene_texts)) -> None:
+                            def local_report(accumulated: str, prefix=ep_prefix, total=len(scene_texts), idx=idx) -> None:
                                 n = len(accumulated or "")
                                 if n > 0:
                                     set_agent_status(recipe, agent_id, "running", message=f"{prefix}正在写分镜 ({idx+1}/{total}) - 已收 {n} 字")
-                                    try: emit()
-                                    except: pass
+                                    emit()
 
                             if hasattr(chat_fn, "on_chunk"):
                                 if tracker is not None:
@@ -2117,14 +2120,12 @@ def run_agent(
                             ], retries=1)
 
                             set_agent_status(recipe, agent_id, "running", message=f"{ep_prefix}正在整理镜头 ({idx+1}/{len(scene_texts)})")
-                            try: emit()
-                            except: pass
+                            emit()
                             parsed = _parse_storyboard_reply(raw, goal)
 
                             if _is_collapsed_storyboard(parsed, goal):
                                 set_agent_status(recipe, agent_id, "running", message=f"{ep_prefix}镜头不完整，正在重拆 ({idx+1}/{len(scene_texts)})")
-                                try: emit()
-                                except: pass
+                                emit()
                                 if tracker is not None and hasattr(chat_fn, "on_chunk"):
                                     tracker.begin_call()
                                 raw = _chat_text(chat_fn, [
@@ -2149,8 +2150,7 @@ def run_agent(
             
             if resumed_shots > 0:
                 set_agent_status(recipe, agent_id, "running", message=f"保留已有 {resumed_shots} 个镜头，继续完成对白与衔接处理")
-                try: emit()
-                except: pass
+                emit()
             else:
                 _apply_storyboard(recipe, {"scenes": all_scenes}, goal)
                 _finish_agent_tracker(tracker, {"scenes": all_scenes})
@@ -2203,16 +2203,15 @@ def run_agent(
                                     shot = scan_current_shot_number(accumulated)
                                     shot_text = f" · 正在第 {shot} 镜" if shot is not None else ""
                                     set_agent_status(recipe, agent_id, "running", message=f"{prefix}正在按秒分配对白与动作 ({idx+1}/{total}){rng}{shot_text} - 已收 {n} 字")
-                                    try: emit()
-                                    except: pass
+                                    emit()
                             if hasattr(chat_fn, "on_chunk"):
                                 polish_tracker = _make_agent_tracker("storyboard_polish", on_stream)
                                 if polish_tracker is not None:
                                     polish_tracker.set_context(episode=ep_num)
 
-                                    def combined_timing_report(accumulated: str, idx=i, rng=range_text) -> None:
+                                    def combined_timing_report(accumulated: str, idx=i, rng=range_text, tracker=polish_tracker) -> None:
                                         timing_report(accumulated, idx, rng)
-                                        polish_tracker.feed(accumulated)
+                                        tracker.feed(accumulated)
                                     chat_fn.on_chunk = combined_timing_report
                                 else:
                                     chat_fn.on_chunk = timing_report
@@ -2248,16 +2247,15 @@ def run_agent(
                                     shot = scan_current_shot_number(accumulated)
                                     shot_text = f" · 正在第 {shot} 镜" if shot is not None else ""
                                     set_agent_status(recipe, agent_id, "running", message=f"{prefix}正在校验镜头衔接 ({idx+1}/{total}){rng}{shot_text} - 已收 {n} 字")
-                                    try: emit()
-                                    except: pass
+                                    emit()
                             if hasattr(chat_fn, "on_chunk"):
                                 polish_tracker = _make_agent_tracker("storyboard_polish", on_stream)
                                 if polish_tracker is not None:
                                     polish_tracker.set_context(episode=ep_num)
 
-                                    def combined_cont_report(accumulated: str, idx=i, rng=range_text) -> None:
+                                    def combined_cont_report(accumulated: str, idx=i, rng=range_text, tracker=polish_tracker) -> None:
                                         cont_report(accumulated, idx, rng)
-                                        polish_tracker.feed(accumulated)
+                                        tracker.feed(accumulated)
                                     chat_fn.on_chunk = combined_cont_report
                                 else:
                                     chat_fn.on_chunk = cont_report

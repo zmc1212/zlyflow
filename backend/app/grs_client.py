@@ -3,7 +3,6 @@ from __future__ import annotations
 import base64
 import io
 import ipaddress
-import mimetypes
 import socket
 import time
 from pathlib import Path

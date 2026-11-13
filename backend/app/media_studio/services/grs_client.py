@@ -155,8 +155,8 @@ class GrsClient:
 
     def wait_for_result(self, task_id: str) -> str:
         """Poll an already-submitted task until its first image is ready."""
-        deadline = time.time() + GRS_POLL_MAX_WAIT
-        while time.time() < deadline:
+        deadline = time.monotonic() + GRS_POLL_MAX_WAIT
+        while time.monotonic() < deadline:
             time.sleep(GRS_POLL_INTERVAL)
             status, urls, error_msg = self.result(task_id)
 

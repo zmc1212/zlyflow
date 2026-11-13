@@ -27,6 +27,7 @@ from backend.app.workflow_registry import (
     is_upscale_workflow,
     workflow_for,
 )
+from backend.tests.app_state_guard import isolated_lifespan_state
 
 
 class RelayVsrGraphTests(unittest.TestCase):
@@ -145,7 +146,7 @@ class RelayVsrUploadApiTests(unittest.TestCase):
             main_module.JobWorker = WorkerStub
             main_module.probe_source_video = lambda _path: FakeProbe()
             try:
-                with TestClient(main_module.app) as client:
+                with isolated_lifespan_state(main_module.app), TestClient(main_module.app) as client:
                     user = main_module.app.state.auth_store.create_user(
                         "relay-upload", "超分上传测试", "secure-pass-123", UserRole.SUPER_ADMIN,
                         must_change_password=False,

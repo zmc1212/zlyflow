@@ -11,7 +11,7 @@ from typing import Any
 from ...dialogue_timing import resolve_shot_duration_sec
 from ...director_recipe import empty_recipe_payload, flatten_recipe_shots, normalize_recipe_payload
 from ...director_stream import DirectorOperationEventBus, terminal_event_for_status
-from ..db import execute_sql, now_str, query_all, query_one, transaction_cursor
+from ..db import execute_sql, now_str, query_all, query_one
 from ..services.project_detail_service import (
     ProjectDetailService,
     asset_name_id_map,

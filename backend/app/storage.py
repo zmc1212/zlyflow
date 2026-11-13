@@ -2845,12 +2845,6 @@ class JobStore:
             )
         return self.get_director_operation(operation_id)
 
-    def request_director_operation_cancel(self, operation_id: str) -> dict[str, Any]:
-        operation = self.get_director_operation(operation_id)
-        if operation["status"] in {"succeeded", "failed", "interrupted", "cancelled"}:
-            return operation
-        return self.update_director_operation(operation_id, cancel_requested=True)
-
     def interrupt_stale_director_operations(self) -> int:
         timestamp = now()
         with self.connection() as connection:
@@ -2888,72 +2882,6 @@ class JobStore:
             cursor = connection.execute("DELETE FROM director_projects WHERE id = ?", (project_id,))
         if cursor.rowcount == 0:
             raise KeyError(project_id)
-
-    def copy_director_project(self, project_id: str, owner_user_id: str) -> dict[str, Any]:
-        source = self.get_director_project(project_id)
-        title = source["title"].strip() or "未命名分镜工程"
-        copy_title = f"{title} 副本"
-        return self.create_director_project(
-            owner_user_id,
-            copy_title,
-            summary=source["summary"],
-            source_script=source["source_script"],
-            style_vibe=source["style_vibe"],
-            requested_shot_count=source["requested_shot_count"],
-            payload=source["payload"],
-        )
-
-    def import_director_projects(
-        self, owner_user_id: str, projects: list[dict[str, Any]],
-    ) -> dict[str, Any]:
-        imported: list[dict[str, Any]] = []
-        skipped = 0
-        for item in projects:
-            requested_id = (item.get("id") or "").strip() or None
-            title = (item.get("title") or "").strip() or "未命名分镜工程"
-            payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
-            try:
-                if requested_id:
-                    existing = None
-                    try:
-                        existing = self.get_director_project(requested_id)
-                    except KeyError:
-                        existing = None
-                    if existing is not None:
-                        skipped += 1
-                        continue
-                created = self.create_director_project(
-                    owner_user_id,
-                    title,
-                    project_id=requested_id,
-                    summary=item.get("summary") or "",
-                    source_script=item.get("source_script") or "",
-                    style_vibe=item.get("style_vibe"),
-                    requested_shot_count=item.get("requested_shot_count"),
-                    payload=payload,
-                    created_at=item.get("created_at"),
-                    updated_at=item.get("updated_at"),
-                )
-            except ValueError:
-                skipped += 1
-                continue
-            imported.append(created)
-        listed = self.list_director_projects(owner_user_id)
-        return {"imported": len(imported), "skipped": skipped, "projects": listed}
-
-    def convert_director_project_to_recipe(self, project_id: str) -> dict[str, Any]:
-        from .director_recipe import PAYLOAD_KIND_RECIPE, payload_kind, timeline_to_recipe
-
-        current = self.get_director_project(project_id)
-        if payload_kind(current.get("payload")) == PAYLOAD_KIND_RECIPE:
-            return current
-        recipe = timeline_to_recipe(
-            current.get("payload"),
-            title=current.get("title") or "",
-            summary=current.get("summary") or "",
-            source_script=current.get("source_script") or "",
-        )
-        return self.update_director_project(project_id, payload=recipe)
 
     @staticmethod
     def _new_director_library_asset_id() -> str:

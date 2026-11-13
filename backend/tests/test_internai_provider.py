@@ -23,6 +23,7 @@ from backend.app.main import app
 from backend.app.models import UserRole
 from backend.app.storage import JobStore
 from backend.app.zhipu_catalog import model_provider_presets
+from backend.tests.app_state_guard import restore_app_state, snapshot_app_state
 
 
 class InternaiEndpointTests(unittest.TestCase):
@@ -127,6 +128,7 @@ class InternaiAdminIntegrationTests(unittest.TestCase):
         key = Fernet.generate_key().decode()
         self.llm = LlmProviderService(self.store, key)
         self.previous_state = {name: getattr(app.state, name, None) for name in ("auth_store", "store", "llm_provider")}
+        self._app_state = snapshot_app_state(app)
         app.state.auth_store, app.state.store = self.auth, self.store
         app.state.llm_provider = self.llm
         admin = self.auth.create_user("synthetic-admin", "端砚测试", "test-password-1234", UserRole.SUPER_ADMIN, must_change_password=False)
@@ -136,6 +138,7 @@ class InternaiAdminIntegrationTests(unittest.TestCase):
         self.headers = {"X-CSRF-Token": csrf_token(self.token)}
 
     def tearDown(self) -> None:
+        restore_app_state(app, self._app_state)
         self.client.close()
         for name, value in self.previous_state.items():
             setattr(app.state, name, value)

@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any
 
 from .director_export import find_ffmpeg
-from .video_analysis import VideoAnalysisError, probe_video
 
 H3_UNET_FILENAME = "minimax_h3_ref2va_pruned_int8_convrot.safetensors"
 H3_CLIP_FILENAME = "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
@@ -36,19 +35,6 @@ def snap_h3_size(value: int) -> int:
     """画布边长 32 对齐(H3 官方模板约束)。"""
     return max(32, int(value) // 32 * 32)
 
-
-def validate_inpaint_video(path: Path, duration: str) -> None:
-    """原片必须能解码且时长足够覆盖所选生成时长。"""
-    try:
-        probe = probe_video(path)
-    except (VideoAnalysisError, OSError, ValueError) as error:
-        raise ValueError("原片视频无法读取，请使用包含视频画面的 MP4 / MOV / WebM 文件。") from error
-    required = float(duration.removesuffix("s"))
-    if probe.duration + 0.1 < required:
-        raise ValueError(
-            f"原片只有 {probe.duration:.1f} 秒，不能重绘 {required:.0f} 秒；"
-            "请选择更短的生成时长或上传更长的视频。"
-        )
 
 
 def prepare_inpaint_source(source: Path, destination: Path, *, fps: int, length: int) -> Path:

@@ -126,7 +126,6 @@ from .h3_inpaint_workflow import (
     INPAINT_OUTPUT_NODE,
     build_h3_inpaint_workflow,
     prepare_inpaint_source,
-    validate_inpaint_video,
 )
 from .image_edit_workflow import (
     LAYER_BACKGROUND_NODE,
@@ -138,7 +137,6 @@ from .h3_depth_workflow import (
     DEPTH_OUTPUT_NODE as H3_DEPTH_OUTPUT_NODE,
     DEPTH_PREVIEW_NODE as H3_DEPTH_PREVIEW_NODE,
     DEPTH_DEFAULT_PROMPT,
-    DEPTH_LENGTHS,
     build_h3_depth_workflow,
     prepare_depth_source,
     validate_depth_source,
@@ -859,7 +857,7 @@ class ComfyService:
                     if time.monotonic() - unavailable_since >= 30:
                         raise ComfyUnavailable(
                             "视频服务连接中断，任务已暂停。恢复后将自动重新提交。"
-                        )
+                        ) from None
                     time.sleep(2)
                     continue
                 unavailable_since = None

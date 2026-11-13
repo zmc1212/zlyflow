@@ -17,6 +17,7 @@ from backend.app.models import UserRole
 from backend.app.storage import JobStore
 from backend.app.vlm_provider import VlmProviderService
 from backend.app.zhipu_catalog import ZHIPU_BASE_URL, is_zhipu_official_base_url, model_provider_presets, zhipu_model_free
+from backend.tests.app_state_guard import restore_app_state, snapshot_app_state
 
 
 class ZhipuPricingTests(unittest.TestCase):
@@ -133,6 +134,7 @@ class ZhipuAdminIntegrationTests(unittest.TestCase):
         self.llm = LlmProviderService(self.store, key)
         self.vlm = VlmProviderService(self.store, key)
         self.previous_state = {name: getattr(app.state, name, None) for name in ("auth_store", "store", "llm_provider", "vlm_provider")}
+        self._app_state = snapshot_app_state(app)
         app.state.auth_store, app.state.store = self.auth, self.store
         app.state.llm_provider, app.state.vlm_provider = self.llm, self.vlm
         admin = self.auth.create_user("synthetic-admin", "智谱测试", "test-password-1234", UserRole.SUPER_ADMIN, must_change_password=False)
@@ -142,6 +144,7 @@ class ZhipuAdminIntegrationTests(unittest.TestCase):
         self.headers = {"X-CSRF-Token": csrf_token(self.token)}
 
     def tearDown(self) -> None:
+        restore_app_state(app, self._app_state)
         self.client.close()
         for name, value in self.previous_state.items():
             setattr(app.state, name, value)
@@ -231,7 +234,7 @@ class ZhipuAdminIntegrationTests(unittest.TestCase):
             service.update({"enabled": True, "base_url": ZHIPU_BASE_URL, "model": model, "api_key": "synthetic.secret"})
 
             def change_connection(*args: object, **kwargs: object) -> str:
-                service.update({"enabled": True, "base_url": ZHIPU_BASE_URL, "model": other})
+                service.update({"enabled": True, "base_url": ZHIPU_BASE_URL, "model": other})  # noqa: B023 —— 回调为同步流式，且仅在当前迭代内被调用（已逐点审查）
                 return "旧测试已返回"
 
             probe.side_effect = change_connection

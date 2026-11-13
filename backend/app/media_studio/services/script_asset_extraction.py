@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from copy import deepcopy
 from typing import Any
 
 
@@ -274,85 +273,6 @@ def check_asset_coverage(result: dict[str, list[dict[str, Any]]], raw_text: str,
     return warnings
 
 
-def ground_asset_evidence(payload: Any, raw_text: str, analysis: dict[str, Any]) -> Any:
-    """Use an actual source paragraph when a model paraphrases its citation."""
-    grounded = deepcopy(payload)
-    if not isinstance(grounded, dict):
-        return grounded
-    source = _source_text(raw_text, analysis)
-    plain_source = _plain(source)
-    paragraphs = re.split(r"\n[ \t]*\n", source)
-    for group in ASSET_GROUPS:
-        for item in grounded.get(group) if isinstance(grounded.get(group), list) else []:
-            if not isinstance(item, dict) or not isinstance(item.get("name"), str):
-                continue
-            evidence = item.get("evidence")
-            if isinstance(evidence, str) and evidence.strip() and _plain(evidence) in plain_source:
-                continue
-            name = _plain(item["name"])
-            if not name:
-                continue
-            paragraph = _paragraph_for_name(name, paragraphs, group)
-            if paragraph:
-                item["evidence"] = paragraph
-    return grounded
-
-
-def normalize_extracted_assets(payload: Any, raw_text: str, analysis: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
-    if not isinstance(payload, dict):
-        raise ValueError("资产拆解结果格式不完整，请重试")
-    source = _plain(_source_text(raw_text, analysis))
-    result: dict[str, list[dict[str, Any]]] = {}
-    bad_names: list[str] = []
-    bad_evidence: list[str] = []
-    for group in ASSET_GROUPS:
-        items = payload.get(group)
-        if not isinstance(items, list) or len(items) > 150:
-            raise ValueError("资产拆解结果分类不完整，请重试")
-        normalized: dict[str, dict[str, Any]] = {}
-        for item in items:
-            if not isinstance(item, dict):
-                raise ValueError("资产拆解结果缺少有效条目，请重试")
-            name = item.get("name")
-            evidence = item.get("evidence")
-            description = item.get("description")
-            if not isinstance(name, str) or not 1 <= len(name.strip()) <= 80 or re.search(r"[。！？\r\n]", name):
-                bad_names.append(name.strip() if isinstance(name, str) else "未命名条目")
-                continue
-            evidence_text = evidence.strip() if isinstance(evidence, str) else ""
-            grounded_name = _grounded_name(_plain(name.strip()), evidence_text, source, group)
-            if not grounded_name:
-                bad_names.append(name.strip())
-                continue
-            if not evidence_text or _plain(evidence_text) not in source:
-                bad_evidence.append(name.strip())
-                continue
-            if not isinstance(description, str) or not description.strip() or len(description) > 10000:
-                raise ValueError(f"资产「{name.strip()}」缺少有效描述，请重试")
-            value = {"name": grounded_name, "description": description.strip(), "evidence": evidence_text,
-                     "visual_prompt": str(item.get("visual_prompt") or "")[:20000]}
-            if group == "characters":
-                value.update(role=str(item.get("role") or "剧本出场角色")[:64], fixed_props=[], shots_count=0)
-            elif group == "scenes":
-                value.update(type="剧本拍摄场景", elements=[], shots_count=0, related_shots=[])
-            else:
-                value.update(kind="剧本关键道具", related_character=str(item.get("related_character") or "场景公用")[:255], count=1)
-            normalized.setdefault(grounded_name, value)
-        result[group] = list(normalized.values())
-    if bad_names:
-        unique = list(dict.fromkeys(bad_names))
-        shown = "、".join(unique[:5])
-        suffix = f" 等 {len(unique)} 项" if len(unique) > 5 else ""
-        raise AssetGroundingError(f"资产拆解包含原文未出现的名称：{shown}{suffix}，请重试", names=unique)
-    if bad_evidence:
-        unique = list(dict.fromkeys(bad_evidence))
-        shown = "、".join(unique[:5])
-        suffix = f" 等 {len(unique)} 项" if len(unique) > 5 else ""
-        raise AssetGroundingError(f"资产「{shown}」缺少可核对的原文依据{suffix}，请重试", names=unique)
-    if not any(result.values()):
-        raise ValueError("未从原文提取到制作资产，请核对剧本后重试")
-    check_asset_coverage(result, raw_text)
-    return result
 
 
 def merge_extracted_assets(analysis: dict[str, Any], extracted: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:

@@ -16,6 +16,9 @@ from .models import JobStatus
 FAILED_SHOT_STATUSES = set(FAILED_TAKE_STATUSES)
 SUCCEEDED_SHOT_STATUSES = {JobStatus.SUCCEEDED.value, JobStatus.PARTIAL.value, "succeeded", "partial"}
 
+# 成片合成的兜底上限：正常整集合成远快于该值，只用于避免损坏输入让 ffmpeg 无限挂起。
+FFMPEG_EXPORT_TIMEOUT_SECONDS = 3600.0
+
 
 class DirectorExportError(ValueError):
     """Invalid export / TTS / mux request."""
@@ -84,10 +87,15 @@ class SystemFfmpegRunner:
         try:
             return subprocess.run(
                 command, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=FFMPEG_EXPORT_TIMEOUT_SECONDS,
             )
         except subprocess.CalledProcessError as error:
             detail = (error.stderr or error.stdout or str(error))[-800:]
             raise DirectorExportError(f"ffmpeg 合成失败：{detail}") from error
+        except subprocess.TimeoutExpired as error:
+            raise DirectorExportError(
+                f"ffmpeg 合成超时（超过 {FFMPEG_EXPORT_TIMEOUT_SECONDS / 60:.0f} 分钟），请重试。"
+            ) from error
         except FileNotFoundError as error:
             raise DirectorExportError("未找到 ffmpeg，请先安装并加入 PATH。") from error
 
@@ -100,8 +108,9 @@ class SystemFfmpegRunner:
                     "-of", "json", str(path),
                 ],
                 check=True, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=60,
             )
-        except (subprocess.CalledProcessError, FileNotFoundError):
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
             return 0.0
         try:
             payload = json.loads(completed.stdout or "{}")
@@ -228,5 +237,3 @@ def build_fcpxml(
         "  </library>\n"
         "</fcpxml>\n"
     )
-
-    return dest if dest.is_file() else None

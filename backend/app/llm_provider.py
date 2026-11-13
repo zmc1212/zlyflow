@@ -985,29 +985,6 @@ class LlmProviderService:
             tracker.finish({"questions": questions})
         return questions
 
-    def run_director_agent_step(
-        self,
-        recipe: dict[str, Any] | None,
-        *,
-        goal: str,
-        agent_id: str,
-        art_style_id: str | None = None,
-        skip_research: bool | None = None,
-        on_progress: Any = None,
-    ) -> dict[str, Any]:
-        from .director_agents import default_chat_fn, run_agent
-
-        client, model = self._chat_client()
-        return run_agent(
-            agent_id,
-            recipe or {},
-            goal=goal,
-            chat_fn=default_chat_fn(client, model),
-            art_style_id=art_style_id,
-            skip_research=skip_research,
-            on_progress=on_progress,
-        )
-
     def polish_director_h3_prompt(
         self,
         draft_prompt: str,
@@ -1048,26 +1025,6 @@ class LlmProviderService:
             timeout=LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS,
             stream=True,
             on_chunk=on_chunk,
-        ).strip()
-
-    def translate_director_shot_prompt(self, text: str) -> str:
-        """Translate a Chinese shot body into an official-format English H3 shot body."""
-        from .llm_minimax_skills import build_h3_prompt_translate_prompt
-
-        source = str(text or "").strip()
-        if not source:
-            raise LlmError("没有可翻译的镜头正文")
-        client, model = self._chat_client()
-        return client.chat_completion(
-            [
-                {"role": "system", "content": build_h3_prompt_translate_prompt()},
-                {"role": "user", "content": f"Translate this shot body to English:\n\n{source}"},
-            ],
-            model=model,
-            temperature=0.2,
-            max_tokens=4096,
-            timeout=LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS,
-            stream=False,
         ).strip()
 
     def fission_batch_scripts(

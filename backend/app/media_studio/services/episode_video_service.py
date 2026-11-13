@@ -2271,7 +2271,7 @@ class EpisodeVideoService:
                 payload["preparation"] = {"stage": "prompt", "beat_id": shot["beat_id"], "message": "正在整理生成指令"}
 
                 def on_status(_info: dict[str, Any]) -> None:
-                    cls._set_state(job_id, payload, "prompt_generation", 20 + index * 9 // max(1, len(shots)))
+                    cls._set_state(job_id, payload, "prompt_generation", 20 + index * 9 // max(1, len(shots)))  # noqa: B023 —— 回调为同步流式，且仅在当前迭代内被调用（已逐点审查）
 
                 on_status({})
                 try:
@@ -2387,7 +2387,7 @@ class EpisodeVideoService:
                 shot["uploaded_refs"] = uploaded_refs
 
             # 尾帧锚定（B2 gap_fill / B3 continue 共用同一原语）：抽尾帧 → 上传 → 注入区间首镜。
-            anchor_image_file = cls._prepare_anchor_frame(payload, comfy, generated_shots, subfolder)
+            cls._prepare_anchor_frame(payload, comfy, generated_shots, subfolder)
 
             if timeline_job:
                 result_url = cls._run_timeline_job(

@@ -137,7 +137,7 @@ class YuE2Client:
                      max_wait: float = YUE2_POLL_MAX_WAIT,
                      on_progress: Any | None = None) -> dict[str, Any]:
         """轮询直到 completed/failed，返回终态 MusicJob。on_progress(job) 用于汇报进度。"""
-        deadline = time.time() + max_wait
+        deadline = time.monotonic() + max_wait
         while True:
             time.sleep(poll_interval)
             job = self.get_job(job_id)
@@ -152,7 +152,7 @@ class YuE2Client:
             if status in FAILED_STATUSES:
                 message = str(job.get("message") or "").strip()
                 raise YuE2Error(f"YuE2 生成失败：{message or status}")
-            if time.time() >= deadline:
+            if time.monotonic() >= deadline:
                 raise YuE2Error(f"YuE2 生成超时（超过 {int(max_wait)}s）")
 
     # ------------------------------------------------------------------ #

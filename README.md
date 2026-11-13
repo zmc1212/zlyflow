@@ -1,5 +1,9 @@
 # ZLY AI Studio｜创作工作台
 
+## 2026-11-14：后端 50 轮专项优化（行为保持）
+
+对后端做了一轮不改变接口与界面的专项优化：ffmpeg/ffprobe 子进程补齐超时兜底（损坏媒体不再可能无限挂起任务，改为中文超时提示）；修复口型同步工作流非 turbo 档位在构图阶段崩溃、音乐聊天流式会话在更新返回空值时中断两个真实缺陷；修复 8 个测试文件的全局状态污染与 11 处 lifespan 单例泄漏，回收 184 个从未执行的测试，后端全量测试从 4 个失败修到 0 失败（1393 通过）；删除 17 个全仓零引用函数并新增 `backend/ruff.toml` lint 基线。接口、表结构、端口与前端全部零改动。实现、兼容性与回滚见[架构快照](docs/ARCHITECTURE.md)同日章节。
+
 ## 2026-11-13：CI/CD 平台层拆分至独立仓库 zly-ci
 
 Gitea 自动部署的**平台层**迁出到公司级仓库 `zly-ci`（Gitea 组织 `r` 下）：`ops/gitea/`（Gitea + act_runner 一键安装包 + `gitblit-migrate.sh` 迁移脚本）与 `docs/CI-CD-Gitea部署指南.md`，并新增 `template/` 项目黏合层样例。本项目只保留项目黏合层 `.gitea/workflows/deploy.yml` 与 `ops/deploy/{deploy,rollback}.sh`——Gitea Actions 只执行业务仓库内的 workflow，部署脚本按指南设计为每项目一份；`ops/sql/` 为业务数据脚本，不在拆分范围。两类仓库共享组织级 Secrets，新项目接入改用 zly-ci 的 template。用户可见行为无变化：推送 master、打 `v*` 标签或手动触发的自动部署链路不变，手工导 tar 链路继续保留。实现、验证与回滚见[架构快照](docs/ARCHITECTURE.md)同日章节。

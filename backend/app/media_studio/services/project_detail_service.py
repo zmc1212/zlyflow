@@ -1225,7 +1225,6 @@ class ProjectDetailService:
             )
         grs_model = (model_row["provider_model"] if model_row else None) or ASSET_IMAGE_DEFAULT_MODEL
         grs_profile = (model_row["profile"] if model_row else None) or ASSET_IMAGE_DEFAULT_PROFILE
-        model_display = (model_row["display_name"] if model_row else None) or grs_model
         extra = row.get("extra") or {}
         extra["source_references"] = normalize_source_references(extra)
         follow_source_photos = bool(source_reference_urls(extra))

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import shutil
 import subprocess
 import tempfile
@@ -22,6 +23,8 @@ from ..media_studio.services import smart_edit_service
 from ..media_studio.services.smart_edit_render import probe
 from .editing import EditingActions
 from .repository import AssistantConflict, AssistantNotFound, AssistantRepository, timestamp
+
+logger = logging.getLogger(__name__)
 
 _EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="assistant-transcription")
 ACTIVE = {"queued", "running"}
@@ -368,7 +371,7 @@ class MediaTranscription:
                 self._save(owner, ride, token, {"message": _text(error, 500) or "音频转写中断",
                                                 "finished_at": timestamp(), "run_token": None}, "failed")
             except Exception:
-                pass
+                logger.debug("音频转写失败状态写回失败（owner=%s）", owner, exc_info=True)
 
     def summary(self, owner: str, project: str, sequence: str) -> dict:
         record = self._existing(owner, project, sequence)
@@ -416,4 +419,5 @@ class MediaTranscription:
                     "finished_at": timestamp(),
                 }, status="failed")
             except Exception:
+                logger.debug("重启恢复时音频转写中断状态写回失败（record=%s）", row["id"], exc_info=True)
                 continue

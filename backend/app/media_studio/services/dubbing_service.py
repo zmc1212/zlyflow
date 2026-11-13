@@ -6,17 +6,14 @@ from typing import Any
 import requests
 
 from ...config import settings as workbench_settings
-from ...llm_client import LlmError
 from ...storage import JobStore
 from ...tts_provider import TtsProviderService
-from ..db import execute_sql, now_str, query_one, transaction_cursor
+from ..db import now_str, query_one, transaction_cursor
 from .dubbing_lines import (
     apply_line_patch,
     expand_episode_lines,
-    estimate_duration_sec,
     line_voice_asset,
     lines_by_beat,
-    normalize_line,
 )
 from .qiniu_service import QiniuService
 from ...voice_bank import parse_voice_bank_audio_url, read_voice_prompt

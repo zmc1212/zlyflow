@@ -21,6 +21,7 @@ Two pieces:
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import re
 from dataclasses import dataclass
@@ -34,6 +35,7 @@ TERMINAL_OPERATION_STATUSES = {"succeeded", "failed", "cancelled", "interrupted"
 MAX_FINISH_ITEMS = 200
 
 
+@functools.lru_cache(maxsize=256)
 def _field_pattern(name: str) -> re.Pattern[str]:
     return re.compile(r'"' + re.escape(name) + r'"\s*:\s*"')
 

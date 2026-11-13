@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -11,6 +12,8 @@ from ...llm_client import LlmError
 from ..db import execute_sql, now_str, query_all, query_one
 from .dubbing_lines import estimate_duration_sec
 from .dubbing_service import DubbingService, tts_provider_service
+
+logger = logging.getLogger(__name__)
 
 JOB_TYPE = "tts_generation"
 _EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tts-gen")
@@ -143,7 +146,7 @@ class TtsGenerationJobService:
                     error="服务重启时配音任务已中断，请重新生成。",
                 )
             except Exception:
-                pass
+                logger.debug("重启恢复时标记配音任务失败状态未写回", exc_info=True)
         cls.kick()
 
     @classmethod
@@ -265,7 +268,7 @@ class TtsGenerationJobService:
                         project_id, episode_id, line_ids, status="failed", job_id=job_id, error=str(exc)[:200],
                     )
                 except Exception:
-                    pass
+                    logger.debug("配音行失败状态写回失败（job=%s）", job_id, exc_info=True)
         finally:
             with _ACTIVE_LOCK:
                 _ACTIVE.discard(job_id)

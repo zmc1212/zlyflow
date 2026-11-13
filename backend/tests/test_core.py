@@ -13,6 +13,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import local_video_studio as legacy
 
+# 这些用例依赖仓库同级目录「配置文件+工作流」下的本地工作流 JSON（见 local_video_studio.WORKFLOW_DIR）。
+# 机器上没有这套文件时跳过，而不是让整个套件挂红。
+LEGACY_WORKFLOW_FIXTURES_AVAILABLE = all(
+    path.exists()
+    for path in (legacy.FLUX_WORKFLOW_PATH, legacy.LTX_WORKFLOW_PATH, legacy.TEXT_TO_IMAGE_WORKFLOW_PATH)
+)
+
 from backend.app.auth import AuthStore, LastSuperAdminError, csrf_token, validate_password, verify_password
 from backend.app.config import Settings
 from backend.app.models import JobMode, JobStatus
@@ -22,6 +29,7 @@ from backend.app import comfy_service as comfy_service_module
 from backend.app.minimax_h3_action_workflow import build_minimax_h3_action_workflow
 from backend.app.minimax_h3_dual_accel_workflow import build_minimax_h3_dual_accel_workflow
 from backend.app.minimax_h3_lightx2v_workflow import build_minimax_h3_lightx2v_workflow
+from backend.app.minimax_h3_lipsync_workflow import build_minimax_h3_lipsync_workflow
 from backend.app.minimax_h3_workflow import build_minimax_h3_workflow
 from backend.app.minimax_h3_t8_workflow import build_minimax_h3_t8_workflow
 from backend.app.storage import JobStore
@@ -44,6 +52,7 @@ from backend.app.workflow_registry import (
     validate_references, workflow_for,
 )
 from backend.app import workflow_registry as registry
+from backend.tests.app_state_guard import isolated_lifespan_state
 
 
 class WorkflowTests(unittest.TestCase):
@@ -65,6 +74,7 @@ class WorkflowTests(unittest.TestCase):
         with self.assertRaises(legacy.ComfyError):
             resolve_minimax_picture_prompt("使用 <Picture 3>", 1)
 
+    @unittest.skipUnless(LEGACY_WORKFLOW_FIXTURES_AVAILABLE, "本机缺少「配置文件+工作流」工作流 JSON，跳过")
     def test_image_workflow_replaces_prompt_size_and_seed(self) -> None:
         workflow = legacy.build_text_to_image_workflow("测试提示词", "不要水印", "横版 1280 x 720")
         self.assertEqual(workflow[legacy.T2I_PROMPT_NODE]["inputs"]["text"], "测试提示词")
@@ -73,6 +83,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(workflow[legacy.T2I_LATENT_NODE]["inputs"]["height"], 720)
         self.assertIsInstance(workflow[legacy.T2I_SEED_NODE]["inputs"]["seed"], int)
 
+    @unittest.skipUnless(LEGACY_WORKFLOW_FIXTURES_AVAILABLE, "本机缺少「配置文件+工作流」工作流 JSON，跳过")
     def test_video_workflows_preserve_output_nodes(self) -> None:
         flux = legacy.build_flux_workflow(("a.png", "b.png", "c.png"), "首帧")
         ltx = legacy.build_ltx_workflow("frame.png", "运镜")
@@ -135,6 +146,33 @@ class WorkflowTests(unittest.TestCase):
         options = normalize_options(JobMode.MINIMAX_H3_R2V, {"aspect_ratio": "2:3", "quality": "0.98", "duration": 5})
         self.assertEqual(options["aspect_ratio"], "2:3")
         self.assertEqual(h3_dimensions(options), (832, 1248))
+
+    def test_minimax_h3_lipsync_builds_without_turbo(self) -> None:
+        # 回归：非 turbo 路径曾引用未导入的 H3_REF2VA_PRUNED 导致 NameError。
+        # 注册表会归一并预置 unet_name/use_turbo；此处覆盖为 turbo 关闭以覆盖推导分支。
+        options = normalize_options(JobMode.MINIMAX_H3_LIP_SYNC, {})
+        options["unet_name"] = None
+        options["use_turbo"] = False
+        workflow = build_minimax_h3_lipsync_workflow(
+            "让人物口型贴合配音。",
+            ["source.mp4", "voice.wav"],
+            options,
+        )
+        self.assertEqual(workflow["1"]["inputs"]["unet_name"], H3_REF2VA_PRUNED)
+        self.assertNotIn(
+            "LoraLoaderBypassModelOnly", {node["class_type"] for node in workflow.values()},
+        )
+        turbo = normalize_options(JobMode.MINIMAX_H3_LIP_SYNC, {})
+        turbo["unet_name"] = None
+        turbo["use_turbo"] = True
+        turbo_graph = build_minimax_h3_lipsync_workflow(
+            "让人物口型贴合配音。",
+            ["source.mp4", "voice.wav"],
+            turbo,
+        )
+        self.assertEqual(turbo_graph["1"]["inputs"]["unet_name"], H3_REF2VA_FULL)
+        self.assertEqual(turbo_graph["19"]["inputs"]["model"], ["16", 0])
+        self.assertEqual(turbo_graph["16"]["class_type"], "LoraLoaderBypassModelOnly")
         with self.assertRaises(ValueError):
             normalize_options(JobMode.MINIMAX_H3_R2V, {"aspect_ratio": "2:0"})
         with self.assertRaises(ValueError):
@@ -1091,7 +1129,7 @@ class StoreTests(unittest.TestCase):
             main_module.settings = Settings(workspace_dir=root, data_dir_override=str(root / "data"))
             main_module.JobWorker = WorkerStub
             try:
-                with TestClient(main_module.app) as client:
+                with isolated_lifespan_state(main_module.app), TestClient(main_module.app) as client:
                     user = main_module.app.state.auth_store.create_user(
                         "negative-prompt-test", "负面提示词测试", "secure-pass-123", UserRole.SUPER_ADMIN, must_change_password=False,
                     )
@@ -1141,7 +1179,7 @@ class StoreTests(unittest.TestCase):
             main_module.settings = Settings(workspace_dir=root, data_dir_override=str(root / "data"))
             main_module.JobWorker = WorkerStub
             try:
-                with TestClient(main_module.app) as client:
+                with isolated_lifespan_state(main_module.app), TestClient(main_module.app) as client:
                     user = main_module.app.state.auth_store.create_user(
                         "ref-residue-test", "参考图残留测试", "secure-pass-123", UserRole.SUPER_ADMIN, must_change_password=False,
                     )
@@ -1195,7 +1233,7 @@ class StoreTests(unittest.TestCase):
             main_module.settings = Settings(workspace_dir=root, data_dir_override=str(root / "data"))
             main_module.JobWorker = WorkerStub
             try:
-                with TestClient(main_module.app) as client:
+                with isolated_lifespan_state(main_module.app), TestClient(main_module.app) as client:
                     user = main_module.app.state.auth_store.create_user(
                         "refine-confirm-test", "确认二采测试", "secure-pass-123", UserRole.SUPER_ADMIN, must_change_password=False,
                     )
@@ -1573,7 +1611,7 @@ class AuthenticationTests(unittest.TestCase):
             with main_module.login_failures_lock:
                 main_module.login_failures.clear()
             try:
-                with TestClient(main_module.app) as client:
+                with isolated_lifespan_state(main_module.app), TestClient(main_module.app) as client:
                     admin = main_module.app.state.auth_store.create_user(
                         "unlock-admin", "超管", "secure-pass-123", UserRole.SUPER_ADMIN, must_change_password=False,
                     )

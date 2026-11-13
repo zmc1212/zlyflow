@@ -4,6 +4,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import math
 import re
 import threading
@@ -27,6 +28,8 @@ from .zhipu_catalog import (
     zhipu_model_free,
     zhipu_requires_thinking,
 )
+
+logger = logging.getLogger(__name__)
 
 LLM_CONNECT_TIMEOUT_SECONDS = 20.0
 LLM_DIRECTOR_CHAT_TIMEOUT_SECONDS = 300.0
@@ -1007,7 +1010,7 @@ class OpenAICompatibleClient:
                 if isinstance(data, dict) and "data" in data and isinstance(data["data"], list):
                     return [str(item["id"]) for item in data["data"] if isinstance(item, dict) and "id" in item]
         except Exception:
-            pass
+            logger.debug("拉取模型列表失败：%s", url, exc_info=True)
         return []
 
     def list_model_catalog(self, *, free_only: bool = False, timeout: float = 15.0) -> dict[str, Any]:
@@ -2164,7 +2167,7 @@ class OpenAICompatibleClient:
         import json
         try:
             parsed = json.loads(clean_text)
-        except Exception as err:
+        except Exception:
             # 容错降级：如果大模型没有返回完全合法的 JSON，生成兜底结构
             title_match = clean_script.splitlines()[0][:20] if clean_script else "AI 导演分镜项目"
             return {

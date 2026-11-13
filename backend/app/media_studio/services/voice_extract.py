@@ -237,9 +237,12 @@ def extract_wav_bytes(video_url: str, start_sec: float, end_sec: float) -> bytes
                 text=True,
                 encoding="utf-8",
                 errors="replace",
+                timeout=300,
             )
         except FileNotFoundError as error:
             raise ValueError("未找到 ffmpeg，无法从成片提取参考音") from error
+        except subprocess.TimeoutExpired as error:
+            raise ValueError("从成片提取参考音超时，请重试") from error
         except subprocess.CalledProcessError as error:
             stderr = error.stderr or error.stdout or str(error)
             if _looks_like_missing_audio(stderr, wav_path):

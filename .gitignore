@@ -46,6 +46,7 @@ __pycache__/
 venv/
 env/
 .pytest_cache/
+.ruff_cache/
 .coverage
 htmlcov/
 
@@ -223,6 +224,10 @@ docs/design-ref-director/live-flow-20261103/workshop-queued.png
 
 # v006 implementation baseline and its focused regression test
 !backend/tests/test_canvas_character_design.py
+!backend/tests/test_app_state_guard.py
+!backend/tests/test_media_studio_h3_video.py
+!backend/tests/test_media_studio_character_content.py
+!backend/tests/test_media_studio_storyboard_images.py
 !docs/design-ref-director/jimeng-asset-canvas-20261105/
 docs/design-ref-director/jimeng-asset-canvas-20261105/*
 !docs/design-ref-director/jimeng-asset-canvas-20261105/DESIGN.md

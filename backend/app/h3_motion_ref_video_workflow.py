@@ -14,7 +14,6 @@ from typing import Any
 
 from .h3_motion_transfer_workflow import (
     MOTION_TRANSFER_FPS,
-    resolve_motion_transfer_dimensions,
     snap_h3_length,
     snap_h3_size,
 )

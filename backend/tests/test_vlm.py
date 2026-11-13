@@ -21,6 +21,7 @@ from backend.app.llm_client import (
     resolve_openai_bearer_token,
 )
 from backend.app.vlm_provider import VLM_NOT_VISION_MESSAGE, VLM_UNAVAILABLE_MESSAGE, VlmProviderService
+from backend.tests.app_state_guard import restore_app_state, snapshot_app_state
 
 
 class ZhipuAuthTests(unittest.TestCase):
@@ -73,6 +74,7 @@ class VlmProviderEndpointTests(unittest.TestCase):
         self.job_store = JobStore(self.db_path)
         self.llm_provider = LlmProviderService(self.job_store, self.credential_key)
         self.vlm_provider = VlmProviderService(self.job_store, self.credential_key)
+        self._app_state = snapshot_app_state(app)
         app.state.auth_store = self.auth_store
         app.state.store = self.job_store
         app.state.llm_provider = self.llm_provider
@@ -88,6 +90,7 @@ class VlmProviderEndpointTests(unittest.TestCase):
         self.client = TestClient(app)
 
     def tearDown(self) -> None:
+        restore_app_state(app, self._app_state)
         self.temp_dir.cleanup()
 
     def _admin_headers(self) -> dict[str, str]:

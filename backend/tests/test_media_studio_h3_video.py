@@ -9,6 +9,7 @@ import json
 import re
 import unittest
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import Mock, patch
 
 import websocket
@@ -162,8 +163,11 @@ class H3PromptTests(unittest.TestCase):
             {"beat_id": "beat-1", "sequence": 1, "speaker": "沈砚", "dialogue": "第一句。"},
             {"beat_id": "beat-2", "sequence": 2, "speaker": "沈砚", "dialogue": "第二句。"},
         ]
-        with patch("backend.app.media_studio.services.h3_prompt_builder.requests.post") as post:
+        # h3_prompt_builder 已不再直接发 HTTP；守卫当前真实的 LLM 调用面。
+        with patch("backend.app.llm_client.OpenAICompatibleClient.chat_completion") as chat, \
+                patch("backend.app.llm_client.requests.post") as post:
             H3PromptBuilder.build_prompts(shots)
+        chat.assert_not_called()
         post.assert_not_called()
 
     def test_normalizes_compact_sections_and_preserves_mandatory_literals(self):

@@ -191,6 +191,7 @@ class JobWorker:
             except asyncio.CancelledError:
                 raise
             except Exception:
+                logger.warning("任务恢复巡检失败，%d 秒后重试", self.WATCH_INTERVAL_SECONDS, exc_info=True)
                 continue
 
     def enqueue_generation(self, generation_item_id: str) -> None:
@@ -819,7 +820,7 @@ class JobWorker:
                     if self._generation_has_output(generation_item_id):
                         return
                     if status in FAILED_STATUSES:
-                        raise GrsError(GrsClient.format_failure(status, message))
+                        raise GrsError(GrsClient.format_failure(status, message)) from None
                     raise
             if status in FAILED_STATUSES:
                 raise GrsError(GrsClient.format_failure(status, message))

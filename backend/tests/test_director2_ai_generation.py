@@ -142,7 +142,6 @@ class Director2AiActiveJobTests(unittest.TestCase):
             self.assertIsNone(service.get_active("project-1"))
 
     def test_recover_orphaned_jobs_marks_active_rows_failed(self) -> None:
-        service = AiGenerationService(None)
         row = self._active_row()
         with patch("backend.app.media_studio.services.ai_generation_service.query_all", return_value=[row]):
             with patch("backend.app.media_studio.services.ai_generation_service.execute_sql") as execute:

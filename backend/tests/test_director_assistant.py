@@ -1216,7 +1216,6 @@ class AssistantTests(unittest.TestCase):
         self.assertEqual(self.repo.get("alice", run["id"])["status"], "succeeded")
         self.assertEqual(self.llm.assistant_chat.call_count, 1)
         messages = self.llm.assistant_chat.call_args.args[0]
-        recipe_instructions = run["production_recipe"]["stages"]["script"]
         self.assertTrue(any("工作台已读取本轮剧本制作规范" in message["content"] for message in messages))
         self.assertTrue(any(
             "visual_lock=photoreal-live-action-short-drama" in message["content"]

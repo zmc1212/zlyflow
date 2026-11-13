@@ -302,7 +302,6 @@ class TtsProviderService:
     def voice(self, config: dict[str, Any] | None = None) -> str:
         settings = config or self.store.get_tts_settings()
         stored = str(settings.get("voice") or DEFAULT_TTS_VOICE).strip() or DEFAULT_TTS_VOICE
-        effective = self._effective_config(settings)
         return resolve_tts_voice(
             stored,
             base_url=self.base_url(settings),
@@ -316,15 +315,6 @@ class TtsProviderService:
             model=self.model(effective),
         )
         return voices_for_provider(provider)
-
-    def resolve_voice(self, voice: str | None, *, gender: str = "") -> str:
-        effective = self._effective_config()
-        return resolve_tts_voice(
-            voice,
-            gender=gender,
-            base_url=self.base_url(effective),
-            model=self.model(effective),
-        )
 
     def availability(self) -> tuple[bool, str | None]:
         config = self.store.get_tts_settings()

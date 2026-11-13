@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -14,6 +15,8 @@ from ..media_studio.services.smart_edit_render import probe
 from ..video_analysis import Segment, detect_scenes, extract_keyframes
 from .editing import EditingActions
 from .repository import AssistantConflict, AssistantNotFound, AssistantRepository, timestamp
+
+logger = logging.getLogger(__name__)
 
 _EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="assistant-understanding")
 ACTIVE = {"queued", "running"}
@@ -450,7 +453,7 @@ class MediaUnderstanding:
                 self._save(owner, ride, token, {"message": _text(error, 500) or "视频理解中断",
                                                 "finished_at": timestamp(), "run_token": None}, "failed")
             except Exception:
-                pass
+                logger.debug("视频理解失败状态写回失败（owner=%s）", owner, exc_info=True)
 
     def summary(self, owner: str, project: str, sequence: str, *, limit: int = 12) -> dict:
         record = self._existing(owner, project, sequence)
@@ -514,4 +517,5 @@ class MediaUnderstanding:
                     "finished_at": timestamp(),
                 }, status="failed")
             except Exception:
+                logger.debug("重启恢复时视频理解中断状态写回失败（record=%s）", row["id"], exc_info=True)
                 continue

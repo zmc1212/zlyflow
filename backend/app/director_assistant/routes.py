@@ -86,7 +86,7 @@ def register_assistant_routes(app: Any, *, current_user: Callable, mutating_user
         try:
             cursor = max(0, since, int(request.headers.get("last-event-id") or 0))
         except ValueError:
-            raise HTTPException(400, "事件序号无效")
+            raise HTTPException(400, "事件序号无效") from None
 
         async def stream():
             nonlocal cursor

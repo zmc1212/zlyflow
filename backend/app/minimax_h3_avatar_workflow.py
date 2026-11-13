@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .minimax_h3_workflow import OFFICIAL_RESERVED_VRAM_GB
 from .workflow_registry import (
     h3_diffusion_unet,
     h3_lora_loader_class,
@@ -22,8 +23,6 @@ CONDITIONING_NODE = "3"
 OUTPUT_NODE = "14"
 # 16GB cards OOM in SamplerCustomAdvanced unless ComfyUI keeps headroom and
 # unloads CLIP/VAE before the INT8 QKV projection (~2.5 GiB extra).
-# 与 minimax_h3_workflow.OFFICIAL_RESERVED_VRAM_GB 保持一致。
-OFFICIAL_RESERVED_VRAM_GB = 3.0
 
 
 def avatar_prompt(prompt: str) -> str:

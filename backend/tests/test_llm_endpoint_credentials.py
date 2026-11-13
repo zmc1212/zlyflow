@@ -3,11 +3,10 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from cryptography.fernet import Fernet
 
-from backend.app.grs_provider import CredentialManager
 from backend.app.llm_provider import DEFAULT_MODELSCOPE_BASE_URL, DEFAULT_MODELSCOPE_MODEL, LlmProviderService
 from backend.app.storage import JobStore
 

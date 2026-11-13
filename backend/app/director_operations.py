@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from pathlib import Path
 from typing import Any
@@ -17,7 +18,6 @@ from .director_recipe import (
     reset_recipe_following,
 )
 from .director_replication import (
-    find_replication_shot,
     new_replication_shot_id,
     normalize_replication_payload,
     save_replication_artifact,
@@ -26,7 +26,9 @@ from .director_replication import (
 from .director_stream import DirectorOperationEventBus, terminal_event_for_status
 from .llm_client import LlmError, LlmTemporaryError
 from .llm_minimax_skills import STAGE_CLARIFY_AGENT_IDS
-from .storage import DirectorProjectConflictError, JobStore
+from .storage import JobStore
+
+logger = logging.getLogger(__name__)
 
 
 class DirectorOperationCancelled(RuntimeError):
@@ -679,7 +681,7 @@ class DirectorOperationService:
         try:
             comfy.free_resources()
         except Exception:
-            pass
+            logger.debug("ComfyUI 释放显存失败（不影响拉片结果）", exc_info=True)
         return {"shot_count": len(shots), "subject_count": len(payload["subjects"]), "depth_url": depth_url}
 
     async def _run_replicate(self, operation: dict[str, Any]) -> dict[str, Any]:

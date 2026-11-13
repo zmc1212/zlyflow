@@ -23,14 +23,10 @@ from backend.app.cloud_video import (
     with_cloud_video_billing_caution,
 )
 from backend.app.cloud_video.base import CloudTaskSnapshot
-from backend.app.cloud_video.hailuo import HailuoClient
-from backend.app.cloud_video.http import CloudVideoHttpClient
-from backend.app.cloud_video.jimeng import JimengClient
-from backend.app.cloud_video.kling import KlingClient, kling_jwt
+from backend.app.cloud_video.kling import kling_jwt
 from backend.app.cloud_video.scnet import ScnetClient
 from backend.app.cloud_video_service import CloudVideoService
 from backend.app.models import JobStatus
-from backend.app.resource_storage import StoredResource
 from backend.app.storage import JobStore
 from backend.app.workflow_registry import (
     CLOUD_VIDEO_WORKFLOW_IDS,

@@ -886,7 +886,7 @@ def render_recipe_shots(
             try:
                 def prompt_progress(chunk: str) -> None:
                     if on_message:
-                        shot_prefix = f"镜头 {matched}/{len(wanted)}：" if wanted and len(wanted) > 1 else ""
+                        shot_prefix = f"镜头 {matched}/{len(wanted)}：" if wanted and len(wanted) > 1 else ""  # noqa: B023 —— 回调为同步流式，且仅在当前迭代内被调用（已逐点审查）
                         on_message(f"正在润色{shot_prefix}提示词…（{len(chunk)} 字）")
                         
                 prompt_mode = h3_prompt_mode(submission.get("plan") or {})

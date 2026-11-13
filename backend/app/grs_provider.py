@@ -9,7 +9,7 @@ from cryptography.fernet import Fernet, InvalidToken
 
 from .grs_catalog import (
     GRS_PROFILE_GPT_IMAGE_2, GRS_PROFILE_GPT_IMAGE_2_VIP, GRS_PROFILES, PROFILE_LABELS,
-    effective_description, guess_profile, is_image_model_id, platform_entry, validate_provider_model,
+    effective_description, is_image_model_id, platform_entry, validate_provider_model,
 )
 from .grs_client import GrsClient, GrsError
 from .grs_composite import DEFAULT_COMPOSITE_PROVIDER_MODEL

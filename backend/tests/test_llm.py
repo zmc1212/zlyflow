@@ -35,6 +35,7 @@ from backend.app.vlm_provider import VlmProviderService
 from backend.app.main import app, session_cookie_scheme
 from backend.app.models import UserRole
 from backend.app.storage import JobStore
+from backend.tests.app_state_guard import restore_app_state, snapshot_app_state
 
 
 class ChatCompletionThinkingTests(unittest.TestCase):
@@ -999,6 +1000,7 @@ class LLMAppEndpointsTests(unittest.TestCase):
         self.llm_provider = LlmProviderService(self.job_store, self.credential_key)
         self.vlm_provider = VlmProviderService(self.job_store, self.credential_key)
 
+        self._app_state = snapshot_app_state(app)
         app.state.auth_store = self.auth_store
         app.state.store = self.job_store
         app.state.llm_provider = self.llm_provider
@@ -1012,6 +1014,7 @@ class LLMAppEndpointsTests(unittest.TestCase):
         self.client = TestClient(app)
 
     def tearDown(self) -> None:
+        restore_app_state(app, self._app_state)
         self.temp_dir.cleanup()
 
     def test_admin_config_permissions(self) -> None:

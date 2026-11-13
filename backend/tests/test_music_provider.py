@@ -16,6 +16,7 @@ from backend.app.music_lyrics import align_lyric_words, apply_lrc, lyric_text_li
 from backend.app.music_yue2_client import YuE2Client, YuE2Error
 from backend.app.resource_storage import StoredResource
 from backend.app.storage import JobStore
+from backend.tests.app_state_guard import restore_app_state, snapshot_app_state
 
 
 def _fernet_key() -> str:
@@ -379,6 +380,7 @@ class MusicEndpointTests(unittest.TestCase):
         self.auth_store = AuthStore(self.db_path)
         self.job_store = JobStore(self.db_path)
         MusicJobService.configure(self.job_store, _fernet_key(), MagicMock())
+        self._app_state = snapshot_app_state(app)
         app.state.auth_store = self.auth_store
         app.state.store = self.job_store
         app.state.music_jobs = MusicJobService
@@ -393,6 +395,7 @@ class MusicEndpointTests(unittest.TestCase):
         self.client = TestClient(app)
 
     def tearDown(self) -> None:
+        restore_app_state(app, self._app_state)
         MusicJobService.configure(None, None, None)
         self.temp_dir.cleanup()
 

@@ -7,7 +7,7 @@ import zipfile
 from pathlib import PurePosixPath
 
 from ..skill_packs.yaml_util import parse_yaml
-from .repository import AssistantConflict, AssistantRepository, identifier
+from .repository import AssistantConflict, AssistantRepository
 
 
 BUILTINS = [

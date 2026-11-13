@@ -521,7 +521,7 @@ class AssistantService:
                     if match:
                         from ..director_stream import _decode_partial_string
                         preview, _ = _decode_partial_string(raw_buffer, match.end())
-                    elif native_active:
+                    elif native_active:  # noqa: B023 —— 回调为同步流式，且仅在当前迭代内被调用（已逐点审查）
                         # Native tool turns stream the answer as plain Markdown.
                         preview = raw_buffer
                     else:
@@ -529,10 +529,10 @@ class AssistantService:
                     if preview is not None:
                         preview = self._strip_history_echo(preview)
                     if preview is not None and preview != last_preview and (time.monotonic() - last_flush > .3 or len(preview) - len(last_preview) > 300):
-                        parts[text_index]["text"] = preview
+                        parts[text_index]["text"] = preview  # noqa: B023 —— 回调为同步流式，且仅在当前迭代内被调用（已逐点审查）
                         last_preview, last_flush = preview, time.monotonic()
                         self._persist_parts(owner, run, parts)
-                        self.repo.emit(owner, run_id, "text", {"index": text_index, "text": preview})
+                        self.repo.emit(owner, run_id, "text", {"index": text_index, "text": preview})  # noqa: B023 —— 回调为同步流式，且仅在当前迭代内被调用（已逐点审查）
 
                 turn = self._call_model(
                     messages, native_messages, run, on_chunk,
@@ -610,7 +610,7 @@ class AssistantService:
                             script_repair_attempted = True
                         except ValueError:
                             parts[text_index]["text"] = "本轮结果尚未整理成可操作的草稿，未创建或提交新的生成任务。"
-                            raise repair_error
+                            raise repair_error from None
                 parts[text_index]["text"] = self._strip_history_echo(envelope.text)
                 if (script_requested or script_draft_blocked) and not script_draft_created and not envelope.tool_calls and not envelope.question:
                     self._check(owner, run_id)

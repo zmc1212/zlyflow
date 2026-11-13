@@ -13,6 +13,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+# 拉片处理的兜底上限：正常分镜/抽帧远快于该值，只用于避免损坏媒体让 ffmpeg 无限挂起。
+VIDEO_ANALYSIS_TIMEOUT_SECONDS = 1800.0
+
 
 class VideoAnalysisError(RuntimeError):
     """ffmpeg 缺失、视频不可读或分镜失败。"""
@@ -57,9 +60,14 @@ def _run(command: list[str], *, merge_stderr: bool = False) -> str:
     try:
         completed = subprocess.run(
             command, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=VIDEO_ANALYSIS_TIMEOUT_SECONDS,
         )
     except FileNotFoundError as error:
         raise VideoAnalysisError("未找到 ffmpeg/ffprobe，请先安装并加入 PATH。") from error
+    except subprocess.TimeoutExpired as error:
+        raise VideoAnalysisError(
+            f"ffmpeg 处理超时（超过 {VIDEO_ANALYSIS_TIMEOUT_SECONDS:.0f} 秒），请重试或换更短的媒体。"
+        ) from error
     except subprocess.CalledProcessError as error:
         detail = (error.stderr or error.stdout or str(error))[-600:]
         raise VideoAnalysisError(f"ffmpeg 处理失败：{detail}") from error

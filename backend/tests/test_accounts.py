@@ -12,12 +12,14 @@ from fastapi.testclient import TestClient
 from backend.app.auth import AuthStore, csrf_token
 from backend.app.main import SESSION_COOKIE, app
 from backend.app.models import UserRole
+from backend.tests.app_state_guard import restore_app_state, snapshot_app_state
 
 
 class AccountNameEndpointTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.auth_store = AuthStore(Path(self.temp_dir.name) / "accounts.db")
+        self._app_state = snapshot_app_state(app)
         app.state.auth_store = self.auth_store
         self.super_admin = self.auth_store.create_user(
             "root", "超管", "password123456", UserRole.SUPER_ADMIN, must_change_password=False,
@@ -33,6 +35,7 @@ class AccountNameEndpointTests(unittest.TestCase):
         self.client = TestClient(app)
 
     def tearDown(self) -> None:
+        restore_app_state(app, self._app_state)
         self.temp_dir.cleanup()
 
     def login_as(self, token: str) -> None:

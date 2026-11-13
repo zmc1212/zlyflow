@@ -180,7 +180,11 @@ class LocalMediaTests(unittest.TestCase):
             self.assertEqual([asset["name"] for asset in result["assets"]], ["U02.mp4"])
             self.assertEqual(result["assets"][0]["kind"], "video")
             self.assertIn("/api/local-media/", result["assets"][0]["url"])
-            self.assertEqual(result["assets"][0]["local_path"], str(folder / "U02.mp4"))
+            # macOS 上 /var 是 /private/var 的符号链接，两侧都按真实路径解析后再比较。
+            self.assertEqual(
+                Path(result["assets"][0]["local_path"]).resolve(),
+                (folder / "U02.mp4").resolve(),
+            )
 
 
 class SmartEditPersistenceTests(unittest.TestCase):

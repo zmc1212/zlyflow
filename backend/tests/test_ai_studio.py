@@ -34,6 +34,7 @@ from backend.app.storage import JobStore
 from backend.app.workflow_registry import (
     IMAGE_WORKFLOWS, grs_request_size, is_image_workflow, normalize_options, validate_references, workflow_for,
 )
+from backend.tests.app_state_guard import isolated_lifespan_state
 
 
 class FakeResponse:
@@ -692,7 +693,7 @@ class JobEndpointTests(unittest.TestCase):
             main_module.settings = Settings(workspace_dir=root, data_dir_override=str(root / "data"))
             main_module.JobWorker = WorkerStub
             try:
-                with TestClient(main_module.app) as client:
+                with isolated_lifespan_state(main_module.app), TestClient(main_module.app) as client:
                     user = main_module.app.state.auth_store.create_user(
                         "delete-test", "删除测试", "secure-pass-123", UserRole.SUPER_ADMIN, must_change_password=False,
                     )
@@ -741,7 +742,7 @@ class JobEndpointTests(unittest.TestCase):
             main_module.settings = Settings(workspace_dir=root, data_dir_override=str(root / "data"))
             main_module.JobWorker = WorkerStub
             try:
-                with TestClient(main_module.app) as client:
+                with isolated_lifespan_state(main_module.app), TestClient(main_module.app) as client:
                     user = main_module.app.state.auth_store.create_user(
                         "cancel-test", "停止测试", "secure-pass-123", UserRole.SUPER_ADMIN, must_change_password=False,
                     )
@@ -794,7 +795,7 @@ class JobEndpointTests(unittest.TestCase):
             main_module.settings = Settings(workspace_dir=root, data_dir_override=str(root / "data"))
             main_module.JobWorker = WorkerStub
             try:
-                with TestClient(main_module.app) as client:
+                with isolated_lifespan_state(main_module.app), TestClient(main_module.app) as client:
                     admin = main_module.app.state.auth_store.create_user(
                         "filter-admin", "筛选管理员", "secure-pass-123", UserRole.SUPER_ADMIN, must_change_password=False,
                     )
@@ -854,7 +855,7 @@ class JobEndpointTests(unittest.TestCase):
             main_module.settings = Settings(workspace_dir=root, data_dir_override=str(root / "data"))
             main_module.JobWorker = WorkerStub
             try:
-                with TestClient(main_module.app) as client:
+                with isolated_lifespan_state(main_module.app), TestClient(main_module.app) as client:
                     user = main_module.app.state.auth_store.create_user(
                         "ref-preview", "参考图预览", "secure-pass-123", UserRole.SUPER_ADMIN, must_change_password=False,
                     )
@@ -1537,7 +1538,7 @@ class FrontendSpaFallbackTests(unittest.TestCase):
             main_module.settings = Settings(workspace_dir=root, data_dir_override=str(root / "data"))
             main_module.JobWorker = WorkerStub
             try:
-                with TestClient(main_module.app) as client:
+                with isolated_lifespan_state(main_module.app), TestClient(main_module.app) as client:
                     spa = client.get("/generate/video")
                     self.assertEqual(spa.status_code, 200)
                     self.assertIn("text/html", spa.headers.get("content-type", ""))

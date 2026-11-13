@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
-from typing import Annotated, Any
+from typing import Annotated
 from urllib.parse import urlencode, urlsplit
 
 import requests
@@ -2618,7 +2618,7 @@ def director_art_style_preview(style_id: str, user: Annotated[dict, Depends(curr
     try:
         path = ensure_art_style_preview(style_id)
     except KeyError:
-        raise HTTPException(status_code=404, detail="画风不存在")
+        raise HTTPException(status_code=404, detail="画风不存在") from None
     except ArtStyleCatalogError as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
     except OSError as error:
@@ -2647,7 +2647,7 @@ def builtin_voice_audio(preset_id: Annotated[str, ApiPath(description="内置声
     try:
         path = ensure_voice_prompt(preset_id)
     except KeyError:
-        raise HTTPException(status_code=404, detail="内置声线不存在")
+        raise HTTPException(status_code=404, detail="内置声线不存在") from None
     except VoiceBankError as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
     except OSError as error:
@@ -3208,17 +3208,6 @@ def download_director_library_asset_image(
     return FileResponse(path, media_type=media)
 
 
-def _persist_director_recipe(project_id: str, recipe: dict[str, Any], *, source_script: str | None = None) -> dict:
-    title = (recipe.get("script") or {}).get("title") or None
-    summary = (recipe.get("script") or {}).get("summary") or None
-    return app.state.store.update_director_project(
-        project_id,
-        title=title,
-        summary=summary,
-        source_script=source_script,
-        payload=recipe,
-    )
-
 
 async def _enqueue_job_ids(job_ids: list[str]) -> None:
     for job_id in job_ids:
@@ -3333,7 +3322,7 @@ async def upload_replication_source_video(
         Form(ge=1, description="客户端最后读取的创作内容版本；不匹配时返回 409。"),
     ] = None,
 ) -> dict:
-    record = replication_project_or_404(app.state.store, project_id, user)
+    replication_project_or_404(app.state.store, project_id, user)
     suffix = validate_source_video(file.filename or "", file.size)
     staging = settings.staging_dir / f"replication-source-{secrets.token_urlsafe(6)}{suffix}"
     staging.parent.mkdir(parents=True, exist_ok=True)
@@ -3452,7 +3441,7 @@ async def create_replication_operation(
     request: Request,
     user: Annotated[dict, Depends(mutating_user)],
 ) -> dict:
-    record = replication_project_or_404(app.state.store, project_id, user)
+    replication_project_or_404(app.state.store, project_id, user)
     if payload.kind not in {"analyze_reference_video", "replicate_shots"}:
         raise HTTPException(status_code=422, detail="复刻台仅支持拉片分析与批量转绘操作")
     if payload.kind == "analyze_reference_video":
@@ -3477,18 +3466,6 @@ async def create_replication_operation(
     return public_director_operation(operation)
 
 
-def _audio_media_type(path: Path) -> str:
-    suffix = path.suffix.lower()
-    return {
-        ".mp3": "audio/mpeg",
-        ".wav": "audio/wav",
-        ".m4a": "audio/mp4",
-        ".aac": "audio/aac",
-        ".ogg": "audio/ogg",
-        ".flac": "audio/flac",
-        ".mp4": "video/mp4",
-    }.get(suffix, "application/octet-stream")
-
 
 def _image_media_type(path: Path) -> str:
     guessed, _ = mimetypes.guess_type(path.name)
@@ -3512,13 +3489,6 @@ def _image_media_type(path: Path) -> str:
         return "image/webp"
     return "image/png"
 
-
-def _safe_export_filename(title: str, suffix: str) -> str:
-    stem = "".join(
-        ch if ch.isascii() and (ch.isalnum() or ch in {"-", "_"}) else "_"
-        for ch in (title or "director")[:40]
-    ).strip("_") or "director"
-    return f"{stem}{suffix}"
 
 
 @app.post(
@@ -3757,6 +3727,7 @@ def _probe_lipsync_source_canvas(path: Path, upload_dir: Path) -> tuple[int, int
                 "-show_entries", "stream=width,height", "-of", "json", str(path),
             ],
             check=True, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=60,
         )
         stream = (json.loads(completed.stdout or "{}").get("streams") or [{}])[0]
         width, height = int(stream.get("width") or 0), int(stream.get("height") or 0)
@@ -3977,7 +3948,7 @@ async def submit_generation(
 
     store: JobStore = app.state.store
     normalized_display_prompt = display_prompt.strip() if display_prompt and display_prompt.strip() != prompt else None
-    job = await asyncio.to_thread(
+    await asyncio.to_thread(
         store.create,
         job_id,
         mode,
@@ -4067,7 +4038,7 @@ async def create_job_round(
         shutil.rmtree(upload_dir, ignore_errors=True)
         raise
     try:
-        job = await asyncio.to_thread(
+        await asyncio.to_thread(
             app.state.store.create_round,
             job_id, prompt=prompt,
             negative_prompt=negative_prompt.strip() if definition is not None and definition.accepts_negative_prompt else "",

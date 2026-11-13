@@ -12,7 +12,6 @@ from .workflow_registry import (
     H3_REF2VA_FULL,
     H3_REF2VA_PRUNED,
     H3_WEIGHT_FULL,
-    H3_WEIGHT_PRUNED,
     h3_dimensions,
     h3_length,
 )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import json
 import re
 from typing import Any, Callable
@@ -1995,6 +1996,7 @@ class H3PromptBuilder:
         return [part for part in parts if len(_HAN_RE.findall(part)) >= 4]
 
     @classmethod
+    @functools.lru_cache(maxsize=1024)
     def _flexible_line_re(cls, line: str) -> re.Pattern[str]:
         parts = [re.escape(part) for part in re.split(r"[，,、。.!！？?\s]+", str(line or "").strip()) if part]
         if not parts:

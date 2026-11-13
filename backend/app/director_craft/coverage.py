@@ -190,7 +190,6 @@ def plan_production_takes(
     events = [item for item in (events or []) if str(item.get("text") or "").strip()]
     if not fidelity_conflict(shot, events):
         return []
-    spoken = [item for item in events if item.get("kind") != "inner"]
     inner = [item for item in events if item.get("kind") == "inner"]
     first_inner = next((index for index, item in enumerate(events) if item.get("kind") == "inner"), -1)
     before = [item for index, item in enumerate(events) if index < first_inner and item.get("kind") != "inner"]

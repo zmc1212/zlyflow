@@ -1,0 +1,19 @@
+# Ruff 基线：只保留能发现真实缺陷的规则；风格类规则不启用。
+# 运行：`backend/.venv/bin/ruff check backend/app backend/tests`
+target-version = "py310"
+line-length = 160
+
+[lint]
+select = [
+    "F",      # pyflakes：未定义名称、未使用导入/变量、重复定义
+    "E9",     # 语法级错误
+    "B904",   # raise 缺异常链
+    "B018",   # 无用表达式
+    "B023",   # 闭包未绑定循环变量
+]
+ignore = [
+    "B008",   # FastAPI 依赖注入惯例：Depends/File/Body 出现在参数默认值
+]
+
+[lint.isort]
+known-first-party = ["backend"]

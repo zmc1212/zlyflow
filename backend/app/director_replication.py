@@ -237,17 +237,6 @@ def normalize_replication_payload(payload: dict[str, Any] | None) -> dict[str, A
     return base
 
 
-def flatten_replication_shots(payload: dict[str, Any] | None) -> list[dict[str, Any]]:
-    return [shot for shot in _as_list(_as_dict(payload).get("shots")) if isinstance(shot, dict)]
-
-
-def find_replication_shot(payload: dict[str, Any], shot_id: str) -> dict[str, Any] | None:
-    for shot in flatten_replication_shots(payload):
-        if _text(shot.get("id")) == shot_id:
-            return shot
-    return None
-
-
 def validate_source_video(filename: str, size: int | None) -> str:
     """校验上传的参考片文件名与大小，返回安全后缀。"""
     suffix = Path(filename or "").suffix.lower()

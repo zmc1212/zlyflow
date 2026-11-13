@@ -154,9 +154,8 @@ def job_shot_statuses(job_rows: Iterable[dict[str, Any]]) -> dict[str, str]:
     """
     statuses: dict[str, str] = {}
     for row in job_rows:
-        try:
-            payload = json.loads(row.get("payload_json") or "{}")
-        except Exception:
+        payload = parse_extra(row.get("payload_json"))
+        if not payload:
             continue
         plan = payload.get("render_plan")
         plan_failed = str(row.get("status") or "") == "failed" and isinstance(plan, dict) and plan.get("status") == "failed"
@@ -340,9 +339,8 @@ class WorkbenchService:
         episode_id_value = episode["id"]
         live_statuses: dict[str, str] = {}
         for row in job_rows:
-            try:
-                payload = json.loads(row.get("payload_json") or "{}")
-            except Exception:
+            payload = parse_extra(row.get("payload_json"))
+            if not payload:
                 continue
             if str(payload.get("episode_id") or "") != str(episode_id_value):
                 continue
@@ -421,9 +419,8 @@ class WorkbenchService:
         )
         live_by_episode: dict[str, dict[str, str]] = {}
         for row in job_rows:
-            try:
-                payload = json.loads(row.get("payload_json") or "{}")
-            except Exception:
+            payload = parse_extra(row.get("payload_json"))
+            if not payload:
                 continue
             episode_key = str(payload.get("episode_id") or "")
             if not episode_key:
@@ -438,10 +435,7 @@ class WorkbenchService:
         episodes: list[dict[str, Any]] = []
         totals = {"beats": 0, "prompts": 0, "shots": 0}
         for row in episode_rows:
-            try:
-                data = json.loads(row.get("data_json") or "{}")
-            except Exception:
-                data = {}
+            data = parse_extra(row.get("data_json"))
             raw_beats = [item for item in (data.get("beats") or []) if isinstance(item, dict)]
             views = [beat_view(item) for item in raw_beats if str(item.get("id") or "").strip()]
             views.sort(key=lambda item: item.get("sequence") or 0)

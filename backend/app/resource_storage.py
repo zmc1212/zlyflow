@@ -98,10 +98,6 @@ RESOURCE_STORAGE_PROVIDERS: dict[str, ResourceStorageFactory] = {
 }
 
 
-def register_resource_storage(provider_id: str, factory: ResourceStorageFactory) -> None:
-    """Register an optional provider such as a Qiniu-backed implementation."""
-    RESOURCE_STORAGE_PROVIDERS[provider_id] = factory
-
 
 def resource_object_url(storage: Any | None, key: str | None) -> str | None:
     """Stable object URL for persistent providers; never a time-limited signed link."""

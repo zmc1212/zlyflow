@@ -309,11 +309,13 @@ def stream_music_chat_message(
             "proposal": {key: proposal[key] for key in ("changed", "title", "style", "lyrics", "duration_seconds")},
             "created_at": now(),
         })
-        chat = store.update_music_chat(chat_id) or chat
+        # 注意：这里不能写 `chat = store.update_music_chat(...) or chat`——
+        # 赋值会让 chat 变成 generate() 的局部变量，读到未绑定值抛 UnboundLocalError。
+        updated_chat = store.update_music_chat(chat_id) or chat
         yield _sse_event("done", {
             "user_message": user_message,
             "assistant_message": assistant_message,
-            "chat": chat,
+            "chat": updated_chat,
         })
 
     return generate()

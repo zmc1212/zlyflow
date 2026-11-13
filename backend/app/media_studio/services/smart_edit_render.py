@@ -5,7 +5,6 @@ import json
 import os
 import shutil
 import subprocess
-import threading
 import uuid
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed

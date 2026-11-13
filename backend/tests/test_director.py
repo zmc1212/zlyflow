@@ -38,6 +38,7 @@ from backend.app.vlm_provider import VlmProviderService
 from backend.app.main import app
 from backend.app.models import UserRole
 from backend.app.storage import JobStore
+from backend.tests.app_state_guard import isolated_lifespan_state, restore_app_state, snapshot_app_state
 
 
 class DirectorArtStyleCatalogTests(unittest.TestCase):
@@ -894,6 +895,7 @@ class DirectorApiEndpointTests(unittest.TestCase):
         self.job_store = JobStore(self.db_path)
         self.llm_provider = LlmProviderService(self.job_store, self.credential_key)
 
+        self._app_state = snapshot_app_state(app)
         app.state.auth_store = self.auth_store
         app.state.store = self.job_store
         app.state.llm_provider = self.llm_provider
@@ -904,6 +906,7 @@ class DirectorApiEndpointTests(unittest.TestCase):
         self.client.cookies.set("zly_ai_video_studio_session", self.token)
 
     def tearDown(self) -> None:
+        restore_app_state(app, self._app_state)
         self.temp_dir.cleanup()
 
     def test_split_script_endpoint_unavailable_when_disabled(self) -> None:
@@ -983,6 +986,7 @@ class DirectorTranslatePromptEndpointTests(unittest.TestCase):
         self.job_store = JobStore(self.db_path)
         self.llm_provider = LlmProviderService(self.job_store, self.credential_key)
 
+        self._app_state = snapshot_app_state(app)
         app.state.auth_store = self.auth_store
         app.state.store = self.job_store
         app.state.llm_provider = self.llm_provider
@@ -996,6 +1000,7 @@ class DirectorTranslatePromptEndpointTests(unittest.TestCase):
         self.headers = {"X-CSRF-Token": csrf_token(self.token)}
 
     def tearDown(self) -> None:
+        restore_app_state(app, self._app_state)
         self.temp_dir.cleanup()
 
     def _create_recipe_project(self, shot: dict) -> str:
@@ -1513,6 +1518,7 @@ class DirectorAnalyzeEndpointTests(unittest.TestCase):
         self.job_store = JobStore(self.db_path)
         self.llm_provider = LlmProviderService(self.job_store, self.credential_key)
         self.vlm_provider = VlmProviderService(self.job_store, self.credential_key)
+        self._app_state = snapshot_app_state(app)
         app.state.auth_store = self.auth_store
         app.state.store = self.job_store
         app.state.llm_provider = self.llm_provider
@@ -1523,6 +1529,7 @@ class DirectorAnalyzeEndpointTests(unittest.TestCase):
         self.client.cookies.set("zly_ai_video_studio_session", self.token)
 
     def tearDown(self) -> None:
+        restore_app_state(app, self._app_state)
         self.temp_dir.cleanup()
 
     def test_status_reports_vision_from_model_name(self) -> None:
@@ -1591,6 +1598,7 @@ class DirectorProjectApiTests(unittest.TestCase):
         self.auth_store = AuthStore(self.db_path)
         self.job_store = JobStore(self.db_path)
         self.llm_provider = LlmProviderService(self.job_store, self.credential_key)
+        self._app_state = snapshot_app_state(app)
         app.state.auth_store = self.auth_store
         app.state.store = self.job_store
         app.state.llm_provider = self.llm_provider
@@ -1606,6 +1614,7 @@ class DirectorProjectApiTests(unittest.TestCase):
         self.client.cookies.set("zly_ai_video_studio_session", self.token)
 
     def tearDown(self) -> None:
+        restore_app_state(app, self._app_state)
         self.temp_dir.cleanup()
 
     def _headers(self, token: str | None = None) -> dict[str, str]:
@@ -1996,7 +2005,7 @@ class DirectorJobCreateStatusTests(unittest.TestCase):
             main_module.settings = Settings(workspace_dir=root, data_dir_override=str(root / "data"))
             main_module.JobWorker = WorkerStub
             try:
-                with TestClient(main_module.app) as client:
+                with isolated_lifespan_state(main_module.app), TestClient(main_module.app) as client:
                     user = main_module.app.state.auth_store.create_user(
                         "director-status", "导演状态", "secure-pass-123", UserRole.SUPER_ADMIN, must_change_password=False,
                     )
@@ -3833,6 +3842,7 @@ class DirectorDualEngineApiTests(unittest.TestCase):
         self.auth_store = AuthStore(self.db_path)
         self.job_store = JobStore(self.db_path)
         self.llm_provider = LlmProviderService(self.job_store, self.credential_key)
+        self._app_state = snapshot_app_state(app)
         app.state.auth_store = self.auth_store
         app.state.store = self.job_store
         app.state.llm_provider = self.llm_provider
@@ -3855,6 +3865,7 @@ class DirectorDualEngineApiTests(unittest.TestCase):
         self.client.cookies.set("zly_ai_video_studio_session", self.token)
 
     def tearDown(self) -> None:
+        restore_app_state(app, self._app_state)
         if hasattr(self, "_original_grs_provider"):
             app.state.grs_provider = self._original_grs_provider
         self.temp_dir.cleanup()
@@ -4108,6 +4119,7 @@ class DirectorLibraryApiTests(unittest.TestCase):
         self.auth_store = AuthStore(self.db_path)
         self.job_store = JobStore(self.db_path)
         self.llm_provider = LlmProviderService(self.job_store, self.credential_key)
+        self._app_state = snapshot_app_state(app)
         app.state.auth_store = self.auth_store
         app.state.store = self.job_store
         app.state.llm_provider = self.llm_provider
@@ -4123,6 +4135,7 @@ class DirectorLibraryApiTests(unittest.TestCase):
         self.client.cookies.set("zly_ai_video_studio_session", self.token)
 
     def tearDown(self) -> None:
+        restore_app_state(app, self._app_state)
         self.temp_dir.cleanup()
 
     def _headers(self, token: str | None = None) -> dict[str, str]:
@@ -4209,8 +4222,6 @@ class DirectorLibraryApiTests(unittest.TestCase):
 
 class DirectorAvExportTests(unittest.TestCase):
     def setUp(self) -> None:
-        import subprocess
-
         self.temp_dir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.db_path = Path(self.temp_dir.name) / "test_director_av.db"
         self.audio_dir = Path(self.temp_dir.name) / "audio"
@@ -4222,6 +4233,7 @@ class DirectorAvExportTests(unittest.TestCase):
         self.job_store = JobStore(self.db_path)
         from backend.app.tts_provider import TtsProviderService
         self.tts_provider = TtsProviderService(self.job_store, self.credential_key)
+        self._app_state = snapshot_app_state(app)
         app.state.auth_store = self.auth_store
         app.state.store = self.job_store
         app.state.llm_provider = LlmProviderService(self.job_store, self.credential_key)
@@ -4239,28 +4251,10 @@ class DirectorAvExportTests(unittest.TestCase):
         for item in self._patches:
             item.start()
 
-        class FakeFfmpeg:
-            def __init__(self, duration: float) -> None:
-                self.duration = duration
-                self.commands: list[list[str]] = []
-
-            def run(self, args: list[str]) -> subprocess.CompletedProcess[str]:
-                self.commands.append(list(args))
-                dest = Path(args[-1])
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                dest.write_bytes(b"fake-mp4-bytes")
-                return subprocess.CompletedProcess(["ffmpeg", *args], 0, "", "")
-
-            def probe_duration(self, path: Path) -> float:
-                return self.duration
-
-        self.FakeFfmpeg = FakeFfmpeg
-        self._subprocess = subprocess
-
     def tearDown(self) -> None:
+        restore_app_state(app, self._app_state)
         for item in reversed(self._patches):
             item.stop()
-        app.state.ffmpeg_runner = None
         self.temp_dir.cleanup()
 
     def _headers(self) -> dict[str, str]:

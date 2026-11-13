@@ -13,9 +13,9 @@ from backend.app.media_studio.services.h3_prompt_builder import H3PromptBuilder
 from backend.app.media_studio.services.job_payload import slim_job_payload
 from backend.app.media_studio.services.project_detail_service import BeatInputChangedError, ProjectDetailService
 from backend.app.media_studio.services.video_preparation import (
-    author_video_prompt, cache_video_prompt, snapshot_prompt_inputs, video_prompt_signature,
+    author_video_prompt, cache_video_prompt, video_prompt_signature,
 )
-from backend.tests.media_studio_test_h3_video import rich_prompt
+from backend.tests.test_media_studio_h3_video import rich_prompt
 
 VIDEO = "backend.app.media_studio.services.episode_video_service"
 PREP = "backend.app.media_studio.services.video_preparation"

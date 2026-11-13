@@ -14,6 +14,7 @@ from backend.app.config import Settings
 from backend.app.main import app
 from backend.app.models import UserRole
 from backend.app.storage import JobStore
+from backend.tests.app_state_guard import restore_app_state, snapshot_app_state
 
 
 class ComfyUrlValidationTests(unittest.TestCase):
@@ -95,6 +96,7 @@ class ComfyProviderEndpointTests(unittest.TestCase):
         self.auth_store = AuthStore(self.db_path)
         self.job_store = JobStore(self.db_path)
         self.provider = ComfyProviderService(self.job_store, "http://127.0.0.1:8188")
+        self._app_state = snapshot_app_state(app)
         app.state.auth_store = self.auth_store
         app.state.store = self.job_store
         app.state.comfy_provider = self.provider
@@ -109,6 +111,7 @@ class ComfyProviderEndpointTests(unittest.TestCase):
         self.client = TestClient(app)
 
     def tearDown(self) -> None:
+        restore_app_state(app, self._app_state)
         self.temp_dir.cleanup()
 
     def test_admin_config_permissions(self) -> None:

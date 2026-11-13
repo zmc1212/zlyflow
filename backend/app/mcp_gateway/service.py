@@ -169,7 +169,7 @@ class CreativeService:
         """校验图片 URL 并确认解析结果均为公网地址，防止内网探测（SSRF）。"""
         try:
             parsed = urlsplit(url)
-            port = parsed.port
+            _port = parsed.port  # 仅触发端口解析：端口非法时 urlsplit 会抛 ValueError
         except ValueError as error:
             raise HTTPException(422, "图片 URL 格式无效") from error
         if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:

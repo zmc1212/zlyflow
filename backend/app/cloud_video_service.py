@@ -260,7 +260,7 @@ class CloudVideoService:
                 if time.monotonic() >= deadline:
                     raise CloudVideoError(
                         f"云端视频任务查询超时（超过 {int(timeout)}s），远端任务 ID {remote_task_id}",
-                    )
+                    ) from None
                 interval = min(interval * 1.5, POLL_MAX_INTERVAL_SECONDS)
                 continue
             if callable(on_progress):
