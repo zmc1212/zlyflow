@@ -121,13 +121,22 @@ def _pack_aspect(
     )
 
 
+_CAMERA_PACING_RE = re.compile(r"[，,]?\s*\d+(?:\.\d+)?\s*秒\s*(?:匀速|缓速|慢速)?")
+
+
+def _normalize_camera_pacing(text: str) -> str:
+    """剧本里的「5 秒匀速」会让模型把动作均匀铺成慢放，写稿前先剥掉。"""
+    cleaned = _CAMERA_PACING_RE.sub("", str(text or ""))
+    return re.sub(r"[，,]{2,}", "，", cleaned).strip("，, ")
+
+
 def _author_copy_fields(beat: dict[str, Any], aspect: str) -> tuple[str, str, str]:
     heading = rewrite_aspect_copy(
         beat.get("heading") or beat.get("scene") or "完成本镜剧情",
         aspect,
     ).strip() or "完成本镜剧情"
     action = rewrite_aspect_copy(beat.get("action") or "", aspect).strip() or "按已锁定的角色与场景完成这一镜。"
-    camera = rewrite_aspect_copy(beat.get("camera") or "", aspect).strip() or "固定机位，必要时小幅度慢速运镜。"
+    camera = rewrite_aspect_copy(_normalize_camera_pacing(beat.get("camera") or ""), aspect).strip() or "固定机位。"
     return heading, action, camera
 
 
@@ -525,6 +534,10 @@ def build_timestamped_zh_author_user(
         f"动作：{action}",
         f"运镜原文：{camera}",
         f"场景：{str(beat.get('scene') or beat.get('scene_name') or info.get('scene_name') or '').strip() or '未命名场景'}",
+        (
+            f"动作节奏（硬规则）：动作必须在前 {max(1, seconds // 2)} 秒内完成并落到终点，"
+            "剩余时间只写结果、受力反应与余韵；禁止匀速、缓慢、慢动作，禁止把同一个动作摊平铺满整镜。"
+        ),
     ]
     scene_desc = str(beat.get("scene_desc") or beat.get("scene_description") or info.get("scene_desc") or "").strip()
     if scene_desc:
@@ -597,6 +610,10 @@ def build_timestamped_zh_author_user(
     ).strip()
     if previous:
         lines.append(f"上一镜承接：{previous}")
+        lines.append(
+            "本镜首段必须从上一镜结束时的可见站位、朝向、镜头侧、光线方向与道具位置起手；"
+            "换机位只改构图，禁止重置站位或让已发生的动作倒退。"
+        )
     image_notes = collect_zh_author_image_urls(recipe, beat, assets)
     if image_notes:
         lines.append("写稿附图（供看图写运镜，与 R2V 上传顺序一致）：角色卡与场景卡。")

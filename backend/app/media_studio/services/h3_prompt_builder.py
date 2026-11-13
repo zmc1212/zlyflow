@@ -1614,9 +1614,10 @@ class H3PromptBuilder:
         if (packing_overrides or {}).get("allow_multi_camera_path"):
             return (
                 "Camera path may include more than one move when the source draft specifies them; "
-                "keep small amplitude at slow speed and name each landing (waist / face / chest-and-waist)."
+                "keep each move readable, land it at a named framing (waist / face / chest-and-waist), "
+                "and never stretch one move across the whole clip."
             )
-        return "Use at most one camera move with small amplitude at slow speed, or a static hold."
+        return "Use at most one camera move that lands early and then holds; never write slow motion or an evenly paced move across the whole clip."
 
     @staticmethod
     def _packing_timeline_rule(packing_overrides: dict[str, Any] | None) -> str:
@@ -1835,7 +1836,7 @@ class H3PromptBuilder:
         if not spoken_turns and not inner_turns:
             spoken_blob = cleaned_dialogue
         user_lines.extend([
-            "镜头与机位：" + (str(beat_info.get("camera") or "").strip() or "固定机位，或一次缓慢小幅运镜"),
+            "镜头与机位：" + (str(beat_info.get("camera") or "").strip() or "固定机位，或一次前段到位的运镜"),
             f"时间与环境氛围：{beat_info.get('time_of_day') or '日间'}",
             f"视频时长：{seconds} 秒",
             f"说话人（仅作元数据，不得写入 <d> 台词正文）：{beat_info.get('speaker') or '无'}",

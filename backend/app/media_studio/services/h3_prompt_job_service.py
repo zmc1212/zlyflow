@@ -176,11 +176,25 @@ class H3PromptJobService:
 
         from ...skill_packs import resolve_skill_pack_id
 
+        ordered = sorted(beats, key=lambda item: int(item.get("sequence") or 0))
+        index = next((i for i, item in enumerate(ordered) if item.get("id") == beat_id), -1)
+        previous_shot = ""
+        if index > 0:
+            prev = ordered[index - 1]
+            prev_action = str(prev.get("action") or prev.get("video_prompt_zh") or "").strip()
+            prev_heading = str(prev.get("heading") or "").strip()
+            if prev_action:
+                previous_shot = (
+                    f"第{prev.get('sequence') or index}镜《{prev_heading}》演的是：{prev_action}。"
+                    "本镜从该动作完成后的站位、朝向与受力状态继续。"
+                )
+
         pack_id = resolve_skill_pack_id(payload=req, beat=beat, project_id=project_id)
         beat_info = H3PromptBuilder.sanitize_beat_draft({
             "sequence": beat.get("sequence") or 1,
             "heading": beat.get("heading") or "",
             "action": beat.get("action") or "",
+            "previous_shot": previous_shot,
             "camera": beat.get("camera") or "",
             "take_role": beat.get("take_role") or "",
             "dialogue": beat.get("dialogue") or "",
