@@ -5253,3 +5253,11 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：被删端点无任何前端/桌面端/MCP 调用方；历史导演工程数据不删除，仍可经保留的 GET/PUT `/api/director/projects/{id}` 读取与更新；无数据库迁移、端口或工作流协议变化。
 - 验证命令：`python -m unittest discover -s backend/tests`（与改动前基线失败集一致）；`pnpm --dir frontend exec tsc -p tsconfig.app.json --noEmit`；`pnpm --dir frontend test`（964 项）；`pnpm --dir frontend build`。
 - 回滚方式：还原 `backend/app/main.py` 与上述模块文件、`backend/tests/test_director.py`、`frontend/src/director/director-api.ts`、`frontend/src/director2/home-projects.ts*`、两处 CSS 与 `tsconfig.app.json` 即可；无数据回滚需求。
+
+## 2026-11-13 CI/CD 平台层拆分至独立仓库 zly-ci
+
+- 变更原因：平台层资产（Gitea + act_runner 安装包、GitBlit 迁移脚本、部署指南）为公司级基础设施，与本项目业务代码解耦；独立仓库便于其他项目接入与模板化引导。
+- 拆分后布局：zly-ci 仓库持有 `ops/gitea/`、`docs/CI-CD-Gitea部署指南.md` 与 `template/`（新项目黏合层样例：`.gitea/workflows/deploy.yml` + `ops/deploy/{deploy,rollback}.sh`）；本项目保留 `.gitea/workflows/deploy.yml` 与 `ops/deploy/`——Actions 只执行业务仓库内的 workflow，部署脚本按指南为每项目一份。组织级 Secrets（CI_USER/CI_TOKEN/DEPLOY_*）在 Gitea 组织 `r` 层级，两类仓库共享。
+- 兼容性：纯仓库结构调整；不动 Dockerfile、compose.yaml、部署脚本逻辑、端口与运行时行为；CI 尚未上线运行，无迁移窗口。
+- 验证命令：见《功能说明与扩展指南》2026-11-13 同日章节（引用残留 grep、zly-ci 脚本 `bash -n` 语法检查、远端 `git ls-remote`）。
+- 回滚方式：还原本次提交即恢复原布局；无数据回滚需求。

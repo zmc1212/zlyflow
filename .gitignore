@@ -229,13 +229,9 @@ docs/design-ref-director/jimeng-asset-canvas-20261105/*
 !docs/design-ref-director/jimeng-asset-canvas-20261105/implementation-20261105/
 
 # ==========================================
-# 5. CI/CD 运行时产物(ops/ 目录;服务器侧生成,严禁提交)
+# 5. CI/CD 运行时产物(服务器侧生成,严禁提交)
 # ==========================================
-# ops/gitea/.env 已被上方全局 .env 规则覆盖
-ops/gitea/runner-config.yaml
-ops/gitea/*.bak
-ops/gitea/.migrate-cache/
-ops/gitea/migrate-report.txt
+# Gitea 平台层已拆分至独立仓库 zly-ci(其 .env/迁移报告在该仓库内忽略)
 .deploy-history
 
 # ==========================================

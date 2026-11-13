@@ -1,5 +1,9 @@
 # ZLY AI Studio｜创作工作台
 
+## 2026-11-13：CI/CD 平台层拆分至独立仓库 zly-ci
+
+Gitea 自动部署的**平台层**迁出到公司级仓库 `zly-ci`（Gitea 组织 `r` 下）：`ops/gitea/`（Gitea + act_runner 一键安装包 + `gitblit-migrate.sh` 迁移脚本）与 `docs/CI-CD-Gitea部署指南.md`，并新增 `template/` 项目黏合层样例。本项目只保留项目黏合层 `.gitea/workflows/deploy.yml` 与 `ops/deploy/{deploy,rollback}.sh`——Gitea Actions 只执行业务仓库内的 workflow，部署脚本按指南设计为每项目一份；`ops/sql/` 为业务数据脚本，不在拆分范围。两类仓库共享组织级 Secrets，新项目接入改用 zly-ci 的 template。用户可见行为无变化：推送 master、打 `v*` 标签或手动触发的自动部署链路不变，手工导 tar 链路继续保留。实现、验证与回滚见[架构快照](docs/ARCHITECTURE.md)同日章节。
+
 ## 2026-11-13：云端视频新增「超算互联网（SCNet）」供应商
 
 创作页「云端视频模型」分组新增 5 条云端工作流：**超算互联网 MiniMax-H3 · 文生/图生视频**、**超算互联网 Seedance · 文生/图生视频**、**超算互联网 HappyHorse · 文生视频**，直连 `api.scnet.cn` 模型服务，按次计费、不占本地显卡，与既有云端/本地工作流共用同一份下拉、同一套进度与产物落七牛体验。图生视频上传首帧即可（H3/Seedance 可加尾帧）；H3 支持 768P/2K 与 4-15 秒，Seedance 支持 480p-1080p、多画幅、有声/无声，并可在「更多设置」选 Seedance2.5（默认）或 Seedance2.0（2.5 需控制台已开通），HappyHorse 提供 9 种画幅与 3-15 秒，画面比例与时长在主区直出，分辨率等放在「更多设置」。管理员在「管理设置 → AI 供应商 → 云端视频 → 超算互联网（SCNet）」填入超算互联网控制台创建的 API Key 并启用；「测试连接」会读取模型列表，并提示账号是否已开通 MiniMax-H3 / Seedance（2.5 或 2.0）/ HappyHorse-1.0-T2V。未启用或密钥缺失时对应工作流在下拉中置灰并显示原因。导演台批量台的「视频工作流」下拉新增「云端 · 超算互联网 MiniMax-H3 / Seedance / HappyHorse」三个族。实现、验证与回滚见[架构快照](docs/ARCHITECTURE.md)同日章节。

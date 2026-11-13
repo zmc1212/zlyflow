@@ -1,7 +1,7 @@
 # ZLY AI Video Studio:推送 master / 打 v* 标签 / 手动触发 时,
 # 自动 构建 Docker 镜像 → 推送 Gitea 镜像仓库 → SSH 到部署服务器滚动更新 → 健康检查(失败自动回滚)。
 #
-# 使用前在 Gitea 仓库或组织「设置 → Actions → Secrets」配置(详见 docs/CI-CD-Gitea部署指南.md):
+# 使用前在 Gitea 仓库或组织「设置 → Actions → Secrets」配置(详见平台仓库 zly-ci 的 docs/CI-CD-Gitea部署指南.md):
 #   CI_USER        Gitea 机器人账号用户名(需 read:repository + write:package 权限)
 #   CI_TOKEN       该账号的访问令牌(PAT)
 #   DEPLOY_HOST    部署服务器 IP/域名
@@ -23,7 +23,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # —— 与 ops/gitea/.env 保持一致(切换后 Gitea 接管 GitBlit 原 8899 端口)——
+  # —— 与平台仓库 zly-ci 的 ops/gitea/.env 保持一致(切换后 Gitea 接管 GitBlit 原 8899 端口)——
   REGISTRY: 124.70.90.30:8899
   # —— 每个接入的项目需要修改下面 4 行 ——
   DEPLOY_DIR: /opt/zly-ai-video-studio   # 服务器上项目目录(含 compose.yaml 与 .env)
@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: docker:27-cli
-      # 依赖 runner 配置的 valid_volumes 白名单(ops/gitea/runner-config.default.yaml)
+      # 依赖 runner 配置的 valid_volumes 白名单(zly-ci 仓库 ops/gitea/runner-config.default.yaml)
       volumes:
         - /var/run/docker.sock:/var/run/docker.sock
     outputs:
