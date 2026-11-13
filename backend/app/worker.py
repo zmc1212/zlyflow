@@ -47,6 +47,11 @@ from .workflow_registry import (
 GRS_PROGRESS_HORIZON_SECONDS = 120.0
 logger = logging.getLogger(__name__)
 
+# 连续本地视频任务达到该数量后，即使队列仍有后续任务也强制尝试一次 /free
+# （见 release_comfy_resources_if_idle）：H3 的 UNET/CLIP/VAE 缓存跨任务累积，
+# 曾把 16GB 显存顶满并冻住视频服务事件循环（GPU 0% 利用率、接口无响应）。
+COMFY_FREE_EVERY_N_JOBS = 3
+
 # 云端视频任务的进度映射时间轴（厂商多数不回传进度，用已等待时长估算 12-90% 区间）
 CLOUD_VIDEO_PROGRESS_HORIZON_SECONDS = 300.0
 # 云端视频任务轮询上限：厂商异步任务一般 1-10 分钟内完成，超时后需人工核对远端状态
@@ -91,6 +96,7 @@ class JobWorker:
         self.queued_job_ids: set[str] = set()
         self.queued_generation_ids: set[str] = set()
         self._auto_retries: dict[str, int] = {}
+        self._jobs_since_free = 0
         self.task: asyncio.Task | None = None
         self.watch_task: asyncio.Task | None = None
         self.image_tasks: set[asyncio.Task] = set()
@@ -343,6 +349,7 @@ class JobWorker:
             finally:
                 self.queued_job_ids.discard(job_id)
                 self.queue.task_done()
+                self._jobs_since_free += 1
                 await self.release_comfy_resources_if_idle()
 
     async def release_comfy_resources_if_idle(self) -> None:
@@ -352,19 +359,27 @@ class JobWorker:
         occupy 视频服务 VRAM and are ignored here. Skip `/free` while IndexTTS
         or another Comfy job holds `occupy_gpu`, so director2 H3/TTS cannot be
         unloaded mid-run by the generate-page worker.
+
+        长批次防护：连续本地视频任务达到 COMFY_FREE_EVERY_N_JOBS 时，即使队列
+        还有后续任务也尝试一次 `/free`。free_resources 自带「视频服务队列空闲
+        才执行」护栏，批次中间调用不会伤到已提交的下一单；释放失败则保留计数
+        下个任务结束后再试。
         """
-        if not self.queue.empty() or self.queued_job_ids:
+        periodic = self._jobs_since_free >= COMFY_FREE_EVERY_N_JOBS
+        if not periodic and (not self.queue.empty() or self.queued_job_ids):
             return
         jobs = await asyncio.to_thread(self.store.with_statuses, JobStatus.QUEUED, JobStatus.RUNNING)
-        if any(is_local_comfy_job(job["mode"]) for job in jobs):
+        if any(is_local_comfy_job(job["mode"]) for job in jobs) and not periodic:
             return
         free = getattr(self.comfy, "free_resources", None)
         if not callable(free):
             return
         try:
-            await asyncio.to_thread(idle_run, free)
+            result = await asyncio.to_thread(idle_run, free)
         except Exception:
             return
+        if periodic and result:
+            self._jobs_since_free = 0
 
     async def execute(self, job_id: str) -> None:
         job = await asyncio.to_thread(self.store.get, job_id, include_references=True)

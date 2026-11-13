@@ -146,6 +146,8 @@
   - 前端：生成页/画布/参数表单/参考图面板零改动自动生效（注册表驱动）；新增 `admin/CloudVideoProviderSettings.tsx`（三厂商卡片，复刻 MusicProviderSettings 范式：密钥留空不改、credential_ready 告警、last_test 侧栏），挂进 AdminSettings「AI 供应商」tab。
   - 边界：剧集工坊「视频工作流」下拉按 `reference_mode=collection && max_references>=3` 过滤，三家厂商的 T2V/I2V 天然不出现（无误导入口）；AI 工具页现有视频工具（打斗镜头等多参考 R2V 语义）与三家厂商 T2V/I2V API 无法 1:1 映射，留待接入 R2V 能力云端模型（如 Vidu）后做引擎选择器。云端视频工作流不在 `is_local_comfy_job()` 白名单内，不占用串行 worker；MCP 能力边界按注册表推导自动排除视频参考工作流，行为不变。
 - 受影响文件：新增 `sql/028_cloud_video.sql`、`backend/app/cloud_video/{__init__,base,http,kling,jimeng,hailuo}.py`、`backend/app/cloud_video_service.py`、`backend/tests/test_cloud_video.py`、`frontend/src/admin/CloudVideoProviderSettings.tsx`；修改 `backend/app/{models,config,storage,worker,main,workflow_registry}.py`、`backend/app/director_jobs.py`、`frontend/src/admin/AdminSettings.tsx`。
+- 2026-11-14 长批次防僵死：worker 每完成 3 条本地视频任务（`COMFY_FREE_EVERY_N_JOBS`）强制尝试一次视频服务 `/free`，卸载 H3 UNET/CLIP/VAE 模型缓存并清 CUDA 缓存，防止 16GB 显存被跨任务累积顶满后事件循环冻死；`free_resources` 的「视频服务队列空闲才执行」护栏保证批次中间调用安全，失败保留计数下次再试。详见《功能说明与扩展指南》2026-11-14 章节。
+
 - 兼容性：纯新增执行器与表；本地 ComfyUI 链路、GRS 生图、音乐、超分等既有链路不受影响；`generation_items` 复用既有 `executor/remote_task_id/remote_status` 列无 DDL 变更；未配置任何云端 Key 时新工作流在下拉中置灰（`available=false` + 原因），不影响其他工作流。
 - 验证命令：`python -X utf8 -B -m unittest backend.tests.test_cloud_video`（32 项通过）；`python -X utf8 -B -m unittest discover backend/tests`；`pnpm --dir frontend build`；桌面端 5173 自查（云端分组下拉置灰、管理设置三厂商卡片、保存/测试连接）。
 - 回滚方式：删除 `cloud_video/` 包、`cloud_video_service.py`、`sql/028_cloud_video.sql`、注册表 6 条工作流与 `JobMode` 6 个枚举、worker 云端分支、main.py 管理端点与预检、前端设置卡与挂载即可；`cloud_video_provider_settings` 表保留无害，`generation_items` 无结构变更，历史任务不受影响。
