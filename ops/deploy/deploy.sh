@@ -23,10 +23,11 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-: "${DEPLOY_IMAGE:?必须通过环境变量提供 DEPLOY_IMAGE(如 124.70.90.30:3080/zly/zly-ai-video-studio:abc12345)}"
+: "${DEPLOY_IMAGE:?必须通过环境变量提供 DEPLOY_IMAGE(如 124.70.90.30:8443/zly/zly-ai-video-studio:abc12345)}"
 LOCAL_IMAGE="${LOCAL_IMAGE:-zly-ai-video-studio:latest}"
 SERVICE="${SERVICE:-zly-ai-video-studio}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:18189/api/health}"
+REGISTRY="${REGISTRY:-124.70.90.30:8443}"
 HISTORY_FILE="${PROJECT_DIR}/.deploy-history"
 KEEP=20
 
@@ -41,7 +42,7 @@ cd "$PROJECT_DIR"
 
 echo "[1/5] 登录镜像仓库(如提供凭据)..."
 if [[ -n "${REGISTRY_USER:-}" && -n "${REGISTRY_PASSWORD:-}" ]]; then
-  echo "${REGISTRY_PASSWORD}" | docker login --username "${REGISTRY_USER}" --password-stdin >/dev/null
+  echo "${REGISTRY_PASSWORD}" | docker login "$REGISTRY" --username "${REGISTRY_USER}" --password-stdin >/dev/null
 fi
 
 echo "[2/5] 拉取镜像: ${DEPLOY_IMAGE}"

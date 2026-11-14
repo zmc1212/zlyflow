@@ -6,7 +6,7 @@
 #   CI_TOKEN       该账号的访问令牌(PAT)
 #   DEPLOY_HOST    部署服务器 IP/域名
 #   DEPLOY_USER    SSH 用户(需能操作 docker)
-#   DEPLOY_SSH_KEY SSH 私钥全文(对应公钥已加入服务器 authorized_keys)
+#   DEPLOY_SSH_KEY 私钥全文的 base64(对应公钥已加入服务器 authorized_keys;base64 单行便于日志脱敏)
 #   DEPLOY_PORT    SSH 端口(可选,默认 22)
 #
 # 工作流零第三方 action(仅 apk/git/docker/ssh),不依赖 gitea.com/github.com 的 action 市场。
@@ -23,9 +23,13 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # —— 与平台仓库 zly-ci 的 ops/gitea/.env 保持一致(切换后 Gitea 接管 GitBlit 原 8899 端口)——
-  REGISTRY: 124.70.90.30:8899
-  # —— 每个接入的项目需要修改下面 4 行 ——
+  # —— 镜像仓库固定 8443:Gitea 迁移期不重配 Docker daemon(insecure-registries 需重启
+  #    会弹掉生产容器),镜像走 nginx 8443 HTTPS 反代 + 宿主机 certs.d 证书信任 ——
+  REGISTRY: 124.70.90.30:8443
+  # —— git 检出同样走 8443(job 容器访问 Gitea git 端口的公网路径受安全组/hairpin 限制;
+  #    自签证书在检出时 http.sslVerify=false,信任级别与原 GitBlit 明文 HTTP 相同)——
+  GIT_SERVER_URL: https://124.70.90.30:8443
+  # —— 本项目部署参数 ——
   DEPLOY_DIR: /opt/zly-ai-video-studio   # 服务器上项目目录(含 compose.yaml 与 .env)
   LOCAL_IMAGE: zly-ai-video-studio:latest
   SERVICE_NAME: zly-ai-video-studio
@@ -37,9 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: docker:27-cli
-      # 依赖 runner 配置的 valid_volumes 白名单(zly-ci 仓库 ops/gitea/runner-config.default.yaml)
-      volumes:
-        - /var/run/docker.sock:/var/run/docker.sock
+      # act_runner v0.6+ 自动挂载 /var/run/docker.sock(再声明会报 Duplicate mount point)
     outputs:
       image_ref: ${{ steps.image.outputs.image_ref }}
     steps:
@@ -51,7 +53,8 @@ jobs:
           set -eu
           git init src
           cd src
-          git remote add origin "http://oauth2:${{ secrets.CI_TOKEN }}@${GITHUB_SERVER_URL#*://}/${GITHUB_REPOSITORY}.git"
+          git config http.sslVerify false
+          git remote add origin "https://oauth2:${{ secrets.CI_TOKEN }}@${GIT_SERVER_URL#https://}/${GITHUB_REPOSITORY}.git"
           git fetch --depth 1 origin "$GITHUB_SHA"
           git checkout FETCH_HEAD
 
@@ -89,28 +92,34 @@ jobs:
           set -eu
           git init src
           cd src
-          git remote add origin "http://oauth2:${{ secrets.CI_TOKEN }}@${GITHUB_SERVER_URL#*://}/${GITHUB_REPOSITORY}.git"
+          git config http.sslVerify false
+          git remote add origin "https://oauth2:${{ secrets.CI_TOKEN }}@${GIT_SERVER_URL#https://}/${GITHUB_REPOSITORY}.git"
           git fetch --depth 1 origin "$GITHUB_SHA"
           git checkout FETCH_HEAD
 
       - name: 配置 SSH 密钥
         env:
+          # Secret 存 base64(私钥全文):单行值可被 Gitea 日志脱敏(多行私钥会被
+          # env 转义打印而绕过脱敏)
           SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
         run: |
           set -eu
           [[ -n "$DEPLOY_HOST" ]] || { echo "缺少 Secret DEPLOY_HOST" >&2; exit 1; }
           mkdir -p "$HOME/.ssh"
-          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/deploy_key"
+          printf '%s' "$SSH_KEY" | base64 -d > "$HOME/.ssh/deploy_key"
           chmod 600 "$HOME/.ssh/deploy_key"
 
       # 先把与提交版本一致的部署脚本放上服务器,再执行部署(脚本内容与仓库始终同步)
       - name: 上传部署脚本并执行
+        shell: bash   # ssh_opts=(...) 是 bash 数组,act_runner 默认的 sh 不支持
         run: |
           set -eu
           PORT="${DEPLOY_PORT:-22}"
           ssh_opts=(-i "$HOME/.ssh/deploy_key" -p "$PORT" -o StrictHostKeyChecking=accept-new)
+          # 注意 scp 的端口参数是大写 -P(-p 是"保留属性";小写 -p 会把端口当本地文件名)
+          scp_opts=(-i "$HOME/.ssh/deploy_key" -P "$PORT" -o StrictHostKeyChecking=accept-new)
           TARGET="${DEPLOY_USER}@${DEPLOY_HOST}"
           ssh "${ssh_opts[@]}" "$TARGET" "mkdir -p '${DEPLOY_DIR}/ops'"
-          scp "${ssh_opts[@]}" src/ops/deploy/deploy.sh src/ops/deploy/rollback.sh "$TARGET:${DEPLOY_DIR}/ops/"
+          scp "${scp_opts[@]}" src/ops/deploy/deploy.sh src/ops/deploy/rollback.sh "$TARGET:${DEPLOY_DIR}/ops/"
           ssh "${ssh_opts[@]}" "$TARGET" \
             "cd '${DEPLOY_DIR}' && REGISTRY_USER='${{ secrets.CI_USER }}' REGISTRY_PASSWORD='${{ secrets.CI_TOKEN }}' LOCAL_IMAGE='${LOCAL_IMAGE}' SERVICE='${SERVICE_NAME}' HEALTH_URL='${HEALTH_URL}' DEPLOY_IMAGE='${{ needs.build-push.outputs.image_ref }}' bash ops/deploy.sh"
