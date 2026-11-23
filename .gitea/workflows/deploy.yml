@@ -1,5 +1,7 @@
-# ZLY AI Video Studio:推送 master / 打 v* 标签 / 手动触发 时,
-# 自动 构建 Docker 镜像 → 推送 Gitea 镜像仓库 → SSH 到部署服务器滚动更新 → 健康检查(失败自动回滚)。
+# ZLY AI Video Studio:仅手动触发(workflow_dispatch)时,
+# 构建 Docker 镜像 → 推送 Gitea 镜像仓库 → SSH 到部署服务器滚动更新 → 健康检查(失败自动回滚)。
+# 不再随 push / 打标签自动部署:普通提交只进仓库,发版需到 Gitea → Actions → build-and-deploy → 运行工作流。
+# 如需恢复自动部署,把 on: 下的 push 块加回来即可。
 #
 # 使用前在 Gitea 仓库或组织「设置 → Actions → Secrets」配置(详见平台仓库 zly-ci 的 docs/CI-CD-Gitea部署指南.md):
 #   CI_USER        Gitea 机器人账号用户名(需 read:repository + write:package 权限)
@@ -13,9 +15,6 @@
 name: build-and-deploy
 
 on:
-  push:
-    branches: [master, main]
-    tags: ['v*']
   workflow_dispatch:
 
 concurrency:
