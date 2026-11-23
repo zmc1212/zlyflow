@@ -46,7 +46,18 @@ jobs:
       image_ref: ${{ steps.image.outputs.image_ref }}
     steps:
       - name: 安装基础工具
-        run: apk add --no-cache git bash
+        run: |
+          set -eu
+          # dl-cdn.alpinelinux.org 从 runner 网络拉索引常报 temporary error,索引拉不到时
+          # apk 会误报 "no such package";改用华为云镜像源(与 REGISTRY 同在华为云),并加重试兜底瞬时抖动
+          sed -i 's#https://dl-cdn.alpinelinux.org#https://mirrors.huaweicloud.com#g' /etc/apk/repositories
+          ok=0
+          for i in 1 2 3; do
+            if apk add --no-cache git bash; then ok=1; break; fi
+            echo "apk add 第 ${i} 次失败,3 秒后重试" >&2
+            sleep 3
+          done
+          [ "$ok" = 1 ]
 
       - name: 检出代码
         run: |
@@ -85,7 +96,17 @@ jobs:
       DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
     steps:
       - name: 安装基础工具
-        run: apk add --no-cache git bash openssh-client
+        run: |
+          set -eu
+          # 同上:dl-cdn 从 runner 网络访问不稳定,换华为云镜像源 + 重试
+          sed -i 's#https://dl-cdn.alpinelinux.org#https://mirrors.huaweicloud.com#g' /etc/apk/repositories
+          ok=0
+          for i in 1 2 3; do
+            if apk add --no-cache git bash openssh-client; then ok=1; break; fi
+            echo "apk add 第 ${i} 次失败,3 秒后重试" >&2
+            sleep 3
+          done
+          [ "$ok" = 1 ]
 
       - name: 检出代码
         run: |
