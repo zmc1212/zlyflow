@@ -61,6 +61,12 @@ export type PricingAiCall = {
   description: string
   unit_credits: number
   billing_mode: "per_call" | "per_token"
+  /** 按 token 条目的上游单价（元/百万 tokens），用于解释积分来源。 */
+  input_per_mtok?: number | null
+  cached_input_per_mtok?: number | null
+  output_per_mtok?: number | null
+  billing_margin?: number | null
+  price_source?: string
 }
 
 export type PricingAiCalls = {

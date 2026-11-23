@@ -432,14 +432,24 @@ function AiCallPricingSection({
       dataIndex: "unit_credits",
       key: "unit_credits",
       align: "right" as const,
-      render: (value: number, item: PricingAiCall) => (
-        <span className="tabular-nums">
-          {formatCredits(value)} 积分
-          {item.billing_mode === "per_token" ? (
-            <span className="ml-1 text-xs text-[var(--studio-text-muted)]">（典型用量）</span>
-          ) : null}
-        </span>
-      ),
+      render: (value: number, item: PricingAiCall) => {
+        const upstream = item.billing_mode === "per_token" && (item.input_per_mtok != null || item.output_per_mtok != null)
+          ? `上游单价：输入 ¥${item.input_per_mtok ?? 0} / 缓存 ¥${item.cached_input_per_mtok ?? 0} / 输出 ¥${item.output_per_mtok ?? 0} 每百万 tokens`
+            + (item.billing_margin != null ? `；加价系数 ${item.billing_margin}×` : "")
+          : null
+        return (
+          <span className="tabular-nums">
+            {formatCredits(value)} 积分
+            {item.billing_mode === "per_token" ? (
+              <Tooltip title={upstream ?? "按真实 usage 结算，未采集时按典型用量估算"}>
+                <span className="ml-1 cursor-help border-b border-dotted border-[var(--studio-text-subtle)] text-xs text-[var(--studio-text-muted)]">
+                  （典型用量）
+                </span>
+              </Tooltip>
+            ) : null}
+          </span>
+        )
+      },
     },
     {
       title: "折合",

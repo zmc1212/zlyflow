@@ -1,5 +1,14 @@
 # ZLY AI Video Studio API 文档
 
+## 2026-11-23 供应商 LLM/VLM 价目拉取与积分换算
+
+- `GET /api/admin/credits/provider-prices`：管理员（`admin_user`）。Query：`scope=llm|vlm`（默认 `llm`）、`margin`（加价系数，0–20，默认 1.5）、`usd_cny`（美元价折算汇率，默认 7.2，仅影响 USD 计价条目）、`refresh`（是否实时拉取供应商 `/models`，默认 `true`）。返回 `{scope,provider,base_url,model,margin,matched,entries[],message}`。
+- 价格来源优先级：① `upstream`——供应商 `/models` 自带 `pricing`（OpenRouter 等网关，按 token 计价，后端折算成元/百万 tokens）；② `builtin`——后端 `llm_price_catalog.py` 维护的官方价目（含 `source_url`、`verified_at`、`note`）；③ 未收录时 `matched=null` 并返回手工填写提示，**不猜价**。
+- `matched` / `entries[]` 每项含 `model`、`input_per_mtok`、`cached_input_per_mtok`、`output_per_mtok`（元/百万 tokens）、`input_credits_per_mtok` / `cached_input_credits_per_mtok` / `output_credits_per_mtok`（积分/百万 tokens）、`currency`、`source`、`source_url`、`verified_at`、`note`、`free`、`off_peak`。
+- 换算口径：`积分/百万 tokens = ceil(元/百万 tokens × 100 × margin)`，与「100 积分 = 1 元」一致；分时价条目（如 DeepSeek V4.1 Flash）存高峰价并附带 `off_peak` 半价窗口，由结算时按调用时间折算。
+- `POST /api/admin/credits/provider-prices/apply`：管理员（`mutating_admin_user`，需 CSRF）。Body：`{scope: llm|vlm|all, margin, min_credits, billing_mode: per_token|per_call, usd_cny?}`。按当前各 scope 配置的模型取价，写入对应 `llm:*` / `vlm:*` 条目的 `cost_reference`（基础价 + `model_prices[模型]` + 分时价）、`billing_margin`、`min_credits`、`billing_mode`，并把典型用量折算成 `unit_credits`（兼作按次报价与未采集 usage 时的兜底价）。返回 `{rules[], applied[], message}`；`applied[].status` 为 `applied|skipped`，未收录、未配置接口或官方免费模型会 `skipped` 并给出原因，免费模型不会被改成按 token 扣费。价格规则并发更新返回 `409`。
+- 兼容性：两个端点均为新增，不改既有价格表 schema；`apply` 只改价目字段，不回溯历史流水；未调用 `apply` 时线上价格完全不变。实现与回滚见 `docs/ARCHITECTURE.md` 同日章节。
+
 ## 2026-11-21 无限画布智能助手
 
 - 前缀 `/api/canvas-assistant`，全部需登录（查询端点 `current_user`，写操作 `mutating_user` + CSRF）。会话与画布绑定，按账号隔离；会话创建/发消息时会校验画布归属（画布不存在或非本人返回 `400`）。
@@ -699,7 +708,12 @@ MCP 服务地址为 `<对外 origin>/api/mcp`，使用无状态 Streamable HTTP�
         "label": "提示词优化",
         "description": "提示词优化（每次）",
         "unit_credits": 1,
-        "billing_mode": "per_call"
+        "billing_mode": "per_call",
+        "input_per_mtok": 1.0,
+        "cached_input_per_mtok": 0.02,
+        "output_per_mtok": 4.0,
+        "billing_margin": 1.0,
+        "price_source": "provider_catalog"
       }
     ]
   }
@@ -710,7 +724,7 @@ MCP 服务地址为 `<对外 origin>/api/mcp`，使用无状态 Streamable HTTP�
 - `input_image_credits` 为超出每任务免费额度后的图片积分单价；0 表示该模型暂不额外收费。
 - `available` 跟随管理端云端视频供应商启用状态与 API Key 配置。
 - `image_generation.models`：图片服务目录中已启用的生图模型（与创作页生图下拉同源，顺序由管理端目录排序决定）。`credits_per_image` 取 `grs_image:global` 的实际生效平台积分（已含换算系数与按模型覆盖），与提交实扣一致；`is_default` 标记创作页预选模型，不代表列表首位。复合图片工作流（局部重绘 / 消除笔 / 扩图）不额外计费，因此不在此列出；0 积分表示当前配置为免费口径。
-- `ai_calls.items`：来自价格表的 `llm:*` / `vlm:*` 条目，按固定种类顺序返回。`billing_mode=per_call` 时 `unit_credits` 为按次单价；`billing_mode=per_token` 时为按典型用量估算的积分（管理与实际扣费仍按 token 结算）。`label` 取价格表说明中的功能名，`description` 保留完整说明。
+- `ai_calls.items`：来自价格表的 `llm:*` / `vlm:*` 条目，按固定种类顺序返回。`billing_mode=per_call` 时 `unit_credits` 为按次单价；`billing_mode=per_token` 时为按典型用量估算的积分（管理与实际扣费仍按 token 结算）。`label` 取价格表说明中的功能名，`description` 保留完整说明。按 token 条目另下发 `input_per_mtok` / `cached_input_per_mtok` / `output_per_mtok`（上游单价，元/百万 tokens）、`billing_margin` 与 `price_source`（`provider_catalog` / `manual`），价格页用 tooltip 解释积分来源。
 - 两个字段均为附加字段：未配置图片服务目录或价格条目缺失时返回空列表，旧客户端可忽略。
 
 ### `GET /api/modes/{mode_id}`

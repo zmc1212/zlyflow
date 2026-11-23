@@ -6,6 +6,7 @@ import unittest
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -810,6 +811,83 @@ class CreditEndpointTests(unittest.TestCase):
         )
         self.assertEqual(invalid.status_code, 422)
 
+    def test_provider_price_sync_writes_llm_rules(self) -> None:
+        """拉取失败时回退内置官方价，按 1.5 系数换算并切 per_token。"""
+        class _StubLlm:
+            def public_config(self) -> dict:
+                return {
+                    "enabled": True,
+                    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                    "model": "deepseek-v4.1-flash-1017",
+                }
+
+            def api_key(self) -> str:
+                return "test-key"
+
+        app.state.llm_provider = _StubLlm()
+        self.login_as(self.admin_token)
+        with patch(
+            "backend.app.main.fetch_upstream_prices",
+            return_value=([], "供应商模型目录未返回 token 单价"),
+        ):
+            res = self.client.post(
+                "/api/admin/credits/provider-prices/apply",
+                json={"scope": "llm", "margin": 1.5, "min_credits": 1, "billing_mode": "per_token"},
+                headers={"X-CSRF-Token": csrf_token(self.admin_token)},
+            )
+        self.assertEqual(res.status_code, 200, res.text)
+        body = res.json()
+        applied = {item["rule_key"]: item for item in body["applied"]}
+        self.assertEqual(applied["llm:assistant_chat"]["status"], "applied")
+        self.assertEqual(applied["llm:assistant_chat"]["source"], "builtin")
+        rule = self.store.get_credit_price_rule("llm:assistant_chat")
+        self.assertEqual(rule["extra_config"]["billing_mode"], "per_token")
+        self.assertEqual(rule["extra_config"]["billing_margin"], 1.5)
+        self.assertEqual(
+            rule["extra_config"]["cost_reference"]["model_prices"]["deepseek-v4.1-flash-1017"]["output_per_mtok"],
+            8.0,
+        )
+        self.assertIn(rule["unit_credits"], (2, 3))
+        # 价格页数据随新规则变化：llm:assistant_chat 按典型 tokens 显示为 2-3 积分。
+        pricing = self.client.get("/api/pricing").json()
+        assistant = next(item for item in pricing["ai_calls"]["items"] if item["key"] == "llm:assistant_chat")
+        self.assertEqual(assistant["billing_mode"], "per_token")
+        self.assertIn(assistant["unit_credits"], (2, 3))
+        self.assertEqual(assistant["input_per_mtok"], 2.0)
+        self.assertEqual(assistant["billing_margin"], 1.5)
+        self.assertEqual(assistant["price_source"], "provider_catalog")
+
+    def test_provider_price_sync_skips_free_vlm_model(self) -> None:
+        """官方免费视觉模型不能被改成按 token 最低积分扣费。"""
+        class _StubVlm:
+            def public_config(self) -> dict:
+                return {
+                    "enabled": True,
+                    "base_url": "https://api.qnaigc.com/v1",
+                    "model": "qiniu/conatus-free",
+                }
+
+            def api_key(self) -> str:
+                return "test-key"
+
+        app.state.vlm_provider = _StubVlm()
+        before = self.store.get_credit_price_rule("vlm:analyze_subject")
+        self.login_as(self.admin_token)
+        with patch(
+            "backend.app.main.fetch_upstream_prices",
+            return_value=([], "供应商模型目录未返回 token 单价"),
+        ):
+            res = self.client.post(
+                "/api/admin/credits/provider-prices/apply",
+                json={"scope": "vlm", "margin": 1.5, "min_credits": 1, "billing_mode": "per_token"},
+                headers={"X-CSRF-Token": csrf_token(self.admin_token)},
+            )
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertTrue(all(item["status"] == "skipped" for item in res.json()["applied"]))
+        after = self.store.get_credit_price_rule("vlm:analyze_subject")
+        self.assertEqual(after["unit_credits"], before["unit_credits"])
+        self.assertNotEqual(after["extra_config"]["billing_mode"], "per_token")
+
 
 class CallCostReferenceTests(unittest.TestCase):
     """LLM/VLM 成本参考：种子口径、覆盖率、流水用量与校验。"""
@@ -1002,6 +1080,73 @@ class CallCostReferenceTests(unittest.TestCase):
         from backend.app.credit_service import token_charge
 
         self.assertEqual(token_charge(rule, {"prompt_tokens": 1, "completion_tokens": 1})["credits"], 300)
+
+
+class ProviderPriceCatalogTests(unittest.TestCase):
+    """供应商价目：内置官方价匹配、上游 USD 折算、同步写入模型档位。"""
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.store = JobStore(Path(self.temp_dir.name) / "test.db")
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_builtin_matches_dated_model_and_converts(self) -> None:
+        from backend.app.llm_price_catalog import price_to_credits, resolve_price
+
+        price = resolve_price("dashscope", "deepseek-v4.1-flash-1017")
+        self.assertIsNotNone(price)
+        self.assertEqual(price["source"], "builtin")
+        self.assertEqual((price["input_per_mtok"], price["cached_input_per_mtok"], price["output_per_mtok"]),
+                         (2.0, 0.04, 8.0))
+        # 100 积分 = 1 元：¥2/M × 100 × 1.5 = 300 积分/M。
+        self.assertEqual(price_to_credits(price, 1.5), {
+            "input_credits_per_mtok": 300,
+            "cached_input_credits_per_mtok": 6,
+            "output_credits_per_mtok": 1200,
+        })
+        self.assertIsNone(resolve_price("dashscope", "unknown-model"))
+        self.assertEqual(resolve_price("zhipu", "glm-5.3")["output_per_mtok"], 28.0)
+        self.assertTrue(resolve_price("qiniu", "qiniu/conatus-free")["free"])
+
+    def test_upstream_usd_pricing_is_converted_to_cny_per_mtok(self) -> None:
+        from backend.app.llm_price_catalog import parse_upstream_prices
+
+        payload = {"data": [{
+            "id": "openai/gpt-x",
+            "pricing": {"prompt": "0.000001", "completion": "0.000002", "input_cache_read": "0.0000005"},
+        }]}
+        entries = parse_upstream_prices(payload, base_url="https://openrouter.ai/api/v1", usd_cny=7.0)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["source"], "upstream")
+        self.assertEqual(entries[0]["input_per_mtok"], 7.0)
+        self.assertEqual(entries[0]["output_per_mtok"], 14.0)
+        self.assertEqual(entries[0]["cached_input_per_mtok"], 3.5)
+
+    def test_plan_rule_sync_writes_tier_margin_and_off_peak(self) -> None:
+        from backend.app.llm_price_catalog import plan_rule_sync, resolve_price
+
+        price = resolve_price("dashscope", "deepseek-v4.1-flash-1017")
+        rule = self.store.get_credit_price_rule("llm:assistant_chat")
+        plan = plan_rule_sync(
+            rule, price, model="deepseek-v4.1-flash-1017", margin=1.5,
+            min_credits=1, billing_mode="per_token",
+        )
+        self.assertEqual(plan["extra_config"]["billing_mode"], "per_token")
+        self.assertEqual(plan["extra_config"]["billing_margin"], 1.5)
+        reference = plan["extra_config"]["cost_reference"]
+        self.assertEqual(reference["model_prices"]["deepseek-v4.1-flash-1017"]["input_per_mtok"], 2.0)
+        self.assertEqual(reference["reference_source"], "provider_catalog")
+        self.assertTrue(reference["off_peak"]["enabled"])
+        # 6,000 输入 + 800 输出：峰值 ¥0.0184，×100×1.5 ≈ 2.76 → 3 积分；
+        # 若当前正好落在错峰窗，半价后为 2 积分。
+        self.assertIn(plan["unit_credits"], (2, 3))
+
+    def test_unknown_provider_model_never_invents_price(self) -> None:
+        from backend.app.llm_price_catalog import resolve_price
+
+        self.assertIsNone(resolve_price("custom", "totally-unknown-model"))
 
 
 if __name__ == "__main__":

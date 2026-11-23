@@ -5,8 +5,11 @@ import { ApiRequestError, jsonMutation, requestJson } from "../api"
 import { formatCredits, formatCny, MAX_CREDIT_AMOUNT, type CreditPriceRule } from "../credits/credits"
 import {
   compactVariantLabels, isValidCreditPrice, MAX_VISIBLE_VARIANT_CHIPS,
-  previewCallCost, previewCreditConversion, type BillingMode, type CallCostPreview,
+  previewCallCost, previewCreditConversion, type BillingMode, type CallCostPreview, type CallCostReference,
 } from "./credit-price"
+import {
+  creditsForProviderPrice, providerSourceLabel, type ProviderPriceApplyResult, type ProviderPriceCatalog,
+} from "./provider-price"
 
 const SCOPE_LABELS: Record<string, string> = {
   cloud_video: "云端视频", grs_image: "云端生图", llm: "LLM 大模型", vlm: "VLM 视觉模型",
@@ -55,6 +58,12 @@ type CostReferenceDraft = {
   offPeakEnd: string
   modelTiers: Array<{ model: string; inputPrice: number | null; cachedPrice: number | null; outputPrice: number | null }>
 }
+type ProviderSyncDraft = {
+  scope: "llm" | "vlm"
+  margin: number
+  minCredits: number
+  billingMode: BillingMode
+}
 const COST_STATUS: Record<CallCostPreview["status"], { color: string; label: string }> = {
   below_cost: { color: "red", label: "低于成本" },
   thin: { color: "gold", label: "接近成本" },
@@ -85,6 +94,7 @@ export default function CreditPricingSettings({ csrfToken, active }: { csrfToken
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [conversion, setConversion] = useState<ConversionDraft | null>(null)
   const [costReference, setCostReference] = useState<CostReferenceDraft | null>(null)
+  const [providerSync, setProviderSync] = useState<ProviderSyncDraft | null>(null)
   const query = useQuery({
     queryKey: ["admin-credit-prices"],
     queryFn: ({ signal }) => requestJson<CreditPriceRule[]>("/api/admin/credits/prices", { signal }),
@@ -104,6 +114,38 @@ export default function CreditPricingSettings({ csrfToken, active }: { csrfToken
     },
     onError: (error) => {
       if (error instanceof ApiRequestError && error.status === 409) void query.refetch()
+    },
+  })
+  const providerCatalog = useQuery({
+    queryKey: ["admin-provider-prices", providerSync?.scope ?? "llm"],
+    queryFn: ({ signal }) => requestJson<ProviderPriceCatalog>(
+      `/api/admin/credits/provider-prices?scope=${providerSync?.scope ?? "llm"}&margin=1.5`, { signal },
+    ),
+    enabled: active && providerSync !== null,
+    staleTime: 0,
+    retry: 1,
+  })
+  const providerSyncMutation = useMutation({
+    mutationFn: (draft: ProviderSyncDraft) => requestJson<ProviderPriceApplyResult>(
+      "/api/admin/credits/provider-prices/apply",
+      jsonMutation(csrfToken, {
+        scope: draft.scope, margin: draft.margin, min_credits: draft.minCredits, billing_mode: draft.billingMode,
+      }, "POST"),
+    ),
+    onSuccess: (result) => {
+      queryClient.setQueryData(["admin-credit-prices"], result.rules)
+      setProviderSync(null)
+      const applied = result.applied.filter((item) => item.status === "applied").length
+      const skipped = result.applied.filter((item) => item.status === "skipped")
+      if (applied) {
+        message.success(`已按供应商价目换算并写入 ${applied} 条价格`)
+      } else {
+        message.warning(result.message || "没有可写入的价格条目")
+      }
+      if (skipped.length) message.info(skipped[0]?.reason || `${skipped.length} 条未写入`)
+      for (const key of ["modes", "canvas-modes", "credits-estimate", "pricing"]) {
+        void queryClient.invalidateQueries({ queryKey: [key] })
+      }
     },
   })
 
@@ -144,6 +186,37 @@ export default function CreditPricingSettings({ csrfToken, active }: { csrfToken
     })
   }
   const billingModeFor = (rule: CreditPriceRule): BillingMode => extraFor(rule).billing_mode === "per_token" ? "per_token" : "per_call"
+  const openProviderSync = () => {
+    if (draftCount) {
+      message.warning("请先发布或放弃当前修改，再同步供应商价格")
+      return
+    }
+    setProviderSync({
+      scope: activeScope === "vlm" ? "vlm" : "llm", margin: 1.5, minCredits: 1, billingMode: "per_token",
+    })
+  }
+  const providerRules = (query.data ?? []).filter(
+    (rule) => providerSync !== null && rule.scope === providerSync.scope && rule.enabled,
+  )
+  const providerEntry = providerCatalog.data?.matched ?? null
+  const providerPreviewFor = (rule: CreditPriceRule) => {
+    if (!providerSync || !providerEntry) return null
+    const reference = (rule.extra_config?.cost_reference ?? {}) as Partial<CallCostReference>
+    return previewCallCost({
+      input_per_mtok: providerEntry.input_per_mtok,
+      cached_input_per_mtok: providerEntry.cached_input_per_mtok,
+      output_per_mtok: providerEntry.output_per_mtok,
+      assumed_input_tokens: Number(reference.assumed_input_tokens ?? 6000),
+      assumed_cached_tokens: Number(reference.assumed_cached_tokens ?? 0),
+      assumed_output_tokens: Number(reference.assumed_output_tokens ?? 800),
+      provider_coefficient: Number(reference.provider_coefficient ?? 1),
+    }, 0, { billingMode: "per_token", billingMargin: providerSync.margin, minCredits: providerSync.minCredits })
+  }
+  const providerSyncValid = Boolean(
+    providerSync && providerEntry && !providerEntry.free && providerRules.length > 0
+    && Number.isFinite(providerSync.margin) && providerSync.margin > 0
+    && Number.isInteger(providerSync.minCredits) && providerSync.minCredits >= 0,
+  )
   const openCostReference = (rule: CreditPriceRule) => {
     const reference = costReferenceFor(rule) ?? {}
     const extra = extraFor(rule)
@@ -413,6 +486,9 @@ export default function CreditPricingSettings({ csrfToken, active }: { csrfToken
           <Segmented aria-label="价格分类" value={activeScope} onChange={setScope} options={scopes.map((key) => ({ value: key, label: SCOPE_LABELS[key] ?? key }))} />
         ) : <span />}
         <Space>
+          <Tooltip title="从当前 LLM/VLM 供应商拉取 token 价目，按加价系数换算成积分并写入价格表">
+            <Button disabled={providerSyncMutation.isPending} onClick={openProviderSync}>拉取供应商价格</Button>
+          </Tooltip>
           {draftCount ? (
             <Popconfirm title="放弃所有未发布的价格修改？" okText="放弃修改" cancelText="继续编辑" onConfirm={() => { setDrafts({}); mutation.reset() }}>
               <Button disabled={mutation.isPending}>放弃修改</Button>
@@ -431,7 +507,7 @@ export default function CreditPricingSettings({ csrfToken, active }: { csrfToken
       <p className={`mb-3 text-xs ${muted}`}>发布后，新提交按更新后的单价计费。停用规则后，该条目免扣积分。</p>
       {activeScope === "llm" || activeScope === "vlm" ? (
         <p className={`mb-3 text-xs ${muted}`}>
-          按次计费统一按 <strong>100 积分 = 1 元</strong> 换算约人民币。任何「成本参考」只用于核对上游 token 成本与毛利，不参与实际结算。
+          按次计费统一按 <strong>100 积分 = 1 元</strong> 换算约人民币。成本参考会从供应商价目同步；切换到「按 token」后，按真实 usage 结算，未采集时回退按次单价。
         </p>
       ) : null}
       {query.isError ? <Alert className="mb-3" type="error" showIcon title={query.error.message} action={<Button size="small" onClick={() => void query.refetch()}>重新加载</Button>} /> : null}
@@ -705,6 +781,207 @@ export default function CreditPricingSettings({ csrfToken, active }: { csrfToken
             ) : null}
             {!costReferenceValid ? <Alert type="warning" showIcon title="请填写有效的非负单价和 tokens；缓存命中不能大于输入，输入或输出单价至少有一个大于 0。" /> : null}
             {costReference.estimated ? <p className={`text-xs ${muted}`}>实际调用若已采集 usage，流水会按真实 tokens 重算；未采集时按这里的典型用量估算，并在流水标注「估算」。</p> : null}
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal
+        open={providerSync !== null}
+        title="拉取供应商价格并换算积分"
+        onCancel={() => { setProviderSync(null); providerSyncMutation.reset() }}
+        onOk={() => providerSync && providerSyncMutation.mutate(providerSync)}
+        okText="换算并写入价格表"
+        cancelText="取消"
+        okButtonProps={{ disabled: !providerSyncValid, loading: providerSyncMutation.isPending }}
+        width={880}
+        centered
+        styles={{ body: { maxHeight: "62vh", overflowY: "auto", paddingRight: 6 } }}
+        destroyOnHidden
+      >
+        {providerSync ? (
+          <div className="grid gap-4">
+            <div className="flex flex-wrap items-end gap-4">
+              <label className="grid gap-1 text-xs">
+                <span>同步范围</span>
+                <Segmented
+                  size="small"
+                  value={providerSync.scope}
+                  onChange={(value) => setProviderSync({ ...providerSync, scope: value as "llm" | "vlm" })}
+                  options={[{ label: "LLM 大模型", value: "llm" }, { label: "VLM 视觉模型", value: "vlm" }]}
+                />
+              </label>
+              <label className="grid gap-1 text-xs">
+                <span>加价系数（积分 = 成本 × 100 × 系数）</span>
+                <InputNumber
+                  aria-label="供应商加价系数" min={0.1} max={20} step={0.1}
+                  value={providerSync.margin}
+                  onChange={(margin) => setProviderSync({ ...providerSync, margin: margin ?? 1.5 })}
+                />
+              </label>
+              <label className="grid gap-1 text-xs">
+                <span>最低积分 / 次</span>
+                <InputNumber
+                  aria-label="供应商同步最低积分" min={0} precision={0}
+                  value={providerSync.minCredits}
+                  onChange={(minCredits) => setProviderSync({ ...providerSync, minCredits: minCredits ?? 1 })}
+                />
+              </label>
+              <label className="grid gap-1 text-xs">
+                <span>结算方式</span>
+                <Segmented
+                  size="small"
+                  value={providerSync.billingMode}
+                  onChange={(value) => setProviderSync({ ...providerSync, billingMode: value as BillingMode })}
+                  options={[{ label: "按 token（推荐）", value: "per_token" }, { label: "按次", value: "per_call" }]}
+                />
+              </label>
+            </div>
+            <p className={`text-xs ${muted}`}>
+              100 积分 = 1 元；每百万 tokens 的积分 = 上游金额（元）× 100 × {providerSync.margin}，向上取整。同步会写入模型档位与分时价，并把典型用量折算成兜底单价。
+            </p>
+            {providerCatalog.isError ? (
+              <Alert type="error" showIcon title={`拉取失败：${providerCatalog.error.message}`} />
+            ) : null}
+            {providerCatalog.data ? (
+              <>
+                <div className="grid gap-1 rounded-lg border border-[color:var(--studio-border)] bg-[var(--studio-surface-raised)] p-3 text-xs">
+                  <p><span className={muted}>接口：</span><span className="break-all font-mono">{providerCatalog.data.base_url || "未配置"}</span></p>
+                  <p>
+                    <span className={muted}>模型：</span><span className="font-mono">{providerCatalog.data.model || "未配置"}</span>
+                    {providerCatalog.data.matched ? (
+                      <Tag color="blue" className="!mb-0 !ml-2">命中 {providerCatalog.data.matched.model}</Tag>
+                    ) : null}
+                  </p>
+                  <p><span className={muted}>供应商：</span>{providerCatalog.data.provider || "未识别"}</p>
+                </div>
+                <Alert
+                  type={providerCatalog.data.matched && !providerCatalog.data.matched.free ? "success" : "warning"}
+                  showIcon
+                  title={providerCatalog.data.message || "已获取价目"}
+                  description={providerCatalog.data.matched ? (
+                    <span className="grid gap-1">
+                      <span>
+                        输入 ¥{providerCatalog.data.matched.input_per_mtok}/M · 缓存 ¥{providerCatalog.data.matched.cached_input_per_mtok}/M ·
+                        输出 ¥{providerCatalog.data.matched.output_per_mtok}/M
+                        {providerCatalog.data.matched.verified_at ? `（${providerCatalog.data.matched.verified_at} 核验）` : ""}
+                      </span>
+                      {providerCatalog.data.matched.note ? (
+                        <span className={`text-xs ${muted}`}>{providerCatalog.data.matched.note}</span>
+                      ) : null}
+                    </span>
+                  ) : "该模型未收录，请先在单条成本参考里手工填写，或切换到已收录的供应商模型。"}
+                />
+                <Table
+                  rowKey="model"
+                  size="small"
+                  pagination={false}
+                  loading={providerCatalog.isFetching}
+                  dataSource={providerCatalog.data.entries}
+                  locale={{ emptyText: "该供应商暂无内置价目" }}
+                  columns={[
+                    {
+                      title: "模型", dataIndex: "model",
+                      render: (model: string, row) => (
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="break-all font-mono text-xs">{model}</span>
+                          {row.free ? <Tag color="green" className="!m-0">免费</Tag> : null}
+                        </div>
+                      ),
+                    },
+                    {
+                      title: "输入", align: "right" as const,
+                      render: (_: unknown, row) => (
+                        <div>
+                          <div className="tabular-nums">{formatCredits(creditsForProviderPrice(row.input_per_mtok, providerSync.margin))} 积分/M</div>
+                          <div className={`text-xs ${muted}`}>¥{row.input_per_mtok}/M</div>
+                        </div>
+                      ),
+                    },
+                    {
+                      title: "缓存命中", align: "right" as const,
+                      render: (_: unknown, row) => (
+                        <div>
+                          <div className="tabular-nums">{formatCredits(creditsForProviderPrice(row.cached_input_per_mtok, providerSync.margin))} 积分/M</div>
+                          <div className={`text-xs ${muted}`}>¥{row.cached_input_per_mtok}/M</div>
+                        </div>
+                      ),
+                    },
+                    {
+                      title: "输出", align: "right" as const,
+                      render: (_: unknown, row) => (
+                        <div>
+                          <div className="tabular-nums">{formatCredits(creditsForProviderPrice(row.output_per_mtok, providerSync.margin))} 积分/M</div>
+                          <div className={`text-xs ${muted}`}>¥{row.output_per_mtok}/M</div>
+                        </div>
+                      ),
+                    },
+                    {
+                      title: "来源",
+                      render: (_: unknown, row) => (
+                        <Space size={4} wrap>
+                          <Tag className="!m-0">{providerSourceLabel(row.source)}</Tag>
+                          {row.source_url ? (
+                            <a className="text-xs" href={row.source_url} target="_blank" rel="noreferrer">核对</a>
+                          ) : null}
+                        </Space>
+                      ),
+                    },
+                    {
+                      title: "核验", dataIndex: "verified_at",
+                      render: (value: string | null | undefined) => <span className={`text-xs ${muted}`}>{value || "—"}</span>,
+                    },
+                  ]}
+                />
+                <div className="grid gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <strong className="text-sm">将更新的条目（{providerRules.length}）</strong>
+                    <span className={`text-xs ${muted}`}>按各条目的典型用量估算，实际按真实 usage 结算</span>
+                  </div>
+                  <Table
+                    rowKey="rule_key"
+                    size="small"
+                    pagination={false}
+                    dataSource={providerRules}
+                    locale={{ emptyText: "该范围没有启用的价格条目" }}
+                    columns={[
+                      {
+                        title: "条目", dataIndex: "rule_key",
+                        render: (value: string) => <span className="break-all font-mono text-xs">{value}</span>,
+                      },
+                      {
+                        title: "典型 tokens（入 / 出）",
+                        render: (_: unknown, rule: CreditPriceRule) => {
+                          const reference = (rule.extra_config?.cost_reference ?? {}) as Record<string, unknown>
+                          return <span className={`text-xs ${muted}`}>{Number(reference.assumed_input_tokens ?? 6000)} / {Number(reference.assumed_output_tokens ?? 800)}</span>
+                        },
+                      },
+                      {
+                        title: "当前单价", align: "right" as const, dataIndex: "unit_credits",
+                        render: (value: number) => <span className="tabular-nums">{value} 积分</span>,
+                      },
+                      {
+                        title: "换算后", align: "right" as const,
+                        render: (_: unknown, rule: CreditPriceRule) => {
+                          const preview = providerPreviewFor(rule)
+                          return (
+                            <span className="tabular-nums font-medium">
+                              {preview?.tokenCredits === null || preview?.tokenCredits === undefined ? "—" : `${preview.tokenCredits} 积分`}
+                            </span>
+                          )
+                        },
+                      },
+                    ]}
+                  />
+                </div>
+              </>
+            ) : (
+              <div className={`py-6 text-center text-sm ${muted}`}>
+                {providerCatalog.isLoading ? "正在拉取供应商价目…" : "暂无价目"}
+              </div>
+            )}
+            {providerSyncMutation.isError ? (
+              <Alert type="error" showIcon title={`同步失败：${providerSyncMutation.error.message}`} />
+            ) : null}
           </div>
         ) : null}
       </Modal>

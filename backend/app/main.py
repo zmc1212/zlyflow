@@ -117,6 +117,7 @@ from .models import (
     MusicChatMessageResponse, MusicChatResponse, MusicChatUpdateRequest,
     CreditAccountResponse, CreditAdjustRequest, CreditEstimateRequest, CreditEstimateResponse,
     CreditPriceRuleResponse, CreditPriceRulesUpdateRequest, CreditTransactionResponse, CreditUsageReportResponse,
+    ProviderPriceApplyRequest, ProviderPriceApplyResponse, ProviderPriceCatalogResponse,
     EnterpriseResponse, EnterpriseCreateRequest, EnterpriseUpdateRequest, EnterprisePolicyItem,
     EnterprisePoliciesUpdateRequest, EnterprisePolicyCatalogResponse, EnterprisePolicyCatalogEntry,
     EnterpriseDetailResponse, EnterpriseMemberResponse, EnterpriseCreditTransactionResponse,
@@ -199,9 +200,18 @@ from .credit_service import (
     VLM_BILLING_KINDS,
     CreditService,
     billing_mode,
+    compute_call_cost,
     compute_cost_preview,
     native_price_to_credits,
     resolve_price_rule_units,
+)
+from .llm_price_catalog import (
+    catalog_for_provider,
+    fetch_upstream_prices,
+    plan_rule_sync,
+    provider_key_for_base_url,
+    public_price,
+    resolve_price,
 )
 from .worker import JobWorker
 from .rtx_vsr_workflow import comfy_vram_device_name, comfy_vram_total_bytes, original_video_locator, source_video_shape, vsr_memory_rejection
@@ -1749,6 +1759,20 @@ def _image_generation_pricing(credits: CreditService | None) -> dict:
     return {"pricing_kind": "per_item", "models": models}
 
 
+def _reference_number(reference: dict, key: str) -> float | None:
+    value = reference.get(key)
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _current_provider_model(scope: str) -> str:
+    """价格页解释积分来源时使用的当前模型；未初始化供应商时返回空串。"""
+    try:
+        service = app.state.llm_provider if scope == "llm" else app.state.vlm_provider
+        return str(service.public_config().get("model") or "")
+    except Exception:
+        return ""
+
+
 def _ai_call_pricing(credits: CreditService | None) -> dict:
     """AI 大模型按次价格页数据：条目来自 llm/vlm 价格表，单价为实际生效值。
 
@@ -1763,6 +1787,10 @@ def _ai_call_pricing(credits: CreditService | None) -> dict:
                 if rule is None:
                     continue
                 note = str(rule.get("note") or "").strip()
+                extra = rule.get("extra_config") or {}
+                reference = extra.get("cost_reference")
+                reference = reference if isinstance(reference, dict) else {}
+                calculated = compute_call_cost(rule, model=_current_provider_model(scope))
                 items.append({
                     "key": f"{scope}:{kind}",
                     "scope": scope,
@@ -1772,6 +1800,14 @@ def _ai_call_pricing(credits: CreditService | None) -> dict:
                     "description": note,
                     "unit_credits": credits.estimate_call(scope, kind),
                     "billing_mode": billing_mode(rule),
+                    # 按 token 条目额外下发上游单价与加价系数，价格页可解释积分来源。
+                    "input_per_mtok": (calculated or {}).get("input_per_mtok", _reference_number(reference, "input_per_mtok")),
+                    "cached_input_per_mtok": (calculated or {}).get(
+                        "cached_input_per_mtok", _reference_number(reference, "cached_input_per_mtok"),
+                    ),
+                    "output_per_mtok": (calculated or {}).get("output_per_mtok", _reference_number(reference, "output_per_mtok")),
+                    "billing_margin": extra.get("billing_margin"),
+                    "price_source": reference.get("reference_source") or "manual",
                 })
     return {"items": items}
 
@@ -2050,6 +2086,178 @@ def admin_update_credit_prices(
         detail=f"rules={len(payload.rules)}", ip_address=client_ip(request),
     )
     return _credit_price_rules_payload(rules)
+
+
+def _pricing_provider_context(scope: str) -> dict:
+    """LLM/VLM 当前生效的供应商、模型与解密后的 Key，只在本进程内使用。"""
+    service = app.state.llm_provider if scope == "llm" else app.state.vlm_provider
+    config = service.public_config()
+    try:
+        api_key = service.api_key()
+    except Exception:
+        api_key = None
+    base_url = str(config.get("base_url") or "").rstrip("/")
+    return {
+        "provider": provider_key_for_base_url(base_url),
+        "base_url": base_url,
+        "model": str(config.get("model") or "").strip(),
+        "api_key": api_key,
+        "enabled": bool(config.get("enabled")),
+    }
+
+
+def _resolve_provider_price(
+    scope: str, *, margin: float, usd_cny: float, refresh: bool,
+) -> tuple[dict, dict | None, list[dict], str | None]:
+    """返回（供应商上下文、命中价目、同供应商价目清单、说明）。"""
+    context = _pricing_provider_context(scope)
+    upstream: list[dict] = []
+    error = None
+    if refresh and context["base_url"]:
+        upstream, error = fetch_upstream_prices(
+            context["base_url"], context["api_key"], usd_cny=usd_cny,
+        )
+    matched = resolve_price(context["provider"], context["model"], upstream)
+    entries = catalog_for_provider(context["provider"], upstream, margin=margin)
+    if matched is not None and matched.get("free"):
+        entries = [public_price(matched, margin), *entries]
+    prefix = ""
+    if error and error != "供应商模型目录未返回 token 单价":
+        prefix = f"{error}；"
+    elif error:
+        prefix = "供应商 /models 未提供 token 单价，"
+    if matched is None:
+        message = (
+            f"{prefix}未收录模型 {context['model'] or '（未配置）'} 的供应商单价，"
+            "请在成本参考中手工填写后使用"
+        )
+    elif matched.get("source") == "upstream":
+        message = f"已从供应商 /models 拉取到 token 单价（{matched.get('verified_at')}）"
+    else:
+        message = (
+            f"{prefix}已使用内置核验价目"
+            f"（{matched.get('verified_at') or '未标注'} 核验），可打开来源链接核对"
+        )
+    return context, matched, entries, message
+
+
+@app.get(
+    "/api/admin/credits/provider-prices", response_model=ProviderPriceCatalogResponse,
+    tags=["管理后台"], summary="拉取供应商 LLM/VLM 价目并换算积分",
+)
+def admin_provider_price_catalog(
+    _: Annotated[dict, Depends(admin_user)],
+    scope: Annotated[Literal["llm", "vlm"], Query(description="拉取 LLM 还是 VLM 的价目。")] = "llm",
+    margin: Annotated[float, Query(gt=0, le=20, description="加价系数：积分 = 成本 × 100 × margin。")] = 1.5,
+    usd_cny: Annotated[float, Query(gt=0, le=100, description="上游美元价折算汇率；只影响 USD 计价条目。")] = 7.2,
+    refresh: Annotated[bool, Query(description="是否实时拉取供应商 /models；失败自动回退内置价目。")] = True,
+) -> dict:
+    context, matched, entries, message = _resolve_provider_price(
+        scope, margin=margin, usd_cny=usd_cny, refresh=refresh,
+    )
+    return {
+        "scope": scope,
+        "provider": context["provider"],
+        "base_url": context["base_url"],
+        "model": context["model"],
+        "margin": margin,
+        "matched": public_price(matched, margin) if matched is not None else None,
+        "entries": entries,
+        "message": message,
+    }
+
+
+@app.post(
+    "/api/admin/credits/provider-prices/apply", response_model=ProviderPriceApplyResponse,
+    tags=["管理后台"], summary="把供应商价目换算成积分并写入价格表",
+)
+def admin_apply_provider_prices(
+    payload: ProviderPriceApplyRequest, request: Request,
+    user: Annotated[dict, Depends(mutating_admin_user)],
+) -> dict:
+    """按当前配置的模型同步价目：写 model_prices + 分时价，切 per_token 并给出兜底单价。
+
+    未收录价格或官方免费模型会逐条 skipped，不猜价、也不把免费模型改成按 token 扣费。
+    """
+    scopes = ["llm", "vlm"] if payload.scope == "all" else [payload.scope]
+    all_rules = app.state.store.list_credit_price_rules()
+    applied: list[dict] = []
+    updates: list[dict] = []
+    notes: list[str] = []
+    for scope in scopes:
+        context, matched, _, message = _resolve_provider_price(
+            scope, margin=payload.margin, usd_cny=payload.usd_cny, refresh=True,
+        )
+        scope_rules = [
+            rule for rule in all_rules
+            if rule.get("scope") == scope and rule.get("enabled")
+        ]
+        if not context["base_url"]:
+            for rule in scope_rules:
+                applied.append({
+                    "scope": scope, "rule_key": rule["rule_key"], "model": context["model"],
+                    "status": "skipped", "reason": f"{scope.upper()} 未配置 Base URL",
+                })
+            notes.append(f"{scope.upper()} 未配置接口地址")
+            continue
+        if matched is None:
+            for rule in scope_rules:
+                applied.append({
+                    "scope": scope, "rule_key": rule["rule_key"], "model": context["model"],
+                    "status": "skipped", "reason": message,
+                })
+            notes.append(message)
+            continue
+        if matched.get("free") or not any(
+            float(matched.get(key) or 0) > 0
+            for key in ("input_per_mtok", "cached_input_per_mtok", "output_per_mtok")
+        ):
+            for rule in scope_rules:
+                applied.append({
+                    "scope": scope, "rule_key": rule["rule_key"], "model": context["model"],
+                    "source": matched.get("source"), "status": "skipped",
+                    "reason": "供应商官方免费模型，保留原有按次价格",
+                })
+            notes.append(f"{context['model']} 是免费模型，未改写按 token 价格")
+            continue
+        for rule in scope_rules:
+            plan = plan_rule_sync(
+                rule, matched, model=context["model"], margin=payload.margin,
+                min_credits=payload.min_credits, billing_mode=payload.billing_mode,
+            )
+            updates.append({
+                "rule_key": rule["rule_key"],
+                "unit_credits": plan["unit_credits"],
+                "extra_config": plan["extra_config"],
+                "expected_updated_at": rule.get("updated_at"),
+            })
+            applied.append({
+                "scope": scope, "rule_key": rule["rule_key"], "model": context["model"],
+                "source": matched.get("source"), "unit_credits": plan["unit_credits"],
+                "status": "applied",
+            })
+        notes.append(
+            f"{scope.upper()} 已按 {context['model']} 的{'上游' if matched.get('source') == 'upstream' else '官方'}价目"
+            f"换算 {len(scope_rules)} 条（加价系数 {payload.margin:g}）"
+        )
+    try:
+        if updates:
+            app.state.store.update_credit_price_rules(updates)
+    except CreditPriceConflictError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    if updates:
+        app.state.auth_store.audit(
+            "sync_provider_prices", "provider", actor_user_id=user["id"], target_id="credit_prices",
+            detail=f"scope={payload.scope} margin={payload.margin} rules={len(updates)}",
+            ip_address=client_ip(request),
+        )
+    return {
+        "rules": _credit_price_rules_payload(app.state.store.list_credit_price_rules()),
+        "applied": applied,
+        "message": "；".join(notes),
+    }
 
 
 # ---------------------------------------------------------------------------

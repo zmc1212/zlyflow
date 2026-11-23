@@ -685,6 +685,59 @@ class CreditPriceRulesUpdateRequest(BaseModel):
     rules: list[CreditPriceRuleUpdateItem] = Field(min_length=1, max_length=200, description="批量更新的计价条目列表（局部更新语义）。")
 
 
+class ProviderPriceEntry(BaseModel):
+    """单个模型的供应商价目，金额为元/百万 tokens，并附换算后的积分单价。"""
+    model: str = Field(description="供应商模型 ID。")
+    input_per_mtok: float = Field(description="输入（缓存未命中）价格，元/百万 tokens。")
+    cached_input_per_mtok: float = Field(description="输入缓存命中价格，元/百万 tokens。")
+    output_per_mtok: float = Field(description="输出价格，元/百万 tokens。")
+    input_credits_per_mtok: int = Field(description="按加价系数换算后的输入积分/百万 tokens。")
+    cached_input_credits_per_mtok: int = Field(description="换算后的缓存命中积分/百万 tokens。")
+    output_credits_per_mtok: int = Field(description="换算后的输出积分/百万 tokens。")
+    currency: str = Field(default="CNY", description="折算后的币种，固定 CNY。")
+    source: str = Field(description="upstream=供应商接口自带；builtin=内置核验价目。")
+    source_url: str | None = Field(default=None, description="价目出处；内置条目为官方/公告链接。")
+    verified_at: str | None = Field(default=None, description="价目核验日期。")
+    note: str | None = Field(default=None, description="价格口径说明（分时价、促销等）。")
+    free: bool = Field(default=False, description="是否官方免费模型。")
+    off_peak: dict[str, Any] | None = Field(default=None, description="分时价配置；有值时同步会写入价格表。")
+
+
+class ProviderPriceCatalogResponse(BaseModel):
+    scope: Literal["llm", "vlm"] = Field(description="价格所属范围。")
+    provider: str = Field(description="识别出的供应商口径，如 dashscope/zhipu/qiniu/custom。")
+    base_url: str = Field(description="当前配置的接口地址。")
+    model: str = Field(description="当前配置的模型 ID。")
+    margin: float = Field(description="本次换算使用的加价系数。")
+    matched: ProviderPriceEntry | None = Field(default=None, description="当前模型命中的价目；未收录为 null。")
+    entries: list[ProviderPriceEntry] = Field(default_factory=list, description="该供应商可用的价目清单。")
+    message: str | None = Field(default=None, description="拉取结果说明；未命中时提示手工填写。")
+
+
+class ProviderPriceApplyRequest(BaseModel):
+    scope: Literal["llm", "vlm", "all"] = Field(default="llm", description="同步范围；all 同时处理 LLM 与 VLM。")
+    margin: float = Field(default=1.5, gt=0, le=20, description="加价系数：积分 = 成本 × 100 × margin。")
+    min_credits: int = Field(default=1, ge=0, le=1_000_000, description="按 token 结算的最低积分。")
+    billing_mode: Literal["per_call", "per_token"] = Field(default="per_token", description="写入的结算方式。")
+    usd_cny: float = Field(default=7.2, gt=0, le=100, description="上游美元价折算汇率；只影响 USD 计价条目。")
+
+
+class ProviderPriceAppliedItem(BaseModel):
+    scope: str = Field(description="llm 或 vlm。")
+    rule_key: str = Field(description="价格条目键。")
+    model: str = Field(description="应用的模型 ID。")
+    source: str | None = Field(default=None, description="价目来源。")
+    unit_credits: int | None = Field(default=None, description="按典型用量换算后的单次积分（兼作按次兜底价）。")
+    status: str = Field(description="applied=已写入；skipped=未写入。")
+    reason: str | None = Field(default=None, description="未写入原因。")
+
+
+class ProviderPriceApplyResponse(BaseModel):
+    rules: list[CreditPriceRuleResponse] = Field(default_factory=list, description="更新后的完整价格表。")
+    applied: list[ProviderPriceAppliedItem] = Field(default_factory=list, description="逐条处理结果。")
+    message: str | None = Field(default=None, description="汇总说明。")
+
+
 # ---------------------------------------------------------------------------
 # 企业管理：主档 / 成员 / 企业钱包 / 模型访问策略
 # ---------------------------------------------------------------------------

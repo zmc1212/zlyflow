@@ -5751,3 +5751,20 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：纯加法字段，旧客户端可忽略；`providers` 结构与云端视频计费链路不变；不触碰任务提交、价格表 schema 与数据库迁移。生图条目仅反映图片服务目录，未配置 GRS 时返回空列表，页面自动隐藏该区块。
 - 验证命令：`python -X utf8 -m pytest backend/tests/test_credit.py -q`（51 项通过，含新增「生图 / AI 大模型价格与实扣同口径」断言）；`python -X utf8 -m pytest backend/tests -q`（2267 项通过、14 项失败、1 项跳过；失败均为既有失败集且不涉及价格链路——Wan 首尾帧校验文案、导演流取消事件、企业目录注入、游客目录 `app.state`、schema 基线、媒体理解证据集）；`pnpm --dir frontend test`（156 文件 / 1111 项通过）；`pnpm --dir frontend exec tsc -b`；`pnpm --dir frontend build` 通过。5173 桌面端以无头 Chrome 在 1440px 宽度对 `/pricing` 做暗色 / 浅色截图自查：生图卡片价格与默认标记、AI 大模型表格的计费方式与折合金额均正常，双主题对比度通过；未做移动端检查。
 - 回滚方式：还原 `backend/app/main.py` 的两个 helper 与响应字段、`frontend/src/pricing/` 三个文件与 `docs/API.md` 对应段落即可；无数据迁移，价格表本身不改。
+
+## 2026-11-23 LLM/VLM 积分改由供应商价目换算
+
+- 变更原因：LLM/VLM 价格长期靠管理端手填「成本参考 + 按次单价」，与供应商实际刊例价脱节；切换到更贵的模型或助手上下文变长时，按次单价覆盖率会跌破 1（成本兜不住）。需要把「供应商价目 → 元/百万 tokens → 平台积分」做成可拉取、可复核、可一键写入的链路。
+- 价目来源（`backend/app/llm_price_catalog.py`，优先级从高到低）：
+  1. `upstream`：供应商 `/models` 自带 `pricing`（OpenRouter 等网关按 token 计价，USD 按调用方传入的 `usd_cny` 折算），无需人工维护；
+  2. `builtin`：内置核验价目，只收录能给出 `source_url` 与 `verified_at` 的条目（DeepSeek V4.1-Flash / V4-Flash、GLM-5.3 / 5.3-Flash / 4.5V、智谱与七牛免费模型）；DeepSeek V4.1-Flash 存高峰价并附带 00:30–08:30 半价窗口，避免只存空闲价导致白天少算一半；
+  3. 未收录：`matched=null`，明确提示手工填写，不猜价。
+- 当前行为：
+  - `GET /api/admin/credits/provider-prices` 读取当前 LLM/VLM 供应商配置，实时拉取 `/models`（失败自动回退），返回命中价目、同供应商价目清单与说明；`entries` 同时给出元/百万 tokens 与按 `margin` 换算后的积分/百万 tokens。
+  - `POST /api/admin/credits/provider-prices/apply` 按当前模型把价格写入对应 `llm:*` / `vlm:*` 规则：基础价 + `model_prices[模型]` + 分时价、`billing_margin`、`min_credits`、`billing_mode`，并把典型用量折算成 `unit_credits`（兼作按次报价与未采集 usage 时的兜底价）。未收录、未配置 Base URL、官方免费模型逐条 `skipped` 并给出原因；免费模型不会被改成按 token 最低积分扣费。价格规则并发更新返回 409。
+  - 管理端「积分管理 → 价格表 → LLM 大模型 / VLM 视觉模型」顶部新增「拉取供应商价格」：先预览供应商、模型、来源、元/积分单价与逐条「当前 → 换算后」，确认后才写入；有未发布草稿时禁止同步，避免 `updated_at` 冲突。
+  - 价格页 `/pricing` 的按 token 条目在「典型用量」上增加 tooltip，展示输入/缓存/输出上游单价与加价系数；`GET /api/pricing` 的 `ai_calls.items` 新增 `input_per_mtok`、`cached_input_per_mtok`、`output_per_mtok`、`billing_margin`、`price_source`。
+- 主要实现：`backend/app/llm_price_catalog.py`（内置价目、上游解析、`resolve_price`、`build_reference`、`plan_rule_sync`）、`backend/app/main.py`（两个管理端端点与 `/api/pricing` 字段）、`backend/app/models.py`（请求/响应模型）、`frontend/src/admin/{CreditPricingSettings.tsx,provider-price.ts}`、`frontend/src/pricing/{PricingPage.tsx,pricing-model.ts}`。
+- 兼容性：两个端点与 `/api/pricing` 字段均为新增；不调用 `apply` 时线上价格完全不变；价格表 schema、结算链路与历史流水不变；切换 `billing_mode=per_call` 时同步只更新报价与成本参考，不改变按次语义。
+- 验证命令：`python -X utf8 -m pytest backend/tests/test_credit.py -q`（57 项通过，含上游 USD 折算、内置价匹配、同步写入与免费模型跳过）；全量 `python -X utf8 -m pytest backend/tests -q`（2272 项通过、15 项失败、1 项跳过；失败均为既有/环境集：Wan 首尾帧校验文案、导演流取消事件、企业钱包与配额 9 项、游客目录、schema 基线、媒体理解证据集；另有 `test_login_block_remaining_seconds` 单独运行也复现 `901 > 900` 的登录窗口计时边界抖动，与本链路无关）；`pnpm --dir frontend test`（157 文件 / 1115 项通过）；`pnpm --dir frontend exec tsc -b`；`pnpm --dir frontend build` 通过。接口实测：`GET /api/admin/credits/provider-prices?scope=llm` 命中 `deepseek-v4.1-flash-1017 → deepseek-v4.1-flash`（输入 ¥2 / 缓存 ¥0.04 / 输出 ¥8，来源 builtin，2026-09-10 核验），`GET /api/pricing` 已下发新字段。
+- 回滚方式：还原 `backend/app/{main.py,models.py}`、删除 `backend/app/llm_price_catalog.py`、`backend/tests/test_credit.py` 新增用例、`frontend/src/admin/{CreditPricingSettings.tsx,provider-price.ts,provider-price.test.ts}`、`frontend/src/pricing/{PricingPage.tsx,pricing-model.ts}` 的新增段落即可。已通过 `apply` 写入的价格属数据库配置，需在管理端改回或还原价格表行；历史流水不回溯。
