@@ -94,11 +94,20 @@ function MiniStage({
   const picture = activeClip(doc, "video", time)
   const asset = doc.assets.find((a) => a.id === picture?.asset_id)
   const [w, h] = doc.settings.ratio === "9:16" ? [9, 16] : doc.settings.ratio === "1:1" ? [1, 1] : doc.settings.ratio === "4:3" ? [4, 3] : doc.settings.ratio === "3:4" ? [3, 4] : [16, 9]
-  const width = 224
-  const height = Math.round((width * h) / w)
+  // 即梦式尺寸：高度约为节点高的 2 倍（即梦实测 ~2.06×），宽度由工程画幅 aspect-ratio 推出，
+  // 超出节点宽度时按节点宽封顶（多出的部分只是黑边）；文字叠加按实测宽度换算字号。
+  const stageRef = useRef<HTMLDivElement>(null)
+  const [stageWidth, setStageWidth] = useState(480)
+  useEffect(() => {
+    const element = stageRef.current
+    if (!element) return
+    const observer = new ResizeObserver((entries) => setStageWidth(entries[0].contentRect.width))
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
   const text = activeClip(doc, "text", time)
   return (
-    <div className="se-node-stage" style={{ width, height }} aria-hidden="true">
+    <div ref={stageRef} className="se-node-stage" style={{ aspectRatio: `${w} / ${h}` }} aria-hidden="true">
       {asset ? (
         asset.kind === "image" ? (
           <img src={asset.url} alt="" style={{ opacity: picture?.opacity ?? 1 }} />
@@ -129,7 +138,7 @@ function MiniStage({
             left: 0,
             top: `${50 + text.y}%`,
             color: text.color,
-            fontSize: Math.max(11, (text.font_size * width) / 1920),
+            fontSize: Math.max(11, (text.font_size * stageWidth) / 1920),
             opacity: text.opacity
           }}
         >

@@ -442,11 +442,16 @@
   color: var(--studio-text-secondary);
   font-size: 12px;
 }
-/* 播放时浮在节点上方的小预览窗：无边框裸视频样式，与画布默认输出的视频一致 */
+/* 播放时浮在节点上方的小预览窗：无边框裸视频样式，与画布默认输出的视频一致；
+   水平居中于时间线节点（即梦式），高度约为节点高的 2 倍，宽度按工程画幅推出、不超节点宽 */
 .se-node-stage {
   position: absolute;
   bottom: calc(100% + 10px);
-  left: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  height: 200%;
+  max-width: 100%;
+  min-width: 240px;
   z-index: 30;
   overflow: hidden;
   background: #000;
