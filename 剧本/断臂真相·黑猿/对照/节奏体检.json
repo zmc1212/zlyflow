@@ -1,0 +1,790 @@
+{
+ "EP1": [
+  {
+   "seg": "EP1_01.mp4",
+   "dur": 6.58,
+   "quarters": [
+    22.0,
+    20.8,
+    19.1,
+    13.0
+   ],
+   "motion": 18.7,
+   "longest_frozen": 0,
+   "tail_freeze": 0.2,
+   "sound_end": null
+  },
+  {
+   "seg": "EP1_02.mp4",
+   "dur": 6.58,
+   "quarters": [
+    28.1,
+    31.8,
+    30.3,
+    34.9
+   ],
+   "motion": 31.3,
+   "longest_frozen": 0,
+   "tail_freeze": 0.2,
+   "sound_end": 4.143125
+  },
+  {
+   "seg": "EP1_03.mp4",
+   "dur": 6.58,
+   "quarters": [
+    21.7,
+    22.2,
+    23.9,
+    29.9
+   ],
+   "motion": 24.5,
+   "longest_frozen": 0,
+   "tail_freeze": 0.2,
+   "sound_end": 2.164906
+  },
+  {
+   "seg": "EP1_04.mp4",
+   "dur": 5.17,
+   "quarters": [
+    52.5,
+    49.7,
+    52.2,
+    45.1
+   ],
+   "motion": 49.9,
+   "longest_frozen": 0,
+   "tail_freeze": 0.4,
+   "sound_end": null
+  },
+  {
+   "seg": "EP1_05.mp4",
+   "dur": 6.58,
+   "quarters": [
+    23.7,
+    35.6,
+    36.3,
+    26.9
+   ],
+   "motion": 30.6,
+   "longest_frozen": 0,
+   "tail_freeze": 0.2,
+   "sound_end": 4.907969
+  },
+  {
+   "seg": "EP1_06.mp4",
+   "dur": 5.17,
+   "quarters": [
+    29.9,
+    39.3,
+    33.6,
+    34.5
+   ],
+   "motion": 34.3,
+   "longest_frozen": 0,
+   "tail_freeze": 0.4,
+   "sound_end": 4.00775
+  },
+  {
+   "seg": "EP1_07.mp4",
+   "dur": 6.58,
+   "quarters": [
+    55.4,
+    28.8,
+    34.3,
+    30.6
+   ],
+   "motion": 37.3,
+   "longest_frozen": 0,
+   "tail_freeze": 0.2,
+   "sound_end": 6.56
+  },
+  {
+   "seg": "EP1_08.mp4",
+   "dur": 6.58,
+   "quarters": [
+    41.1,
+    35.1,
+    16.6,
+    3.6
+   ],
+   "motion": 24.1,
+   "longest_frozen": 0,
+   "tail_freeze": 0.2,
+   "sound_end": 3.678688
+  },
+  {
+   "seg": "EP1_09.mp4",
+   "dur": 5.17,
+   "quarters": [
+    51.9,
+    47.9,
+    37.6,
+    28.9
+   ],
+   "motion": 41.6,
+   "longest_frozen": 0,
+   "tail_freeze": 0.4,
+   "sound_end": null
+  },
+  {
+   "seg": "EP1_10.mp4",
+   "dur": 5.17,
+   "quarters": [
+    40.1,
+    40.0,
+    34.7,
+    26.4
+   ],
+   "motion": 35.3,
+   "longest_frozen": 0,
+   "tail_freeze": 0.4,
+   "sound_end": 5.184
+  },
+  {
+   "seg": "EP1_11.mp4",
+   "dur": 6.58,
+   "quarters": [
+    21.4,
+    17.6,
+    14.9,
+    12.9
+   ],
+   "motion": 16.7,
+   "longest_frozen": 0,
+   "tail_freeze": 0.2,
+   "sound_end": 5.074
+  },
+  {
+   "seg": "EP1_12.mp4",
+   "dur": 5.17,
+   "quarters": [
+    31.7,
+    46.1,
+    34.6,
+    23.7
+   ],
+   "motion": 34.0,
+   "longest_frozen": 0,
+   "tail_freeze": 0.4,
+   "sound_end": null
+  },
+  {
+   "seg": "EP1_13.mp4",
+   "dur": 6.58,
+   "quarters": [
+    46.2,
+    42.9,
+    33.4,
+    17.7
+   ],
+   "motion": 35.1,
+   "longest_frozen": 0,
+   "tail_freeze": 0.2,
+   "sound_end": 6.56
+  },
+  {
+   "seg": "EP1_14.mp4",
+   "dur": 6.58,
+   "quarters": [
+    38.3,
+    22.7,
+    43.9,
+    20.4
+   ],
+   "motion": 31.3,
+   "longest_frozen": 0,
+   "tail_freeze": 0.2,
+   "sound_end": 3.97275
+  },
+  {
+   "seg": "EP1_15.mp4",
+   "dur": 6.58,
+   "quarters": [
+    23.4,
+    27.7,
+    37.4,
+    23.6
+   ],
+   "motion": 28.1,
+   "longest_frozen": 0,
+   "tail_freeze": 0.2,
+   "sound_end": 6.592
+  },
+  {
+   "seg": "EP1_16.mp4",
+   "dur": 6.58,
+   "quarters": [
+    38.3,
+    22.7,
+    43.9,
+    20.4
+   ],
+   "motion": 31.3,
+   "longest_frozen": 0,
+   "tail_freeze": 0.2,
+   "sound_end": 3.97275
+  },
+  {
+   "seg": "EP1_17.mp4",
+   "dur": 6.58,
+   "quarters": [
+    15.8,
+    30.8,
+    47.6,
+    7.7
+   ],
+   "motion": 25.5,
+   "longest_frozen": 1.2,
+   "tail_freeze": 1.4,
+   "sound_end": 6.56
+  },
+  {
+   "seg": "EP1_18.mp4",
+   "dur": 6.58,
+   "quarters": [
+    35.2,
+    42.3,
+    39.3,
+    18.6
+   ],
+   "motion": 33.8,
+   "longest_frozen": 0,
+   "tail_freeze": 0.2,
+   "sound_end": 6.592
+  },
+  {
+   "seg": "EP1_19.mp4",
+   "dur": 6.58,
+   "quarters": [
+    35.4,
+    33.3,
+    28.7,
+    27.6
+   ],
+   "motion": 31.2,
+   "longest_frozen": 0,
+   "tail_freeze": 0.2,
+   "sound_end": null
+  },
+  {
+   "seg": "EP1_20.mp4",
+   "dur": 5.17,
+   "quarters": [
+    39.5,
+    28.7,
+    19.4,
+    10.1
+   ],
+   "motion": 24.4,
+   "longest_frozen": 0,
+   "tail_freeze": 0.4,
+   "sound_end": null
+  },
+  {
+   "seg": "EP1_21.mp4",
+   "dur": 6.58,
+   "quarters": [
+    37.7,
+    33.9,
+    38.0,
+    23.9
+   ],
+   "motion": 33.4,
+   "longest_frozen": 0,
+   "tail_freeze": 0.2,
+   "sound_end": 4.12825
+  },
+  {
+   "seg": "EP1_22.mp4",
+   "dur": 6.58,
+   "quarters": [
+    14.2,
+    18.6,
+    28.8,
+    10.5
+   ],
+   "motion": 18.0,
+   "longest_frozen": 0,
+   "tail_freeze": 0.2,
+   "sound_end": 4.018688
+  },
+  {
+   "seg": "EP1_23.mp4",
+   "dur": 5.17,
+   "quarters": [
+    55.5,
+    60.5,
+    39.7,
+    24.1
+   ],
+   "motion": 44.9,
+   "longest_frozen": 0,
+   "tail_freeze": 0.4,
+   "sound_end": null
+  },
+  {
+   "seg": "EP1_24.mp4",
+   "dur": 6.58,
+   "quarters": [
+    23.9,
+    39.9,
+    50.2,
+    21.9
+   ],
+   "motion": 34.0,
+   "longest_frozen": 0,
+   "tail_freeze": 0.2,
+   "sound_end": 5.681031
+  },
+  {
+   "seg": "EP1_25.mp4",
+   "dur": 6.58,
+   "quarters": [
+    42.3,
+    71.0,
+    43.2,
+    32.2
+   ],
+   "motion": 47.2,
+   "longest_frozen": 0.4,
+   "tail_freeze": 0.6,
+   "sound_end": 5.623188
+  },
+  {
+   "seg": "EP1_26.mp4",
+   "dur": 6.58,
+   "quarters": [
+    34.4,
+    32.5,
+    43.9,
+    29.6
+   ],
+   "motion": 35.1,
+   "longest_frozen": 0,
+   "tail_freeze": 0.2,
+   "sound_end": 3.123063
+  }
+ ],
+ "EP2": [
+  {
+   "seg": "EP2_01.mp4",
+   "dur": 5.17,
+   "quarters": [
+    17.9,
+    20.8,
+    23.2,
+    21.3
+   ],
+   "motion": 20.8,
+   "longest_frozen": 0,
+   "tail_freeze": 0.4,
+   "sound_end": null
+  },
+  {
+   "seg": "EP2_02.mp4",
+   "dur": 6.58,
+   "quarters": [
+    31.4,
+    33.4,
+    42.8,
+    4.9
+   ],
+   "motion": 28.1,
+   "longest_frozen": 0.4,
+   "tail_freeze": 0.2,
+   "sound_end": 6.56
+  },
+  {
+   "seg": "EP2_03.mp4",
+   "dur": 6.58,
+   "quarters": [
+    20.0,
+    33.8,
+    21.9,
+    5.5
+   ],
+   "motion": 20.3,
+   "longest_frozen": 0.4,
+   "tail_freeze": 0.6,
+   "sound_end": 6.56
+  },
+  {
+   "seg": "EP2_04.mp4",
+   "dur": 5.17,
+   "quarters": [
+    24.9,
+    30.6,
+    23.7,
+    21.7
+   ],
+   "motion": 25.2,
+   "longest_frozen": 0,
+   "tail_freeze": 0.4,
+   "sound_end": null
+  },
+  {
+   "seg": "EP2_05.mp4",
+   "dur": 5.17,
+   "quarters": [
+    40.2,
+    34.4,
+    33.2,
+    13.8
+   ],
+   "motion": 30.4,
+   "longest_frozen": 0,
+   "tail_freeze": 0.4,
+   "sound_end": null
+  },
+  {
+   "seg": "EP2_06.mp4",
+   "dur": 6.58,
+   "quarters": [
+    26.0,
+    32.4,
+    32.9,
+    30.1
+   ],
+   "motion": 30.4,
+   "longest_frozen": 0,
+   "tail_freeze": 0.2,
+   "sound_end": 4.872187
+  },
+  {
+   "seg": "EP2_07.mp4",
+   "dur": 6.58,
+   "quarters": [
+    33.0,
+    40.3,
+    47.0,
+    29.9
+   ],
+   "motion": 37.6,
+   "longest_frozen": 0,
+   "tail_freeze": 0.2,
+   "sound_end": null
+  },
+  {
+   "seg": "EP2_08.mp4",
+   "dur": 5.17,
+   "quarters": [
+    6.5,
+    15.6,
+    21.6,
+    21.8
+   ],
+   "motion": 16.4,
+   "longest_frozen": 0,
+   "tail_freeze": 0.4,
+   "sound_end": null
+  },
+  {
+   "seg": "EP2_09.mp4",
+   "dur": 5.17,
+   "quarters": [
+    21.1,
+    5.9,
+    6.6,
+    6.2
+   ],
+   "motion": 10.0,
+   "longest_frozen": 0,
+   "tail_freeze": 0.4,
+   "sound_end": null
+  },
+  {
+   "seg": "EP2_10.mp4",
+   "dur": 5.17,
+   "quarters": [
+    16.2,
+    20.1,
+    24.3,
+    24.9
+   ],
+   "motion": 21.4,
+   "longest_frozen": 0,
+   "tail_freeze": 0.4,
+   "sound_end": null
+  },
+  {
+   "seg": "EP2_11.mp4",
+   "dur": 5.17,
+   "quarters": [
+    19.0,
+    22.9,
+    30.1,
+    28.1
+   ],
+   "motion": 25.0,
+   "longest_frozen": 0,
+   "tail_freeze": 0.4,
+   "sound_end": null
+  },
+  {
+   "seg": "EP2_12.mp4",
+   "dur": 5.17,
+   "quarters": [
+    21.9,
+    32.1,
+    28.2,
+    33.5
+   ],
+   "motion": 28.9,
+   "longest_frozen": 0,
+   "tail_freeze": 0.4,
+   "sound_end": null
+  },
+  {
+   "seg": "EP2_13.mp4",
+   "dur": 5.17,
+   "quarters": [
+    29.2,
+    19.6,
+    19.9,
+    16.9
+   ],
+   "motion": 21.4,
+   "longest_frozen": 0,
+   "tail_freeze": 0.4,
+   "sound_end": 0.84875
+  },
+  {
+   "seg": "EP2_14.mp4",
+   "dur": 6.58,
+   "quarters": [
+    45.6,
+    38.1,
+    43.5,
+    52.3
+   ],
+   "motion": 44.9,
+   "longest_frozen": 0,
+   "tail_freeze": 0.2,
+   "sound_end": null
+  },
+  {
+   "seg": "EP2_15.mp4",
+   "dur": 5.17,
+   "quarters": [
+    24.4,
+    26.8,
+    28.2,
+    69.6
+   ],
+   "motion": 37.3,
+   "longest_frozen": 0,
+   "tail_freeze": 0.4,
+   "sound_end": 1.239313
+  },
+  {
+   "seg": "EP2_16.mp4",
+   "dur": 3.04,
+   "quarters": [
+    39.4,
+    38.4,
+    27.2,
+    19.6
+   ],
+   "motion": 20.9,
+   "longest_frozen": 0,
+   "tail_freeze": 0.2,
+   "sound_end": 3.072
+  },
+  {
+   "seg": "EP2_17.mp4",
+   "dur": 5.17,
+   "quarters": [
+    7.9,
+    8.9,
+    13.6,
+    11.2
+   ],
+   "motion": 10.4,
+   "longest_frozen": 0,
+   "tail_freeze": 0.4,
+   "sound_end": null
+  },
+  {
+   "seg": "EP2_18.mp4",
+   "dur": 2.33,
+   "quarters": [
+    15.4,
+    15.5,
+    12.1,
+    24.6
+   ],
+   "motion": 16.2,
+   "longest_frozen": 0,
+   "tail_freeze": 0.3,
+   "sound_end": null
+  },
+  {
+   "seg": "EP2_19.mp4",
+   "dur": 5.17,
+   "quarters": [
+    16.9,
+    26.2,
+    25.3,
+    21.6
+   ],
+   "motion": 22.5,
+   "longest_frozen": 0,
+   "tail_freeze": 0.4,
+   "sound_end": null
+  },
+  {
+   "seg": "EP2_20.mp4",
+   "dur": 5.17,
+   "quarters": [
+    30.2,
+    29.3,
+    31.0,
+    35.0
+   ],
+   "motion": 31.4,
+   "longest_frozen": 0,
+   "tail_freeze": 0.4,
+   "sound_end": null
+  },
+  {
+   "seg": "EP2_21.mp4",
+   "dur": 5.17,
+   "quarters": [
+    38.2,
+    63.3,
+    30.5,
+    31.9
+   ],
+   "motion": 41.0,
+   "longest_frozen": 0,
+   "tail_freeze": 0.4,
+   "sound_end": null
+  },
+  {
+   "seg": "EP2_22.mp4",
+   "dur": 5.17,
+   "quarters": [
+    14.9,
+    14.4,
+    7.3,
+    11.8
+   ],
+   "motion": 12.1,
+   "longest_frozen": 0,
+   "tail_freeze": 0.4,
+   "sound_end": null
+  },
+  {
+   "seg": "EP2_23.mp4",
+   "dur": 2.33,
+   "quarters": [
+    5.7,
+    9.7,
+    9.5,
+    10.7
+   ],
+   "motion": 10.0,
+   "longest_frozen": 0,
+   "tail_freeze": 0.3,
+   "sound_end": null
+  },
+  {
+   "seg": "EP2_24.mp4",
+   "dur": 2.33,
+   "quarters": [
+    47.2,
+    31.9,
+    18.1,
+    16.2
+   ],
+   "motion": 24.9,
+   "longest_frozen": 0,
+   "tail_freeze": 0.3,
+   "sound_end": null
+  },
+  {
+   "seg": "EP2_25.mp4",
+   "dur": 3.04,
+   "quarters": [
+    21.9,
+    9.4,
+    8.1,
+    17.8
+   ],
+   "motion": 9.3,
+   "longest_frozen": 0,
+   "tail_freeze": 0.2,
+   "sound_end": 1.24
+  },
+  {
+   "seg": "EP2_26.mp4",
+   "dur": 2.33,
+   "quarters": [
+    14.7,
+    15.7,
+    8.2,
+    18.2
+   ],
+   "motion": 13.2,
+   "longest_frozen": 0,
+   "tail_freeze": 0.3,
+   "sound_end": null
+  },
+  {
+   "seg": "EP2_27.mp4",
+   "dur": 8.0,
+   "quarters": [
+    23.0,
+    21.8,
+    23.7,
+    24.8
+   ],
+   "motion": 23.0,
+   "longest_frozen": 0,
+   "tail_freeze": 0.4,
+   "sound_end": 8.0
+  },
+  {
+   "seg": "EP2_28.mp4",
+   "dur": 6.58,
+   "quarters": [
+    19.5,
+    14.5,
+    24.1,
+    39.1
+   ],
+   "motion": 24.3,
+   "longest_frozen": 0,
+   "tail_freeze": 0.2,
+   "sound_end": 5.513187
+  },
+  {
+   "seg": "EP2_29.mp4",
+   "dur": 5.17,
+   "quarters": [
+    16.2,
+    21.0,
+    12.7,
+    7.1
+   ],
+   "motion": 14.3,
+   "longest_frozen": 0,
+   "tail_freeze": 0.4,
+   "sound_end": null
+  },
+  {
+   "seg": "EP2_30.mp4",
+   "dur": 6.58,
+   "quarters": [
+    17.4,
+    23.1,
+    20.7,
+    30.0
+   ],
+   "motion": 22.8,
+   "longest_frozen": 0,
+   "tail_freeze": 0.2,
+   "sound_end": 4.507437
+  }
+ ]
+}

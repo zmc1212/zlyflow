@@ -1,0 +1,6 @@
+file 'D:/zlyun/Toonflow/本地视频工作台/剧本/断臂真相·黑猿/对照/A_seg_01.mp4'
+file 'D:/zlyun/Toonflow/本地视频工作台/剧本/断臂真相·黑猿/对照/A_seg_02.mp4'
+file 'D:/zlyun/Toonflow/本地视频工作台/剧本/断臂真相·黑猿/对照/A_seg_03.mp4'
+file 'D:/zlyun/Toonflow/本地视频工作台/剧本/断臂真相·黑猿/对照/A_seg_04.mp4'
+file 'D:/zlyun/Toonflow/本地视频工作台/剧本/断臂真相·黑猿/对照/A_seg_05.mp4'
+file 'D:/zlyun/Toonflow/本地视频工作台/剧本/断臂真相·黑猿/对照/A_seg_06.mp4'
