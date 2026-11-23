@@ -724,7 +724,7 @@ MCP 服务地址为 `<对外 origin>/api/mcp`，使用无状态 Streamable HTTP�
 - `input_image_credits` 为超出每任务免费额度后的图片积分单价；0 表示该模型暂不额外收费。
 - `available` 跟随管理端云端视频供应商启用状态与 API Key 配置。
 - `image_generation.models`：图片服务目录中已启用的生图模型（与创作页生图下拉同源，顺序由管理端目录排序决定）。`credits_per_image` 取 `grs_image:global` 的实际生效平台积分（已含换算系数与按模型覆盖），与提交实扣一致；`is_default` 标记创作页预选模型，不代表列表首位。复合图片工作流（局部重绘 / 消除笔 / 扩图）不额外计费，因此不在此列出；0 积分表示当前配置为免费口径。
-- `ai_calls.items`：来自价格表的 `llm:*` / `vlm:*` 条目，按固定种类顺序返回。`billing_mode=per_call` 时 `unit_credits` 为按次单价；`billing_mode=per_token` 时为按典型用量估算的积分（管理与实际扣费仍按 token 结算）。`label` 取价格表说明中的功能名，`description` 保留完整说明。按 token 条目另下发 `input_per_mtok` / `cached_input_per_mtok` / `output_per_mtok`（上游单价，元/百万 tokens）、`billing_margin` 与 `price_source`（`provider_catalog` / `manual`），价格页用 tooltip 解释积分来源。
+- `ai_calls.items`：来自价格表的 `llm:*` / `vlm:*` 条目，按固定种类顺序返回。`billing_mode=per_call` 时 `unit_credits` 为按次单价；`billing_mode=per_token` 时为按典型用量估算的积分（管理与实际扣费仍按 token 结算）。`label` 取价格表说明中的功能名，`description` 保留完整说明。按 token 条目另下发 `input_per_mtok` / `cached_input_per_mtok` / `output_per_mtok`（上游单价，元/百万 tokens）、`billing_margin` 与 `price_source`（`provider_catalog` / `manual`）。价格页 tooltip 只展示 tokens 单价，`billing_margin` 保留给管理端/诊断，不对 C 端展示。
 - 两个字段均为附加字段：未配置图片服务目录或价格条目缺失时返回空列表，旧客户端可忽略。
 
 ### `GET /api/modes/{mode_id}`

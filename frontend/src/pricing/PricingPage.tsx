@@ -435,7 +435,6 @@ function AiCallPricingSection({
       render: (value: number, item: PricingAiCall) => {
         const upstream = item.billing_mode === "per_token" && (item.input_per_mtok != null || item.output_per_mtok != null)
           ? `上游单价：输入 ¥${item.input_per_mtok ?? 0} / 缓存 ¥${item.cached_input_per_mtok ?? 0} / 输出 ¥${item.output_per_mtok ?? 0} 每百万 tokens`
-            + (item.billing_margin != null ? `；加价系数 ${item.billing_margin}×` : "")
           : null
         return (
           <span className="tabular-nums">
