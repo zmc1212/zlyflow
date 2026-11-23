@@ -3,7 +3,7 @@ import {
   jsonMutation,
   notifyUnauthorized,
   requestJson
-} from "../../api"
+} from "../api"
 import type { EditAsset, EditDocument } from "./model"
 
 export type EditSnapshot = {

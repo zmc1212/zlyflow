@@ -10,11 +10,12 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from backend.app.media_studio.services import job_lease
+from backend.app.media_studio.services import episode_video_service, job_lease
 from backend.app.media_studio.services.episode_video_service import (
     EpisodeVideoService,
     _HEARTBEATED_VIDEO_STATUSES,
 )
+from backend.app.cloud_video.base import CloudTaskSnapshot
 
 _TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -127,6 +128,135 @@ class JobLeaseConvergeTests(unittest.TestCase):
         count, _ = self._converge([row])
         self.assertEqual(count, 1)
 
+    def test_reclaim_callback_prevents_failure_when_handled(self) -> None:
+        row = owned_row(lease_offset=job_lease.LEASE_STALE_AFTER_SECONDS + 60)
+        with patch.object(job_lease, "query_all", return_value=[row]):
+            with patch.object(job_lease, "execute_sql", return_value=1) as execute:
+                count = job_lease.converge_orphaned_jobs(
+                    "video_generation", self.STATUSES, reclaim=lambda candidate: candidate["id"] == "job-owned",
+                )
+        self.assertEqual(count, 0)
+        execute.assert_not_called()
+
+
+class CloudJobResumeTests(unittest.TestCase):
+    def _cloud_row(self, *, owner: str, lease_offset: float = 10) -> dict:
+        payload = {
+            "workflow_id": "cloud-grs-h3-r2v",
+            "render_scope": "shot",
+            "source_shots": [{"beat_id": "b1", "sequence": 1}],
+            "shots": [{
+                "beat_id": "b1", "sequence": 1, "prompt": "saved prompt",
+                "remote_task_id": "13-remote-task",
+            }],
+        }
+        return {
+            "id": "job-cloud",
+            "status": "running",
+            "worker_id": owner,
+            "lease_updated_at": stamp(lease_offset),
+            "updated_at": stamp(lease_offset),
+            "payload_json": json.dumps(payload),
+        }
+
+    def test_same_host_dead_owner_is_resumed_immediately(self) -> None:
+        owner = f"{job_lease._worker_host()}-999999-deadbeef"
+        row = self._cloud_row(owner=owner, lease_offset=5)
+        with patch.object(episode_video_service, "orphaned_jobs", return_value=[row]), \
+                patch.object(episode_video_service, "worker_process_alive", return_value=False), \
+                patch.object(episode_video_service, "execute_sql", return_value=1) as execute, \
+                patch.object(EpisodeVideoService, "_submit_job") as submit:
+            self.assertEqual(EpisodeVideoService._resume_orphaned_cloud_jobs(), 1)
+        submit.assert_called_once_with("job-cloud")
+        sql, params = execute.call_args.args
+        self.assertIn("status = 'queued'", sql)
+        self.assertIn("worker_id = %s", sql)
+        self.assertEqual(params[2], job_lease.worker_id())
+        recovery_marker = json.loads(params[0])["cloud_resume"]
+        self.assertEqual(recovery_marker["previous_worker_id"], owner)
+
+    def test_alive_owner_is_not_resumed(self) -> None:
+        owner = f"{job_lease._worker_host()}-123-alive123"
+        row = self._cloud_row(owner=owner, lease_offset=5)
+        with patch.object(episode_video_service, "orphaned_jobs", return_value=[row]), \
+                patch.object(episode_video_service, "worker_process_alive", return_value=True), \
+                patch.object(EpisodeVideoService, "_claim_cloud_job_for_resume") as claim:
+            EpisodeVideoService._resume_orphaned_cloud_jobs()
+        claim.assert_not_called()
+
+    def test_cloud_job_without_remote_task_is_not_resumable(self) -> None:
+        payload = {
+            "workflow_id": "cloud-grs-h3-r2v",
+            "render_scope": "shot",
+            "shots": [{"beat_id": "b1", "sequence": 1}],
+        }
+        self.assertFalse(EpisodeVideoService._cloud_payload_resumable(payload))
+
+    def test_resumed_shots_reuse_remote_task_and_prompt(self) -> None:
+        shots = [{"beat_id": "b1", "sequence": 1}, {"beat_id": "b2", "sequence": 2}]
+        stored = [{
+            "beat_id": "b1", "sequence": 1, "prompt": "p1",
+            "remote_task_id": "r1", "video_url": "https://cdn/v1.mp4",
+        }]
+        merged = EpisodeVideoService._merge_resumed_cloud_shots(shots, stored)
+        self.assertEqual(merged[0]["remote_task_id"], "r1")
+        self.assertEqual(merged[0]["video_url"], "https://cdn/v1.mp4")
+        self.assertEqual(merged[0]["prompt"], "p1")
+        self.assertNotIn("remote_task_id", merged[1])
+
+    def test_resume_polls_existing_remote_task_without_resubmitting(self) -> None:
+        class FakeService:
+            resource_storage = object()
+
+            def __init__(self) -> None:
+                self.submit_calls = 0
+                self.polled: list[str] = []
+
+            def availability(self, provider_key: str):
+                return True, None
+
+            def submit_generation(self, *args, **kwargs):
+                self.submit_calls += 1
+                return "should-not-submit"
+
+            def wait_for_task(self, provider_key: str, remote_task_id: str, on_progress=None):
+                self.polled.append(remote_task_id)
+                return CloudTaskSnapshot(
+                    status="completed", progress=100, video_urls=["https://remote/v.mp4"],
+                    remote_status="succeeded",
+                )
+
+            def download_and_store(self, urls, *, prefix: str, filename: str):
+                return {
+                    "kind": "video", "path": "cloud_video/grs/v.mp4", "label": "生成视频",
+                    "cloud_url": "https://cdn/v.mp4",
+                }
+
+        fake = FakeService()
+        payload = {
+            "workflow_id": "cloud-grs-h3-r2v",
+            "render_scope": "shot",
+            "project_id": "p1",
+            "episode_id": "e1",
+            "cloud_base_options": {
+                "model": "minimax-h3", "resolution": "768p", "aspect_ratio": "landscape",
+            },
+            "billing": {"user_id": "u1", "credits": 0},
+            "source_shots": [{"beat_id": "b1", "sequence": 1, "cloud_duration": 15}],
+            "shots": [{
+                "beat_id": "b1", "sequence": 1, "prompt": "saved prompt",
+                "remote_task_id": "13-remote-task", "cloud_duration": 15,
+            }],
+        }
+        with patch.object(episode_video_service.CloudVideoService, "instance", return_value=fake), \
+                patch.object(episode_video_service, "execute_sql", return_value=1), \
+                patch.object(EpisodeVideoService, "_write_selected_beat_videos") as writeback:
+            EpisodeVideoService._run_cloud_job("job-cloud", payload)
+        self.assertEqual(fake.submit_calls, 0)
+        self.assertEqual(fake.polled, ["13-remote-task"])
+        writeback.assert_called_once()
+        self.assertEqual(writeback.call_args.args[1][0]["video_url"], "https://cdn/v.mp4")
+
 
 class EpisodeVideoLeaseWiringTests(unittest.TestCase):
     def test_awaiting_refine_is_not_heartbeated(self) -> None:
@@ -134,10 +264,17 @@ class EpisodeVideoLeaseWiringTests(unittest.TestCase):
         self.assertIn("upscaling", _HEARTBEATED_VIDEO_STATUSES)
         self.assertIn("queued", _HEARTBEATED_VIDEO_STATUSES)
 
-    def test_recover_only_converges_leased_statuses(self) -> None:
-        with patch("backend.app.media_studio.services.episode_video_service.converge_orphaned_jobs") as converge:
-            EpisodeVideoService.recover_orphaned_jobs()
-        converge.assert_called_once_with("video_generation", _HEARTBEATED_VIDEO_STATUSES)
+    def test_recover_resumes_cloud_jobs_then_converges_leased_statuses(self) -> None:
+        with patch.object(EpisodeVideoService, "_resume_orphaned_cloud_jobs") as resume:
+            with patch(
+                "backend.app.media_studio.services.episode_video_service.converge_orphaned_jobs"
+            ) as converge:
+                EpisodeVideoService.recover_orphaned_jobs()
+        resume.assert_called_once_with()
+        converge.assert_called_once()
+        args, kwargs = converge.call_args
+        self.assertEqual(args, ("video_generation", _HEARTBEATED_VIDEO_STATUSES))
+        self.assertTrue(callable(kwargs.get("reclaim")))
 
     def test_state_update_refreshes_lease(self) -> None:
         with patch("backend.app.media_studio.services.episode_video_service.execute_sql", return_value=1) as execute:

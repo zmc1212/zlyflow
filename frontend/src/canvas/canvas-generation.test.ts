@@ -1,10 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   appendCanvasRunSnapshot,
+  bindCanvasReferenceSlots,
   buildCanvasJobForm,
   buildCanvasRunSnapshot,
-  canvasImageNodeFile,
-  canvasImageReferenceUrl,
   canvasJobOutputsExpired,
   canvasJobResult,
   canvasJobStatusLabel,
@@ -16,13 +15,19 @@ import {
   canvasOptionVisible,
   canvasPictureToken,
   canvasPromptEligible,
-  canvasReferenceEligible,
+  canvasModeAcceptsReferenceKind,
+  canvasReferenceFile,
+  canvasReferenceKind,
+  canvasReferencePreviewUrl,
+  canvasReferenceUrl,
   canvasResultHistory,
+  canvasResultProvenance,
   canvasResultVersionIndex,
   canvasResultVersionPatch,
   canvasWorkflowList,
   canvasWorkflowChangePatch,
   defaultGeneratorOptionValues,
+  generatorDefaultOptionValues,
   generatorOptionValues,
   generatorParameterFields,
   generatorParameterSummary,
@@ -35,6 +40,7 @@ import {
   incomingGeneratorReferenceNodes,
   isCanvasJobActive,
   pickCanvasGenerationMode,
+  pickCanvasReferenceUpgradeMode,
   readCanvasRunSnapshot,
   resolveGeneratorPrompt,
   refineCanvasJob,
@@ -45,6 +51,7 @@ import {
   type CanvasWorkflowMode,
 } from "./canvas-generation"
 import type { CanvasEdge, CanvasNode } from "./canvas-model"
+import { createImageNode, createVideoNode } from "./canvas-model"
 
 describe("canvas refine preview lifecycle", () => {
   it("shows the selected older version after a newer live result has completed", () => {
@@ -181,6 +188,16 @@ describe("canvas generation modes", () => {
     expect(pickCanvasGenerationMode(modes, 1)?.id).toBe("r2v")
   })
 
+  it("upgrades a zero-reference workflow to its closest same-family reference workflow", () => {
+    const t2i = mode({ id: "minimax-h3-image-t2i", name: "H3 图像 文生图", media_type: "image", reference_mode: "none", min_references: 0, max_references: 0 })
+    const edit = mode({ id: "minimax-h3-image-edit", name: "H3 图像 多参考编辑", media_type: "image", min_references: 1, max_references: 16 })
+    const cloud = mode({ id: "grs-gpt-image-2", name: "GPT Image 2", media_type: "image", min_references: 0, max_references: 10 })
+    const videoEdit = mode({ id: "minimax-h3-video-edit", name: "H3 视频编辑", media_type: "video", min_references: 1, max_references: 1, reference_slots: ["video"] })
+    expect(pickCanvasReferenceUpgradeMode([cloud, t2i, edit, videoEdit], t2i, "image")?.id).toBe("minimax-h3-image-edit")
+    expect(pickCanvasReferenceUpgradeMode([t2i], t2i, "image")).toBeNull()
+    expect(pickCanvasReferenceUpgradeMode([cloud, t2i], { ...t2i, available: false }, "image")?.id).toBe("grs-gpt-image-2")
+  })
+
   it("splits primary and advanced fields and hides internal or invisible ones", () => {
     const definition = mode()
     expect(Object.keys(canvasModeOptionDefinitions(definition))).toContain("steps")
@@ -206,6 +223,32 @@ describe("canvas generation modes", () => {
     })
     expect(serializeGeneratorOptionValues(definition, { duration: "12" })).toMatchObject({ duration: 12 })
   })
+
+  it("defaults new image nodes to 9:16 and video nodes to 16:9", () => {
+    const definition = mode()
+    expect(generatorDefaultOptionValues(definition, "image")).toMatchObject({ aspect_ratio: "9:16", duration: 5 })
+    expect(generatorDefaultOptionValues(definition, "video")).toMatchObject({ aspect_ratio: "16:9", duration: 5 })
+    expect(generatorDefaultOptionValues(definition)).toMatchObject({ aspect_ratio: "16:9" })
+  })
+
+  it("maps semantic portrait and landscape enums to the creation defaults", () => {
+    const semantic = mode({
+      id: "semantic",
+      parameters: [{
+        name: "options",
+        schema: {
+          properties: {
+            aspect_ratio: {
+              label: "画面比例", type: "string", default: "square", ui_group: "primary",
+              enum: ["square", "portrait", "landscape"],
+            },
+          },
+        },
+      }],
+    })
+    expect(generatorDefaultOptionValues(semantic, "image")).toMatchObject({ aspect_ratio: "portrait" })
+    expect(generatorDefaultOptionValues(semantic, "video")).toMatchObject({ aspect_ratio: "landscape" })
+  })
 })
 
 describe("canvas generation references", () => {
@@ -220,34 +263,62 @@ describe("canvas generation references", () => {
     expect(incomingGeneratorReferenceNodes(nodes, edges, "gen").map((item) => item.id)).toEqual(["img2", "img1"])
   })
 
-  it("accepts generator image results as references but not video results", () => {
+  it("keeps media type for completed and pending references", () => {
     const imageResult = node("gen-img", "generator", { resultUrl: "/api/media/a.png", resultKind: "image" })
     const videoResult = node("gen-vid", "generator", { resultUrl: "/api/media/a.mp4", resultKind: "video" })
-    expect(canvasReferenceEligible(imageResult)).toBe(true)
-    expect(canvasReferenceEligible(videoResult)).toBe(false)
-    expect(canvasReferenceEligible(node("text", "text", { text: "x" }))).toBe(false)
-    expect(canvasReferenceEligible(node("gen-pending-image", "generator", { resultKind: "image" }))).toBe(true)
-    expect(canvasReferenceEligible(node("gen-pending-video", "generator", { resultKind: "video" }))).toBe(false)
+    expect(canvasReferenceKind(imageResult)).toBe("image")
+    expect(canvasReferenceKind(videoResult)).toBe("video")
+    expect(canvasReferenceKind(node("text", "text", { text: "x" }))).toBeNull()
+    expect(canvasReferenceKind(node("gen-pending-image", "generator", { resultKind: "image" }))).toBe("image")
+    expect(canvasReferenceKind(node("gen-pending-video", "generator", { resultKind: "video" }))).toBe("video")
     const targets = incomingGeneratorReferenceNodes(
       [node("target", "generator"), imageResult, videoResult],
       [edge("gen-vid", "target"), edge("gen-img", "target")],
       "target",
     )
-    expect(targets.map((item) => item.id)).toEqual(["gen-img"])
+    expect(targets.map((item) => item.id)).toEqual(["gen-vid", "gen-img"])
   })
 
   it("prefers the same-origin asset path over a cloud URL", () => {
-    expect(canvasImageReferenceUrl({
+    const imageUrl = (data: CanvasNode["data"]) => canvasReferenceUrl(node("image", "image", data))
+    expect(imageUrl({
       assetPath: "user/demo.png",
       url: "https://cdn.example.com/demo.png",
     })).toBe("/api/media/user%2Fdemo.png")
-    expect(canvasImageReferenceUrl({ url: "data:image/png;base64,AAA" })).toBe("data:image/png;base64,AAA")
-    expect(canvasImageReferenceUrl({ url: "https://cdn.example.com/demo.png" })).toBe("https://cdn.example.com/demo.png")
-    expect(canvasImageReferenceUrl({ resultPath: "user/out.png" })).toBe("/api/media/user%2Fout.png")
-    expect(canvasImageReferenceUrl({ resultUrl: "https://cdn.example.com/out.png" })).toBe("https://cdn.example.com/out.png")
-    expect(canvasImageReferenceUrl({ resultUrl: "javascript:alert(1)" })).toBeNull()
-    expect(canvasImageReferenceUrl({ url: "javascript:alert(1)" })).toBeNull()
-    expect(canvasImageReferenceUrl({})).toBeNull()
+    expect(imageUrl({ url: "data:image/png;base64,AAA" })).toBe("data:image/png;base64,AAA")
+    expect(imageUrl({ url: "https://cdn.example.com/demo.png" })).toBe("https://cdn.example.com/demo.png")
+    expect(imageUrl({ resultPath: "user/out.png" })).toBe("/api/media/user%2Fout.png")
+    expect(imageUrl({ resultUrl: "https://cdn.example.com/out.png" })).toBe("https://cdn.example.com/out.png")
+    expect(imageUrl({ resultUrl: "javascript:alert(1)" })).toBeNull()
+    expect(imageUrl({ url: "javascript:alert(1)" })).toBeNull()
+    expect(imageUrl({})).toBeNull()
+  })
+
+  it("previews generator references with the address the node itself renders", () => {
+    const generated = node("gen", "generator", {
+      resultUrl: "/api/jobs/job-1/outputs/0/download",
+      resultPath: "zly-ai-video-studio/minimax_h3_image/20261119/frame.png",
+      resultKind: "image",
+    })
+    expect(canvasReferencePreviewUrl(generated)).toBe("/api/jobs/job-1/outputs/0/download")
+    expect(canvasReferenceUrl(generated)).toBe("/api/media/zly-ai-video-studio%2Fminimax_h3_image%2F20261119%2Fframe.png")
+    const libraryImage = node("img", "image", { url: "https://cdn.example.com/demo.png", assetPath: "user/demo.png" })
+    expect(canvasReferencePreviewUrl(libraryImage)).toBe("https://cdn.example.com/demo.png")
+    expect(canvasReferenceUrl(libraryImage)).toBe("/api/media/user%2Fdemo.png")
+    expect(canvasReferencePreviewUrl(node("empty", "image", {}))).toBeNull()
+    expect(canvasReferencePreviewUrl(node("unsafe", "image", { url: "javascript:alert(1)" }))).toBeNull()
+  })
+
+  it("orders mixed references by workflow slot and validates the source media", () => {
+    const photo = node("photo", "image", { url: "/portrait.png" })
+    const audio = node("audio", "audio", { resultUrl: "/speech.wav" })
+    const avatar = mode({ min_references: 2, max_references: 2, accepts_audio_reference: true })
+    const { slots } = bindCanvasReferenceSlots(avatar, [audio, photo], 2)
+    expect(slots).toEqual([{ kind: "image", node: photo }, { kind: "audio", node: audio }])
+    expect(generatorReferenceIssue(avatar, [audio, photo])).toBeNull()
+    expect(generatorReferenceIssue(avatar, [audio])).toContain("需要 2 份参考素材")
+    expect(generatorReferenceIssue(avatar, [photo, node("pending", "audio")])).toContain("参考音频 2")
+    expect(generatorReferenceIssue(avatar, [photo, node("video", "video")])).toContain("类型不匹配")
   })
 
   it("fills a reserved result node when its generator completes", () => {
@@ -352,16 +423,26 @@ describe("canvas generation references", () => {
   it("reads image bytes from a same-origin URL into an ordered File", async () => {
     const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0])
     vi.stubGlobal("fetch", vi.fn(async () => new Response(png, { headers: { "content-type": "image/png" } })))
-    const file = await canvasImageNodeFile(node("img", "image", { assetPath: "demo.png" }), 2)
+    const file = await canvasReferenceFile(node("img", "image", { assetPath: "demo.png" }), 2)
     expect(file.name).toBe("reference-2.png")
     expect(file.type).toBe("image/png")
     expect(file.size).toBe(png.length)
     expect(fetch).toHaveBeenCalledWith("/api/media/demo.png", { credentials: "include" })
   })
 
+  it("keeps video and audio MIME types when preparing generator submissions", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(new Response("video", { headers: { "content-type": "video/mp4" } }))
+      .mockResolvedValueOnce(new Response("audio", { headers: { "content-type": "audio/wav" } })))
+    const file = await canvasReferenceFile(node("clip", "video", { url: "/clip.mp4" }), 1)
+    const audio = await canvasReferenceFile(node("voice", "audio", { resultUrl: "/speech.wav" }), 2)
+    expect(file).toMatchObject({ name: "reference-1.mp4", type: "video/mp4" })
+    expect(audio).toMatchObject({ name: "reference-2.wav", type: "audio/wav" })
+  })
+
   it("reports unreadable references without throwing raw fetch errors", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch") }))
-    await expect(canvasImageNodeFile(node("img", "image", { url: "https://cdn.example.com/a.png" }), 1))
+    await expect(canvasReferenceFile(node("img", "image", { url: "https://cdn.example.com/a.png" }), 1))
       .rejects.toThrow("可能受跨域限制")
   })
 })
@@ -591,4 +672,71 @@ it("keeps card and inspector workflow changes consistent without erasing the pro
   expect(patch).not.toHaveProperty("prompt")
   expect(patch).not.toHaveProperty("runHistory")
   expect(patch).not.toHaveProperty("lastRun")
+})
+
+it("keeps the displayed result and job trace when changing workflow on a generator that already produced output", () => {
+  const next = mode({ id: "next-mode", media_type: "image" })
+  const previous = {
+    jobId: "job-7",
+    jobStatus: "succeeded",
+    jobError: null,
+    resultUrl: "/results/old.png",
+    resultPath: "results/old.png",
+    resultKind: "video" as const,
+    resultHistory: [{ url: "/results/old.png", path: "results/old.png", kind: "video" as const, jobId: "job-7" }],
+    resultIndex: 0,
+  }
+  const patch = canvasWorkflowChangePatch(next.id, next, previous)
+  expect(patch).toMatchObject({
+    workflowId: next.id,
+    jobId: "job-7",
+    jobStatus: "succeeded",
+    resultUrl: "/results/old.png",
+    resultPath: "results/old.png",
+    resultKind: "video",
+    resultHistory: previous.resultHistory,
+    resultIndex: 0,
+  })
+  expect(patch.optionValues).toEqual(defaultGeneratorOptionValues(next))
+})
+
+describe("canvas result provenance", () => {
+  const snapshot = {
+    jobId: "job-1",
+    workflowId: "wf-1",
+    workflowName: "测试工作流",
+    prompt: "旧提示词",
+    optionValues: { aspect_ratio: "9:16" },
+    parameterSummary: [],
+    referenceCount: 1,
+    mediaKind: "image" as const,
+    submittedAt: 1,
+  }
+
+  it("returns the stored source run for image and video result nodes", () => {
+    const image = createImageNode({ x: 0, y: 0 }, "/a.png", "成品")
+    image.data.sourceRun = snapshot
+    const video = createVideoNode({ x: 0, y: 0 }, "/a.mp4", "成片")
+    video.data.sourceRun = { ...snapshot, mediaKind: "video" }
+    expect(canvasResultProvenance(image)?.prompt).toBe("旧提示词")
+    expect(canvasResultProvenance(video)?.workflowId).toBe("wf-1")
+  })
+
+  it("falls back to lastRun and rejects nodes without usable provenance", () => {
+    const node = createImageNode({ x: 0, y: 0 }, "/a.png", "成品")
+    expect(canvasResultProvenance(node)).toBeNull()
+    node.data.lastRun = snapshot
+    expect(canvasResultProvenance(node)?.jobId).toBe("job-1")
+    node.data.sourceRun = { ...snapshot, jobId: "" }
+    expect(canvasResultProvenance(node)?.jobId).toBe("job-1")
+    expect(canvasResultProvenance({ ...node, type: "text" })).toBeNull()
+  })
+
+  it("matches reference acceptance from workflow slots", () => {
+    expect(canvasModeAcceptsReferenceKind(mode(), "image")).toBe(true)
+    expect(canvasModeAcceptsReferenceKind(mode(), "video")).toBe(false)
+    expect(canvasModeAcceptsReferenceKind(mode(), "audio")).toBe(false)
+    expect(canvasModeAcceptsReferenceKind(mode({ max_references: 0, min_references: 0 }), "image")).toBe(false)
+    expect(canvasModeAcceptsReferenceKind(mode({ reference_slots: ["image", "video"] }), "video")).toBe(true)
+  })
 })

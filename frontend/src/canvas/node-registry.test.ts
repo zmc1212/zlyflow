@@ -5,7 +5,7 @@ import { baseNodeTypes, buildNodeTypes } from "./node-registry"
 describe("canvas node registry", () => {
   it("登记全部通用节点类型", () => {
     expect(Object.keys(baseNodeTypes).sort()).toEqual([
-      "artboard", "generator", "image", "text", "unknown", "video",
+      "artboard", "audio", "generator", "image", "text", "timeline", "unknown", "video",
     ])
   })
 

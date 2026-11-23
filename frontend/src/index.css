@@ -141,6 +141,10 @@
   background-color: var(--studio-scrollbar-thumb-hover) !important;
 }
 
+/* 企业下拉（TreeSelect）：叶子节点没有展开箭头，antd 仍为它保留 30px 空位，
+   会把选项文字推离面板左缘；收窄为 0 后叶子文字与父级标签对齐。 */
+.studio-enterprise-tree-popup .ant-select-tree-switcher-noop { width: 0 !important; }
+
 /* ===== 交互光标基线 =====
    可点击控件在悬停时应显示手型。以下两处是 antd v6 的默认“错误”光标，统一纠正：
    1) 原生按钮（含 Tailwind 直写的 <button>）默认是箭头光标；
@@ -1776,6 +1780,45 @@ button:not(:disabled),
 }
 #studio-composer .studio-generate-submit.ant-btn:disabled { background: var(--studio-hover); color: var(--studio-text-muted); }
 #studio-composer .studio-generate-submit svg { color: inherit; }
+/* 提交区说明与告警：统一用语义色随主题切换，浅色主题下不再出现浅琥珀色压白底的不可读文字。 */
+#studio-composer .studio-composer-hint {
+  margin-top: 12px;
+  color: var(--studio-text-muted);
+  font-size: 12px;
+  line-height: 20px;
+}
+#studio-composer .studio-composer-note,
+#studio-composer .studio-composer-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--studio-border);
+  border-radius: 8px;
+  background: var(--studio-surface-raised);
+  color: var(--studio-text-secondary);
+  font-size: 12px;
+  line-height: 20px;
+}
+#studio-composer .studio-composer-note > svg,
+#studio-composer .studio-composer-alert > svg {
+  flex: none;
+  margin-top: 3px;
+  color: var(--studio-text-subtle);
+}
+#studio-composer .studio-composer-alert {
+  border-color: color-mix(in srgb, var(--studio-warning) 26%, transparent);
+  background: var(--studio-warning-soft);
+  color: var(--studio-warning);
+}
+#studio-composer .studio-composer-alert > svg { color: var(--studio-warning); }
+#studio-composer .studio-composer-inline-warning {
+  margin-top: 12px;
+  color: var(--studio-warning);
+  font-size: 12px;
+  line-height: 20px;
+}
 .studio-advanced-popover .ant-popover-container { border: 1px solid var(--studio-border); border-radius: 12px; background: var(--studio-surface-raised); padding: 16px; box-shadow: var(--studio-shadow); }
 .studio-advanced-options { display: grid; width: 256px; max-height: 320px; gap: 16px; overflow-y: auto; }
 .studio-advanced-options .studio-control-shell > span { margin-bottom: 6px; color: var(--studio-text-secondary); font-size: 12px; }
@@ -1829,14 +1872,9 @@ button:not(:disabled),
   line-height: 15px;
   color: var(--studio-text-muted);
 }
-.studio-workflow-option-cost {
-  flex-shrink: 0;
-  margin-left: auto;
-  font-size: 11px;
-  white-space: nowrap;
-  color: #a893ff;
-}
 .studio-submit-cost { color: #a893ff; }
+.studio-submit-cost-warning { color: #fbbf24 !important; }
+.studio-round-credits { color: var(--studio-text-secondary); }
 [data-theme="light"] .studio-workflow-option-icon {
   border-color: rgba(23, 26, 31, 0.10);
   background: rgba(77, 107, 254, 0.10);
@@ -1844,8 +1882,8 @@ button:not(:disabled),
 }
 [data-theme="light"] .studio-workflow-option-flag { background: rgba(77, 107, 254, 0.14); color: #314bc7; }
 [data-theme="light"] .studio-workflow-option-desc { color: #6b7280; }
-[data-theme="light"] .studio-workflow-option-cost,
 [data-theme="light"] .studio-submit-cost { color: #314bc7; }
+[data-theme="light"] .studio-submit-cost-warning { color: #b45309 !important; }
 .studio-select-popup .ant-select-item-group {
   padding: 8px 10px 4px;
   color: #6b7280;
@@ -3464,8 +3502,9 @@ button:not(:disabled),
 .media-preview-root .ant-modal-mask { background: var(--studio-canvas); }
 .media-preview-root .ant-modal-wrap { overflow: hidden; }
 .media-preview-root .media-preview-modal.ant-modal { top: 0; width: 100vw !important; max-width: none; height: 100vh; margin: 0; padding: 0; }
-.media-preview-modal .ant-modal-content, .media-preview-modal .ant-modal-body { height: 100%; overflow: hidden; background: var(--studio-canvas); padding: 0; }
-.media-preview-shell { display: grid; height: 100vh; grid-template-columns: minmax(0, 1fr) 44px 400px; background: var(--studio-canvas); }
+/* antd v6 弹层内容容器为 .ant-modal-container（旧 .ant-modal-content 已不存在），须同时清零其默认 20px 内边距 */
+.media-preview-modal .ant-modal-container, .media-preview-modal .ant-modal-body { height: 100%; overflow: hidden; background: var(--studio-canvas); padding: 0; }
+.media-preview-shell { display: grid; height: 100vh; grid-template-columns: minmax(0, 1fr) 44px 400px; grid-template-rows: minmax(0, 1fr); background: var(--studio-canvas); }
 .media-preview-stage {
   position: relative;
   min-width: 0;
@@ -3665,19 +3704,145 @@ button:not(:disabled),
 .media-preview-rail .ant-btn:hover { background: var(--studio-hover); color: var(--studio-accent-text); }
 .media-preview-rail-download { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 8px; color: var(--studio-text); text-decoration: none; transition: background 160ms ease, color 160ms ease; }
 .media-preview-rail-download:hover { background: var(--studio-hover); color: var(--studio-accent-text); }
-.media-preview-sidebar { display: flex; min-width: 0; flex-direction: column; padding: 20px 24px 12px 12px; }
+.media-preview-sidebar { display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; padding: 20px 24px 12px 12px; }
 .media-preview-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 2px 12px; border-bottom: 1px solid var(--studio-border); }
 .media-preview-heading-label { color: var(--studio-text-muted); font-size: 12px; }
 .media-preview-kind .ant-tag { display: inline-flex; align-items: center; gap: 4px; margin: 0; color: var(--studio-accent-text); border-color: color-mix(in srgb, var(--studio-accent-text) 28%, transparent); background: var(--studio-primary-soft); }
-.media-preview-copy { margin-top: 20px; padding: 0 2px; }
+/* 描述区自身滚动、操作区与提示钉在底部：长简介不再把底部文字挤出屏幕 */
+.media-preview-copy { flex: 1 1 auto; min-height: 0; margin-top: 20px; padding: 0 8px 0 2px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--studio-border) transparent; }
+.media-preview-copy::-webkit-scrollbar { width: 6px; }
+.media-preview-copy::-webkit-scrollbar-thumb { border-radius: 999px; background: var(--studio-border); }
+.media-preview-copy::-webkit-scrollbar-track { background: transparent; }
 .media-preview-copy h2 { margin: 0; overflow: hidden; color: var(--studio-text); font-size: 15px; font-weight: 650; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
-.media-preview-copy p { display: -webkit-box; margin: 9px 0 0; overflow: hidden; color: var(--studio-text-secondary); font-size: 13px; line-height: 1.7; -webkit-box-orient: vertical; -webkit-line-clamp: 7; }
+.media-preview-copy p { margin: 9px 0 0; color: var(--studio-text-secondary); font-size: 13px; line-height: 1.7; }
 .media-preview-copy p.is-empty { color: var(--studio-text-muted); }
 .media-preview-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: auto; padding: 12px; border-radius: 12px; background: var(--studio-surface); }
+.media-preview-actions.is-single { grid-template-columns: 1fr; }
 .media-preview-actions:empty { display: none; }
+.media-preview-action-slot { display: grid; min-width: 0; }
+.media-preview-action-slot > .ant-btn { width: 100%; }
 .media-preview-actions .ant-btn { justify-content: flex-start; min-width: 0; height: 40px; border: 0; padding-inline: 8px; box-shadow: none; }
 .media-preview-actions .ant-btn:hover { background: var(--studio-primary-soft); color: var(--studio-accent-text); }
 .media-preview-tip { display: flex; align-items: center; gap: 6px; margin-top: 12px; padding: 0 2px; color: var(--studio-text-muted); font-size: 12px; line-height: 1.45; }
+/* 任务详情复用预览弹层：右栏加宽，资产说明下追加创作参数与折叠的运行信息。 */
+.media-preview-shell.has-meta { grid-template-columns: minmax(0, 1fr) 44px 420px; }
+.media-preview-meta { display: flex; flex-direction: column; gap: 12px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--studio-border); }
+.job-detail-meta { display: flex; flex-direction: column; gap: 12px; }
+.job-detail-status { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--studio-text-muted); font-size: 12px; line-height: 20px; }
+.job-detail-status .ant-tag { margin-inline-end: 0; }
+.job-detail-progress { display: flex; flex-direction: column; gap: 4px; }
+.job-detail-progress span { color: var(--studio-text-muted); font-size: 12px; }
+.job-detail-facts { display: flex; flex-direction: column; }
+.job-detail-fact { display: grid; grid-template-columns: 76px minmax(0, 1fr); align-items: start; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--studio-border); font-size: 12.5px; line-height: 1.6; }
+.job-detail-fact:last-child { border-bottom: 0; }
+.job-detail-fact > span { color: var(--studio-text-muted); }
+.job-detail-fact > b { color: var(--studio-text); font-weight: 550; word-break: break-word; }
+.job-detail-grid { display: flex; flex-direction: column; gap: 2px; }
+.job-detail-grid .job-detail-fact { padding: 2px 0; border-bottom: 0; }
+.media-preview-meta .ant-collapse { background: transparent; border: 0; }
+.media-preview-meta .ant-collapse > .ant-collapse-item { border-bottom: 1px solid var(--studio-border); }
+.media-preview-meta .ant-collapse > .ant-collapse-item:last-child { border-bottom: 0; }
+.media-preview-meta .ant-collapse-header { align-items: center !important; padding: 9px 0 !important; color: var(--studio-text-secondary) !important; font-size: 12.5px; font-weight: 600; }
+.media-preview-meta .ant-collapse-content { background: transparent; border-top: 0; }
+.media-preview-meta .ant-collapse-content-box { padding: 2px 0 12px !important; }
+.job-detail-error { padding: 8px 10px; border-radius: 6px; background: var(--studio-danger-soft); color: var(--studio-danger); font-family: monospace; font-size: 11.5px; line-height: 1.65; white-space: pre-wrap; word-break: break-word; }
+.job-shot-list { display: flex; flex-direction: column; gap: 10px; }
+.job-shot { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--studio-border); border-radius: 8px; background: var(--studio-canvas); }
+.job-shot-head { color: var(--studio-text); font-size: 12px; font-weight: 650; line-height: 1.5; }
+.job-shot-refs { display: flex; flex-wrap: wrap; gap: 6px; }
+.job-shot-refs a { display: block; width: 58px; height: 58px; border: 1px solid var(--studio-border); border-radius: 6px; overflow: hidden; }
+.job-shot-refs img { width: 100%; height: 100%; object-fit: cover; }
+.job-shot-ref-label { color: var(--studio-text-muted); font-size: 11px; line-height: 1.5; }
+.job-shot-prompt { border: 1px solid var(--studio-border); border-radius: 6px; background: var(--studio-surface); }
+.job-shot-prompt summary { padding: 6px 8px; color: var(--studio-text-muted); font-size: 11.5px; cursor: pointer; }
+.job-shot-prompt pre, .job-shot-director { margin: 0; padding: 8px; max-height: 220px; overflow: auto; color: var(--studio-text-secondary); font-family: monospace; font-size: 11.5px; line-height: 1.65; white-space: pre-wrap; word-break: break-all; scrollbar-width: thin; }
+.job-detail-note { color: var(--studio-text-muted); font-size: 11.5px; line-height: 1.6; }
+.job-detail-refine-note { padding: 8px 10px; border-radius: 8px; background: var(--studio-primary-soft); color: var(--studio-text-secondary); font-size: 11.5px; line-height: 1.6; }
+/* 视频任务还没有成片时，预览弹层的左舞台显示生成中 / 失败占位 */
+.media-preview-empty { display: flex; width: 100%; height: 100%; align-items: center; justify-content: center; background: var(--studio-media); }
+.job-detail-stage { display: flex; width: min(430px, 84%); flex-direction: column; align-items: center; gap: 16px; color: rgba(255, 255, 255, .82); text-align: center; }
+.job-detail-stage-orbit { position: relative; display: grid; width: 56px; height: 56px; place-items: center; border: 1px solid rgba(255, 255, 255, .16); border-radius: 50%; }
+.job-detail-stage-orbit::before { content: ""; position: absolute; inset: -1px; border: 2px solid transparent; border-top-color: var(--studio-primary-hover); border-radius: 50%; animation: job-detail-orbit 1.5s linear infinite; }
+.job-detail-stage-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--studio-primary-hover); box-shadow: 0 0 22px color-mix(in srgb, var(--studio-primary-hover) 60%, transparent); animation: job-detail-pulse 1.8s ease-in-out infinite; }
+.job-detail-stage.is-failed .job-detail-stage-orbit::before { border-top-color: var(--studio-danger); animation: none; }
+.job-detail-stage.is-failed .job-detail-stage-dot { background: var(--studio-danger); box-shadow: 0 0 22px color-mix(in srgb, var(--studio-danger) 50%, transparent); animation: none; }
+.job-detail-stage-copy { display: flex; flex-direction: column; gap: 7px; }
+.job-detail-stage-copy strong { color: #fff; font-size: 17px; font-weight: 650; letter-spacing: .01em; }
+.job-detail-stage-copy span { color: rgba(255, 255, 255, .56); font-size: 12.5px; line-height: 1.7; }
+.job-detail-stage-progress { width: min(260px, 100%); }
+.job-detail-stage-progress .ant-progress-inner { background: rgba(255, 255, 255, .14); }
+@keyframes job-detail-orbit { to { transform: rotate(360deg); } }
+@keyframes job-detail-pulse { 0%, 100% { opacity: .55; transform: scale(.88); } 50% { opacity: 1; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .job-detail-stage-orbit::before, .job-detail-stage-dot { animation: none; } }
+.job-detail-empty { color: var(--studio-text-muted); font-size: 12px; }
+/* 放大镜：即梦式全屏大图检视层（portal 到 body，盖过预览弹层） */
+.media-preview-frame > img { cursor: zoom-in; }
+.media-preview-zoom-trigger {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(255, 255, 255, .16);
+  border-radius: 50%;
+  padding: 0;
+  background: rgba(9, 11, 15, .55);
+  color: #fff;
+  cursor: zoom-in;
+  opacity: 0;
+  transform: translateY(-2px);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  pointer-events: none;
+  transition: opacity .16s ease, transform .16s ease, background .16s ease;
+}
+.media-preview-frame:hover .media-preview-zoom-trigger, .media-preview-zoom-trigger:focus-visible { opacity: 1; transform: none; pointer-events: auto; }
+.media-preview-zoom-trigger:hover { background: rgba(9, 11, 15, .8); }
+.media-preview-zoom-trigger:active { transform: scale(.94); }
+.media-preview-zoom { position: fixed; inset: 0; z-index: 1200; display: flex; align-items: center; justify-content: center; background: rgba(2, 4, 7, .94); animation: media-zoom-fade .16s ease; }
+.media-preview-zoom img { max-width: 94vw; max-height: 92vh; object-fit: contain; border-radius: 8px; background: transparent; animation: media-zoom-in .18s ease; user-select: none; -webkit-user-drag: none; }
+.media-preview-zoom-close {
+  position: absolute;
+  top: 18px;
+  right: 22px;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  background: rgba(255, 255, 255, .08);
+  color: #fff;
+  cursor: pointer;
+  transition: background 160ms ease, transform 160ms ease;
+}
+.media-preview-zoom-close:hover { background: rgba(255, 255, 255, .18); transform: scale(1.05); }
+.media-preview-zoom-close:active { transform: scale(.95); }
+.media-preview-zoom-nav { position: absolute; bottom: 26px; left: 50%; display: flex; align-items: center; gap: 10px; transform: translateX(-50%); }
+.media-preview-zoom-nav button {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 34px;
+  border: 1px solid rgba(255, 255, 255, .22);
+  border-radius: 999px;
+  padding: 0;
+  background: rgba(12, 14, 18, .62);
+  color: #fff;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  transition: background 160ms ease, border-color 160ms ease;
+}
+.media-preview-zoom-nav button:hover:not(:disabled) { background: rgba(255, 255, 255, .16); border-color: rgba(255, 255, 255, .38); }
+.media-preview-zoom-nav button:active:not(:disabled) { transform: translateY(1px); }
+.media-preview-zoom-nav button:disabled { opacity: .35; cursor: default; }
+@keyframes media-zoom-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes media-zoom-in { from { opacity: 0; transform: scale(.975); } to { opacity: 1; transform: scale(1); } }
 @media (min-width: 1280px) {
   .media-preview-root .ant-modal-mask,
   .media-preview-root .ant-modal-wrap { left: 76px; }
@@ -3691,6 +3856,7 @@ button:not(:disabled),
   .media-preview-center-btn { width: 52px; height: 52px; }
   .media-preview-rail { position: absolute; top: 6px; right: 8px; z-index: 1; flex-direction: row; padding: 0; }
   .media-preview-rail .ant-btn, .media-preview-rail-download { background: color-mix(in srgb, var(--studio-surface) 90%, transparent); box-shadow: var(--studio-shadow); }
+  .media-preview-shell.has-meta { grid-template-columns: 1fr; }
   .media-preview-sidebar { min-height: 250px; padding: 12px; }
   .media-preview-actions { margin-top: 22px; }
 }
@@ -4985,3 +5151,49 @@ button:not(:disabled),
 
 /* 管理设置：各页保存/测试等操作按钮统一沿表单内容左基线排列，窄屏自动换行 */
 .studio-admin-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding-top: 8px; }
+
+
+/* 价格页：表格贴合 studio 表面层级（浅/暗主题共用语义变量）。 */
+.studio-pricing .pricing-table .ant-table,
+.studio-pricing .pricing-table .ant-table-container,
+.studio-pricing .pricing-table .ant-table-cell {
+  background: transparent;
+}
+.studio-pricing .pricing-table .ant-table-thead > tr > th {
+  background: var(--studio-surface-raised);
+  color: var(--studio-text-secondary);
+  font-weight: 500;
+  border-bottom-color: var(--studio-border);
+}
+.studio-pricing .pricing-table .ant-table-tbody > tr > td {
+  border-bottom-color: var(--studio-border);
+  color: var(--studio-text);
+}
+.studio-pricing .pricing-table .ant-table-tbody > tr:last-child > td {
+  border-bottom: 0;
+}
+
+/* 价格页：模型卡整卡可点切换试算档位，悬停轻浮起、按下回落，选中档位带供应商主题色描边（浅/暗主题共用）。 */
+.pricing-model-card {
+  cursor: pointer;
+  border-color: var(--studio-border);
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+}
+.pricing-model-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--pricing-accent, var(--studio-primary));
+  box-shadow: 0 12px 28px rgba(15, 17, 21, 0.14);
+}
+.pricing-model-card:active {
+  transform: translateY(0);
+  box-shadow: 0 4px 12px rgba(15, 17, 21, 0.1);
+  transition-duration: 80ms;
+}
+.pricing-model-card:focus-visible {
+  outline: 2px solid var(--pricing-accent, var(--studio-primary));
+  outline-offset: 2px;
+}
+.pricing-model-card.is-selected {
+  border-color: var(--pricing-accent, var(--studio-primary));
+  box-shadow: inset 0 0 0 1px var(--pricing-accent, var(--studio-primary));
+}

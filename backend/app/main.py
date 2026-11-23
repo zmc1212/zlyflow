@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import math
 import mimetypes
 import re
@@ -12,24 +13,25 @@ import time
 import wave
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from threading import Lock
-from typing import Annotated
+from typing import Annotated, Literal
 from urllib.parse import urlencode, urlsplit
 
 import requests
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Path as ApiPath, Query, Request, Response, Security, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, Path as ApiPath, Query, Request, Response, Security, UploadFile
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 
 from fastapi.security import APIKeyCookie
 from fastapi.openapi.utils import get_openapi
 
 from .api_documentation import enrich_openapi_documentation
 from .auth import (
-    AuthStore, LastSuperAdminError, RESET_CODE_TTL_MINUTES, SESSION_HOURS, csrf_token,
-    mask_email, normalize_email, validate_email,
+    AuthStore, BatchUsernameConflictError, LastSuperAdminError, RESET_CODE_TTL_MINUTES, SESSION_HOURS, csrf_token,
+    mask_email, normalize_email, profile_avatar_version, validate_email,
 )
 from .cache import EpochCache, TTLCache
 from .comfy_provider import ComfyProviderError, ComfyProviderService
@@ -73,16 +75,18 @@ from .director_project_service import merge_recipe_creative, merge_recipe_execut
 from .director_operations import DirectorOperationService
 from .director_stream import TERMINAL_OPERATION_STATUSES, terminal_event_for_status
 from .grs_provider import GrsProviderService
-from .llm_client import LlmError, is_upstream_llm_failure
+from .llm_client import LlmError, LlmUsageCollector, is_upstream_llm_failure
 from .llm_provider import LlmProviderService
+from .profile_avatar import MAX_PROFILE_AVATAR_BYTES, normalize_profile_avatar
 from .zhipu_catalog import model_provider_presets
-from .tts_provider import TtsProviderService
+from .tts_provider import TtsProviderService, voices_for_provider
 from .mail_provider import MailProviderError, MailProviderService
 from .vlm_provider import ANALYSIS_UNAVAILABLE_MESSAGE, VlmProviderService
 from .vision_runtime import llm_status_vision_fields
 from .models import (
     AuthStatusResponse, BrowserDirectOutputResponse, ChangePasswordRequest, ComfyProviderResponse,
     ComfyProviderTestRequest, ComfyProviderUpdateRequest, CreateUserRequest, HealthResponse, JobResponse,
+    BatchCreateUsersRequest, BatchCreateUsersResponse,
     DesktopDeliveryTicketResponse, GrsBalanceResponse, GrsBalanceSnapshotResponse, GrsImageModelCreateRequest,
     GrsImageModelsResponse, GrsImageModelsUpdateRequest, GrsProviderResponse, GrsProviderTestRequest, GrsProviderUpdateRequest,
     GrsPlatformModelImportRequest, GrsPlatformModelImportResponse, GrsPlatformModelsResponse,
@@ -111,14 +115,29 @@ from .models import (
     CloudVideoProviderResponse, CloudVideoProviderTestRequest, CloudVideoProviderUpdateRequest,
     MusicChatCreateRequest, MusicChatDetailResponse, MusicChatGenerateRequest, MusicChatMessageRequest,
     MusicChatMessageResponse, MusicChatResponse, MusicChatUpdateRequest,
+    CreditAccountResponse, CreditAdjustRequest, CreditEstimateRequest, CreditEstimateResponse,
+    CreditPriceRuleResponse, CreditPriceRulesUpdateRequest, CreditTransactionResponse, CreditUsageReportResponse,
+    EnterpriseResponse, EnterpriseCreateRequest, EnterpriseUpdateRequest, EnterprisePolicyItem,
+    EnterprisePoliciesUpdateRequest, EnterprisePolicyCatalogResponse, EnterprisePolicyCatalogEntry,
+    EnterpriseDetailResponse, EnterpriseMemberResponse, EnterpriseCreditTransactionResponse,
+    EnterpriseCreditAdjustRequest, EnterpriseMemberBindRequest,
+    EnterpriseMemberQuotaRequest, EnterpriseMemberQuotaResponse,
     CanvasProjectCreateRequest, CanvasProjectUpdateRequest, CanvasDraftSaveRequest,
-    CanvasLinkedProjectRequest,
+    CanvasLinkedProjectRequest, CanvasProjectCreditStatsRequest,
     CanvasProjectListItem, CanvasProjectResponse, CanvasDraftSaveResponse, CanvasDraftVersionItem,
+    CanvasTtsRequest,
 )
 from .motion_transfer_media import validate_motion_video
 from .keep_face_restore_workflow import KEEP_MAX_UPLOAD_BYTES, validate_face_restore_sources
 from .scail2_workflow import probe_scail_canvas, resolve_scail_video_options
 from .provider_secret import reveal_secret
+from .enterprise_service import (
+    EnterpriseModelForbiddenError,
+    ensure_mode_allowed,
+    filter_workflow_definitions,
+    policies_map,
+    policy_catalog,
+)
 
 from .library_query import (
     LIBRARY_DEFAULT_LIMIT,
@@ -140,9 +159,11 @@ from .media_studio.routers.featured_router import register_featured_work_routes
 from .media_studio.routers.featured_music_router import register_featured_music_routes
 from .media_studio.routers.showcase_router import register_showcase_routes
 from .director_assistant.routes import register_assistant_routes
+from .canvas_assistant.routes import register_canvas_assistant_routes
 from .script_diagnosis.routes import register_diagnosis_routes
 from .script_diagnosis.service import DiagnosisService
 from .director_assistant.service import AssistantService
+from .canvas_assistant.service import CanvasAssistantService
 from .media_studio.services.ai_generation_service import AiGenerationService
 from .media_studio.services.asset_extraction_job_service import AssetExtractionJobService
 from .media_studio.services.episode_video_service import EpisodeVideoService
@@ -163,8 +184,25 @@ from .request_log import RequestLogMiddleware, write_request_log
 from .mcp_gateway.routes import register_mcp_routes
 from .mcp_gateway.store import McpStore
 
-from .resource_storage import create_resource_storage, resource_object_url
-from .storage import DirectorProjectConflictError, FINISHED_STATUSES, JobStore, elapsed_ms_between
+from .resource_storage import ResourceStorage, create_resource_storage, resource_object_url
+from .storage import (
+    CreditPriceConflictError, CreditWalletConflictError,
+    CreditInsufficientError,
+    DirectorProjectConflictError,
+    FINISHED_STATUSES,
+    JobStore,
+    elapsed_ms_between,
+)
+from .credit_report import build_usage_report, resolve_range
+from .credit_service import (
+    LLM_BILLING_KINDS,
+    VLM_BILLING_KINDS,
+    CreditService,
+    billing_mode,
+    compute_cost_preview,
+    native_price_to_credits,
+    resolve_price_rule_units,
+)
 from .worker import JobWorker
 from .rtx_vsr_workflow import comfy_vram_device_name, comfy_vram_total_bytes, original_video_locator, source_video_shape, vsr_memory_rejection
 from .seedvr2_upscale_workflow import (
@@ -176,12 +214,14 @@ from .seedvr2_upscale_workflow import (
 )
 from .relay_vsr_workflow import relay_vsr_memory_rejection
 from .workflow_registry import (
-    AVATAR_MAX_SCENE_SECONDS, LIPSYNC_SOURCE_MAX_SECONDS, LIPSYNC_SOURCE_MIN_SECONDS, WORKFLOWS,
+    AUDIO_REFERENCE_SUFFIXES, AVATAR_MAX_SCENE_SECONDS, CLOUD_PRICING_PROVIDERS, GRS_WAN_MAX_AUDIO_SECONDS,
+    GRS_WAN_MAX_VIDEO_SECONDS, LIPSYNC_SOURCE_MAX_SECONDS, LIPSYNC_SOURCE_MIN_SECONDS, WORKFLOWS,
+    apply_billing_option_hints,
     comfy_ram_total_bytes, is_cloud_video_workflow, is_composite_image_workflow, is_depth_workflow,
     is_grs_image_workflow, is_lip_sync_workflow, is_local_comfy_job,
     is_motion_ref_video_workflow, is_relayvsr_upscale_workflow, is_seedvr2_upscale_workflow,
     is_upscale_workflow, normalize_options, option_visible, quality_for_megapixels, set_catalog_lookup,
-    set_hardware_profile_resolver, validate_option_relationships, validate_references, workflow_for,
+    reference_media_kind, set_hardware_profile_resolver, validate_option_relationships, validate_references, workflow_for,
 )
 
 
@@ -193,6 +233,7 @@ PRESETS = {
     "旅行航拍": "广阔山谷与蜿蜒道路，无人机由高处缓慢下降并向前飞行，金色日落，真实航拍质感。",
 }
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+CANVAS_VIDEO_MAX_UPLOAD_BYTES = 500 * 1024 * 1024
 SESSION_COOKIE = "zly_ai_video_studio_session"
 session_cookie_scheme = APIKeyCookie(name=SESSION_COOKIE, auto_error=False, description="登录接口设置的 HttpOnly 会话 Cookie。")
 LOGIN_WINDOW_SECONDS = 15 * 60
@@ -621,19 +662,45 @@ def attach_elapsed(record: dict) -> dict:
     return record
 
 
-def public_reference(mode: str, index: int, url: str, count: int | None = None) -> dict:
+def public_reference(
+    mode: str, index: int, url: str, count: int | None = None, name: str | None = None,
+    ordinal: int | None = None,
+) -> dict:
     data = {"index": index, "url": url}
     try:
         definition = workflow_for(mode)
     except KeyError:
         return data
-    if not (definition.accepts_video_reference or definition.accepts_audio_reference or definition.reference_slots):
+    per_kind = bool(definition.reference_audio_limit or definition.reference_video_limit)
+    if not (
+        definition.accepts_video_reference or definition.accepts_audio_reference
+        or definition.reference_slots or per_kind
+    ):
         return data
+    if per_kind:
+        kind = reference_media_kind(name) if name else "image"
+        label = {"image": "参考图", "audio": "参考音频", "video": "参考视频"}[kind]
+        return {"index": index, "url": url, "kind": kind, "label": f"{label} {ordinal or index}"}
     labels = definition.reference_labels
     return {
         "index": index, "url": url, "kind": definition.reference_kind(index, count),
         "label": labels[index - 1] if index <= len(labels) else f"参考图 {index}",
     }
+
+
+def public_reference_list(
+    mode: str, base_url: str, count: int, names: list[str] | None = None,
+) -> list[dict]:
+    """把一个任务/轮次的参考素材转换成公开对象；按类型分槽的工作流按文件类型打标签。"""
+    names = list(names or [])
+    ordinals = {"image": 0, "audio": 0, "video": 0}
+    references: list[dict] = []
+    for index in range(1, count + 1):
+        name = names[index - 1] if index - 1 < len(names) else None
+        kind = reference_media_kind(name) if name else "image"
+        ordinals[kind] += 1
+        references.append(public_reference(mode, index, base_url(index), count, name, ordinals[kind]))
+    return references
 
 
 def public_job(job: dict) -> dict:
@@ -642,11 +709,10 @@ def public_job(job: dict) -> dict:
     data.pop("submitted_options", None)
     data.pop("options_submitted", None)
     attach_elapsed(data)
-    data["references"] = [
-        public_reference(job["mode"], index, public_api_path(f"jobs/{job['id']}/references/{index}"),
-                             int(job.get("reference_count", 0)))
-        for index in range(1, int(job.get("reference_count", 0)) + 1)
-    ]
+    data["references"] = public_reference_list(
+        job["mode"], lambda index: public_api_path(f"jobs/{job['id']}/references/{index}"),
+        int(job.get("reference_count", 0)), job.get("references"),
+    )
     data["outputs"] = []
     for output_index, raw_output in enumerate(job.get("outputs", [])):
         output = dict(raw_output)
@@ -666,12 +732,11 @@ def public_job(job: dict) -> dict:
         public_round["request_parameters"] = request_parameters(round_data)
         public_round.pop("submitted_options", None)
         public_round.pop("options_submitted", None)
-        public_round["references"] = [
-            public_reference(round_data["mode"], index,
-                             public_api_path(f"jobs/{job['id']}/rounds/{round_data['id']}/references/{index}"),
-                             int(round_data.get("reference_count", 0)))
-            for index in range(1, int(round_data.get("reference_count", 0)) + 1)
-        ]
+        public_round["references"] = public_reference_list(
+            round_data["mode"],
+            lambda index: public_api_path(f"jobs/{job['id']}/rounds/{round_data['id']}/references/{index}"),
+            int(round_data.get("reference_count", 0)), round_data.get("references"),
+        )
         public_items: list[dict] = []
         for item in round_data.get("generation_items", []):
             public_item = dict(item)
@@ -859,6 +924,7 @@ async def lifespan(app: FastAPI):
     set_hardware_profile_resolver(resolve_hardware_profile)
     app.state.auth_store = auth_store
     app.state.store = store
+    app.state.credits = CreditService(store)
     app.state.library_cache = EpochCache(max_entries=16)
     app.state.media_index = MediaOutputIndex(store)
     app.state.health_cache = TTLCache(ttl_seconds=10)
@@ -882,6 +948,7 @@ async def lifespan(app: FastAPI):
         vlm_provider=vlm_provider,
         worker=worker,
         resource_storage=resource_storage,
+        credits=app.state.credits,
     )
     app.state.director_operations = director_operations
     app.state.desktop_delivery_tickets = DesktopDeliveryTickets()
@@ -900,8 +967,29 @@ async def lifespan(app: FastAPI):
         TtsGenerationJobService.recover_interrupted_jobs()
         MusicJobService.recover_interrupted_jobs()
         AiGenerationService.recover_orphaned_jobs()
-    app.state.director_assistant = AssistantService(store, llm_provider, settings.uploads_dir, vlm_provider)
+    app.state.director_assistant = AssistantService(store, llm_provider, settings.uploads_dir, vlm_provider, credits=app.state.credits)
     app.state.director_assistant.recover()
+
+    def canvas_workflows_for(owner: str) -> list:
+        return filter_workflow_definitions(app.state.store, owner, listed_workflows())
+
+    def canvas_workflow_availability(definition) -> tuple[bool, str | None]:
+        if is_grs_image_workflow(definition.id):
+            return app.state.grs_provider.availability(definition.id)
+        if is_cloud_video_workflow(definition.id):
+            return _cloud_provider_availability(definition.cloud_provider)
+        return True, None
+
+    def canvas_library_entries(owner: str) -> list:
+        return _library_entries(owner)
+
+    app.state.canvas_assistant = CanvasAssistantService(
+        store, llm_provider, app.state.canvas_store, credits=app.state.credits,
+        workflows_for=canvas_workflows_for,
+        workflow_availability=canvas_workflow_availability,
+        library_provider=canvas_library_entries,
+    )
+    app.state.canvas_assistant.recover()
     app.state.script_diagnosis = DiagnosisService(store, llm_provider)
     app.state.script_diagnosis.repo.recover()
     await worker.start()
@@ -943,6 +1031,7 @@ app = FastAPI(
         {"name": "导演台2", "description": "AI Media Studio：按项目组织的内容库、资产库、剧集工坊与全部任务（复刻自 dev0914）。"},
         {"name": "灵感示例", "description": "示例库：管理员把真实出片冻结成可复现配方，所有用户浏览并一键回填创作台。"},
         {"name": "音乐", "description": "远端 YuE2 Studio 音乐生成：任务提交、状态轮询与成品曲库。"},
+        {"name": "积分", "description": "用户积分账户、流水与提交预估；管理端充值调整与价格表。"},
     ],
     lifespan=lifespan,
 )
@@ -966,22 +1055,30 @@ register_showcase_routes(
     mutating_admin_user=mutating_admin_user,
 )
 register_assistant_routes(app, current_user=current_user, mutating_user=mutating_user)
+register_canvas_assistant_routes(app, current_user=current_user, mutating_user=mutating_user)
 register_diagnosis_routes(app, current_user=current_user, mutating_user=mutating_user)
 app.add_middleware(RequestLogMiddleware)
 
 
 @app.exception_handler(RequestValidationError)
 async def request_validation_log(request: Request, exc: RequestValidationError) -> JSONResponse:
+    errors = jsonable_encoder(exc.errors())
     write_request_log(
         "422",
         {
             "method": request.method,
             "path": request.url.path,
-            "errors": exc.errors(),
-            "body": exc.body,
+            "errors": errors,
+            "body": exc.body if isinstance(exc.body, (dict, list, str, int, float, bool)) else None,
         },
     )
-    return JSONResponse(status_code=422, content={"detail": exc.errors()})
+    return JSONResponse(status_code=422, content={"detail": errors})
+
+
+@app.exception_handler(EnterpriseModelForbiddenError)
+async def enterprise_model_forbidden(request: Request, exc: EnterpriseModelForbiddenError) -> JSONResponse:
+    """企业模型访问策略拦截（任务提交 / LLM·VLM 调用 / 导演台链路）统一转 403。"""
+    return JSONResponse(status_code=403, content={"detail": str(exc)})
 
 
 def public_openapi() -> dict:
@@ -1122,6 +1219,77 @@ def update_profile(
     return auth_payload(updated, request.state.session_token)
 
 
+def _profile_avatar_storage() -> ResourceStorage:
+    storage = getattr(app.state, "resource_storage", None)
+    if storage is None or storage.provider_id != "qiniu":
+        raise HTTPException(status_code=503, detail="头像存储尚未启用，请联系管理员")
+    return storage
+
+
+def _delete_profile_avatar(storage: ResourceStorage, key: str) -> None:
+    try:
+        storage.delete(key)
+    except Exception:
+        logging.getLogger(__name__).warning("清理账号旧头像失败", exc_info=True)
+
+
+@app.get(
+    "/api/auth/avatar/{version}", response_class=RedirectResponse, status_code=307,
+    tags=["账号"], summary="查看当前账号头像",
+)
+def get_profile_avatar(version: str, user: Annotated[dict, Depends(current_user)]) -> RedirectResponse:
+    key = app.state.auth_store.get_avatar_key(user["id"])
+    if not key or profile_avatar_version(key) != version:
+        raise HTTPException(status_code=404, detail="头像不存在")
+    url = _profile_avatar_storage().download_url(key)
+    if not url:
+        raise HTTPException(status_code=502, detail="暂时无法读取头像")
+    return RedirectResponse(url, headers={"Cache-Control": "private, no-store"})
+
+
+@app.post("/api/auth/avatar", response_model=AuthStatusResponse, tags=["账号"], summary="上传或更换当前账号头像")
+def upload_profile_avatar(
+    request: Request, background_tasks: BackgroundTasks,
+    file: Annotated[UploadFile, File(description="JPG、PNG 或 WebP 头像图片，最大 5 MiB")],
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    content = file.file.read(MAX_PROFILE_AVATAR_BYTES + 1)
+    if len(content) > MAX_PROFILE_AVATAR_BYTES:
+        raise HTTPException(status_code=413, detail="头像文件不能超过 5 MB")
+    try:
+        avatar = normalize_profile_avatar(content)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+    storage = _profile_avatar_storage()
+    try:
+        stored = storage.store_bytes("account-avatars", "avatar.webp", avatar)
+    except (OSError, RuntimeError, ValueError) as error:
+        logging.getLogger(__name__).warning("上传账号头像失败", exc_info=True)
+        raise HTTPException(status_code=502, detail="头像上传失败，请稍后重试") from error
+
+    auth_store: AuthStore = app.state.auth_store
+    try:
+        updated, previous_key = auth_store.replace_avatar(user["id"], stored.key)
+    except KeyError as error:
+        _delete_profile_avatar(storage, stored.key)
+        raise HTTPException(status_code=409, detail="账号状态已变化，请重新登录") from error
+    except Exception:
+        # A failed commit can leave its outcome unknown. Delete only after checking the stored key.
+        try:
+            current_key = auth_store.get_avatar_key(user["id"])
+        except Exception:
+            logging.getLogger(__name__).warning("头像保存失败后无法确认对象归属", exc_info=True)
+        else:
+            if current_key != stored.key:
+                _delete_profile_avatar(storage, stored.key)
+        raise
+
+    if previous_key and previous_key != stored.key:
+        background_tasks.add_task(_delete_profile_avatar, storage, previous_key)
+    return auth_payload(updated, request.state.session_token)
+
+
 @app.post(
     "/api/auth/password/email-challenge",
     response_model=PasswordEmailChallengeResponse,
@@ -1211,7 +1379,39 @@ def list_users(_: Annotated[dict, Depends(admin_user)]) -> list[dict]:
         blocked_seconds = login_block_remaining_seconds(user)
         user["login_blocked"] = blocked_seconds > 0
         user["login_blocked_seconds"] = blocked_seconds
+    _attach_enterprise_names(users)
     return users
+
+
+def _attach_enterprise_names(users: list[dict]) -> None:
+    """给账号列表补 enterprise_name（企业被删/表缺失时留空）。"""
+    if not users:
+        return
+    names: dict[str, str] = {}
+    try:
+        for enterprise in app.state.store.list_enterprises():
+            names[enterprise["id"]] = enterprise["name"]
+    except Exception:
+        names = {}
+    for user in users:
+        enterprise_id = user.get("enterprise_id")
+        user["enterprise_name"] = names.get(enterprise_id) if enterprise_id else None
+
+
+def _enterprise_or_404(enterprise_id: str) -> dict:
+    try:
+        return app.state.store.get_enterprise(enterprise_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="企业不存在") from error
+
+
+def _validate_enterprise_binding(enterprise_id: str | None) -> None:
+    """创建/更新账号时的企业归属校验：企业必须存在且未停用。"""
+    if not enterprise_id:
+        return
+    enterprise = _enterprise_or_404(enterprise_id)
+    if enterprise.get("status") != "active":
+        raise HTTPException(status_code=409, detail="企业已停用，无法分配账号")
 
 
 def ensure_manageable_role(actor: dict, role: UserRole) -> None:
@@ -1224,18 +1424,63 @@ def create_user(
     payload: CreateUserRequest, request: Request, actor: Annotated[dict, Depends(mutating_admin_user)],
 ) -> dict:
     ensure_manageable_role(actor, payload.role)
+    _validate_enterprise_binding(payload.enterprise_id)
     try:
         user = app.state.auth_store.create_user(
             payload.username, payload.display_name, payload.password, payload.role,
-            must_change_password=True, email=payload.email,
+            must_change_password=True, email=payload.email, enterprise_id=payload.enterprise_id,
         )
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     app.state.auth_store.audit(
         "create_user", "user", actor_user_id=actor["id"], target_id=user["id"],
-        detail=f"role={user['role']}", ip_address=client_ip(request),
+        detail=f"role={user['role']},enterprise={user.get('enterprise_id') or '-'}", ip_address=client_ip(request),
     )
+    _attach_enterprise_names([user])
     return user
+
+
+@app.post(
+    "/api/admin/users/batch", response_model=BatchCreateUsersResponse, status_code=201,
+    tags=["管理后台"], summary="按企业批量创建员工账号",
+)
+def batch_create_users(
+    payload: BatchCreateUsersRequest, request: Request,
+    actor: Annotated[dict, Depends(mutating_admin_user)],
+) -> dict:
+    _validate_enterprise_binding(payload.enterprise_id)
+    try:
+        users = app.state.auth_store.create_users_bulk(
+            enterprise_id=payload.enterprise_id,
+            username_prefix=payload.username_prefix,
+            start_index=payload.start_index,
+            count=payload.count,
+            display_name_prefix=payload.display_name_prefix,
+            password=payload.password,
+        )
+    except BatchUsernameConflictError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "batch_create_users", "enterprise", actor_user_id=actor["id"],
+        target_id=payload.enterprise_id,
+        detail=f"count={len(users)},range={users[0]['username']}-{users[-1]['username']}",
+        ip_address=client_ip(request),
+    )
+    return {
+        "enterprise_id": payload.enterprise_id,
+        "count": len(users),
+        "first_username": users[0]["username"],
+        "last_username": users[-1]["username"],
+        "users": [
+            {
+                "id": user["id"], "username": user["username"],
+                "display_name": user["display_name"], "enterprise_id": user.get("enterprise_id"),
+            }
+            for user in users
+        ],
+    }
 
 
 @app.patch("/api/admin/users/{user_id}", response_model=UserResponse, tags=["管理后台"], summary="更新员工姓名、角色或状态")
@@ -1247,10 +1492,15 @@ def update_user(
         target = app.state.auth_store.get_user(user_id)
     except KeyError as error:
         raise HTTPException(status_code=404, detail="账号不存在") from error
+    # model_fields_set 区分「未传」与「显式传 null 解除企业归属」。
+    update_enterprise = "enterprise_id" in payload.model_fields_set
+    if update_enterprise:
+        _validate_enterprise_binding(payload.enterprise_id)
     if (
         actor["role"] == UserRole.ADMIN.value
         and target["role"] != UserRole.EMPLOYEE.value
-        and (payload.role is not None or payload.is_active is not None or payload.email is not None)
+        and (payload.role is not None or payload.is_active is not None
+             or payload.email is not None or update_enterprise)
     ):
         raise HTTPException(status_code=403, detail="管理员只能管理员工账号")
     if payload.role is not None:
@@ -1275,6 +1525,7 @@ def update_user(
         updated = app.state.auth_store.update_user(
             user_id, display_name=payload.display_name, role=payload.role, is_active=payload.is_active,
             email=normalized_email, update_email=update_email,
+            enterprise_id=payload.enterprise_id, update_enterprise=update_enterprise,
         )
     except LastSuperAdminError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
@@ -1284,9 +1535,12 @@ def update_user(
         raise HTTPException(status_code=404, detail="账号不存在") from error
     app.state.auth_store.audit(
         "update_user", "user", actor_user_id=actor["id"], target_id=user_id,
-        detail=f"display_name={updated['display_name']},role={updated['role']},active={updated['is_active']}",
+        detail=f"display_name={updated['display_name']},role={updated['role']},active={updated['is_active']},enterprise={updated.get('enterprise_id') or '-'}",
         ip_address=client_ip(request),
     )
+    _attach_enterprise_names([updated])
+    if update_enterprise and target.get("enterprise_id") and target.get("enterprise_id") != updated.get("enterprise_id"):
+        app.state.store.delete_enterprise_member_quota(target["enterprise_id"], user_id)
     return updated
 
 
@@ -1381,6 +1635,37 @@ def health() -> dict:
     }
 
 
+def _cloud_provider_availability(provider: str | None) -> tuple[bool, str | None]:
+    """云端视频供应商可用性：未初始化/未启用/缺 Key 时返回可读原因。"""
+    available, reason = False, "云端视频服务尚未初始化。"
+    if provider and hasattr(app.state, "cloud_video"):
+        try:
+            available, reason = CloudVideoService.instance().availability(provider)
+        except CloudVideoError as error:
+            available, reason = False, str(error)
+    return available, reason
+
+
+def _attach_billing(payload: dict, definition) -> dict:
+    """把积分计价语义与选项价格标注挂到 /api/modes 返回体（游客也可看价格）。"""
+    credits = getattr(app.state, "credits", None)
+    if credits is None:
+        return payload
+    billing = credits.billing_info(definition.id)
+    if billing is None:
+        return payload
+    payload["billing"] = billing
+    if is_grs_image_workflow(definition.id):
+        # 生图 credit_cost 原始值是 GRS 积分标价；展示口径统一按计费换算成平台积分，游客兜底「N 积分/张」与实扣一致。
+        payload["credit_cost"] = credits.grs_image_unit_price(definition.id)
+    if is_cloud_video_workflow(definition.id):
+        apply_billing_option_hints(
+            payload, definition,
+            billing.get("resolved_unit_by_variant") or billing.get("unit_by_variant"),
+        )
+    return payload
+
+
 def mode_payload(definition) -> dict:
     payload = definition.payload()
     if is_grs_image_workflow(definition.id):
@@ -1388,15 +1673,18 @@ def mode_payload(definition) -> dict:
         payload["available"] = available
         payload["unavailable_reason"] = reason
     elif is_cloud_video_workflow(definition.id):
-        available, reason = False, "云端视频服务尚未初始化。"
-        if definition.cloud_provider and hasattr(app.state, "cloud_video"):
-            try:
-                available, reason = CloudVideoService.instance().availability(definition.cloud_provider)
-            except CloudVideoError as error:
-                available, reason = False, str(error)
+        available, reason = _cloud_provider_availability(definition.cloud_provider)
         payload["available"] = available
         payload["unavailable_reason"] = reason
-    return payload
+    return _attach_billing(payload, definition)
+
+
+def _credit_billing_callback(user: dict):
+    """导演台提交的积分预扣回调；积分服务未配置（降级/测试）时返回 None 跳过计费。"""
+    credits = getattr(app.state, "credits", None)
+    if credits is None:
+        return None
+    return credits.billing_callback(user)
 
 
 def listed_workflows():
@@ -1411,8 +1699,13 @@ def listed_workflows():
 def modes(user: Annotated[dict | None, Depends(optional_current_user)]) -> dict:
     # Guests can compose locally; generation and every private resource keep
     # their existing current_user / mutating_user dependencies.
-    payload = mode_payload if user else lambda item: item.public_payload()
-    return {"modes": [payload(item) for item in listed_workflows()], "image_sizes": [], "presets": PRESETS}
+    def public_payload(item) -> dict:
+        return _attach_billing(item.public_payload(), item)
+
+    payload = mode_payload if user else public_payload
+    # 企业成员只看企业开放的工作流（展示层过滤；提交层 ensure_mode_allowed 强制校验）。
+    definitions = filter_workflow_definitions(app.state.store, user.get("id") if user else None, listed_workflows())
+    return {"modes": [payload(item) for item in definitions], "image_sizes": [], "presets": PRESETS}
 
 
 @app.get(
@@ -1422,11 +1715,662 @@ def modes(user: Annotated[dict | None, Depends(optional_current_user)]) -> dict:
     summary="获取指定工作流的参数定义",
     description="返回 `POST /api/jobs` 中该工作流可提交的 multipart 字段、参考图约束与 H3 options schema。",
 )
-def mode_detail(mode_id: str, _: Annotated[dict, Depends(current_user)]) -> dict:
+def mode_detail(mode_id: str, user: Annotated[dict, Depends(current_user)]) -> dict:
+    ensure_mode_allowed(app.state.store, user["id"], mode_id)
     try:
         return mode_payload(workflow_for(mode_id))
     except KeyError as error:
         raise HTTPException(status_code=404, detail="工作流不存在") from error
+
+
+def _image_generation_pricing(credits: CreditService | None) -> dict:
+    """生图价格页数据：模型列表来自图片服务目录（管理端排序），单价来自 grs_image:global 实际生效价。
+
+    只含图片服务目录模型（与创作页生图下拉同源）；复合图片工作流（局部重绘/消除笔/扩图）
+    本身不计费，不在此展示。
+    """
+    models: list[dict] = []
+    if credits is not None and hasattr(app.state, "grs_provider"):
+        catalog = app.state.grs_provider.catalog_payload()["models"]
+        enabled = [item for item in catalog if item.get("enabled")]
+        enabled.sort(key=lambda item: (item.get("sort_order") or 0, str(item.get("display_name") or "")))
+        for item in enabled:
+            mode = str(item.get("workflow_id") or "")
+            if not mode:
+                continue
+            provider_model = str(item.get("provider_model") or "").strip() or None
+            models.append({
+                "key": mode,
+                "label": str(item.get("display_name") or mode),
+                "description": str(item.get("description") or ""),
+                "credits_per_image": credits.grs_image_unit_price(mode, provider_model),
+                "is_default": bool(item.get("is_default")),
+            })
+    return {"pricing_kind": "per_item", "models": models}
+
+
+def _ai_call_pricing(credits: CreditService | None) -> dict:
+    """AI 大模型按次价格页数据：条目来自 llm/vlm 价格表，单价为实际生效值。
+
+    per_call 条目直接取单价；per_token 条目取典型用量估算价（estimate_call），
+    billing_mode 一并下发供前端标注「按 token 估算」。
+    """
+    items: list[dict] = []
+    if credits is not None:
+        for scope, kinds in (("llm", LLM_BILLING_KINDS), ("vlm", VLM_BILLING_KINDS)):
+            for kind in kinds:
+                rule = credits.price_rule(f"{scope}:{kind}")
+                if rule is None:
+                    continue
+                note = str(rule.get("note") or "").strip()
+                items.append({
+                    "key": f"{scope}:{kind}",
+                    "scope": scope,
+                    "kind": kind,
+                    # 价格表 note 以「功能名（计费口径…）」书写；取括号前为功能名，全文作说明。
+                    "label": note.split("（", 1)[0] or f"{scope}:{kind}",
+                    "description": note,
+                    "unit_credits": credits.estimate_call(scope, kind),
+                    "billing_mode": billing_mode(rule),
+                })
+    return {"items": items}
+
+
+@app.get("/api/pricing", tags=["积分"], summary="价格页数据")
+def cloud_video_pricing() -> dict:
+    """价格页数据：云端视频档位结构来自注册表，生图/大模型条目来自价格表。
+
+    单价/原生价/输入图片费/按次价全部来自 credit_price_rules 实际生效值，
+    管理端改价后刷新页面即生效。公开接口，游客与登录用户同价。
+    """
+    credits = getattr(app.state, "credits", None)
+    providers: list[dict] = []
+    for spec in CLOUD_PRICING_PROVIDERS:
+        try:
+            definition = workflow_for(spec["workflow_id"])
+        except KeyError:
+            continue
+        billing = credits.billing_info(definition.id) if credits is not None else None
+        if billing is None:
+            continue
+        units = billing.get("resolved_unit_by_variant") or {}
+        native_prices = billing.get("native_variant_prices") or {}
+        input_prices = billing.get("input_image_price") or {}
+        free_quota = max(0, int(billing.get("input_image_free_quota") or 0))
+        models: list[dict] = []
+        for model in spec["models"]:
+            resolutions: list[dict] = []
+            for value in model["resolutions"]:
+                variant = (
+                    f"{model['key']}:{value}" if spec.get("variant_by") == "model:resolution" else value
+                )
+                per_second = int(units.get(variant) or 0)
+                if per_second <= 0:
+                    continue
+                resolutions.append({
+                    "value": value,
+                    "label": value,
+                    "credits_per_second": per_second,
+                    "native_price_per_second": native_prices.get(variant),
+                    "credits_5s": per_second * 5,
+                    "credits_10s": per_second * 10,
+                })
+            if not resolutions:
+                continue
+            native_image_price = input_prices.get(model["key"])
+            models.append({
+                "key": model["key"],
+                "label": model["label"],
+                "tagline": model["tagline"],
+                "description": model["description"],
+                "resolutions": resolutions,
+                "input_image_native_price": native_image_price,
+                "input_image_credits": native_price_to_credits(native_image_price, {
+                    "credits_per_native_unit": billing.get("credits_per_native_unit"),
+                    "provider_coefficient": billing.get("provider_coefficient"),
+                }),
+            })
+        if not models:
+            continue
+        available, reason = _cloud_provider_availability(spec.get("provider_key", spec["key"]))
+        providers.append({
+            "key": spec["key"],
+            "label": spec["label"],
+            "subtitle": spec["subtitle"],
+            "description": spec["description"],
+            "available": available,
+            "unavailable_reason": reason,
+            "workflow_ids": [item.id for item in WORKFLOWS if item.cloud_family == spec["family"]],
+            "modes": list(spec["modes"]),
+            "models": models,
+            "input_image_free_quota": free_quota,
+            "notes": list(spec["notes"]),
+        })
+    return {
+        "credits_per_yuan": 100,
+        "billing_policy": {
+            "anchor": "100 积分 = 1 元",
+            "settlement": "提交预扣，任务失败自动全额退回",
+            "local": "本地生成工作流不计费",
+        },
+        "providers": providers,
+        "image_generation": _image_generation_pricing(credits),
+        "ai_calls": _ai_call_pricing(credits),
+    }
+
+
+# ---------------------------------------------------------------------------
+# 积分体系：用户侧账户/流水/预估 + 管理端充值/价格表（锚定 100 积分 = 1 元）
+# ---------------------------------------------------------------------------
+
+@app.get("/api/credits/me", response_model=CreditAccountResponse, tags=["积分"], summary="我的积分账户")
+def my_credit_account(user: Annotated[dict, Depends(current_user)]) -> dict:
+    account = app.state.store.billing_account_snapshot(user["id"])
+    enterprise_id = account["enterprise_id"]
+    if not enterprise_id:
+        return {**account, "scope": "user", "enterprise": None}
+    enterprise = _enterprise_or_404(enterprise_id)
+    return {
+        **account,
+        "user_id": user["id"],
+        "enterprise": {
+            "id": enterprise["id"], "name": enterprise["name"],
+            "status": enterprise["status"], "code": enterprise.get("code"),
+        },
+    }
+
+
+@app.get(
+    "/api/credits/transactions", response_model=list[CreditTransactionResponse],
+    tags=["积分"], summary="我的积分流水（扣费/退款/充值记录）",
+)
+def my_credit_transactions(
+    user: Annotated[dict, Depends(current_user)],
+    limit: Annotated[int, Query(description="单页返回条数，最大 200。")] = 50,
+    offset: Annotated[int, Query(description="分页偏移量。")] = 0,
+) -> list[dict]:
+    return app.state.store.list_credit_transactions(
+        user_id=user["id"], scope="all", limit=limit, offset=offset,
+    )
+
+
+@app.post(
+    "/api/credits/estimate", response_model=CreditEstimateResponse,
+    tags=["积分"], summary="预估一次提交将扣减的积分",
+)
+def estimate_credits(payload: CreditEstimateRequest, user: Annotated[dict, Depends(current_user)]) -> dict:
+    try:
+        options = normalize_options(payload.mode, payload.options or {})
+    except (KeyError, ValueError):
+        # 预估是尽力而为：参数尚未通过完整校验时按原始值估算，最终以提交时的实扣为准。
+        options = payload.options or {}
+    if payload.input_video_seconds > 0:
+        options = {**options, "input_video_seconds": payload.input_video_seconds}
+    estimate = app.state.credits.estimate_job(
+        payload.mode, options, reference_counts=[payload.reference_count],
+    )
+    # 企业成员展示企业钱包余额（提交时实际扣费来源），保证「余额是否充足」预判正确。
+    account = app.state.store.billing_account_snapshot(user["id"])
+    balance = int(account.get("balance") or 0)
+    credits = int(estimate.get("credits") or 0)
+    return {
+        "mode": payload.mode,
+        "credits": credits,
+        "unit_credits": int(estimate.get("unit_credits") or 0),
+        "items": int(estimate.get("items") or 0),
+        "breakdown": estimate.get("breakdown") or "",
+        "input_image_credits": int(estimate.get("input_image_credits") or 0),
+        "input_image_count": int(estimate.get("input_image_count") or 0),
+        "input_image_unit_credits": int(estimate.get("input_image_unit_credits") or 0),
+        "price_key": estimate.get("price_key"),
+        "balance": balance,
+        "sufficient": balance >= credits,
+    }
+
+
+@app.get(
+    "/api/admin/credits/accounts", response_model=list[CreditAccountResponse],
+    tags=["管理后台"], summary="用户积分账户列表（可按用户名搜索）",
+)
+def admin_credit_accounts(
+    _: Annotated[dict, Depends(admin_user)],
+    query: Annotated[str | None, Query(max_length=128, description="按用户名、昵称、企业名或账号 ID 搜索。")] = None,
+    limit: Annotated[int, Query(ge=1, le=1000, description="单页返回条数。")] = 500,
+    offset: Annotated[int, Query(ge=0, description="分页偏移量。")] = 0,
+) -> list[dict]:
+    return app.state.store.list_credit_accounts(query=query, limit=limit, offset=offset)
+
+
+@app.post(
+    "/api/admin/credits/adjust", response_model=CreditAccountResponse,
+    tags=["管理后台"], summary="充值/调整用户积分（本期手动录入入口）",
+)
+def admin_credit_adjust(
+    payload: CreditAdjustRequest, request: Request,
+    user: Annotated[dict, Depends(mutating_admin_user)],
+) -> dict:
+    try:
+        app.state.auth_store.get_user(payload.user_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="账号不存在") from error
+    try:
+        account = app.state.credits.adjust(
+            payload.user_id, payload.delta, reason=payload.reason, actor_user_id=user["id"],
+            request_id=payload.request_id,
+        )
+    except CreditWalletConflictError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    if not account.get("replayed"):
+        app.state.auth_store.audit(
+            "adjust_credit", "user", actor_user_id=user["id"], target_id=payload.user_id,
+            detail=f"delta={payload.delta} reason={payload.reason}", ip_address=client_ip(request),
+        )
+    return account
+
+
+@app.get(
+    "/api/admin/credits/transactions", response_model=list[CreditTransactionResponse],
+    tags=["管理后台"], summary="积分流水查询（可按用户/类型过滤）",
+)
+def admin_credit_transactions(
+    _: Annotated[dict, Depends(admin_user)],
+    user_id: Annotated[str | None, Query(description="按用户 ID 过滤。")] = None,
+    type: Annotated[str | None, Query(description="按类型过滤：admin_recharge/admin_adjust/consume/refund。")] = None,
+    scope: Annotated[Literal["user", "enterprise", "all"], Query(description="钱包范围；默认仅个人流水。")] = "user",
+    query: Annotated[str | None, Query(max_length=128, description="按用户、企业或任务引用搜索。")] = None,
+    limit: Annotated[int, Query(ge=1, le=200, description="单页返回条数，最大 200。")] = 50,
+    offset: Annotated[int, Query(ge=0, description="分页偏移量。")] = 0,
+) -> list[dict]:
+    return app.state.store.list_credit_transactions(
+        user_id=user_id, type=type, scope=scope, query=query, limit=limit, offset=offset, include_actor=True,
+    )
+
+
+def _credit_price_rules_payload(rules: list[dict]) -> list[dict]:
+    """价格表返回前解析实际扣费分档，管理端可同时看到原生价与平台价。"""
+    for rule in rules:
+        rule["resolved_unit_by_variant"] = resolve_price_rule_units(rule)
+        # LLM/VLM 按次条目附成本预览：单次上游成本、覆盖率与建议积分。
+        if rule.get("scope") in {"llm", "vlm"}:
+            rule["cost_preview"] = compute_cost_preview(rule)
+    return rules
+
+
+@app.get(
+    "/api/admin/credits/usage-report", response_model=CreditUsageReportResponse,
+    tags=["管理后台"], summary="积分用量与毛利报表（按条目/模型/账号/企业/日期聚合）",
+)
+def admin_credit_usage_report(
+    _: Annotated[dict, Depends(admin_user)],
+    start: Annotated[date | None, Query(description="开始日期（北京时间，含当日），默认结束日期前 29 天。")] = None,
+    end: Annotated[date | None, Query(description="结束日期（北京时间，含当日），默认今天。")] = None,
+    group_by: Annotated[Literal["price_key", "model", "user", "enterprise", "day"], Query(description="聚合维度。")] = "price_key",
+    scope: Annotated[Literal["user", "enterprise", "all"], Query(description="钱包范围。")] = "all",
+) -> dict:
+    try:
+        start_day, end_day, start_at, end_at = resolve_range(start, end)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    rows = app.state.store.list_credit_usage_transactions(
+        start_at=start_at, end_at=end_at, scope=scope,
+    )
+    return build_usage_report(
+        rows, start=start_day, end=end_day, group_by=group_by, scope=scope,
+    )
+
+
+@app.get(
+    "/api/admin/credits/prices", response_model=list[CreditPriceRuleResponse],
+    tags=["管理后台"], summary="积分价格表（对标市场初始值，可覆盖）",
+)
+def admin_credit_prices(_: Annotated[dict, Depends(admin_user)]) -> list[dict]:
+    return _credit_price_rules_payload(app.state.store.list_credit_price_rules())
+
+
+@app.put(
+    "/api/admin/credits/prices", response_model=list[CreditPriceRuleResponse],
+    tags=["管理后台"], summary="更新积分价格表（按 rule_key 局部更新）",
+)
+def admin_update_credit_prices(
+    payload: CreditPriceRulesUpdateRequest, request: Request,
+    user: Annotated[dict, Depends(mutating_admin_user)],
+) -> list[dict]:
+    try:
+        for item in payload.rules:
+            item.validate_pricing_config()
+        rules = app.state.store.update_credit_price_rules([item.model_dump(exclude_none=True) for item in payload.rules])
+    except CreditPriceConflictError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "update_credit_prices", "provider", actor_user_id=user["id"], target_id="credit_prices",
+        detail=f"rules={len(payload.rules)}", ip_address=client_ip(request),
+    )
+    return _credit_price_rules_payload(rules)
+
+
+# ---------------------------------------------------------------------------
+# 企业管理：企业入驻、成员归属、企业钱包充值、成员用量统计与模型访问策略
+# ---------------------------------------------------------------------------
+
+@app.get(
+    "/api/admin/enterprises", response_model=list[EnterpriseResponse],
+    tags=["管理后台"], summary="企业列表（含成员数与企业钱包概况）",
+)
+def admin_list_enterprises(
+    _: Annotated[dict, Depends(admin_user)],
+    query: Annotated[str | None, Query(description="按企业名称或编码模糊搜索。")] = None,
+) -> list[dict]:
+    return app.state.store.list_enterprises(query=query)
+
+
+@app.post(
+    "/api/admin/enterprises", response_model=EnterpriseResponse, status_code=201,
+    tags=["管理后台"], summary="新增企业（入驻登记）",
+)
+def admin_create_enterprise(
+    payload: EnterpriseCreateRequest, request: Request,
+    user: Annotated[dict, Depends(mutating_admin_user)],
+) -> dict:
+    try:
+        enterprise = app.state.store.create_enterprise(
+            payload.name, code=payload.code, contact_name=payload.contact_name,
+            contact_phone=payload.contact_phone, notes=payload.notes,
+            status=payload.status, created_by=user["id"], parent_id=payload.parent_id,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "create_enterprise", "enterprise", actor_user_id=user["id"], target_id=enterprise["id"],
+        detail=f"name={enterprise['name']}", ip_address=client_ip(request),
+    )
+    return enterprise
+
+
+@app.get(
+    "/api/admin/enterprises/{enterprise_id}", response_model=EnterpriseDetailResponse,
+    tags=["管理后台"], summary="企业详情（主档 + 模型访问策略 + 可勾选模型清单）",
+)
+def admin_enterprise_detail(enterprise_id: str, _: Annotated[dict, Depends(admin_user)]) -> dict:
+    enterprise = _enterprise_or_404(enterprise_id)
+    policies = policies_map(app.state.store, enterprise_id)
+    catalog = policy_catalog()
+    return {
+        "enterprise": enterprise,
+        "policies": [
+            {"model_kind": kind, "mode": entry["mode"], "models": entry["models"]}
+            for kind, entry in policies.items()
+        ],
+        "catalog": catalog,
+    }
+
+
+@app.patch(
+    "/api/admin/enterprises/{enterprise_id}", response_model=EnterpriseResponse,
+    tags=["管理后台"], summary="更新企业资料或状态",
+)
+def admin_update_enterprise(
+    enterprise_id: str, payload: EnterpriseUpdateRequest, request: Request,
+    user: Annotated[dict, Depends(mutating_admin_user)],
+) -> dict:
+    _enterprise_or_404(enterprise_id)
+    fields_set = payload.model_fields_set
+    try:
+        enterprise = app.state.store.update_enterprise(
+            enterprise_id,
+            name=payload.name if "name" in fields_set else None,
+            code=payload.code, update_code="code" in fields_set,
+            contact_name=payload.contact_name, update_contact_name="contact_name" in fields_set,
+            contact_phone=payload.contact_phone, update_contact_phone="contact_phone" in fields_set,
+            notes=payload.notes, update_notes="notes" in fields_set,
+            status=payload.status if "status" in fields_set else None,
+            parent_id=payload.parent_id, update_parent_id="parent_id" in fields_set,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "update_enterprise", "enterprise", actor_user_id=user["id"], target_id=enterprise_id,
+        detail=f"fields={sorted(fields_set)}", ip_address=client_ip(request),
+    )
+    return enterprise
+
+
+@app.delete(
+    "/api/admin/enterprises/{enterprise_id}", status_code=204,
+    tags=["管理后台"], summary="删除企业（仅限无成员且无钱包余额/流水的企业）",
+)
+def admin_delete_enterprise(
+    enterprise_id: str, request: Request,
+    user: Annotated[dict, Depends(mutating_admin_user)],
+) -> Response:
+    try:
+        app.state.store.delete_enterprise(enterprise_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="企业不存在") from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "delete_enterprise", "enterprise", actor_user_id=user["id"], target_id=enterprise_id,
+        ip_address=client_ip(request),
+    )
+    return Response(status_code=204)
+
+
+@app.get(
+    "/api/admin/enterprises/{enterprise_id}/members", response_model=list[EnterpriseMemberResponse],
+    tags=["管理后台"], summary="企业成员列表（含每人口径的积分用量统计）",
+)
+def admin_enterprise_members(enterprise_id: str, _: Annotated[dict, Depends(admin_user)]) -> list[dict]:
+    _enterprise_or_404(enterprise_id)
+    members = app.state.store.list_enterprise_members(enterprise_id)
+    usage = {entry["user_id"]: entry for entry in app.state.store.enterprise_member_usage(enterprise_id)}
+    quotas = app.state.store.list_enterprise_member_quotas(enterprise_id)
+    month_usage = app.state.store.enterprise_member_consumed_in_month(enterprise_id)
+    merged = []
+    for member in members:
+        stats = usage.get(member["id"], {})
+        quota = quotas.get(member["id"]) or {}
+        period = str(quota.get("period") or "none")
+        net_consumed = int(stats.get("net_consumed") or 0)
+        month_consumed = int(month_usage.get(member["id"]) or 0)
+        merged.append({
+            **member,
+            "gross_consumed": int(stats.get("gross_consumed") or 0),
+            "refunded": int(stats.get("refunded") or 0),
+            "net_consumed": net_consumed,
+            "tx_count": int(stats.get("tx_count") or 0),
+            "last_active_at": stats.get("last_active_at"),
+            "quota_period": period,
+            "quota_limit": int(quota.get("credit_limit") or 0),
+            "quota_used": month_consumed if period == "monthly" else (net_consumed if period == "total" else 0),
+            "month_consumed": month_consumed,
+        })
+    merged.sort(key=lambda item: (-int(item["net_consumed"]), str(item["created_at"])))
+    return merged
+
+
+@app.post(
+    "/api/admin/enterprises/{enterprise_id}/members", response_model=EnterpriseMemberResponse, status_code=201,
+    tags=["管理后台"], summary="把账号分配给企业（成员归属迁移）",
+)
+def admin_bind_enterprise_member(
+    enterprise_id: str, payload: EnterpriseMemberBindRequest, request: Request,
+    user: Annotated[dict, Depends(mutating_admin_user)],
+) -> dict:
+    enterprise = _enterprise_or_404(enterprise_id)
+    if enterprise.get("status") != "active":
+        raise HTTPException(status_code=409, detail="企业已停用，无法分配账号")
+    try:
+        target = app.state.auth_store.get_user(payload.user_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="账号不存在") from error
+    if user["role"] == UserRole.ADMIN.value and target["role"] != UserRole.EMPLOYEE.value:
+        raise HTTPException(status_code=403, detail="管理员只能管理员工账号")
+    try:
+        updated = app.state.auth_store.update_user(
+            payload.user_id, enterprise_id=enterprise_id, update_enterprise=True,
+        )
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="账号不存在") from error
+    previous_enterprise_id = target.get("enterprise_id")
+    app.state.auth_store.audit(
+        "bind_enterprise_member", "enterprise", actor_user_id=user["id"], target_id=enterprise_id,
+        detail=f"user={payload.user_id} prev={target.get('enterprise_id') or '-'}", ip_address=client_ip(request),
+    )
+    _attach_enterprise_names([updated])
+    if previous_enterprise_id and previous_enterprise_id != enterprise_id:
+        app.state.store.delete_enterprise_member_quota(previous_enterprise_id, payload.user_id)
+    return {**updated, "gross_consumed": 0, "refunded": 0, "net_consumed": 0, "tx_count": 0, "last_active_at": None}
+
+
+@app.delete(
+    "/api/admin/enterprises/{enterprise_id}/members/{user_id}", response_model=UserResponse,
+    tags=["管理后台"], summary="把账号移出企业（解除归属，恢复个人钱包结算）",
+)
+def admin_unbind_enterprise_member(
+    enterprise_id: str, user_id: str, request: Request,
+    user: Annotated[dict, Depends(mutating_admin_user)],
+) -> dict:
+    _enterprise_or_404(enterprise_id)
+    try:
+        target = app.state.auth_store.get_user(user_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="账号不存在") from error
+    if target.get("enterprise_id") != enterprise_id:
+        raise HTTPException(status_code=409, detail="该账号不属于当前企业")
+    if user["role"] == UserRole.ADMIN.value and target["role"] != UserRole.EMPLOYEE.value:
+        raise HTTPException(status_code=403, detail="管理员只能管理员工账号")
+    updated = app.state.auth_store.update_user(user_id, enterprise_id=None, update_enterprise=True)
+    app.state.auth_store.audit(
+        "unbind_enterprise_member", "enterprise", actor_user_id=user["id"], target_id=enterprise_id,
+        detail=f"user={user_id}", ip_address=client_ip(request),
+    )
+    _attach_enterprise_names([updated])
+    app.state.store.delete_enterprise_member_quota(enterprise_id, user_id)
+    return updated
+
+
+@app.put(
+    "/api/admin/enterprises/{enterprise_id}/members/{user_id}/quota",
+    response_model=EnterpriseMemberQuotaResponse,
+    tags=["管理后台"], summary="设置企业成员的积分额度上限",
+)
+def admin_set_enterprise_member_quota(
+    enterprise_id: str, user_id: str, payload: EnterpriseMemberQuotaRequest, request: Request,
+    user: Annotated[dict, Depends(mutating_admin_user)],
+) -> dict:
+    _enterprise_or_404(enterprise_id)
+    try:
+        target = app.state.auth_store.get_user(user_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="账号不存在") from error
+    if target.get("enterprise_id") != enterprise_id:
+        raise HTTPException(status_code=409, detail="该账号不属于当前企业")
+    if user["role"] == UserRole.ADMIN.value and target["role"] != UserRole.EMPLOYEE.value:
+        raise HTTPException(status_code=403, detail="管理员只能管理员工账号")
+    if payload.period != "none" and payload.credit_limit <= 0:
+        raise HTTPException(status_code=422, detail="额度上限必须大于 0")
+    try:
+        quota = app.state.store.set_enterprise_member_quota(
+            enterprise_id, user_id, period=payload.period, credit_limit=payload.credit_limit,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    period = str(quota.get("period") or "none")
+    month_consumed = int(app.state.store.enterprise_member_consumed_in_month(enterprise_id).get(user_id) or 0)
+    net_consumed = next(
+        (int(entry["net_consumed"]) for entry in app.state.store.enterprise_member_usage(enterprise_id)
+         if entry["user_id"] == user_id),
+        0,
+    )
+    app.state.auth_store.audit(
+        "set_enterprise_member_quota", "enterprise", actor_user_id=user["id"], target_id=enterprise_id,
+        detail=f"user={user_id},period={period},limit={payload.credit_limit}", ip_address=client_ip(request),
+    )
+    return {
+        "user_id": user_id,
+        "enterprise_id": enterprise_id,
+        "quota_period": period,
+        "quota_limit": int(quota.get("credit_limit") or 0),
+        "quota_used": month_consumed if period == "monthly" else (net_consumed if period == "total" else 0),
+        "month_consumed": month_consumed,
+    }
+
+
+@app.post(
+    "/api/admin/enterprises/{enterprise_id}/credits", response_model=EnterpriseResponse,
+    tags=["管理后台"], summary="企业钱包充值 / 调整（本期手动录入入口）",
+)
+def admin_adjust_enterprise_credit(
+    enterprise_id: str, payload: EnterpriseCreditAdjustRequest, request: Request,
+    user: Annotated[dict, Depends(mutating_admin_user)],
+) -> dict:
+    _enterprise_or_404(enterprise_id)
+    try:
+        wallet = app.state.store.adjust_enterprise_credit(
+            enterprise_id, payload.delta, reason=payload.reason, actor_user_id=user["id"], request_id=payload.request_id,
+        )
+    except CreditWalletConflictError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    if not wallet.get("replayed"):
+        app.state.auth_store.audit(
+            "adjust_enterprise_credit", "enterprise", actor_user_id=user["id"], target_id=enterprise_id,
+            detail=f"delta={payload.delta} reason={payload.reason}", ip_address=client_ip(request),
+        )
+    return {**_enterprise_or_404(enterprise_id), "balance": wallet["balance"]}
+
+
+@app.get(
+    "/api/admin/enterprises/{enterprise_id}/credits/transactions", response_model=list[EnterpriseCreditTransactionResponse],
+    tags=["管理后台"], summary="企业积分流水（可按成员/类型过滤）",
+)
+def admin_enterprise_credit_transactions(
+    enterprise_id: str,
+    _: Annotated[dict, Depends(admin_user)],
+    user_id: Annotated[str | None, Query(description="按消费成员过滤。")] = None,
+    type: Annotated[str | None, Query(description="按流水类型过滤：admin_recharge | admin_adjust | consume | refund。")] = None,
+    limit: Annotated[int, Query(description="单页返回条数，最大 200。")] = 100,
+    offset: Annotated[int, Query(description="分页偏移量。")] = 0,
+) -> list[dict]:
+    _enterprise_or_404(enterprise_id)
+    return app.state.store.list_enterprise_credit_transactions(
+        enterprise_id, user_id=user_id, type=type, limit=limit, offset=offset,
+    )
+
+
+@app.put(
+    "/api/admin/enterprises/{enterprise_id}/policies", response_model=EnterpriseDetailResponse,
+    tags=["管理后台"], summary="整表保存企业模型访问策略（视频/生图/大语言/视觉理解）",
+)
+def admin_update_enterprise_policies(
+    enterprise_id: str, payload: EnterprisePoliciesUpdateRequest, request: Request,
+    user: Annotated[dict, Depends(mutating_admin_user)],
+) -> dict:
+    _enterprise_or_404(enterprise_id)
+    try:
+        app.state.store.set_enterprise_model_policies(
+            enterprise_id, [item.model_dump(exclude_none=False) for item in payload.policies],
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    app.state.auth_store.audit(
+        "update_enterprise_policies", "enterprise", actor_user_id=user["id"], target_id=enterprise_id,
+        detail="; ".join(f"{item.model_kind}={item.mode}({len(item.models)})" for item in payload.policies),
+        ip_address=client_ip(request),
+    )
+    return {
+        "enterprise": _enterprise_or_404(enterprise_id),
+        "policies": [
+            {"model_kind": kind, "mode": entry["mode"], "models": entry["models"]}
+            for kind, entry in policies_map(app.state.store, enterprise_id).items()
+        ],
+        "catalog": policy_catalog(),
+    }
 
 
 @app.get("/api/admin/providers/grs", response_model=GrsProviderResponse, tags=["管理后台"])
@@ -2415,23 +3359,36 @@ async def optimize_prompt_endpoint(
             validate_skill_pack_id(pack_id)
         except UnknownSkillPackError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
+    # 积分按次计费：调用前预检余额，成功后扣费（失败不扣）；未配置积分服务时跳过。
+    credits = getattr(app.state, "credits", None)
+    if credits is not None:
+        try:
+            credits.require_call_balance(user, "llm", "optimize_prompt")
+        except CreditInsufficientError as error:
+            raise HTTPException(status_code=402, detail=str(error)) from error
     try:
-        optimized = await asyncio.to_thread(
-            app.state.llm_provider.optimize_prompt,
-            payload.prompt,
-            media_type=payload.media_type,
-            workflow_name=payload.workflow_name,
-            skill_id=payload.skill_id,
-            skill_pack_id=pack_id,
-            reference_count=payload.reference_count or 0,
-            workflow_id=payload.workflow_id,
-            image_urls=payload.image_urls,
-            duration_seconds=payload.duration_seconds,
-        )
+        with LlmUsageCollector() as collector:
+            optimized = await asyncio.to_thread(
+                app.state.llm_provider.optimize_prompt,
+                payload.prompt,
+                media_type=payload.media_type,
+                workflow_name=payload.workflow_name,
+                skill_id=payload.skill_id,
+                skill_pack_id=pack_id,
+                reference_count=payload.reference_count or 0,
+                workflow_id=payload.workflow_id,
+                image_urls=payload.image_urls,
+                duration_seconds=payload.duration_seconds,
+            )
     except (LlmError, requests.exceptions.RequestException) as error:
         raise_as_llm_http(error)
     except Exception as error:
         raise HTTPException(status_code=400, detail=f"提示词优化异常：{error}") from error
+    if credits is not None:
+        credits.consume_call(
+            user, "llm", "optimize_prompt", usage=collector.usage(),
+            model=app.state.store.get_llm_settings().get("model"),
+        )
 
 
     app.state.auth_store.audit(
@@ -2475,18 +3432,30 @@ async def analyze_subject_endpoint(
         raise HTTPException(status_code=422, detail="参考图超过 8MB，请压缩后再试")
     if image.content_type and not image.content_type.startswith("image/"):
         raise HTTPException(status_code=422, detail="主体分析仅接受图片文件")
+    credits = getattr(app.state, "credits", None)
+    if credits is not None:
+        try:
+            credits.require_call_balance(user, "vlm", "analyze_subject")
+        except CreditInsufficientError as error:
+            raise HTTPException(status_code=402, detail=str(error)) from error
 
     try:
-        description = await asyncio.to_thread(
-            app.state.vlm_provider.analyze_subject,
-            image_data_url=_image_upload_to_data_url(image, content),
-            kind=kind,
-            name=name,
-        )
+        with LlmUsageCollector() as collector:
+            description = await asyncio.to_thread(
+                app.state.vlm_provider.analyze_subject,
+                image_data_url=_image_upload_to_data_url(image, content),
+                kind=kind,
+                name=name,
+            )
     except (LlmError, requests.exceptions.RequestException) as error:
         raise_as_llm_http(error)
     except Exception as error:
         raise HTTPException(status_code=400, detail=f"主体特征提取异常：{error}") from error
+    if credits is not None:
+        credits.consume_call(
+            user, "vlm", "analyze_subject", usage=collector.usage(),
+            model=app.state.vlm_provider.vision_model_name(),
+        )
 
     app.state.auth_store.audit(
         "analyze_subject", "vlm", actor_user_id=user["id"], target_id="director",
@@ -2516,18 +3485,30 @@ async def reverse_prompt_endpoint(
         raise HTTPException(status_code=422, detail="参考图超过 8MB，请压缩后再试")
     if image.content_type and not image.content_type.startswith("image/"):
         raise HTTPException(status_code=422, detail="提示词反推仅接受图片文件")
+    credits = getattr(app.state, "credits", None)
+    if credits is not None:
+        try:
+            credits.require_call_balance(user, "vlm", "reverse_prompt")
+        except CreditInsufficientError as error:
+            raise HTTPException(status_code=402, detail=str(error)) from error
 
     try:
-        result = await asyncio.to_thread(
-            app.state.vlm_provider.reverse_prompt,
-            image_data_url=_image_upload_to_data_url(image, content),
-            media_type=media_key,
-            hint=str(hint or "").strip()[:200],
-        )
+        with LlmUsageCollector() as collector:
+            result = await asyncio.to_thread(
+                app.state.vlm_provider.reverse_prompt,
+                image_data_url=_image_upload_to_data_url(image, content),
+                media_type=media_key,
+                hint=str(hint or "").strip()[:200],
+            )
     except (LlmError, requests.exceptions.RequestException) as error:
         raise_as_llm_http(error)
     except Exception as error:
         raise HTTPException(status_code=400, detail=f"提示词反推异常：{error}") from error
+    if credits is not None:
+        credits.consume_call(
+            user, "vlm", "reverse_prompt", usage=collector.usage(),
+            model=app.state.vlm_provider.vision_model_name(),
+        )
 
     app.state.auth_store.audit(
         "reverse_prompt", "vlm", actor_user_id=user["id"], target_id="prompt",
@@ -2551,19 +3532,31 @@ async def split_script_endpoint(
     if not available:
         raise HTTPException(status_code=503, detail=reason or "大模型服务暂未启用或不可用")
 
+    credits = getattr(app.state, "credits", None)
+    if credits is not None:
+        try:
+            credits.require_call_balance(user, "llm", "split_script")
+        except CreditInsufficientError as error:
+            raise HTTPException(status_code=402, detail=str(error)) from error
     try:
-        split_result = await asyncio.to_thread(
-            app.state.llm_provider.split_script,
-            payload.script,
-            shot_count=payload.shot_count or 4,
-            style_vibe=payload.style_vibe,
-            cast_names=payload.cast_names,
-            script_mode=payload.script_mode,
-        )
+        with LlmUsageCollector() as collector:
+            split_result = await asyncio.to_thread(
+                app.state.llm_provider.split_script,
+                payload.script,
+                shot_count=payload.shot_count or 4,
+                style_vibe=payload.style_vibe,
+                cast_names=payload.cast_names,
+                script_mode=payload.script_mode,
+            )
     except (LlmError, requests.exceptions.RequestException) as error:
         raise_as_llm_http(error)
     except Exception as error:
         raise HTTPException(status_code=400, detail=f"剧本拆解异常：{error}") from error
+    if credits is not None:
+        credits.consume_call(
+            user, "llm", "split_script", usage=collector.usage(),
+            model=app.state.store.get_llm_settings().get("model"),
+        )
 
     app.state.auth_store.audit(
         "split_script", "llm", actor_user_id=user["id"], target_id="director",
@@ -2581,17 +3574,29 @@ async def repair_continuity_endpoint(
     available, reason = app.state.llm_provider.availability()
     if not available:
         raise HTTPException(status_code=503, detail=reason or "大模型服务不可用")
+    credits = getattr(app.state, "credits", None)
+    if credits is not None:
+        try:
+            credits.require_call_balance(user, "llm", "repair_continuity")
+        except CreditInsufficientError as error:
+            raise HTTPException(status_code=402, detail=str(error)) from error
     try:
-        result = await asyncio.to_thread(
-            app.state.llm_provider.repair_director_continuity,
-            payload.recipe,
-            from_shot=payload.from_shot,
-            to_shot=payload.to_shot,
-        )
+        with LlmUsageCollector() as collector:
+            result = await asyncio.to_thread(
+                app.state.llm_provider.repair_director_continuity,
+                payload.recipe,
+                from_shot=payload.from_shot,
+                to_shot=payload.to_shot,
+            )
     except (LlmError, requests.exceptions.RequestException) as error:
         raise_as_llm_http(error)
     except Exception as error:
         raise HTTPException(status_code=400, detail=f"连续性局部修复异常：{error}") from error
+    if credits is not None:
+        credits.consume_call(
+            user, "llm", "repair_continuity", usage=collector.usage(),
+            model=app.state.store.get_llm_settings().get("model"),
+        )
     app.state.auth_store.audit("repair_continuity", "llm", actor_user_id=user["id"], target_id="director", detail=f"from={payload.from_shot};to={payload.to_shot}", ip_address=client_ip(request))
     return result
 
@@ -2657,6 +3662,179 @@ def builtin_voice_audio(preset_id: Annotated[str, ApiPath(description="内置声
         media_type="audio/wav",
         headers={"Cache-Control": "private, max-age=86400"},
     )
+
+
+# ------------------------------ 画布音频节点（TTS 配音） ------------------------------
+
+_CANVAS_AUDIO_NAME = re.compile(r"^[0-9a-f]{32}\.(mp3|wav|ogg|m4a)$")
+
+
+def _canvas_audio_dir(user_id: str) -> Path:
+    directory = settings.uploads_dir / user_id / "canvas-audio"
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def _canvas_audio_suffix(body: bytes) -> str:
+    if body[:4] == b"RIFF":
+        return "wav"
+    if body[:4] == b"OggS":
+        return "ogg"
+    if len(body) >= 12 and body[4:8] == b"ftyp":
+        return "m4a"
+    return "mp3"
+
+
+@app.get(
+    "/api/canvas/audio/options",
+    tags=["画布"],
+    summary="画布音频节点的音色目录与音乐服务状态",
+)
+def canvas_audio_options(_: Annotated[dict, Depends(current_user)]) -> dict:
+    tts = app.state.tts_provider
+    available, reason = tts.availability()
+    provider = tts.provider_name()
+    music = app.state.music_jobs.public_config()
+    return {
+        "tts": {
+            "configured": bool(available),
+            "reason": reason or "",
+            "provider": provider,
+            "voice": tts.voice(),
+            "voices": voices_for_provider(provider),
+        },
+        "music": {"configured": bool(music.get("configured"))},
+    }
+
+
+@app.post(
+    "/api/canvas/audio/tts",
+    tags=["画布"],
+    summary="按文本合成配音，返回可播放地址",
+)
+def canvas_audio_tts(
+    payload: CanvasTtsRequest,
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    text = str(payload.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="请先输入要生成的说话内容")
+    try:
+        audio = app.state.tts_provider.synthesize(text, voice=(payload.voice or None))
+    except LlmError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    except Exception as error:  # noqa: BLE001 - 上游音色/网络错误统一转 502
+        raise HTTPException(status_code=502, detail=f"语音合成失败：{error}") from error
+    if not audio:
+        raise HTTPException(status_code=502, detail="语音合成返回了空音频")
+    name = f"{secrets.token_hex(16)}.{_canvas_audio_suffix(audio)}"
+    _canvas_audio_dir(user["id"]).joinpath(name).write_bytes(audio)
+    app.state.auth_store.audit(
+        "canvas_tts", "canvas", actor_user_id=user["id"], target_id=name,
+        detail=f"{len(audio)} bytes", ip_address=client_ip(request),
+    )
+    return {"url": f"/api/canvas/audio/files/{name}", "bytes": len(audio)}
+
+
+@app.get(
+    "/api/canvas/audio/files/{name}",
+    tags=["画布"],
+    summary="读取画布音频节点生成的音频",
+)
+def canvas_audio_file(
+    name: Annotated[str, ApiPath(description="画布音频文件名（含扩展名，由 TTS 生成接口返回）。")],
+    user: Annotated[dict, Depends(current_user)],
+) -> FileResponse:
+    if not _CANVAS_AUDIO_NAME.match(name):
+        raise HTTPException(status_code=404, detail="音频不存在")
+    path = _canvas_audio_dir(user["id"]) / name
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="音频不存在")
+    return FileResponse(
+        path,
+        media_type=mimetypes.guess_type(name)[0] or "audio/mpeg",
+        headers={"Cache-Control": "private, max-age=86400"},
+    )
+
+
+# ------------------------------ 画布本地上传 ------------------------------
+
+_CANVAS_MEDIA_KINDS = {
+    ".png": "image", ".jpg": "image", ".jpeg": "image", ".webp": "image",
+    ".gif": "image", ".bmp": "image", ".avif": "image",
+    ".mp4": "video", ".mov": "video", ".webm": "video", ".mkv": "video",
+    ".m4v": "video", ".avi": "video",
+}
+_CANVAS_MEDIA_NAME = re.compile(r"^[0-9a-f]{32}\.(png|jpe?g|webp|gif|bmp|avif|mp4|mov|webm|mkv|m4v|avi)$")
+
+
+def _canvas_media_dir(user_id: str) -> Path:
+    directory = settings.uploads_dir / user_id / "canvas-media"
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+@app.post(
+    "/api/canvas/media",
+    tags=["画布"],
+    summary="上传本地图片或视频，返回画布可用的素材地址",
+)
+async def canvas_media_upload(
+    file: Annotated[UploadFile, File(description="本地图片或视频文件")],
+    request: Request,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix == ".jpeg":
+        suffix = ".jpg"
+    kind = _CANVAS_MEDIA_KINDS.get(suffix)
+    if kind is None:
+        raise HTTPException(
+            status_code=422,
+            detail="仅支持上传图片（PNG / JPG / WebP / GIF）或视频（MP4 / MOV / WebM / MKV / AVI）文件",
+        )
+    name = f"{secrets.token_hex(16)}{suffix}"
+    destination = _canvas_media_dir(user["id"]) / name
+    max_bytes = MAX_UPLOAD_BYTES if kind == "image" else CANVAS_VIDEO_MAX_UPLOAD_BYTES
+    try:
+        await save_upload(file, destination, max_bytes=max_bytes)
+    except Exception:
+        destination.unlink(missing_ok=True)
+        raise
+    size = destination.stat().st_size
+    app.state.auth_store.audit(
+        "canvas_media_upload", "canvas", actor_user_id=user["id"], target_id=name,
+        detail=f"{kind} {size} bytes", ip_address=client_ip(request),
+    )
+    return {
+        "url": f"/api/canvas/media/files/{name}",
+        "kind": kind,
+        "label": Path(file.filename or "").stem.strip() or ("本地视频" if kind == "video" else "本地图片"),
+        "bytes": size,
+    }
+
+
+@app.get(
+    "/api/canvas/media/files/{name}",
+    tags=["画布"],
+    summary="读取画布本地上传的图片或视频",
+)
+def canvas_media_file(
+    name: Annotated[str, ApiPath(description="画布媒体文件名（含扩展名，由上传接口返回）。")],
+    user: Annotated[dict, Depends(current_user)],
+) -> FileResponse:
+    if not _CANVAS_MEDIA_NAME.match(name):
+        raise HTTPException(status_code=404, detail="素材不存在")
+    path = _canvas_media_dir(user["id"]) / name
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="素材不存在")
+    return FileResponse(
+        path,
+        media_type=mimetypes.guess_type(name)[0] or "application/octet-stream",
+        headers={"Cache-Control": "private, max-age=86400"},
+    )
+
 
 
 @app.get(
@@ -2759,6 +3937,23 @@ def update_canvas_project(
         raise HTTPException(status_code=404, detail="画布不存在") from error
     except CanvasValidationError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.post(
+    "/api/canvas/projects/{canvas_id}/credit-stats",
+    tags=["画布"],
+    summary="画布项目积分消耗统计（按节点引用的任务聚合净消耗）",
+)
+def canvas_project_credit_stats(
+    canvas_id: str,
+    payload: CanvasProjectCreditStatsRequest,
+    user: Annotated[dict, Depends(mutating_user)],
+) -> dict:
+    try:
+        app.state.canvas_store.get_project(user["id"], canvas_id)
+    except CanvasNotFoundError as error:
+        raise HTTPException(status_code=404, detail="画布不存在") from error
+    return app.state.store.canvas_project_credit_stats(user["id"], payload.job_ids)
 
 
 @app.post(
@@ -3567,7 +4762,10 @@ async def create_director_batch(
             app.state.store,
             owner_user_id=user["id"],
             payload=saved["payload"],
+            billing=_credit_billing_callback(user),
         )
+    except CreditInsufficientError as error:
+        raise HTTPException(status_code=402, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     saved = app.state.store.update_director_project(saved["id"], payload=updated_payload)
@@ -3600,7 +4798,10 @@ async def render_director_batch_items(
             owner_user_id=user["id"],
             payload=record["payload"],
             item_ids=payload.item_ids,
+            billing=_credit_billing_callback(user),
         )
+    except CreditInsufficientError as error:
+        raise HTTPException(status_code=402, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     if not job_ids:
@@ -3616,6 +4817,31 @@ async def render_director_batch_items(
 
 def _validate_reference_upload(definition, index: int, upload: UploadFile, count: int | None = None) -> None:
     content_type = (upload.content_type or "").split(";")[0].strip().lower()
+    if definition is not None and (definition.reference_audio_limit or definition.reference_video_limit):
+        # 按类型分槽：同一 references 列表里可同时出现图片/音频/视频，按文件本身校验。
+        kind = reference_media_kind(upload)
+        extension = Path(upload.filename or "").suffix.lower()
+        if kind == "audio":
+            if extension not in AUDIO_REFERENCE_SUFFIXES or (
+                content_type and not (
+                    content_type.startswith("audio/") or content_type == "application/octet-stream"
+                )
+            ):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"{definition.name}的第 {index} 项参考音频仅支持 MP3 / WAV / M4A / AAC / FLAC / OGG 文件",
+                )
+        elif kind == "video":
+            if extension != ".mp4" or (
+                content_type and content_type not in {"video/mp4", "application/octet-stream"}
+            ):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"{definition.name}的参考视频仅支持 MP4 文件（第 {index} 项不符合）",
+                )
+        elif content_type and not content_type.startswith("image/"):
+            raise HTTPException(status_code=422, detail=f"{definition.name}的第 {index} 项素材必须是图片")
+        return
     kind = definition.reference_kind(index, count) if definition is not None else "image"
     if kind == "audio":
         if content_type and not (content_type.startswith("audio/") or content_type == "application/octet-stream"):
@@ -3652,6 +4878,45 @@ def _validate_reference_upload(definition, index: int, upload: UploadFile, count
 
 
 async def _validate_saved_references(definition, paths: list[str], options: dict, upload_dir: Path) -> None:
+    if definition.reference_audio_limit or definition.reference_video_limit:
+        # 按类型分槽：音频逐段限长，视频限总时长（上游按输入视频秒数计费）。
+        runner = SystemFfmpegRunner()
+        total_video_seconds = 0.0
+        for path in paths:
+            kind = reference_media_kind(path)
+            if kind == "image":
+                continue
+            seconds = await asyncio.to_thread(runner.probe_duration, Path(path))
+            if seconds <= 0:
+                shutil.rmtree(upload_dir, ignore_errors=True)
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"无法读取参考{'音频' if kind == 'audio' else '视频'}时长，请使用标准{'MP3 / WAV' if kind == 'audio' else 'MP4'}文件。",
+                )
+            if kind == "audio" and seconds > GRS_WAN_MAX_AUDIO_SECONDS + 0.2:
+                shutil.rmtree(upload_dir, ignore_errors=True)
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"参考音频 {Path(path).name} 为 {seconds:.1f} 秒，"
+                        f"超过单段 {GRS_WAN_MAX_AUDIO_SECONDS} 秒上限，请裁剪后重试。"
+                    ),
+                )
+            if kind == "video":
+                total_video_seconds += seconds
+        if total_video_seconds > GRS_WAN_MAX_VIDEO_SECONDS + 0.2:
+            shutil.rmtree(upload_dir, ignore_errors=True)
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"参考视频合计 {total_video_seconds:.1f} 秒，超过 {GRS_WAN_MAX_VIDEO_SECONDS} 秒上限，"
+                    "请裁剪后重试。"
+                ),
+            )
+        if total_video_seconds > 0:
+            # 上游按「生成秒数 + 输入视频秒数」计费；预扣与重试都读这个值。
+            options["input_video_seconds"] = round(total_video_seconds, 3)
+        return
     if definition.id == JobMode.KEEP_FACE_RESTORE.value:
         try:
             options.update(await asyncio.to_thread(validate_face_restore_sources, paths, options["duration"]))
@@ -3861,6 +5126,8 @@ async def submit_generation(
         definition = workflow_for(mode)
     except KeyError as error:
         raise HTTPException(status_code=404, detail="工作流不存在") from error
+    # 企业模型访问策略：企业成员只能提交企业开放的工作流（浏览器/MCP/导演台共用入口）。
+    ensure_mode_allowed(app.state.store, user["id"], mode)
     prompt = prompt.strip() or definition.default_prompt or ""
     if not prompt:
         raise HTTPException(status_code=422, detail="请填写创作提示词")
@@ -3948,21 +5215,28 @@ async def submit_generation(
 
     store: JobStore = app.state.store
     normalized_display_prompt = display_prompt.strip() if display_prompt and display_prompt.strip() != prompt else None
-    await asyncio.to_thread(
-        store.create,
-        job_id,
-        mode,
-        prompt,
-        negative_prompt.strip() if definition.accepts_negative_prompt else "",
-        image_size if definition.accepts_image_size else None,
-        references_paths,
-        generation_options,
-        submitted_options=raw_options if options is not None else None,
-        owner_user_id=user["id"],
-        title=title.strip() if title else None,
-        source=source,
-        display_prompt=normalized_display_prompt,
-    )
+    credits = getattr(app.state, "credits", None)
+    quote = credits.quote_job(user, mode, generation_options, reference_counts=[len(references_paths)]) if credits is not None else None
+    try:
+        await asyncio.to_thread(
+            store.create,
+            job_id,
+            mode,
+            prompt,
+            negative_prompt.strip() if definition.accepts_negative_prompt else "",
+            image_size if definition.accepts_image_size else None,
+            references_paths,
+            generation_options,
+            submitted_options=raw_options if options is not None else None,
+            owner_user_id=user["id"],
+            title=title.strip() if title else None,
+            source=source,
+            display_prompt=normalized_display_prompt,
+            credit_quote=quote,
+        )
+    except CreditInsufficientError as error:
+        shutil.rmtree(upload_dir, ignore_errors=True)
+        raise HTTPException(status_code=402, detail=str(error)) from error
     await app.state.worker.enqueue(job_id)
     return public_job(await asyncio.to_thread(store.get, job_id))
 
@@ -3985,6 +5259,8 @@ async def create_job_round(
     if existing.get("legacy_read_only"):
         raise HTTPException(status_code=409, detail="旧版图片结果仅支持查看，不能再次生成")
     mode = existing["mode"]
+    owner_user_id = existing.get("owner_user_id") or user["id"]
+    ensure_mode_allowed(app.state.store, owner_user_id, mode)
     try:
         definition = workflow_for(mode)
     except KeyError:
@@ -4023,7 +5299,7 @@ async def create_job_round(
         if not available:
             raise HTTPException(status_code=409, detail=reason or "云端视频服务不可用")
     sequence = len(existing["rounds"]) + 1
-    upload_dir = settings.uploads_dir / user["id"] / job_id / f"round-{sequence}"
+    upload_dir = settings.uploads_dir / user["id"] / job_id / f"round-{sequence}-{secrets.token_hex(4)}"
     upload_dir.mkdir(parents=True, exist_ok=True)
     reference_paths: list[str] = list(reused_references)
     try:
@@ -4037,6 +5313,9 @@ async def create_job_round(
     except HTTPException:
         shutil.rmtree(upload_dir, ignore_errors=True)
         raise
+    credits = getattr(app.state, "credits", None)
+    owner = user if owner_user_id == user["id"] else owner_user_id
+    quote = credits.quote_job(owner, mode, generation_options, reference_counts=[len(reference_paths)]) if credits is not None else None
     try:
         await asyncio.to_thread(
             app.state.store.create_round,
@@ -4048,7 +5327,11 @@ async def create_job_round(
                 definition is not None and definition.accepts_video_reference
             ) else None,
             display_prompt=display_prompt.strip() if display_prompt and display_prompt.strip() != prompt else None,
+            credit_quote=quote,
         )
+    except CreditInsufficientError as error:
+        shutil.rmtree(upload_dir, ignore_errors=True)
+        raise HTTPException(status_code=402, detail=str(error)) from error
     except ValueError as error:
         shutil.rmtree(upload_dir, ignore_errors=True)
         raise HTTPException(status_code=409, detail=str(error)) from error
@@ -4063,9 +5346,22 @@ async def create_job_round(
 async def retry_failed_generation_items(
     job_id: str, round_id: str, user: Annotated[dict, Depends(mutating_user)],
 ) -> dict:
-    job_or_404(app.state.store, job_id, user)
+    job = job_or_404(app.state.store, job_id, user, include_references=True)
+    target_round = next((item for item in job.get("rounds", []) if item["id"] == round_id), None)
+    if target_round is None:
+        raise HTTPException(status_code=404, detail="轮次不存在")
+    owner_user_id = job.get("owner_user_id") or user["id"]
+    ensure_mode_allowed(app.state.store, owner_user_id, job["mode"])
+    owner = user if owner_user_id == user["id"] else owner_user_id
+    credits = getattr(app.state, "credits", None)
+    quote = credits.quote_job(
+        owner, job["mode"], target_round.get("options") or {},
+        reference_counts=[len(target_round.get("references") or [])],
+    ) if credits is not None else None
     try:
-        retried = await asyncio.to_thread(app.state.store.retry_failed_items, job_id, round_id)
+        retried = await asyncio.to_thread(app.state.store.retry_failed_items, job_id, round_id, credit_quote=quote)
+    except CreditInsufficientError as error:
+        raise HTTPException(status_code=402, detail=str(error)) from error
     except KeyError as error:
         raise HTTPException(status_code=404, detail="轮次不存在") from error
     if not retried:
@@ -4528,12 +5824,18 @@ def library_query(
 
 
 @app.get(
-    "/api/media/{filename}",
+    # 输出路径带目录（如 zly-ai-video-studio/minimax_h3_image/20261119/x.png），客户端按
+    # encodeURIComponent 编码成一个路径段，解码后仍含斜杠，必须用 :path 才能匹配；
+    # 否则请求会掉进前端 SPA 兜底返回 200 HTML，画布参考图因无法解码而显示空白。
+    "/api/media/{filename:path}",
     tags=["作品库"],
     summary="下载或预览生成媒体",
     responses={200: {"content": {"image/*": {}, "video/*": {}, "application/octet-stream": {}}}},
 )
 def media(filename: str, request: Request, user: Annotated[dict, Depends(current_user)]) -> Response:
+    filename = filename.strip()
+    if not filename:
+        raise HTTPException(status_code=404, detail="媒体文件不存在")
     target_user_id = None if user["role"] in {"admin", "super_admin"} else user["id"]
     output = app.state.media_index.lookup(target_user_id, filename)
     if output is None:
@@ -4823,6 +6125,10 @@ def frontend_asset(asset_path: str) -> FileResponse:
 
 @app.get("/{path:path}", include_in_schema=False)
 def frontend(path: str) -> FileResponse:
+    # 未匹配到的接口路径必须显式 404：交给 SPA 会返回 200 HTML，调用方无法区分
+    # 「接口不存在」和「拿到了图片」，会把 HTML 当媒体导致静默失败。
+    if path == "api" or path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="接口不存在")
     # Public assets copied by the bundler sit at the dist root (images, icons, fonts);
     # only paths that are not real files fall through to the SPA shell.
     if path != "index.html" and (static_file := dist_static_file(path)) is not None:

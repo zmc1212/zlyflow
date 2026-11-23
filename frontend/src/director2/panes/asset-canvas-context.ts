@@ -3,6 +3,7 @@ import type { Node, XYPosition } from "@xyflow/react"
 import type { CanvasOptionValue, CanvasWorkflowMode } from "../../canvas/canvas-generation"
 import type { AssetCanvasTarget } from "../asset-canvas-model"
 import type { AssetCreativeSettings } from "../asset-canvas-creative"
+import type { EditAsset } from "../../editing/model"
 
 export type AssetCanvasActions = {
   select: (id: string) => void
@@ -41,6 +42,12 @@ export type AssetCanvasContextValue = {
   portMenu: (id: string, direction: "in" | "out", anchor: HTMLElement) => void
   inputsOf: (id: string) => Node[]; openSmartEdit: (id: string) => Promise<void>
   duplicate: (id: string) => void; openTool: (id: string, tool: string) => void
+  /** 多轨编辑器节点宿主信息：剪辑工程挂在导演项目 scope 下（序列 canvas-<节点id>）。 */
+  csrfToken: string; projectId: string
+  /** 打开多轨编辑器全屏态（即梦式），不再整页跳转智能剪辑。 */
+  openEditorFullscreen: (id: string) => void
+  /** 导演项目资产池（资产库 + 画布媒体节点），自动并入多轨编辑器资产列表。 */
+  projectAssets: () => EditAsset[]
 }
 
 export const AssetCanvasContext = createContext<AssetCanvasContextValue | null>(null)

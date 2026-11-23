@@ -22,6 +22,7 @@ import {
 import { generateJobPath } from "../paths"
 import { useMediaHandoffPrefill } from "../media-handoff-prefill"
 import { createLocalId } from "../lib/utils"
+import { isSubmitEnter } from "../lib/enter-submit"
 import "./motion-transfer-tool.css"
 import "./photo-edit-editor.css"
 
@@ -516,6 +517,12 @@ export default function PhotoEditTool({ csrfToken }: { csrfToken: string }) {
                 : "先上传原图，再用一句话描述要怎么改"}
               autoSize={{ minRows: 1, maxRows: 4 }}
               maxLength={1500}
+              onKeyDown={(event) => {
+                // 回车提交编辑任务；与「开始编辑」按钮同一可用条件。
+                if (!isSubmitEnter(event)) return
+                event.preventDefault()
+                if (ready) void submit()
+              }}
             />
             <div className="studio-photo-controls">
               <Select

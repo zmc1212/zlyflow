@@ -1,6 +1,5 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
-  Background,
   MiniMap,
   Position,
   ReactFlow,
@@ -14,7 +13,6 @@ import {
   useReactFlow,
   useViewport,
   type Connection,
-  type EdgeTypes,
   type FinalConnectionState,
   type MiniMapNodeProps,
   type NodeChange,
@@ -22,15 +20,15 @@ import {
 } from "@xyflow/react"
 import "@xyflow/react/dist/style.css"
 import {
-  Alert, Button, Drawer, Dropdown, Empty, Input, Menu, Modal, Popover, Segmented, Space, Spin, Tag, Tooltip,
+  Alert, Badge, Button, Drawer, Dropdown, Empty, Input, Menu, Modal, Popover, Segmented, Space, Spin, Tag, Tooltip,
   message, type MenuProps,
 } from "antd"
-import {
-  AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalSpaceAround,
+import { Clock3,
+  Activity, AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalSpaceAround,
   AlignHorizontalSpaceBetween, AlignStartHorizontal, AlignStartVertical, AlignVerticalSpaceBetween,
-  Check, ChevronDown, ChevronLeft, CircleOff, ClipboardPaste, CopyPlus, Download, GitBranch, Hand, History, Image as ImageIcon, ImagePlus, Images, Keyboard,
+  Check, ChevronDown, ChevronLeft, CircleOff, CopyPlus, Download, GitBranch, Hand, History, Image as ImageIcon, ImagePlus, Images, Info, Keyboard,
   Focus, Link2, LoaderCircle, Map as MapIcon, Minus, MoreHorizontal, MousePointer2, MoveDown, MoveRight, Pencil, Plus, Redo2, RefreshCw,
-  PanelRight, Search, Settings, SlidersHorizontal, Sparkles, Square, Trash2, Type, Undo2, Upload, Video, Waypoints,
+  AudioLines, PanelRight, Search, Settings, SlidersHorizontal, Sparkles, Square, Trash2, Type, Undo2, Upload, Video, Waypoints,
 } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState,
   type ChangeEvent,
@@ -42,11 +40,28 @@ import { useSearchParams } from "react-router-dom"
 import { generateJobPath } from "../paths"
 import { ApiRequestError } from "../api"
 import { useStudioTheme } from "../ThemeProvider"
+import CanvasAccountMenu, { type CanvasAccount, type CanvasAccountOverlay } from "./CanvasAccountMenu"
 import CanvasExportDialog from "./CanvasExportDialog"
-import CanvasFlowEdge from "./CanvasFlowEdge"
+import CanvasProjectInfoModal from "./CanvasProjectInfoModal"
+import { CanvasGenerationProgressPanel } from "./CanvasGenerationProgressPanel"
+import { canvasProgressActiveCount, canvasProgressEntries } from "./canvas-progress"
+import { CanvasGeneratorComposer } from "./CanvasGeneratorComposer"
+import { CanvasAudioComposer } from "./CanvasAudioComposer"
+import { CanvasResultComposer, type CanvasResultRunState } from "./CanvasResultComposer"
+import { CanvasConnectionLine, CanvasConnectionTrace, canvasEdgeTypes, canvasFlowStyle } from "./CanvasFlowEdge"
+import { CanvasGrid } from "./CanvasGrid"
+import { CanvasGridRipples, type CanvasGridRipple } from "./CanvasGridRipples"
+import { CanvasAmbientEmpty, CanvasEmptySparkle } from "./CanvasAmbientEmpty"
 import { reorderCanvasReferenceEdges } from "./canvas-composer"
-import { canvasConnectEdge, canvasConnectMenuPosition, canvasConnectTargets } from "./canvas-connections"
+import {
+  CANVAS_CONNECT_LABELS, canvasAcceptsNodeInput, canvasCanAddReference, canvasConnectEdge, canvasConnectInputs, canvasConnectMenuPosition,
+  canvasConnectTargets, canvasVisibleTargetHandle, type CanvasConnectTarget,
+} from "./canvas-connections"
 import { claimCanvasRecovery, clearCanvasRecovery, normalizedCanvasContent, readCanvasRecovery, resolveCanvasRecovery, writeCanvasRecovery } from "./canvas-recovery"
+import CanvasAssistantPanel from "./assistant/CanvasAssistantPanel"
+import { applyAssistantProposalOps, type CanvasAssistantBridge } from "./assistant/assistant-bridge"
+import type { CanvasAssistantOp } from "./assistant/api"
+import "./assistant/assistant.css"
 import {
   getCanvasProject,
   listCanvasVersions,
@@ -54,6 +69,7 @@ import {
   renameCanvasProject,
   restoreCanvasVersion,
   saveCanvasDraft,
+  uploadCanvasMedia,
 } from "./canvas-api"
 import {
   alignCanvasNodes,
@@ -67,11 +83,13 @@ import {
   canvasViewportChanged,
   copyCanvasClipboard,
   createArtboardNode,
+  createAudioNode,
   createCanvasHistory,
   createGeneratorNode,
   createImageNode,
   createLibraryNode,
   createTextNode,
+  createTimelineNode,
   createVideoNode,
   decodeCanvasAssetDrag,
   distributeCanvasNodes,
@@ -89,6 +107,7 @@ import {
   pushCanvasHistory,
   readCanvasSettings,
   redoCanvasHistory,
+  separateCanvasOverlaps,
   serializeCanvasDraft,
   undoCanvasHistory,
   type CanvasAlignMode,
@@ -107,6 +126,11 @@ import {
   type CanvasVersion,
   type CanvasViewport,
 } from "./canvas-model"
+import {
+  fetchCanvasMusicJob,
+  submitCanvasMusic,
+  submitCanvasTts,
+} from "./canvas-audio"
 import {
   CANVAS_CONNECTION_MODE_OPTIONS,
   CANVAS_GENERATION_MODE_OPTIONS,
@@ -127,16 +151,20 @@ import {
 } from "./canvas-manage"
 import {
   appendCanvasRunSnapshot,
+  bindCanvasReferenceSlots,
   buildCanvasRunSnapshot,
   cancelCanvasJob,
-  canvasImageNodeFile,
   canvasJobResult,
   canvasJobResults,
   canvasJobLiveDetails,
   canvasPendingResultFill,
   canvasPromptEligible,
-  canvasReferenceEligible,
+  canvasModeAcceptsReferenceKind,
+  canvasReferenceFile,
+  canvasReferenceKind,
+  canvasReferenceUrl,
   canvasResultHistory,
+  canvasResultProvenance,
   canvasResultVersionIndex,
   canvasResultVersionPatch,
   selectCanvasResultVersion,
@@ -145,7 +173,9 @@ import {
   defaultGeneratorOptionValues,
   fetchCanvasJob,
   fetchCanvasModes,
+  generatorDefaultOptionValues,
   generatorPromptInfo,
+  generatorPromptIssue,
   generatorReferenceIssue,
   generatorResultFromNodeData,
   incomingGeneratorPromptNodes,
@@ -161,6 +191,7 @@ import {
   type CanvasGeneratorPromptState,
   type CanvasJob,
   type CanvasJobResult,
+  type CanvasReferenceKind,
 } from "./canvas-generation"
 import {
   canvasByteSize,
@@ -177,27 +208,18 @@ import {
   type CanvasSaveOutcome,
 } from "./canvas-save"
 import { CanvasSidePanel, type CanvasPanelTab } from "./CanvasSidePanel"
+import EditStudio from "../editing/EditStudio"
+import { EditingNodeContext, canvasTimelineAssets, type EditingNodeContextValue } from "../editing/editing-shared"
 import {
   CanvasGeneratorContext,
   CanvasMediaPreviewContext,
   CanvasNodeActionsContext,
+  type CanvasGeneratorContextValue,
   type CanvasMediaPreview,
   type CanvasNodeActions,
 } from "./CanvasNodes"
 import { baseNodeTypes } from "./node-registry"
-
-const edgeTypes: EdgeTypes = {
-  canvasFlow: CanvasFlowEdge,
-}
-
-function edgeStroke(node: CanvasNode | undefined): string {
-  if (node?.type === "text") return "var(--canvas-text-tone)"
-  if (node?.type === "video") return "var(--canvas-video-tone)"
-  if (node?.type === "generator") {
-    return node.data.resultKind === "video" ? "var(--canvas-video-tone)" : "var(--studio-primary)"
-  }
-  return "var(--canvas-image-tone)"
-}
+import { canvasPortGeometry } from "./node-primitives"
 
 const saveStateLabels: Record<CanvasSaveState, string> = {
   saved: "已保存",
@@ -210,6 +232,29 @@ const saveStateLabels: Record<CanvasSaveState, string> = {
 
 type CanvasTool = "select" | "pan"
 
+const CANVAS_NODE_TOOLS = [
+  { kind: "text", label: "文字", actionLabel: "添加文字", icon: Type },
+  { kind: "image", label: "图片", actionLabel: "添加图片", icon: ImageIcon },
+  { kind: "video", label: "视频", actionLabel: "添加视频", icon: Video },
+  { kind: "audio", label: "音频", actionLabel: "添加音频", icon: AudioLines },
+  { kind: "generator", label: "生成节点", actionLabel: "添加生成节点", icon: Sparkles },
+  { kind: "timeline", label: "时间线", actionLabel: "添加时间线", icon: Clock3 },
+  { kind: "artboard", label: "画板", actionLabel: "新建画板", icon: Square },
+] as const
+
+const CANVAS_LOCAL_IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".avif"])
+const CANVAS_LOCAL_VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".webm", ".mkv", ".m4v", ".avi"])
+
+type CanvasNodeTool = (typeof CANVAS_NODE_TOOLS)[number]["kind"]
+
+const canvasNodeFactories = {
+  text: createTextNode,
+  image: createImageNode,
+  video: createVideoNode,
+  audio: createAudioNode,
+  artboard: createArtboardNode,
+}
+
 type CanvasGuideLines = {
   vertical: number[]
   horizontal: number[]
@@ -217,6 +262,7 @@ type CanvasGuideLines = {
 
 type CanvasContextMenuState =
   | { kind: "pane"; x: number; y: number; flow: { x: number; y: number } }
+  | { kind: "pane-create"; x: number; y: number; flow: { x: number; y: number } }
   | { kind: "node"; x: number; y: number; nodeId: string }
   | { kind: "selection"; x: number; y: number }
 
@@ -225,8 +271,9 @@ type CanvasConnectMenuState = {
   y: number
   from: { x: number; y: number }
   flow: { x: number; y: number }
-  sourceId: string
-  sourceHandle: string
+  nodeId: string
+  handleId: string
+  direction: "in" | "out"
 }
 
 type CanvasConnectStartState = OnConnectStartParams & {
@@ -253,6 +300,17 @@ function settingsRecord(settings: CanvasSettings): Record<string, unknown> {
 function isTypingTarget(target: EventTarget | null): boolean {
   return target instanceof HTMLElement
     && Boolean(target.closest("input, textarea, select, [contenteditable='true']"))
+}
+
+/** 本地上传只认图片与视频；先看 MIME，缺失时退回扩展名。 */
+function canvasLocalMediaKind(file: File): CanvasMediaKind | null {
+  if (file.type.startsWith("image/")) return "image"
+  if (file.type.startsWith("video/")) return "video"
+  const dot = file.name.lastIndexOf(".")
+  const extension = dot >= 0 ? file.name.slice(dot).toLowerCase() : ""
+  if (CANVAS_LOCAL_IMAGE_EXTENSIONS.has(extension)) return "image"
+  if (CANVAS_LOCAL_VIDEO_EXTENSIONS.has(extension)) return "video"
+  return null
 }
 
 function eventClientPoint(event: MouseEvent | TouchEvent): { x: number; y: number } {
@@ -387,11 +445,14 @@ function CanvasViewModeMenu({ settings, onChange }: {
   )
 }
 
-export default function CanvasEditor(props: {
+type CanvasEditorProps = {
   project: CanvasProjectDetail
   csrfToken: string
+  account?: CanvasAccount
   onBack: () => void
-}) {
+}
+
+export default function CanvasEditor(props: CanvasEditorProps) {
   return (
     <ReactFlowProvider>
       <CanvasEditorInner {...props} />
@@ -399,11 +460,8 @@ export default function CanvasEditor(props: {
   )
 }
 
-function CanvasEditorInner({ project, csrfToken, onBack }: {
-  project: CanvasProjectDetail
-  csrfToken: string
-  onBack: () => void
-}) {
+function CanvasEditorInner({ project, csrfToken, account, onBack }: CanvasEditorProps) {
+  const queryClient = useQueryClient()
   const { mode: themeMode } = useStudioTheme()
   const {
     screenToFlowPosition, setViewport, updateNodeData, getViewport, fitView, zoomIn, zoomOut, zoomTo, setCenter,
@@ -433,6 +491,9 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
   const savedTitleRef = useRef(project.title)
   const titleSaveRef = useRef<Promise<boolean>>(Promise.resolve(true))
   const [leaving, setLeaving] = useState(false)
+  const [accountOverlay, setAccountOverlay] = useState<CanvasAccountOverlay>(null)
+  // 无限画布「时间线」节点：当前全屏编辑的节点 id。
+  const [timelineEditorNodeId, setTimelineEditorNodeId] = useState<string | null>(null)
   const [saveState, setSaveState] = useState<CanvasSaveState>(recovery.conflict ? "conflict" : recovery.restored ? "dirty" : "saved")
   const [retryAttempt, setRetryAttempt] = useState(0)
   const [retryDelayMs, setRetryDelayMs] = useState(0)
@@ -444,6 +505,10 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
   const [tool, setTool] = useState<CanvasTool>("select")
   const [panelOpen, setPanelOpen] = useState(false)
+  const [assistantOpen, setAssistantOpen] = useState(() => {
+    try { return localStorage.getItem("canvas-assistant-open") === "1" } catch { return false }
+  })
+  useEffect(() => { try { localStorage.setItem("canvas-assistant-open", assistantOpen ? "1" : "0") } catch { /* 仅本地偏好 */ } }, [assistantOpen])
   const [panelTab, setPanelTab] = useState<CanvasPanelTab>("properties")
   const [contextMenu, setContextMenu] = useState<CanvasContextMenuState | null>(null)
   const [connectMenu, setConnectMenu] = useState<CanvasConnectMenuState | null>(null)
@@ -453,6 +518,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
   const [recentEdgeId, setRecentEdgeId] = useState<string | null>(null)
   const [addImageOpen, setAddImageOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
+  const [projectInfoOpen, setProjectInfoOpen] = useState(false)
   const [imageUrl, setImageUrl] = useState("")
   const [versions, setVersions] = useState<CanvasVersion[]>([])
   const [versionsLoading, setVersionsLoading] = useState(false)
@@ -465,6 +531,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
   const [assetTargetNodeId, setAssetTargetNodeId] = useState<string | null>(null)
   const [assetGeneratorId, setAssetGeneratorId] = useState<string | null>(null)
   const [assetReferenceSourceId, setAssetReferenceSourceId] = useState<string | null>(null)
+  const [referencePick, setReferencePick] = useState<{ generatorId: string; sourceId: string | null; kind: CanvasReferenceKind } | null>(null)
   const [assetSearch, setAssetSearch] = useState("")
   const [librarySearch, setLibrarySearch] = useState("")
   const [pendingImport, setPendingImport] = useState<{
@@ -480,6 +547,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
   const [draggingAsset, setDraggingAsset] = useState<CanvasLibraryItem | null>(null)
   const [dropPoint, setDropPoint] = useState<{ x: number; y: number } | null>(null)
   const [liveJobs, setLiveJobs] = useState<Record<string, CanvasGeneratorLive>>({})
+  const [progressOpen, setProgressOpen] = useState(false)
   const [submittingGeneratorIds, setSubmittingGeneratorIds] = useState<Set<string>>(new Set())
   const pendingGeneratorIdsRef = useRef(new Set<string>())
 
@@ -496,10 +564,13 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
 
   const stageRef = useRef<HTMLDivElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const localMediaInputRef = useRef<HTMLInputElement | null>(null)
   const dragDepthRef = useRef(0)
   const clipboardRef = useRef<CanvasClipboard | null>(null)
   const pasteCountRef = useRef(0)
   const pendingAddPointRef = useRef<{ x: number; y: number } | null>(null)
+  const pendingUploadPointRef = useRef<{ x: number; y: number } | null>(null)
+  const pendingReferenceSourceRef = useRef<{ generatorId: string; sourceId: string | null; kind: CanvasReferenceKind } | null>(null)
   const autoInsertedJobsRef = useRef<Set<string>>(new Set())
   const consumedInsertAssetRef = useRef<string | null>(null)
   const nodesRef = useRef(nodes)
@@ -527,6 +598,12 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     for (const node of nodes) next.set(node.id, { type: node.type, data: node.data })
     nodeDataSnapshotRef.current = next
     setNodeDataRevision((revision) => revision + 1)
+  }, [nodes])
+  // 助手方案卡的节点标题缓存：只增不减，节点被撤销/删除后仍能显示可读标题而非内部 ID。
+  const nodeLabelCacheRef = useRef(new Map<string, { type?: string; data: CanvasNode["data"] }>())
+  useEffect(() => {
+    const cache = nodeLabelCacheRef.current
+    for (const node of nodes) cache.set(node.id, { type: node.type, data: node.data })
   }, [nodes])
   const serializeCurrent = useCallback(
     () => serializeCanvasDraft(nodesRef.current, edgesRef.current, {
@@ -606,6 +683,15 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     () => canvasWorkflowList(modesQuery.data?.modes ?? []),
     [modesQuery.data],
   )
+  const progressEntries = useMemo(
+    () => canvasProgressEntries(
+      nodes,
+      liveJobs,
+      (workflowId) => generationModes.find((mode) => mode.id === workflowId)?.name ?? "",
+    ),
+    [generationModes, liveJobs, nodes],
+  )
+  const progressJobCount = useMemo(() => canvasProgressActiveCount(progressEntries), [progressEntries])
   const selectedGeneratorReferences = useMemo(
     () => selectedNode?.type === "generator"
       ? incomingGeneratorReferenceNodes(nodesRef.current, edges, selectedNode.id)
@@ -1110,9 +1196,15 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     return filled
   }, [updateNodeData])
 
+  const refreshCredits = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ["credits-me"] })
+    void queryClient.invalidateQueries({ queryKey: ["credits-transactions"] })
+  }, [queryClient])
+
   const applyGeneratorJobSnapshot = useCallback((jobId: string, job: CanvasJob) => {
     if (isCanvasJobActive(job.status) && job.status !== "awaiting_refine") return
     const matchingNodes = nodesRef.current.filter((item) => item.type === "generator" && item.data.jobId === jobId)
+    if (!isCanvasJobActive(job.status) && matchingNodes.some((node) => isCanvasJobActive(node.data.jobStatus))) refreshCredits()
     const results = job.status === "succeeded" || job.status === "partial" ? canvasJobResults(job) : []
     const result = results[0] ?? null
     for (const node of matchingNodes) {
@@ -1156,7 +1248,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
         }
       }
     }
-  }, [appendResultNode, fillPendingResultNodes, updateNodeData])
+  }, [appendResultNode, fillPendingResultNodes, refreshCredits, updateNodeData])
 
   useEffect(() => {
     for (const live of Object.values(liveJobs)) {
@@ -1250,20 +1342,20 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     }
   }, [applyGeneratorJobSnapshot, generatorJobPollKey])
 
-  const submitGenerator = useCallback(async (nodeId: string) => {
+  const submitGenerator = useCallback(async (nodeId: string): Promise<boolean> => {
     const node = nodesRef.current.find((item) => item.id === nodeId && item.type === "generator")
-    if (!node) return
+    if (!node) return false
     const currentStatus = (node.data.jobId ? liveJobsRef.current[node.data.jobId]?.status : null)
       ?? node.data.jobStatus
       ?? null
     if (isCanvasJobActive(currentStatus)) {
       message.info("当前生成任务还未结束")
-      return
+      return false
     }
     const mode = generationModes.find((item) => item.id === node.data.workflowId) ?? null
     if (!mode) {
       message.warning("请先选择生成工作流")
-      return
+      return false
     }
     const references = incomingGeneratorReferenceNodes(nodesRef.current, edgesRef.current, nodeId)
     const promptSource = resolveGeneratorPrompt(
@@ -1278,13 +1370,14 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     )
     if (validation) {
       message.warning(validation)
-      return
+      return false
     }
-    if (!beginGeneratorAction(nodeId)) return
+    if (!beginGeneratorAction(nodeId)) return false
     try {
       const files: File[] = []
-      for (const [index, reference] of references.entries()) {
-        files.push(await canvasImageNodeFile(reference, index + 1))
+      const { slots } = bindCanvasReferenceSlots(mode, references, references.length)
+      for (const [index, { node: reference, kind }] of slots.entries()) {
+        if (reference) files.push(await canvasReferenceFile(reference, index + 1, kind))
       }
       const prompt = promptSource.text
       const options = serializeGeneratorOptionValues(mode, node.data.optionValues)
@@ -1295,7 +1388,8 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
         references: files,
         title: prompt.slice(0, 60),
       })
-      if (!mountedRef.current) return
+      refreshCredits()
+      if (!mountedRef.current) return true
       const result = canvasJobResult(job)
       setLiveJobs((previous) => ({
         ...previous,
@@ -1325,12 +1419,14 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
         ...appendCanvasRunSnapshot(latest?.data ?? node.data, snapshot),
       })
       message.success("已提交生成任务")
+      return true
     } catch (error) {
       if (mountedRef.current) message.error(errorText(error))
+      return false
     } finally {
       endGeneratorAction(nodeId)
     }
-  }, [beginGeneratorAction, csrfToken, endGeneratorAction, generationModes, updateNodeData])
+  }, [beginGeneratorAction, csrfToken, endGeneratorAction, generationModes, refreshCredits, updateNodeData])
 
   const cancelGenerator = useCallback(async (nodeId: string) => {
     const node = nodesRef.current.find((item) => item.id === nodeId && item.type === "generator")
@@ -1424,6 +1520,24 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     )
   }, [setCenter, zoom])
 
+  const [gridRipples, setGridRipples] = useState<CanvasGridRipple[]>([])
+  const gridRippleSeqRef = useRef(0)
+  const removeGridRipple = useCallback((id: number) => {
+    setGridRipples((current) => current.filter((ripple) => ripple.id !== id))
+  }, [])
+  // 新建节点处激起一圈网格波动（即梦式反馈）；同屏最多保留 3 圈，超时兜底清理。
+  const spawnGridRipples = useCallback((created: CanvasNode[]) => {
+    const node = created[0]
+    if (!node) return
+    const size = canvasNodeSize(node)
+    const id = ++gridRippleSeqRef.current
+    setGridRipples((current) => [
+      ...current.slice(-2),
+      { id, x: node.position.x + size.width / 2, y: node.position.y + size.height / 2 },
+    ])
+    window.setTimeout(() => removeGridRipple(id), 1500)
+  }, [removeGridRipple])
+
   const appendNodes = useCallback((created: CanvasNode[]) => {
     if (!created.length) return
     const ids = new Set(created.map((node) => node.id))
@@ -1433,7 +1547,8 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     ])
     setSelectedNodeIds(created.map((node) => node.id))
     setSelectedEdgeIds([])
-  }, [setNodes])
+    spawnGridRipples(created)
+  }, [setNodes, spawnGridRipples])
 
   const stageVisibleBounds = useCallback(() => {
     const stage = stageRef.current
@@ -1478,39 +1593,93 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
   }, [getViewport, setViewport, stageVisibleBounds])
 
   const addCanvasNode = useCallback((
-    kind: "text" | "image" | "generator" | "artboard",
+    kind: CanvasNodeTool,
     point?: { x: number; y: number },
+    preferredMediaKind?: CanvasMediaKind,
   ) => {
     const center = stageCenter()
     const fallbackSize = kind === "generator"
       ? { width: 400, height: 290 }
       : kind === "text"
         ? { width: 260, height: 120 }
-        : kind === "artboard"
-          ? { width: 720, height: 480 }
-          : CANVAS_LIBRARY_NODE_SIZES.image
+        : kind === "audio"
+          ? { width: 320, height: 320 }
+          : kind === "artboard"
+            ? { width: 720, height: 480 }
+            : kind === "timeline"
+              ? { width: 880, height: 240 }
+              : CANVAS_LIBRARY_NODE_SIZES[kind]
     const offset = (nodesRef.current.length % 5) * 24
     const position = point ?? {
       x: Math.round(center.x - fallbackSize.width / 2 + offset),
       y: Math.round(center.y - fallbackSize.height / 2 + offset),
     }
-    const mode = kind === "generator" ? pickCanvasGenerationMode(generationModes, 0) : null
-    const node = kind === "text"
-      ? createTextNode(position)
-      : kind === "image"
-        ? createImageNode(position)
-        : kind === "generator"
-          ? createGeneratorNode(position, {
-            prompt: settingsRef.current.globalPrompt,
-            workflowId: mode?.id,
-            optionValues: defaultGeneratorOptionValues(mode),
-            mediaKind: mode?.media_type,
-          })
-          : createArtboardNode(position)
+    const modes = preferredMediaKind
+      ? generationModes.filter((mode) => mode.media_type === preferredMediaKind)
+      : generationModes
+    const mode = kind === "generator" ? pickCanvasGenerationMode(modes, 0) : null
+    const node = kind === "generator"
+      ? createGeneratorNode(position, {
+        prompt: settingsRef.current.globalPrompt,
+        workflowId: mode?.id,
+        optionValues: generatorDefaultOptionValues(mode, preferredMediaKind ?? mode?.media_type),
+        mediaKind: mode?.media_type ?? preferredMediaKind,
+      })
+      : kind === "timeline"
+        ? createTimelineNode(position, `时间线 ${nodesRef.current.filter((item) => item.type === "timeline").length + 1}`)
+        : canvasNodeFactories[kind](position)
     if (!point) node.position = findCanvasFreePosition(position, canvasNodeSize(node), nodesRef.current)
     appendNodes([node])
     revealAddedNode(node)
   }, [appendNodes, generationModes, revealAddedNode, stageCenter])
+
+  // 画布助手桥：助手提案由前端逐条执行，复用与人工操作完全相同的校验与提交链路。
+  const assistantBridge = useMemo<CanvasAssistantBridge>(() => ({
+    applyProposal: async (ops: CanvasAssistantOp[]) => {
+      const before = new Set(nodesRef.current.map((node) => node.id))
+      const result = await applyAssistantProposalOps(ops, {
+        nodesRef, edgesRef, setNodes, setEdges, stageCenter, generationModes,
+        globalPrompt: () => settingsRef.current.globalPrompt,
+        submitGenerator: (nodeId: string) => submitGenerator(nodeId),
+        saveNow: () => saveDraft(true),
+      })
+      const added = nodesRef.current.filter((node) => !before.has(node.id))
+      if (added.length) spawnGridRipples(added)
+      return result
+    },
+    getSelectionIds: () => nodesRef.current.filter(node => node.selected).map(node => node.id),
+    clearSelection: () => setNodes(current => current.map(node => node.selected ? { ...node, selected: false } : node)),
+    describeNode: (ref: string) => {
+      const node = nodesRef.current.find(item => item.id === ref)
+        ?? (() => {
+          const cached = nodeLabelCacheRef.current.get(ref)
+          return cached ? { type: cached.type, data: cached.data } as CanvasNode : undefined
+        })()
+      if (!node) return ref
+      if (node.type === "generator") {
+        const mode = generationModes.find(item => item.id === node.data.workflowId)
+        return `${node.data.label || mode?.name || "生成节点"}（生成器）`
+      }
+      if (node.type === "text") return `「${String(node.data.text || node.data.label || "文字").slice(0, 16)}」`
+      return node.data.label || node.type || "节点"
+    },
+    filterMissingNodeIds: (nodeIds: string[]) => {
+      const present = new Set(nodesRef.current.map(node => node.id))
+      return nodeIds.filter(id => !present.has(id))
+    },
+    getViewportNodeIds: () => {
+      const viewport = getViewport()
+      const bounds = stageVisibleBounds()
+      return nodesRef.current.filter(node => {
+        const size = canvasNodeSize(node)
+        const left = node.position.x * viewport.zoom + viewport.x
+        const top = node.position.y * viewport.zoom + viewport.y
+        return left < bounds.right && top < bounds.bottom
+          && left + size.width * viewport.zoom > bounds.left
+          && top + size.height * viewport.zoom > bounds.top
+      }).map(node => node.id)
+    },
+  }), [nodesRef, edgesRef, setNodes, setEdges, stageCenter, generationModes, getViewport, stageVisibleBounds, submitGenerator, saveDraft, spawnGridRipples])
 
   const branchGenerate = useCallback((nodeId: string, direction: CanvasBranchDirection) => {
     const source = nodesRef.current.find((node) => node.id === nodeId)
@@ -1519,16 +1688,16 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     let workflowId: string | undefined
     let optionValues: Record<string, string | number | boolean> = {}
     if (source.type === "generator") {
-      prompt = String(source.data.prompt ?? "")
+      // 图片/视频节点分支生成时只把上游结果接为参考素材并沿用工作流参数，
+      // 提示词不随之带过来，由用户针对新节点重新填写（对齐即梦连线交互）。
       workflowId = source.data.workflowId
       optionValues = { ...(source.data.optionValues ?? {}) }
     } else if (source.type === "text") {
       prompt = String(source.data.text ?? "").trim() || String(source.data.label ?? "").trim()
-    } else if (source.type === "image") {
-      prompt = String(source.data.caption ?? "").trim() || String(source.data.label ?? "").trim()
     }
     if (!prompt) prompt = settingsRef.current.globalPrompt
-    const referenceCount = canvasReferenceEligible(source) ? 1 : 0
+    const referenceCount = canvasReferenceKind(source) === "image"
+      && (source.type === "generator" || canvasReferenceUrl(source)) ? 1 : 0
     const sourceMode = generationModes.find((mode) => mode.id === workflowId) ?? null
     const sourceModeUsable = sourceMode !== null
       && referenceCount >= (sourceMode.min_references ?? 0)
@@ -1580,85 +1749,47 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     )
   }, [generationModes, setCenter, setEdges, setNodes, zoom])
 
-  const applyConnectTarget = useCallback((key: string) => {
-    const pending = connectMenu
-    setConnectMenu(null)
-    if (!pending) return
-    const source = nodesRef.current.find((node) => node.id === pending.sourceId)
-    const target = canvasConnectTargets(source).find((item) => item.key === key)
-    if (!source || !target) return
+  const connectTargetsFor = useCallback((nodeId: string, direction: "in" | "out") => {
+    const node = nodesRef.current.find((item) => item.id === nodeId)
+    return direction === "out"
+      ? canvasConnectTargets(node, generationModes)
+      : canvasConnectInputs(node, generationModes, incomingGeneratorReferenceNodes(nodesRef.current, edgesRef.current, nodeId))
+  }, [generationModes])
 
-    let created: CanvasNode | null = null
-    let notice = ""
-    if (target.kind === "generator") {
-      const referenceCount = target.targetHandle === "in" ? 1 : 0
-      const rawPrompt = source.type === "text"
-        ? source.data.text
-        : source.type === "image"
-          ? source.data.caption || source.data.label
-          : source.type === "generator"
-            ? source.data.prompt
-            : ""
-      const prompt = String(rawPrompt ?? "").trim().slice(0, 4000) || settingsRef.current.globalPrompt
-      const sourceMode = source.type === "generator"
-        ? generationModes.find((mode) => mode.id === source.data.workflowId) ?? null
-        : null
-      const modeUsable = sourceMode !== null
-        && referenceCount >= (sourceMode.min_references ?? 0)
-        && referenceCount <= (sourceMode.max_references ?? 0)
-      const mode = modeUsable ? sourceMode : pickCanvasGenerationMode(generationModes, referenceCount)
-      created = createGeneratorNode(pending.flow, {
-        prompt,
-        workflowId: mode?.id,
-        optionValues: modeUsable && sourceMode
-          ? { ...(source.data.optionValues ?? {}) }
-          : defaultGeneratorOptionValues(mode),
-        mediaKind: mode?.media_type,
+  const addConnectedNode = useCallback((
+    { nodeId, handleId, direction, flow }: Pick<CanvasConnectMenuState, "nodeId" | "handleId" | "direction" | "flow">,
+    target: CanvasConnectTarget,
+  ) => {
+    const created = target.mode
+      ? createGeneratorNode(flow, {
+        prompt: settingsRef.current.globalPrompt || target.mode.default_prompt || "",
+        workflowId: target.mode.id,
+        optionValues: defaultGeneratorOptionValues(target.mode),
+        mediaKind: target.mode.media_type,
       })
-      notice = "已创建生成节点并连线"
-    } else {
-      const version = canvasResultHistory(source.data)[canvasResultVersionIndex(source.data)]
-      const jobId = version?.jobId ?? source.data.jobId ?? null
-      const result = generatorResultFromNodeData(source.data)
-        ?? (jobId ? liveJobsRef.current[jobId]?.result : null)
-      if (result && result.kind === target.kind) {
-        const label = result.label
-          || String(source.data.prompt ?? "").trim().slice(0, 24)
-          || (result.kind === "video" ? "生成视频" : "生成图片")
-        created = result.kind === "video"
-          ? createVideoNode(pending.flow, result.url, label)
-          : createImageNode(pending.flow, result.url, label)
-        const sourceRun = jobId ? canvasRunSnapshotForJob(source.data, jobId) : null
-        created.data = {
-          ...created.data,
-          assetPath: result.path || undefined,
-          sourceJobId: jobId,
-          mediaKind: result.kind,
-          ...(sourceRun ? { sourceRun } : {}),
-        }
-        notice = result.kind === "video" ? "视频结果已加入画布" : "图片结果已加入画布"
-      } else {
-        created = target.kind === "video"
-          ? createVideoNode(pending.flow, "", "等待生成")
-          : createImageNode(pending.flow, "", "等待生成")
-        created.data = { ...created.data, pendingGeneratorId: source.id }
-        notice = target.kind === "video"
-          ? "已预建视频节点，生成完成后自动填入"
-          : "已预建图片节点，生成完成后自动填入"
-      }
-    }
+      : target.kind === "text" ? createTextNode(flow, "") : canvasNodeFactories[target.kind](flow)
+    const size = canvasNodeSize(created)
+    created.position = findCanvasFreePosition(
+      { x: direction === "out" ? flow.x + 24 : flow.x - size.width - 24, y: flow.y - size.height / 2 },
+      size,
+      nodesRef.current.filter((node) => node.type !== "artboard"),
+    )
 
-    created.position = findCanvasFreePosition(pending.flow, canvasNodeSize(created), nodesRef.current)
     appendNodes([created])
-    const edge = canvasConnectEdge(source.id, created.id, target.targetHandle, pending.sourceHandle)
-    setEdges((current) => (current.some((item) => item.id === edge.id) ? current : [...current, edge]))
+    const edge = direction === "out"
+      ? canvasConnectEdge(nodeId, created.id, handleId)
+      : canvasConnectEdge(created.id, nodeId, "out", handleId)
+    setEdges((current) => [...current, edge])
     setRecentEdgeId(edge.id)
     revealAddedNode(created)
-    message.success(notice)
-    if (source.type === "text" && !String(source.data.text ?? "").trim()) {
-      message.warning("文字节点内容为空，补充文字后才能用于生成")
-    }
-  }, [appendNodes, connectMenu, generationModes, revealAddedNode, setEdges])
+  }, [appendNodes, revealAddedNode, setEdges])
+
+  const applyConnectTarget = useCallback((key: string) => {
+    setConnectMenu(null)
+    if (!connectMenu) return
+    const target = connectTargetsFor(connectMenu.nodeId, connectMenu.direction).find((item) => item.kind === key)
+    if (target) addConnectedNode(connectMenu, target)
+  }, [addConnectedNode, connectMenu, connectTargetsFor])
 
   const duplicateNode = useCallback((nodeId: string) => {
     const duplicated = duplicateCanvasSelection(nodesRef.current, edgesRef.current, [nodeId])
@@ -1714,13 +1845,14 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     setSelectedEdgeIds([])
   }, [selectedEdgeIds, selectedNodeIds, setEdges, setNodes])
 
-  const arrangeSelected = useCallback((action: CanvasAlignMode | `distribute-${CanvasDistributeAxis}`) => {
-    const selected = nodesRef.current.filter((node) => selectedNodeIdSet.has(node.id))
+  const arrangeSelected = useCallback((action: CanvasAlignMode | `distribute-${CanvasDistributeAxis}` | "separate-overlaps") => {
+    const current = nodesRef.current
+    const selected = current.filter((node) => selectedNodeIdSet.has(node.id))
     if (selected.length < 2) return
-    const updates = action === "distribute-horizontal"
-      ? distributeCanvasNodes(selected, "horizontal")
-      : action === "distribute-vertical"
-        ? distributeCanvasNodes(selected, "vertical")
+    const updates = action === "separate-overlaps"
+      ? separateCanvasOverlaps(current, selectedNodeIdSet)
+      : action === "distribute-horizontal" || action === "distribute-vertical"
+        ? distributeCanvasNodes(selected, action === "distribute-horizontal" ? "horizontal" : "vertical")
         : alignCanvasNodes(selected, action)
     if (!Object.keys(updates).length) return
     flushHistory()
@@ -1754,7 +1886,8 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     ])
     setSelectedNodeIds(pasted.nodeIds)
     setSelectedEdgeIds([])
-  }, [setEdges, setNodes])
+    spawnGridRipples(pasted.nodes)
+  }, [setEdges, setNodes, spawnGridRipples])
 
   const selectAllNodes = useCallback(() => {
     setNodes((current) => current.map((node) => ({ ...node, selected: true })))
@@ -1820,6 +1953,35 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     setAssetOpen(true)
   }, [])
 
+  const openReferenceLibrary = useCallback((nodeId: string, kind: CanvasReferenceKind, sourceId?: string) => {
+    if (kind === "audio") return
+    setAssetKind(kind)
+    setAssetTargetNodeId(null)
+    setAssetGeneratorId(nodeId)
+    setAssetReferenceSourceId(sourceId ?? null)
+    setAssetOpen(true)
+  }, [])
+
+  /** 参考图入口：上传、资产库、从画布选择三种方式共用；sourceId 为空时新增参考。 */
+  const chooseReferenceSource = useCallback((nodeId: string, kind: CanvasReferenceKind, sourceId: string | null, method: "upload" | "library" | "canvas") => {
+    if (method === "library") {
+      openReferenceLibrary(nodeId, kind, sourceId ?? undefined)
+      return
+    }
+    if (method === "canvas") {
+      setReferencePick({ generatorId: nodeId, sourceId, kind })
+      message.info(kind === "image" ? `请点击画布中的图片${sourceId ? "替换" : "添加"}参考图` : `请点击画布中的素材${sourceId ? "替换" : "添加"}参考图`)
+      return
+    }
+    if (kind === "audio") {
+      message.warning("暂不支持上传音频参考")
+      return
+    }
+    pendingReferenceSourceRef.current = { generatorId: nodeId, sourceId, kind }
+    pendingUploadPointRef.current = null
+    localMediaInputRef.current?.click()
+  }, [openReferenceLibrary])
+
   const insertLibraryItem = useCallback((
     item: CanvasLibraryItem,
     dropAt: { x: number; y: number } | null = null,
@@ -1828,23 +1990,24 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     if (assetGeneratorId && options.replace !== false) {
       const target = nodesRef.current.find((node) => node.id === assetGeneratorId && node.type === "generator")
       const workflow = generationModes.find((mode) => mode.id === target?.data.workflowId)
-      if (!target || !workflow || item.kind === "video") return
+      if (!target || !workflow || item.kind !== assetKind) return
       if (isCanvasJobActive(target.data.jobId ? liveJobsRef.current[target.data.jobId]?.status ?? target.data.jobStatus : target.data.jobStatus) || submittingGeneratorIds.has(target.id)) return
       const references = incomingGeneratorReferenceNodes(nodesRef.current, edgesRef.current, target.id)
-      if (!assetReferenceSourceId && references.length >= (workflow.max_references ?? 0)) {
-        message.warning("已达到当前工作流的参考图上限")
+        .filter((node) => node.id !== assetReferenceSourceId)
+      if (!canvasCanAddReference(workflow, assetKind, references)) {
+        message.warning("当前工作流没有对应的参考素材槽位")
         return
       }
       const reference = createLibraryNode(item, { x: target.position.x - 420, y: target.position.y + references.length * 48 })
       if (!reference) { message.warning("该素材暂不可用"); return }
       reference.position = findCanvasFreePosition(reference.position, canvasNodeSize(reference), nodesRef.current.filter((node) => node.type !== "artboard"))
-      const edge = canvasConnectEdge(reference.id, target.id, "in")
+      const edge = canvasConnectEdge(reference.id, target.id)
       setNodes((current) => [...current.map((node) => ({ ...node, selected: node.id === target.id })), { ...reference, selected: false }])
       setEdges((current) => assetReferenceSourceId
-        ? current.map((old) => old.target === target.id && old.source === assetReferenceSourceId ? { ...edge, targetHandle: old.targetHandle || "in", id: buildEdgeId(reference.id, target.id, "out", old.targetHandle || "in") } : old)
+        ? current.map((old) => old.target === target.id && old.source === assetReferenceSourceId ? edge : old)
         : [...current, edge])
       closeAssetLibrary()
-      message.success("参考图已连接")
+      message.success(assetKind === "image" ? "参考图已连接" : "参考视频已连接")
       return
     }
     const replaceTargetId = options.replace === false ? null : assetTargetNodeId
@@ -1883,7 +2046,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     appendNodes([node])
     revealAddedNode(node)
     message.success(item.kind === "video" ? "视频已插入画布" : "图片已插入画布")
-  }, [appendNodes, assetGeneratorId, assetReferenceSourceId, assetTargetNodeId, closeAssetLibrary, generationModes, revealAddedNode, setEdges, setNodes, stageCenter, submittingGeneratorIds, updateNodeData])
+  }, [appendNodes, assetGeneratorId, assetKind, assetReferenceSourceId, assetTargetNodeId, closeAssetLibrary, generationModes, revealAddedNode, setEdges, setNodes, stageCenter, submittingGeneratorIds, updateNodeData])
 
   useEffect(() => {
     if (!insertRequest) return
@@ -1998,6 +2161,81 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     setAddImageOpen(false)
   }, [appendNodes, imageUrl, revealAddedNode, stageCenter])
 
+  const openLocalMediaUpload = useCallback((point?: { x: number; y: number }) => {
+    // 普通上传不能复用上一次取消掉的参考图意图。
+    pendingReferenceSourceRef.current = null
+    pendingUploadPointRef.current = point ?? null
+    localMediaInputRef.current?.click()
+  }, [])
+
+  const handleLocalMediaUpload = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ""
+    const point = pendingUploadPointRef.current
+    pendingUploadPointRef.current = null
+    const pendingReference = pendingReferenceSourceRef.current
+    pendingReferenceSourceRef.current = null
+    if (!file) return
+    const fileKind = canvasLocalMediaKind(file)
+    if (!fileKind) {
+      message.warning("仅支持上传图片或视频文件")
+      return
+    }
+    if (pendingReference && fileKind !== pendingReference.kind) {
+      message.warning("上传文件类型与参考位不匹配")
+      return
+    }
+    const dismiss = message.loading("正在上传素材…", 0)
+    try {
+      const uploaded = await uploadCanvasMedia(csrfToken, file)
+      if (pendingReference) {
+        const generator = nodesRef.current.find((node) => node.id === pendingReference.generatorId && node.type === "generator")
+        if (!generator) return
+        const references = incomingGeneratorReferenceNodes(nodesRef.current, edgesRef.current, generator.id)
+        const mode = generationModes.find((item) => item.id === generator.data.workflowId) ?? null
+        if (!pendingReference.sourceId && (!mode || !canvasCanAddReference(mode, fileKind, references))) {
+          message.warning("当前工作流没有对应的参考素材槽位")
+          return
+        }
+        const position = { x: generator.position.x - 420, y: generator.position.y + references.length * 48 }
+        const node = uploaded.kind === "video"
+          ? createVideoNode(position, uploaded.url, uploaded.label)
+          : createImageNode(position, uploaded.url, uploaded.label)
+        node.position = findCanvasFreePosition(position, canvasNodeSize(node), nodesRef.current.filter((item) => item.type !== "artboard"))
+        const edge = canvasConnectEdge(node.id, generator.id)
+        appendNodes([node])
+        setEdges((current) => {
+          if (!pendingReference.sourceId) return [...current, edge]
+          const matched = current.some((item) => item.target === generator.id && item.source === pendingReference.sourceId)
+          const next = current.map((item) => item.target === generator.id && item.source === pendingReference.sourceId ? edge : item)
+          return matched ? next : [...current, edge]
+        })
+        selectOnlyNode(generator.id)
+        revealAddedNode(node)
+        message.success(pendingReference.sourceId ? "参考素材已替换" : "参考素材已添加")
+        return
+      }
+      const center = stageCenter()
+      const fallback = uploaded.kind === "video" ? CANVAS_LIBRARY_NODE_SIZES.video : CANVAS_LIBRARY_NODE_SIZES.image
+      const offset = (nodesRef.current.length % 5) * 24
+      const position = point ?? {
+        x: Math.round(center.x - fallback.width / 2 + offset),
+        y: Math.round(center.y - fallback.height / 2 + offset),
+      }
+      const node = uploaded.kind === "video"
+        ? createVideoNode(position, uploaded.url, uploaded.label)
+        : createImageNode(position, uploaded.url, uploaded.label)
+      if (!point) node.position = findCanvasFreePosition(position, canvasNodeSize(node), nodesRef.current)
+      appendNodes([node])
+      revealAddedNode(node)
+      message.success(uploaded.kind === "video" ? "已添加本地视频" : "已添加本地图片")
+    } catch (error) {
+      message.error(errorText(error))
+    } finally {
+      dismiss()
+    }
+  }, [appendNodes, csrfToken, generationModes, revealAddedNode, selectOnlyNode, setEdges, stageCenter])
+
   const onConnect = useCallback((connection: Connection) => {
     if (!connection.source || !connection.target) return
     const edgeId = buildEdgeId(
@@ -2018,11 +2256,12 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
 
     const sourceNode = nodesRef.current.find((node) => node.id === connection.source)
     const targetNode = nodesRef.current.find((node) => node.id === connection.target)
-    if (sourceNode?.type === "text" && !String(sourceNode.data.text ?? "").trim()) {
+    const usesPrompt = targetNode?.type === "generator" || targetNode?.type === "audio"
+    if (usesPrompt && sourceNode?.type === "text" && !String(sourceNode.data.text ?? "").trim()) {
       message.warning("文字节点内容为空，补充文字后才能用于生成")
       return
     }
-    if (!sourceNode || targetNode?.type !== "generator" || !canvasReferenceEligible(sourceNode)) return
+    if (!sourceNode || targetNode?.type !== "generator" || !canvasReferenceKind(sourceNode)) return
     const mode = generationModes.find((item) => item.id === targetNode.data.workflowId) ?? null
     const countIssue = generatorReferenceIssue(
       mode,
@@ -2037,12 +2276,44 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     const sourceNode = nodesRef.current.find((node) => node.id === source)
     const targetNode = nodesRef.current.find((node) => node.id === target)
     if (!sourceNode || !targetNode) return false
+    if (targetNode.type === "text" || targetNode.type === "audio") return canvasAcceptsNodeInput(sourceNode, targetNode.type)
     if (targetNode.type === "generator") {
-      return canvasReferenceEligible(sourceNode) || canvasPromptEligible(sourceNode)
+      if (canvasPromptEligible(sourceNode)) return true
+      const kind = canvasReferenceKind(sourceNode)
+      if (!kind) return false
+      if (kind === "image") return true
+      const mode = generationModes.find((item) => item.id === targetNode.data.workflowId)
+      return !!mode && canvasCanAddReference(mode, kind, incomingGeneratorReferenceNodes(nodesRef.current, edgesRef.current, target))
     }
     if (targetNode.type === "image" || targetNode.type === "video") return sourceNode.type === "generator"
+    if (targetNode.type === "timeline") return ["image", "video", "audio", "generator", "text"].includes(sourceNode.type ?? "")
     return false
-  }, [])
+  }, [generationModes])
+
+  const showConnectMenu = useCallback((
+    nodeId: string, direction: "in" | "out", screen: { x: number; y: number }, from: { x: number; y: number },
+    handleId: string = direction,
+  ) => {
+    const targets = connectTargetsFor(nodeId, direction)
+    const stage = stageRef.current?.getBoundingClientRect()
+    if (!stage || !targets.length || settingsRef.current.connectionMode === "off") return
+    const menu = canvasConnectMenuPosition({ x: screen.x - stage.left, y: screen.y - stage.top }, stage, targets.length)
+    setContextMenu(null)
+    setConnectMenu({
+      ...menu,
+      from,
+      flow: screenToFlowPosition({ x: menu.x + stage.left, y: menu.y + stage.top }),
+      nodeId,
+      direction,
+      handleId,
+    })
+  }, [connectTargetsFor, screenToFlowPosition])
+
+  const openConnectMenu = useCallback((nodeId: string, handle: HTMLElement, direction: "in" | "out") => {
+    const { anchor, control } = canvasPortGeometry(handle)
+    const screen = { x: direction === "out" ? control.right + 100 : control.left - 232 - 56, y: anchor.y }
+    showConnectMenu(nodeId, direction, screen, screenToFlowPosition(anchor, { snapToGrid: false }))
+  }, [screenToFlowPosition, showConnectMenu])
 
   const handleConnectStart = useCallback((event: MouseEvent | TouchEvent, params: OnConnectStartParams) => {
     connectStartRef.current = { ...params, screen: eventClientPoint(event) }
@@ -2053,30 +2324,14 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
   const handleConnectEnd = useCallback((event: MouseEvent | TouchEvent, state: FinalConnectionState) => {
     const start = connectStartRef.current
     connectStartRef.current = null
-    if (!start || !start.nodeId || start.handleType !== "source") return
+    if (!start?.nodeId || !start.handleType) return
     const screen = eventClientPoint(event)
     if (Math.abs(screen.x - start.screen.x) + Math.abs(screen.y - start.screen.y) < 10) return
-    if (state.toHandle) return
-    const source = nodesRef.current.find((node) => node.id === start.nodeId)
-    const targets = canvasConnectTargets(source)
-    if (!source || !targets.length) return
-    const rect = stageRef.current?.getBoundingClientRect()
-    if (!rect) return
-    const size = canvasNodeSize(source)
-    const fallbackFrom = { x: source.position.x + size.width, y: source.position.y + size.height / 2 }
-    const menu = canvasConnectMenuPosition(
-      { x: screen.x - rect.left, y: screen.y - rect.top },
-      { width: rect.width, height: rect.height },
-      { width: 252, height: 44 + targets.length * 52 },
-    )
-    setConnectMenu({
-      ...menu,
-      from: state.from ?? fallbackFrom,
-      flow: screenToFlowPosition(screen),
-      sourceId: source.id,
-      sourceHandle: start.handleId ?? "out",
-    })
-  }, [screenToFlowPosition])
+    const hit = document.elementFromPoint(screen.x, screen.y)
+    if (!state.from || state.toHandle || !hit?.classList.contains("react-flow__pane") || !stageRef.current?.contains(hit)) return
+    const direction = start.handleType === "source" ? "out" : "in"
+    showConnectMenu(start.nodeId, direction, screen, state.from, start.handleId ?? direction)
+  }, [showConnectMenu])
 
   const handleSnapDrag = useCallback((draggedNodes: CanvasNode[]) => {
     if (!settingsRef.current.guidesVisible || !draggedNodes.length) {
@@ -2117,24 +2372,116 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     const visible = compactEdgeIds ? edges.filter((edge) => compactEdgeIds.has(edge.id)) : edges
     return visible.map((edge) => ({
       ...edge,
+      targetHandle: canvasVisibleTargetHandle(edge),
       type: "canvasFlow",
-      style: { ...edge.style, stroke: edgeStroke(nodeById.get(edge.source)) },
     }))
-  }, [compactEdgeIds, edges, nodeById, settings.connectionMode])
+  }, [compactEdgeIds, edges, settings.connectionMode])
 
-  const connectMenuTargets = useMemo(
-    () => (connectMenu ? canvasConnectTargets(nodeById.get(connectMenu.sourceId)) : []),
-    [connectMenu, nodeById],
+  const connectMenuTargets = connectMenu ? connectTargetsFor(connectMenu.nodeId, connectMenu.direction) : []
+  const composerNode = selectedNodeIds.length === 1 ? nodeById.get(selectedNodeIds[0]) : undefined
+  // 选中单个图片/视频结果节点时，底部回显上次生成参数（即梦式再创作入口）。
+  const resultComposerNode = composerNode && (composerNode.type === "image" || composerNode.type === "video") ? composerNode : null
+  const resultProvenance = useMemo(
+    () => (resultComposerNode ? canvasResultProvenance(resultComposerNode) : null),
+    [resultComposerNode],
   )
+
+  /** 沿输出边判断 from 是否能到达 to，用来阻止把生成结果反接为参考图形成环。 */
+  const canvasReachesNode = useCallback((fromId: string, toId: string) => {
+    const outgoing = new Map<string, string[]>()
+    for (const edge of edgesRef.current) {
+      outgoing.set(edge.source, [...(outgoing.get(edge.source) ?? []), edge.target])
+    }
+    const queue = [fromId]
+    const visited = new Set(queue)
+    while (queue.length) {
+      const current = queue.pop()
+      if (!current) continue
+      for (const next of outgoing.get(current) ?? []) {
+        if (next === toId) return true
+        if (!visited.has(next)) {
+          visited.add(next)
+          queue.push(next)
+        }
+      }
+    }
+    return false
+  }, [])
+
+  const handleCanvasNodeClick = useCallback((event: ReactMouseEvent, node: CanvasNode) => {
+    setCanvasSettingsPinned(false)
+    const target = event.target
+    if (target instanceof Element && target.closest("button, a, input, textarea, [contenteditable='true'], [role='button'], .nodrag, .react-flow__handle")) {
+      if (referencePick) setReferencePick(null)
+      return
+    }
+
+    // 「从画布选择」模式：单击下一张图片新增或替换参考，而不是把图片选中。
+    if (referencePick) {
+      const keepGenerator = () => window.setTimeout(() => selectOnlyNode(referencePick.generatorId), 0)
+      if (node.id === referencePick.generatorId) {
+        message.info(referencePick.kind === "image" ? "请选择画布中的图片节点" : "请选择画布中的素材节点")
+        return
+      }
+      if (canvasReferenceKind(node) !== referencePick.kind) {
+        message.warning(referencePick.kind === "image" ? "请选择画布中的图片节点" : "请选择画布中的素材节点")
+        keepGenerator()
+        return
+      }
+      if (referencePick.sourceId && node.id === referencePick.sourceId) {
+        message.info("已是当前参考图")
+        setReferencePick(null)
+        keepGenerator()
+        return
+      }
+      if (!canvasReferenceUrl(node, referencePick.kind)) {
+        message.warning("该素材还没有内容")
+        keepGenerator()
+        return
+      }
+      const references = incomingGeneratorReferenceNodes(nodesRef.current, edgesRef.current, referencePick.generatorId)
+        .filter((reference) => !referencePick.sourceId || reference.id !== referencePick.sourceId)
+      if (references.some((reference) => reference.id === node.id)) {
+        message.info("该素材已在参考图中")
+        keepGenerator()
+        return
+      }
+      if (canvasReachesNode(referencePick.generatorId, node.id)) {
+        message.warning("该素材来自当前生成结果，不能作为参考")
+        keepGenerator()
+        return
+      }
+      const generator = nodesRef.current.find((item) => item.id === referencePick.generatorId && item.type === "generator")
+      const mode = generationModes.find((item) => item.id === generator?.data.workflowId) ?? null
+      if (!referencePick.sourceId && (!mode || !canvasCanAddReference(mode, referencePick.kind, references))) {
+        message.warning("参考素材已满，请先移除一个参考")
+        keepGenerator()
+        return
+      }
+      const edge = canvasConnectEdge(node.id, referencePick.generatorId)
+      setEdges((current) => {
+        if (!referencePick.sourceId) return [...current, edge]
+        const matched = current.some((item) => item.target === referencePick.generatorId && item.source === referencePick.sourceId)
+        const next = current.map((item) => item.target === referencePick.generatorId && item.source === referencePick.sourceId ? edge : item)
+        return matched ? next : [...current, edge]
+      })
+      message.success(referencePick.sourceId ? "参考素材已替换" : "参考素材已添加")
+      setReferencePick(null)
+      window.setTimeout(() => selectOnlyNode(referencePick.generatorId), 0)
+      return
+    }
+
+  }, [canvasReachesNode, generationModes, referencePick, selectOnlyNode, setEdges])
 
   const pendingConnectPath = useMemo(() => {
     if (!connectMenu) return null
+    const [source, target] = connectMenu.direction === "out" ? [connectMenu.from, connectMenu.flow] : [connectMenu.flow, connectMenu.from]
     const [path] = getBezierPath({
-      sourceX: connectMenu.from.x,
-      sourceY: connectMenu.from.y,
+      sourceX: source.x,
+      sourceY: source.y,
       sourcePosition: Position.Right,
-      targetX: connectMenu.flow.x,
-      targetY: connectMenu.flow.y,
+      targetX: target.x,
+      targetY: target.y,
       targetPosition: Position.Left,
     })
     return path
@@ -2153,6 +2500,19 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (accountOverlay) {
+        if (accountOverlay === "credits" && event.key === "Escape" && !event.isComposing) {
+          setAccountOverlay(null)
+          event.preventDefault()
+        }
+        return
+      }
+      if (referencePick && event.key === "Escape" && !event.isComposing) {
+        event.preventDefault()
+        setReferencePick(null)
+        message.info("已取消选择")
+        return
+      }
       if (event.key === "Escape") {
         if (connectMenu) {
           setConnectMenu(null)
@@ -2166,7 +2526,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
         return
       }
       if (event.defaultPrevented || isTypingTarget(event.target)) return
-      if (addImageOpen || exportOpen || assetOpen || preview || pendingImport || connectMenu || contextMenu) return
+      if (addImageOpen || exportOpen || projectInfoOpen || assetOpen || preview || pendingImport || connectMenu || contextMenu) return
       const modifier = event.ctrlKey || event.metaKey
       const key = event.key.toLowerCase()
 
@@ -2241,8 +2601,8 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
   }, [
-    addCanvasNode, addImageOpen, assetOpen, connectMenu, contextMenu, copySelected, exportOpen, jumpViewpoint, pasteClipboard, patchSettings, pendingImport, preview, redo,
-    saveDraft, saveViewpoint, selectAllNodes, selectedNodeIds, setEdges, setNodes, undo,
+    accountOverlay, addCanvasNode, addImageOpen, assetOpen, connectMenu, contextMenu, copySelected, exportOpen, jumpViewpoint, pasteClipboard, patchSettings, pendingImport, preview, projectInfoOpen, redo,
+    referencePick, saveDraft, saveViewpoint, selectAllNodes, selectedNodeIds, setEdges, setNodes, undo,
   ])
 
   const commitTitle = useCallback(() => {
@@ -2271,18 +2631,18 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     return pending
   }, [csrfToken, project.id, title])
 
-  const leaveCanvas = useCallback(async () => {
+  const leaveCanvas = useCallback(async (afterSave: () => void) => {
     if (leaving) return
     setLeaving(true)
     try {
       const titleSaved = await commitTitle()
       const draftSaved = await saveDraft()
-      if (titleSaved && draftSaved) onBack()
-      else message.warning("画布尚未保存，请处理保存提示后再返回列表")
+      if (titleSaved && draftSaved) afterSave()
+      else message.warning("画布尚未保存，请处理保存提示后再离开")
     } finally {
       if (mountedRef.current) setLeaving(false)
     }
-  }, [commitTitle, leaving, onBack, saveDraft])
+  }, [commitTitle, leaving, saveDraft])
 
   const refreshVersions = useCallback(async () => {
     setVersionsLoading(true)
@@ -2299,6 +2659,14 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     setPanelTab(tab)
     if (tab === "history") void refreshVersions()
   }, [refreshVersions])
+
+  // 进度面板点击行：选中并聚焦节点，同时展开属性面板看参数/错误。
+  const revealProgressNode = useCallback((nodeId: string) => {
+    selectOnlyNode(nodeId)
+    focusNode(nodeId)
+    setPanelOpen(true)
+    changePanelTab("properties")
+  }, [changePanelTab, focusNode, selectOnlyNode])
 
   const openHistoryPanel = useCallback(() => {
     setPanelOpen(true)
@@ -2331,6 +2699,82 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     (nodeId: string, kind: CanvasMediaKind) => openAssetLibrary(kind, nodeId),
     [openAssetLibrary],
   )
+  const audioPolling = useRef(new Set<string>())
+
+  /** 音乐任务轮询：与生成节点一致节拍（3s），终态或节点删除后自然停止。 */
+  const pollAudioJob = useCallback((nodeId: string, jobId: string) => {
+    if (audioPolling.current.has(jobId)) return
+    audioPolling.current.add(jobId)
+    const tick = async () => {
+      try {
+        const job = await fetchCanvasMusicJob(jobId)
+        updateNodeData(nodeId, {
+          jobStatus: job.status,
+          jobProgress: job.progress,
+          resultUrl: job.result_url ?? null,
+          jobError: job.error_message ?? null,
+        })
+        if (!isCanvasJobActive(job.status)) {
+          audioPolling.current.delete(jobId)
+          return
+        }
+      } catch {
+        // 网络抖动继续按节拍重试
+      }
+      window.setTimeout(() => { void tick() }, 3000)
+    }
+    void tick()
+  }, [updateNodeData])
+
+  /** 音频节点的统一入口：音频生成走配置的 TTS（同步返回），音乐生成走本地音乐服务（轮询）。 */
+  const generateAudioNode = useCallback(async (nodeId: string) => {
+    const node = nodesRef.current.find((item) => item.id === nodeId && item.type === "audio")
+    if (!node) return
+    const mode = node.data.audioMode === "music" ? "music" : "tts"
+    const prompt = resolveGeneratorPrompt(
+      incomingGeneratorPromptNodes(nodesRef.current, edgesRef.current, nodeId),
+      node.data.text ?? "",
+    )
+    if (prompt.fromTextNodes) {
+      const issue = generatorPromptIssue(prompt.text, generatorPromptInfo(prompt))
+      if (issue) {
+        message.warning(issue)
+        return
+      }
+    }
+    const text = prompt.text
+    if (!text) {
+      message.warning(mode === "music" ? "先描述你想要的音乐" : "先输入要生成的说话内容")
+      return
+    }
+    updateNodeData(nodeId, {
+      jobId: null,
+      jobStatus: "running",
+      jobProgress: mode === "music" ? 0 : null,
+      jobError: null,
+      resultUrl: null,
+    })
+    try {
+      if (mode === "tts") {
+        const result = await submitCanvasTts(csrfToken, { text, voice: node.data.voice })
+        updateNodeData(nodeId, { jobStatus: "succeeded", jobProgress: 100, resultUrl: result.url })
+        return
+      }
+      const job = await submitCanvasMusic(csrfToken, {
+        description: text,
+        durationSeconds: node.data.durationSeconds ?? 60,
+        instrumental: node.data.instrumental ?? true,
+      })
+      updateNodeData(nodeId, { jobId: job.id, jobStatus: job.status, jobProgress: job.progress })
+      pollAudioJob(nodeId, job.id)
+    } catch (error) {
+      updateNodeData(nodeId, {
+        jobStatus: "failed",
+        jobError: error instanceof Error ? error.message : "音频生成失败",
+      })
+    }
+  }, [csrfToken, pollAudioJob, updateNodeData])
+
   const nodeActions = useMemo<CanvasNodeActions>(() => ({
     openProperties,
     branchGenerate,
@@ -2339,8 +2783,20 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     downloadNode,
     updateCover: updateNodeCover,
     chooseMedia: (nodeId, kind) => openAssetLibrary(kind, nodeId),
+    openConnectMenu,
     saveCanvas: () => { void saveDraft(true) },
-  }), [branchGenerate, deleteNode, downloadNode, duplicateNode, openProperties, openAssetLibrary, saveDraft, updateNodeCover])
+    generateAudio: (nodeId) => { void generateAudioNode(nodeId) },
+  }), [branchGenerate, deleteNode, downloadNode, duplicateNode, generateAudioNode, openProperties, openAssetLibrary, openConnectMenu, saveDraft, updateNodeCover])
+
+  // 时间线节点宿主上下文：剪辑工程挂在 `canvas:<画布id>` scope 下，序列 `tl-<节点id>`。
+  const timelinePool = useMemo(() => canvasTimelineAssets(nodesRef.current), [nodes])
+  const editingNodeContext = useMemo<EditingNodeContextValue>(() => ({
+    csrfToken,
+    scopeProjectId: () => `canvas:${project.id}`,
+    sequenceFor: (nodeId) => `tl-${nodeId}`,
+    canvasAssets: () => timelinePool,
+    openFullscreen: (nodeId) => setTimelineEditorNodeId(nodeId),
+  }), [csrfToken, project.id, timelinePool])
 
   const reloadModesFromPanel = useCallback(() => {
     void modesQuery.refetch()
@@ -2361,22 +2817,38 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     setContextMenu({
       kind: "pane",
       x: Math.max(8, Math.min(event.clientX - rect.left, rect.width - 236)),
-      y: Math.max(8, Math.min(event.clientY - rect.top, rect.height - 440)),
+      y: Math.max(8, Math.min(event.clientY - rect.top, rect.height - 320)),
+      flow: screenToFlowPosition({ x: event.clientX, y: event.clientY }),
+    })
+  }, [screenToFlowPosition])
+
+  // 空白画布双击直接弹出“新建节点”清单（即梦式入口，不经通用右键菜单；xyflow 已关闭双击缩放，不冲突）。
+  const handleStageDoubleClick = useCallback((event: ReactMouseEvent) => {
+    const target = event.target as HTMLElement | null
+    if (target?.closest(".react-flow__node, .react-flow__edge, .canvas-rail, .canvas-assistant, button, input, textarea")) return
+    const rect = stageRef.current?.getBoundingClientRect()
+    if (!rect) return
+    setContextMenu({
+      kind: "pane-create",
+      x: Math.max(8, Math.min(event.clientX - rect.left, rect.width - 236)),
+      y: Math.max(8, Math.min(event.clientY - rect.top, rect.height - 320)),
       flow: screenToFlowPosition({ x: event.clientX, y: event.clientY }),
     })
   }, [screenToFlowPosition])
 
   const openNodeContextMenu = useCallback((event: ReactMouseEvent, node: CanvasNode) => {
     event.preventDefault()
-    if (!selectedNodeIdSet.has(node.id)) selectOnlyNode(node.id)
+    const alreadySelected = selectedNodeIdSet.has(node.id)
+    if (!alreadySelected) selectOnlyNode(node.id)
     const rect = stageRef.current?.getBoundingClientRect()
     if (!rect) return
-    setContextMenu({
-      kind: "node",
+    const point = {
       x: Math.max(8, Math.min(event.clientX - rect.left, rect.width - 236)),
       y: Math.max(8, Math.min(event.clientY - rect.top, rect.height - 380)),
-      nodeId: node.id,
-    })
+    }
+    setContextMenu(alreadySelected && selectedNodeIdSet.size > 1
+      ? { kind: "selection", ...point }
+      : { kind: "node", ...point, nodeId: node.id })
   }, [selectOnlyNode, selectedNodeIdSet])
 
   const openSelectionContextMenu = useCallback((event: ReactMouseEvent) => {
@@ -2424,65 +2896,102 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     },
   ]
 
-  const addMenuItems: MenuProps["items"] = [
-    { type: "group", label: "添加到画布", children: [
-      { key: "generator", icon: <span className="canvas-menu-glyph is-generator"><Sparkles size={21} /></span>, label: <span className="canvas-menu-label"><strong>生成节点</strong><small>AI 生成图像或视频</small></span>, extra: <kbd>G</kbd> },
-      { key: "text", icon: <span className="canvas-menu-glyph is-text"><Type size={21} /></span>, label: <span className="canvas-menu-label"><strong>文字</strong><small>添加提示词或文案</small></span>, extra: <kbd>T</kbd> },
-      { key: "image", icon: <span className="canvas-menu-glyph is-image"><ImagePlus size={21} /></span>, label: <span className="canvas-menu-label"><strong>图片</strong><small>引用图片或创建占位</small></span>, extra: <kbd>A</kbd> },
-      { key: "artboard", icon: <span className="canvas-menu-glyph is-artboard"><Square size={21} /></span>, label: <span className="canvas-menu-label"><strong>画板</strong><small>组织多节点的区域</small></span>, extra: <kbd>F</kbd> },
-    ] },
-    { type: "divider" },
-    { key: "library-image", icon: <span className="canvas-menu-glyph is-artboard"><Images size={21} /></span>, label: <span className="canvas-menu-label"><strong>从作品库插入</strong><small>从已生成的内容中选择</small></span> },
-  ]
-
-  const handleAddMenuClick: MenuProps["onClick"] = ({ key }) => {
-    if (key === "generator") addCanvasNode("generator")
-    else if (key === "text") addCanvasNode("text")
-    else if (key === "image") openAddImageDialog()
-    else if (key === "artboard") addCanvasNode("artboard")
-    else if (key === "library-image") openAssetLibrary("image")
-    else if (key === "library-video") openAssetLibrary("video")
-    else if (key === "image-url") openAddImageDialog()
+  const addNodeFromTool = (kind: CanvasNodeTool, point?: { x: number; y: number }) => {
+    if (kind === "image") openAddImageDialog(point)
+    else addCanvasNode(kind, point)
   }
 
+  // 新建节点清单：右键菜单的子菜单与双击直出菜单共用同一份（即梦双击=直出此清单）。
+  const createNodeMenuChildren: NonNullable<MenuProps["items"]> = [
+    { key: "text", icon: <Type size={15} />, label: "文本" },
+    { key: "image-generator", icon: <ImageIcon size={15} />, label: "图片" },
+    { key: "video-generator", icon: <Video size={15} />, label: "视频" },
+    { key: "audio", icon: <AudioLines size={15} />, label: "音频" },
+    { key: "timeline", icon: <Clock3 size={15} />, label: "时间线" },
+    { key: "artboard", icon: <Square size={15} />, label: "画板" },
+    { type: "divider" },
+    { key: "library-image", icon: <Images size={15} />, label: "从作品库插入" },
+    { key: "local-upload", icon: <Upload size={15} />, label: "本地上传" },
+  ]
+
+  const paneCreateMenuItems: MenuProps["items"] = [
+    { type: "group", key: "create-group", label: "新建节点", children: createNodeMenuChildren },
+  ]
+
   const paneMenuItems: MenuProps["items"] = [
-    ...(addMenuItems ?? []),
+    {
+      key: "create",
+      label: "新建节点",
+      popupClassName: "canvas-context-submenu",
+      children: createNodeMenuChildren,
+    },
     { type: "divider" },
     {
       key: "paste",
-      icon: <ClipboardPaste size={15} />,
       label: "粘贴",
-      extra: "Ctrl V",
+      extra: <kbd>Ctrl V</kbd>,
       disabled: !clipboardCount,
     },
     {
+      key: "redo",
+      label: "重做",
+      extra: <kbd>Ctrl Shift Z</kbd>,
+      disabled: !historyState.canRedo,
+    },
+    {
+      key: "undo",
+      label: "撤销",
+      extra: <kbd>Ctrl Z</kbd>,
+      disabled: !historyState.canUndo,
+    },
+    { type: "divider" },
+    {
       key: "select-all",
-      icon: <MousePointer2 size={15} />,
       label: "全选",
-      extra: "Ctrl A",
+      extra: <kbd>Ctrl A</kbd>,
       disabled: !nodes.length,
     },
   ]
 
   const handlePaneMenuClick: MenuProps["onClick"] = ({ key }) => {
-    const point = contextMenu?.kind === "pane" ? contextMenu.flow : undefined
+    const point = contextMenu && (contextMenu.kind === "pane" || contextMenu.kind === "pane-create")
+      ? contextMenu.flow
+      : undefined
     setContextMenu(null)
     if (key === "paste") {
       pasteClipboard()
+      return
+    }
+    if (key === "undo") {
+      undo()
+      return
+    }
+    if (key === "redo") {
+      redo()
       return
     }
     if (key === "select-all") {
       selectAllNodes()
       return
     }
-    if (key === "image") { openAddImageDialog(point); return }
-    if (key === "generator" || key === "text" || key === "artboard") {
-      addCanvasNode(key, point)
+    if (key === "local-upload") {
+      openLocalMediaUpload(point)
       return
     }
-    if (key === "library-image") openAssetLibrary("image")
-    else if (key === "library-video") openAssetLibrary("video")
-    else if (key === "image-url") openAddImageDialog(point)
+    if (key === "image-generator") {
+      addCanvasNode("generator", point, "image")
+      return
+    }
+    if (key === "video-generator") {
+      addCanvasNode("generator", point, "video")
+      return
+    }
+    if (key === "library-image") {
+      openAssetLibrary("image")
+      return
+    }
+    const nodeTool = CANVAS_NODE_TOOLS.find(({ kind }) => kind === key)
+    if (nodeTool) addNodeFromTool(nodeTool.kind, point)
   }
 
   const nodeMenuItems: MenuProps["items"] = (() => {
@@ -2548,6 +3057,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
       disabled: !canAlign,
       children: arrangeItems,
     },
+    { key: "separate-overlaps", icon: <AlignVerticalSpaceBetween size={15} />, label: "错开重叠节点", disabled: !canAlign },
     { type: "divider" },
     {
       key: "delete",
@@ -2561,7 +3071,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     setContextMenu(null)
     if (key === "duplicate") duplicateSelected()
     else if (key === "delete") deleteSelected()
-    else arrangeSelected(key as CanvasAlignMode | `distribute-${CanvasDistributeAxis}`)
+    else arrangeSelected(key as Parameters<typeof arrangeSelected>[0])
   }
 
   const duplicateSelected = useCallback(() => {
@@ -2631,14 +3141,14 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
     )
   }, [edges, minimapShapeToken])
 
-  const generatorContextValue = useMemo(() => {
+  const generatorContextValue = useMemo<CanvasGeneratorContextValue>(() => {
     const promptStateFor = (nodeId: string): CanvasGeneratorPromptState => {
       const currentNodes = nodesRef.current
-      const node = currentNodes.find((item) => item.id === nodeId && item.type === "generator")
+      const node = currentNodes.find((item) => item.id === nodeId)
       if (!node) return { text: "", connectedTextNodes: 0, emptyTextNodes: 0, fromTextNodes: false }
       const source = resolveGeneratorPrompt(
         incomingGeneratorPromptNodes(currentNodes, edgesRef.current, nodeId),
-        node.data.prompt ?? "",
+        (node.type === "audio" ? node.data.text : node.data.prompt) ?? "",
       )
       return {
         text: source.text,
@@ -2654,7 +3164,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
         setEdges((current) => current.filter((edge) => {
           if (edge.target !== nodeId) return true
           const source = nodesRef.current.find((item) => item.id === edge.source)
-          return kind === "text" ? source?.type !== "text" : !source || !canvasReferenceEligible(source)
+          return kind === "text" ? source?.type !== "text" : !source || canvasReferenceKind(source) !== "image"
         }))
       },
       workflowName: (workflowId?: string) => {
@@ -2665,13 +3175,23 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
       liveFor: (jobId?: string | null) => (jobId ? liveJobs[jobId] ?? null : null),
       referenceCountFor: (nodeId: string) => incomingGeneratorReferenceNodes(nodesRef.current, edgesRef.current, nodeId).length,
       referencesFor: (nodeId: string) => incomingGeneratorReferenceNodes(nodesRef.current, edgesRef.current, nodeId),
-      chooseReference: (nodeId: string, sourceId?: string) => {
-        setAssetKind("image")
-        setAssetTargetNodeId(null)
-        setAssetGeneratorId(nodeId)
-        setAssetReferenceSourceId(sourceId ?? null)
-        setAssetOpen(true)
+      chooseReference: (nodeId, kind, sourceId) => {
+        if (kind === "audio") {
+          if (sourceId) {
+            selectOnlyNode(sourceId)
+            focusNode(sourceId)
+            return
+          }
+          const node = nodesRef.current.find((item) => item.id === nodeId)
+          if (node && connectTargetsFor(nodeId, "in").some((item) => item.kind === "audio")) {
+            const size = canvasNodeSize(node)
+            addConnectedNode({ nodeId, handleId: "in", direction: "in", flow: { x: node.position.x - 64, y: node.position.y + size.height / 2 } }, { kind: "audio" })
+          }
+          return
+        }
+        openReferenceLibrary(nodeId, kind, sourceId)
       },
+      chooseReferenceSource,
       removeReference: (nodeId: string, sourceId: string) => setEdges((current) => current.filter((edge) => !(edge.target === nodeId && edge.source === sourceId))),
       moveReference: (nodeId: string, sourceId: string, direction: -1 | 1) => setEdges((current) => reorderCanvasReferenceEdges(current, nodesRef.current, nodeId, sourceId, direction)),
       promptInfoFor: promptStateFor,
@@ -2695,10 +3215,53 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
       submitting: (nodeId: string) => submittingGeneratorIds.has(nodeId),
     }
   }, [
-    cancelGenerator, edges, generationModes, insertGeneratorResult, liveJobs, modesQuery.isLoading, nodeDataRevision,
+    addConnectedNode, cancelGenerator, connectTargetsFor, edges, focusNode, generationModes, insertGeneratorResult,
+    liveJobs, modesQuery.isLoading, nodeDataRevision, openReferenceLibrary, chooseReferenceSource, selectOnlyNode,
     submitGenerator, refineGenerator, submittingGeneratorIds,
   ])
 
+  /**
+   * 结果节点回显栏的执行动作：按回显参数新建生成节点（当前结果自动接为参考素材），
+   * 选中后交回给标准生成 composer；submit 时立即提交，referenceKind 时继续打开素材库补参考。
+   */
+  const runFromResultNode = useCallback((
+    source: CanvasNode,
+    state: CanvasResultRunState,
+    options: { submit?: boolean; referenceKind?: CanvasReferenceKind | null } = {},
+  ) => {
+    const mode = generationModes.find((item) => item.id === state.workflowId) ?? null
+    if (!mode) {
+      message.warning("请先选择生成工作流")
+      return
+    }
+    const kind: CanvasReferenceKind = source.type === "video" ? "video" : "image"
+    const bindSelf = Boolean(state.includeSelf) && canvasModeAcceptsReferenceKind(mode, kind)
+    const created = createGeneratorNode(nextCanvasBranchSlot(source, "right", nodesRef.current), {
+      prompt: state.prompt,
+      workflowId: mode.id,
+      optionValues: state.optionValues,
+      mediaKind: mode.media_type,
+      branchDirection: "right",
+    })
+    const edge: CanvasEdge | null = bindSelf ? {
+      id: buildEdgeId(source.id, created.id),
+      source: source.id,
+      target: created.id,
+      sourceHandle: "out",
+      targetHandle: "in",
+      type: "smoothstep",
+    } : null
+    setNodes((current) => [
+      ...current.map((node) => ({ ...node, selected: false })),
+      { ...created, selected: true },
+    ])
+    setEdges((current) => (edge && !current.some((item) => item.id === edge.id) ? [...current, edge] : current))
+    setSelectedNodeIds([created.id])
+    setSelectedEdgeIds([])
+    if (options.referenceKind) generatorContextValue.chooseReference(created.id, options.referenceKind)
+    // setNodes 之后 nodesRef 仍指向旧数组，等提交完成后再触发提交。
+    if (options.submit) window.setTimeout(() => { void submitGenerator(created.id) }, 0)
+  }, [generationModes, generatorContextValue, setEdges, setNodes, submitGenerator])
 
   const contentSizeLevel = canvasContentSizeLevel(contentBytes)
   const saveNotice: {
@@ -2756,12 +3319,14 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
   )
 
   const imageUrlInvalid = Boolean(imageUrl.trim()) && !isSafeMediaUrl(imageUrl.trim(), "image")
+  // 画布在独立窗口打开时，“返回列表”等价于关窗回到列表所在窗口。
+  const backLabel = typeof window !== "undefined" && window.opener ? "关闭画布窗口" : "返回画布列表"
 
   return (
     <div className="canvas-workspace canvas-editor-workspace">
       <header className="canvas-editor-header canvas-chrome-bar">
         <div className="canvas-editor-project">
-        <Tooltip title="返回画布列表"><Button type="text" loading={leaving} icon={<ChevronLeft size={20} />} aria-label="返回画布列表" onClick={() => { void leaveCanvas() }} /></Tooltip>
+        <Tooltip title={backLabel}><Button type="text" loading={leaving} icon={<ChevronLeft size={20} />} aria-label={backLabel} onClick={() => { void leaveCanvas(onBack) }} /></Tooltip>
         <span className="canvas-editor-breadcrumb">无限画布 <span>/</span></span>
         <Input
           id="canvas-title"
@@ -2784,7 +3349,35 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
         </Tooltip>
         </div>
         <div className="canvas-editor-controls">
+        <div className="canvas-editor-actions" role="toolbar" aria-label="画布操作">
+        <Popover
+          trigger="click"
+          placement="bottomRight"
+          arrow={false}
+          open={progressOpen}
+          onOpenChange={setProgressOpen}
+          classNames={{ root: "canvas-popover canvas-progress-popover" }}
+          content={(
+            <CanvasGenerationProgressPanel
+              entries={progressEntries}
+              onSelect={(nodeId) => { revealProgressNode(nodeId); setProgressOpen(false) }}
+            />
+          )}
+        >
+          <Badge count={progressJobCount} size="small" offset={[-4, 2]} className="canvas-header-progress-badge">
+            <Button className={progressOpen ? "canvas-header-progress is-active" : "canvas-header-progress"} type="text" icon={<Activity size={22} />} aria-expanded={progressOpen} aria-haspopup="dialog" title="生成进度">进度</Button>
+          </Badge>
+        </Popover>
         <Button className="canvas-header-history" type="text" icon={<History size={22} />} onClick={openHistoryPanel}>历史</Button>
+        <Tooltip title="画布助手：读懂画布、出方案、一键应用">
+          <Button
+            className={assistantOpen ? "canvas-assistant-toggle is-active" : "canvas-assistant-toggle"}
+            type="text"
+            icon={<Sparkles size={18} />}
+            aria-pressed={assistantOpen}
+            onClick={() => setAssistantOpen((open) => !open)}
+          >助手</Button>
+        </Tooltip>
         <Tooltip title="图层"><Button type="text" icon={<PanelRight size={16} />} aria-label="图层" onClick={() => { setPanelOpen(true); changePanelTab("layers") }} /></Tooltip>
         <Button className="canvas-header-settings" type="text" icon={<Settings size={22} />} onClick={openCanvasSettings}>设置</Button>
         <Tooltip title={panelOpen ? "收起属性面板" : "展开属性面板"}>
@@ -2795,14 +3388,18 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
           classNames={{ root: "canvas-popup canvas-file-menu" }}
           menu={{
             items: [
+              { key: "project-info", icon: <Info size={15} />, label: "项目信息" },
               { key: "save", icon: <Check size={15} />, label: "立即保存" },
+              { key: "library", icon: <Images size={15} />, label: "从作品库插入" },
               { key: "export-png", icon: <ImageIcon size={15} />, label: "导出 PNG" },
               { type: "divider" },
               { key: "export", icon: <Download size={15} />, label: "导出 JSON" },
               { key: "import", icon: <Upload size={15} />, label: "导入 JSON" },
             ],
             onClick: ({ key }) => {
+              if (key === "project-info") setProjectInfoOpen(true)
               if (key === "save") void saveDraft(true)
+              if (key === "library") openAssetLibrary("image")
               if (key === "export-png") setExportOpen(true)
               if (key === "export") exportJson()
               if (key === "import") fileInputRef.current?.click()
@@ -2811,7 +3408,16 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
         >
           <Button type="text" icon={<MoreHorizontal size={18} />} aria-label="更多画布操作" />
         </Dropdown>
+        </div>
         <Button className="canvas-header-export" icon={<Download size={15} />} onClick={() => setExportOpen(true)}>导出</Button>
+        {account ? <CanvasAccountMenu
+          user={account.user}
+          csrfToken={csrfToken}
+          overlay={accountOverlay}
+          onOverlayChange={setAccountOverlay}
+          onLogout={() => { void leaveCanvas(account.onLogout) }}
+          logoutPending={leaving || account.logoutPending}
+        /> : null}
         </div>
       </header>
       <input
@@ -2822,6 +3428,15 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
         tabIndex={-1}
         aria-hidden="true"
         onChange={(event) => { void handleImportFile(event) }}
+      />
+      <input
+        ref={localMediaInputRef}
+        type="file"
+        accept="image/*,video/*"
+        className="hidden"
+        tabIndex={-1}
+        aria-hidden="true"
+        onChange={(event) => { void handleLocalMediaUpload(event) }}
       />
 
       {conflictVersionNumber !== null ? (
@@ -2847,64 +3462,48 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
 
       <div className="canvas-editor-body">
         <div
-          className={`canvas-stage canvas-flow canvas-tool-${tool} canvas-connections-${settings.connectionMode}`}
+          className={`canvas-stage canvas-flow canvas-tool-${tool} canvas-connections-${settings.connectionMode}${referencePick ? " canvas-reference-picking" : ""}`}
           ref={stageRef}
+          onDoubleClick={handleStageDoubleClick}
           onDragEnter={handleStageDragEnter}
           onDragOver={handleStageDragOver}
           onDragLeave={handleStageDragLeave}
           onDrop={handleStageDrop}
         >
-          <div className="canvas-rail" role="toolbar" aria-label="画布工具">
-            <Tooltip title="选择 (V)" placement="right">
+          <div className="canvas-rail" role="toolbar" aria-label="添加画布节点" aria-orientation="vertical">
+            {CANVAS_NODE_TOOLS.map(({ kind, label, actionLabel, icon: Icon }) => (
               <Button
+                key={kind}
                 type="text"
-                className={tool === "select" ? "is-active" : undefined}
-                icon={<MousePointer2 size={17} />}
-                onClick={() => setTool("select")}
-                aria-label="选择工具"
-                aria-pressed={tool === "select"}
-              />
-            </Tooltip>
-            <Tooltip title="移动画布 (H)" placement="right">
-              <Button
-                type="text"
-                className={tool === "pan" ? "is-active" : undefined}
-                icon={<Hand size={17} />}
-                onClick={() => setTool("pan")}
-                aria-label="移动工具"
-                aria-pressed={tool === "pan"}
-              />
-            </Tooltip>
-            <span className="canvas-rail-divider" />
-            <Dropdown trigger={["click"]} placement="rightTop" classNames={{ root: "canvas-popup canvas-add-menu" }} align={{ offset: [8, -2] }} menu={{ items: addMenuItems, onClick: handleAddMenuClick }}>
-              <Button className="canvas-rail-add" type="primary" icon={<Plus size={18} />} aria-label="添加节点" />
-            </Dropdown>
-            <Tooltip title="添加文字 (T)" placement="right">
-              <Button type="text" icon={<Type size={18} />} onClick={() => addCanvasNode("text")} aria-label="添加文字" />
-            </Tooltip>
-            <Tooltip title="添加图片 (A)" placement="right"><Button type="text" icon={<ImageIcon size={22} />} onClick={() => openAddImageDialog()} aria-label="添加图片" /></Tooltip>
-            <Tooltip title="添加生成节点 (G)" placement="right"><Button type="text" icon={<Sparkles size={22} />} onClick={() => addCanvasNode("generator")} aria-label="添加生成节点" /></Tooltip>
-            <Tooltip title="新建画板 (F)" placement="right"><Button type="text" icon={<Square size={22} />} onClick={() => addCanvasNode("artboard")} aria-label="新建画板" /></Tooltip>
-            <span className="canvas-rail-divider" />
-            <Tooltip title={historyState.canUndo ? "撤销 (Ctrl/⌘ Z)" : "没有可撤销的操作"} placement="right">
-              <Button icon={<Undo2 size={17} />} disabled={!historyState.canUndo} onClick={undo} aria-label="撤销" />
-            </Tooltip>
-            <Tooltip title={historyState.canRedo ? "重做 (Ctrl/⌘ Shift Z)" : "没有可重做的操作"} placement="right">
-              <Button icon={<Redo2 size={17} />} disabled={!historyState.canRedo} onClick={redo} aria-label="重做" />
-            </Tooltip>
-            <Popover classNames={{ root: "canvas-popover canvas-shortcuts-popover" }} content={shortcutContent} title={<span className="canvas-popover-heading"><Keyboard size={15} />快捷键</span>} trigger="click" placement="rightBottom">
-              <Button icon={<Keyboard size={17} />} aria-label="快捷键说明" />
-            </Popover>
+                icon={<Icon size={18} />}
+                onClick={() => addNodeFromTool(kind)}
+                aria-label={actionLabel}
+              >
+                <span className="canvas-rail-label">{label}</span>
+              </Button>
+            ))}
           </div>
 
+          <CanvasAssistantPanel
+            canvasId={project.id}
+            csrfToken={csrfToken}
+            bridge={assistantBridge}
+            modes={generationModes}
+            open={assistantOpen}
+            onClose={() => setAssistantOpen(false)}
+          />
+
           <CanvasNodeActionsContext.Provider value={nodeActions}>
+          <EditingNodeContext.Provider value={editingNodeContext}>
           <CanvasGeneratorContext.Provider value={generatorContextValue}>
           <CanvasMediaPreviewContext.Provider value={openMediaPreview}>
             <ReactFlow
               nodes={nodes}
               edges={visibleEdges}
               nodeTypes={baseNodeTypes}
-              edgeTypes={edgeTypes}
+              edgeTypes={canvasEdgeTypes}
+              connectionLineComponent={CanvasConnectionLine}
+              style={canvasFlowStyle}
               onNodesChange={handleNodesChange}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
@@ -2919,10 +3518,14 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
               onPaneClick={() => {
                 setContextMenu(null)
                 setConnectMenu(null)
+                if (referencePick) {
+                  setReferencePick(null)
+                  message.info("已取消选择")
+                }
               }}
               onPaneContextMenu={openPaneContextMenu}
               onNodeContextMenu={openNodeContextMenu}
-              onNodeClick={() => setCanvasSettingsPinned(false)}
+              onNodeClick={handleCanvasNodeClick}
               onNodeMouseEnter={(_, node) => setHoveredNodeId(node.id)}
               onNodeMouseLeave={() => setHoveredNodeId(null)}
               onSelectionContextMenu={openSelectionContextMenu}
@@ -2935,7 +3538,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
               minZoom={CANVAS_MIN_ZOOM}
               maxZoom={CANVAS_MAX_ZOOM}
               onlyRenderVisibleElements={shouldVirtualizeCanvasNodes(nodes.length)}
-              deleteKeyCode={["Backspace", "Delete"]}
+              deleteKeyCode={accountOverlay ? null : ["Backspace", "Delete"]}
               defaultEdgeOptions={{ type: "smoothstep" }}
               colorMode={themeMode}
               proOptions={{ hideAttribution: false }}
@@ -2947,11 +3550,12 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
               panActivationKeyCode="Space"
               nodesDraggable={tool === "select"}
               nodesConnectable={settings.connectionMode !== "off"}
+              connectOnClick={false}
               connectionRadius={26}
               zoomOnDoubleClick={false}
               elementsSelectable
             >
-              {settings.gridVisible ? <Background gap={22} size={1} color="var(--canvas-grid-dot)" /> : null}
+              {settings.gridVisible ? <CanvasGrid /> : null}
               <ViewportPortal>
                 {guides.vertical.map((x, index) => (
                   <div
@@ -2969,8 +3573,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
                 ))}
                 {connectMenu && pendingConnectPath ? (
                   <svg className="canvas-pending-connection" width="1" height="1" aria-hidden="true">
-                    <path d={pendingConnectPath} className="canvas-pending-path" />
-                    <circle cx={connectMenu.flow.x} cy={connectMenu.flow.y} r={4.5} className="canvas-pending-dot" />
+                    <CanvasConnectionTrace path={pendingConnectPath} />
                   </svg>
                 ) : null}
               </ViewportPortal>
@@ -2995,21 +3598,57 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
                 />
               ) : null}
             </ReactFlow>
+            <CanvasGridRipples ripples={gridRipples} onDone={removeGridRipple} />
           </CanvasMediaPreviewContext.Provider>
           </CanvasGeneratorContext.Provider>
+          </EditingNodeContext.Provider>
           </CanvasNodeActionsContext.Provider>
 
-          <div className="canvas-bottombar" role="toolbar" aria-label="画布视图">
+          {composerNode?.type === "generator" ? (
+            <CanvasGeneratorComposer key={composerNode.id} id={composerNode.id} data={composerNode.data} generator={generatorContextValue} actions={nodeActions} authenticated={Boolean(account)} />
+          ) : null}
+          {composerNode?.type === "audio" ? (
+            <CanvasAudioComposer key={composerNode.id} id={composerNode.id} data={composerNode.data} actions={nodeActions}
+              prompt={generatorContextValue.promptInfoFor(composerNode.id)}
+              disconnectPrompt={() => generatorContextValue.disconnectInput(composerNode.id, "text")} />
+          ) : null}
+          {resultComposerNode && resultProvenance ? (
+            <CanvasResultComposer key={resultComposerNode.id} node={resultComposerNode} provenance={resultProvenance}
+              modes={generationModes} modesLoading={modesQuery.isLoading} actions={nodeActions} authenticated={Boolean(account)}
+              onRun={(state, options) => runFromResultNode(resultComposerNode, state, options)} />
+          ) : null}
+
+          {referencePick ? (
+            <div className="canvas-reference-pick-hint" role="status">
+              <span>点击画布中的{referencePick.kind === "image" ? "图片" : "素材"}{referencePick.sourceId ? "替换" : "添加"}参考图</span>
+              <Button type="text" size="small" onClick={() => setReferencePick(null)}>取消</Button>
+            </div>
+          ) : null}
+
+          <div className="canvas-bottombar" role="toolbar" aria-label="画布工具">
+            <Tooltip title="选择 (V)">
+              <Button type="text" icon={<MousePointer2 size={16} />} onClick={() => setTool("select")} aria-label="选择工具" aria-pressed={tool === "select"} />
+            </Tooltip>
+            <Tooltip title="移动画布 (H) · 空格拖拽">
+              <Button type="text" icon={<Hand size={16} />} onClick={() => setTool("pan")} aria-label="移动工具" aria-pressed={tool === "pan"} />
+            </Tooltip>
+            <span className="canvas-bottombar-divider" />
+            <Tooltip title={historyState.canUndo ? "撤销 (Ctrl/⌘ Z)" : "没有可撤销的操作"}>
+              <Button type="text" icon={<Undo2 size={16} />} disabled={!historyState.canUndo} onClick={undo} aria-label="撤销" />
+            </Tooltip>
+            <Tooltip title={historyState.canRedo ? "重做 (Ctrl/⌘ Shift Z)" : "没有可重做的操作"}>
+              <Button type="text" icon={<Redo2 size={16} />} disabled={!historyState.canRedo} onClick={redo} aria-label="重做" />
+            </Tooltip>
+            <span className="canvas-bottombar-divider" />
             <Tooltip title={settings.minimapVisible ? "隐藏小地图 (M)" : "显示小地图 (M)"}>
               <Button
                 type="text"
-                className={settings.minimapVisible ? "is-active" : undefined}
                 icon={<MapIcon size={15} />}
                 onClick={() => patchSettings({ minimapVisible: !settings.minimapVisible })}
                 aria-label="切换小地图"
+                aria-pressed={settings.minimapVisible}
               />
             </Tooltip>
-            <span className="canvas-bottombar-divider" />
             <Tooltip title="缩小">
               <Button type="text" icon={<Minus size={15} />} onClick={() => { void zoomOut({ duration: 160 }) }} aria-label="缩小" />
             </Tooltip>
@@ -3036,7 +3675,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
               content={<CanvasViewModeMenu settings={settings} onChange={patchSettings} />}
             >
               <Tooltip title="连线与生成模式">
-                <Button type="text" className="canvas-viewmode-trigger" icon={<Waypoints size={15} />} aria-label="连线与生成模式" />
+                <Button type="text" icon={<Waypoints size={15} />} aria-label="连线与生成模式" />
               </Tooltip>
             </Popover>
             <Popover trigger="click" placement="topRight" classNames={{ root: "canvas-popover canvas-viewpoints-popover" }} title="保存的视角" content={(
@@ -3070,18 +3709,32 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
             )}>
               <Button type="text" className="canvas-viewpoints-trigger">视角 <ChevronDown size={12} /></Button>
             </Popover>
+            <Popover
+              classNames={{ root: "canvas-popover canvas-shortcuts-popover" }}
+              content={shortcutContent}
+              title={<span className="canvas-popover-heading"><Keyboard size={15} />快捷键</span>}
+              trigger="click"
+              placement="topRight"
+            >
+              <Tooltip title="快捷键">
+                <Button type="text" icon={<Keyboard size={16} />} aria-label="快捷键说明" />
+              </Tooltip>
+            </Popover>
           </div>
 
-          {nodes.length ? <div className="canvas-stage-hint"><span><kbd>空格</kbd>拖拽平移</span><span>·</span>滚轮缩放</div> : null}
-
           {!nodes.length ? (
-            <div className="canvas-empty-hint">
-              <span className="canvas-empty-symbol"><Sparkles size={25} /></span>
-              <strong>把灵感连成作品</strong>
-              <span>从一段文字、一张参考图，或一个生成节点开始。</span>
-              <div className="canvas-empty-hint-actions"><Button type="primary" icon={<Plus size={15} />} onClick={() => addCanvasNode("generator")}>添加生成节点</Button><Button icon={<Images size={15} />} onClick={() => openAssetLibrary("image")}>从作品库插入</Button></div>
-              <small>也可以右键画布添加 · T 文字 · G 生成 · F 画板</small>
-            </div>
+            <>
+              <CanvasAmbientEmpty />
+              <div className="canvas-empty-hint">
+                <span>双击画布</span>
+                <span className="canvas-empty-sparkle-wrap">
+                  <span className="canvas-empty-sparkle-ring" />
+                  <span className="canvas-empty-sparkle-ring" />
+                  <CanvasEmptySparkle />
+                </span>
+                <span>创建节点</span>
+              </div>
+            </>
           ) : null}
 
           {draggingAsset && dropPoint ? (
@@ -3125,7 +3778,9 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
                     ? nodeMenuItems
                     : contextMenu.kind === "selection"
                       ? selectionMenuItems
-                      : paneMenuItems}
+                      : contextMenu.kind === "pane-create"
+                        ? paneCreateMenuItems
+                        : paneMenuItems}
                   onClick={contextMenu.kind === "node"
                     ? handleNodeMenuClick
                     : contextMenu.kind === "selection"
@@ -3137,43 +3792,29 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
           ) : null}
 
           {connectMenu && connectMenuTargets.length ? (
-            <>
-              <div
-                className="canvas-context-backdrop"
-                onPointerDown={() => setConnectMenu(null)}
-                onContextMenu={(event) => {
-                  event.preventDefault()
-                  setConnectMenu(null)
-                }}
-              />
-              <div
-                className="canvas-connect-menu"
-                style={{ left: connectMenu.x, top: connectMenu.y }}
-              >
-                <div className="canvas-connect-heading">
-                  <span>添加节点</span>
-                  <small>选择后自动连线</small>
-                </div>
-                <Menu
-                  selectable={false}
-                  items={connectMenuTargets.map((target) => ({
-                    key: target.key,
-                    icon: target.kind === "generator"
-                      ? <Sparkles size={16} />
-                      : target.kind === "video"
-                        ? <Video size={16} />
-                        : <ImageIcon size={16} />,
-                    label: (
-                      <span className="canvas-connect-item">
-                        <strong>{target.label}</strong>
-                        <small>{target.description}</small>
-                      </span>
-                    ),
-                  }))}
-                  onClick={({ key }) => applyConnectTarget(key)}
-                />
-              </div>
-            </>
+            <Dropdown
+              open
+              autoFocus
+              trigger={["click"]}
+              placement="bottomLeft"
+              onOpenChange={(open) => { if (!open) setConnectMenu(null) }}
+              classNames={{ root: "canvas-port-menu" }}
+              menu={{
+                "aria-label": "添加节点",
+                selectable: false,
+                items: [{
+                  type: "group",
+                  label: "添加节点",
+                  children: connectMenuTargets.map(({ kind }) => {
+                    const Icon = CANVAS_NODE_TOOLS.find((tool) => tool.kind === kind)?.icon ?? Plus
+                    return { key: kind, icon: <Icon size={16} />, label: CANVAS_CONNECT_LABELS[kind] }
+                  }),
+                }],
+                onClick: ({ key }) => applyConnectTarget(key),
+              }}
+            >
+              <span className="canvas-port-menu-anchor" style={{ left: connectMenu.x, top: connectMenu.y }} />
+            </Dropdown>
           ) : null}
         </div>
 
@@ -3205,6 +3846,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
               ? liveJobs[selectedNode.data.jobId] ?? null
               : null}
             submitting={selectedNodeId !== null && submittingGeneratorIds.has(selectedNodeId)}
+            authenticated={Boolean(account)}
             onSubmit={submitFromPanel}
             onCancel={cancelFromPanel}
             onRefine={refineFromPanel}
@@ -3261,7 +3903,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
       <Drawer
         className="canvas-asset-panel"
         rootClassName="canvas-asset-drawer"
-        title={assetGeneratorId ? "选择生成参考图" : assetTargetNodeId ? `替换${assetKind === "video" ? "视频" : "图片"}素材` : "从作品库插入素材"}
+        title={assetGeneratorId ? `选择${assetKind === "video" ? "参考视频" : "生成参考图"}` : assetTargetNodeId ? `替换${assetKind === "video" ? "视频" : "图片"}素材` : "从作品库插入素材"}
         placement="right"
         size={560}
         mask={false}
@@ -3273,7 +3915,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
       >
         <div className="canvas-asset-toolbar">
           <div className="canvas-asset-toolbar-row">
-            {assetGeneratorId ? <Tag>按选择顺序添加参考图</Tag> : assetTargetNodeId ? (
+            {assetGeneratorId ? <Tag>按选择顺序添加参考素材</Tag> : assetTargetNodeId ? (
               <Tag className="canvas-asset-target">
                 替换：{assetTargetNode?.data.label || "选中节点"}
               </Tag>
@@ -3299,7 +3941,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
             />
           </div>
           <span className="canvas-asset-hint">
-            {assetGeneratorId ? "选择图片将创建素材节点，并连接为当前生成节点的参考图；替换不会修改原素材。" : assetTargetNodeId
+            {assetGeneratorId ? "选择素材会创建素材节点，并连接到当前生成节点。" : assetTargetNodeId
               ? "点击素材会替换当前节点的地址与来源，保留已有标签。"
               : "点击素材插入画布中心，或直接拖到画布上的目标位置；已交付到本机或已过期的资源不可用。"}
           </span>
@@ -3336,7 +3978,7 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
                     key={canvasLibraryItemKey(item)}
                     className="canvas-asset-card"
                     draggable={!assetTargetNodeId && !assetGeneratorId && Boolean(url)}
-                    title={assetGeneratorId ? "选择为生成参考图" : assetTargetNodeId ? "点击替换当前节点素材" : "点击插入画布中心，或拖拽到画布目标位置"}
+                    title={assetGeneratorId ? "选择为生成参考素材" : assetTargetNodeId ? "点击替换当前节点素材" : "点击插入画布中心，或拖拽到画布目标位置"}
                     onClick={() => insertLibraryItem(item)}
                     onDragStart={(event) => startAssetDrag(item, event)}
                     onDragEnd={endAssetDrag}
@@ -3421,6 +4063,19 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
           : null}
       </Modal>
 
+      {timelineEditorNodeId && (
+        <EditStudio
+          key={timelineEditorNodeId}
+          csrfToken={csrfToken}
+          scopeProjectId={`canvas:${project.id}`}
+          sequence={`tl-${timelineEditorNodeId}`}
+          variant="timeline"
+          title={nodes.find((item) => item.id === timelineEditorNodeId)?.data.label || "时间线"}
+          canvasAssets={timelinePool}
+          onClose={() => setTimelineEditorNodeId(null)}
+        />
+      )}
+
       <CanvasExportDialog
         open={exportOpen}
         title={title}
@@ -3429,6 +4084,21 @@ function CanvasEditorInner({ project, csrfToken, onBack }: {
         selectedNodeIds={selectedNodeIds}
         onClose={() => setExportOpen(false)}
       />
+
+      {account ? (
+        <CanvasProjectInfoModal
+          open={projectInfoOpen}
+          project={project}
+          user={account.user}
+          nodes={nodes}
+          csrfToken={csrfToken}
+          onClose={() => setProjectInfoOpen(false)}
+          onViewCreditDetails={() => {
+            setProjectInfoOpen(false)
+            setAccountOverlay("credits")
+          }}
+        />
+      ) : null}
     </div>
   )
 }

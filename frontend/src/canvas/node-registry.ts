@@ -1,12 +1,14 @@
 import type { NodeTypes } from "@xyflow/react"
 import {
   ArtboardCanvasNode,
+  AudioCanvasNode,
   GeneratorCanvasNode,
   ImageCanvasNode,
   TextCanvasNode,
   UnknownCanvasNode,
   VideoCanvasNode,
 } from "./CanvasNodes"
+import { TimelineCanvasNode } from "../editing/TimelineNodes"
 
 /**
  * 画布通用节点注册表（单一来源）。
@@ -21,6 +23,8 @@ export const baseNodeTypes: NodeTypes = {
   video: VideoCanvasNode,
   artboard: ArtboardCanvasNode,
   generator: GeneratorCanvasNode,
+  audio: AudioCanvasNode,
+  timeline: TimelineCanvasNode,
   unknown: UnknownCanvasNode,
 }
 

@@ -166,12 +166,12 @@ def register_smart_edit_routes(app, *, current_user: Callable, mutating_user: Ca
 
     @app.post(prefix + "/{sequence_id}/import-local", tags=["智能剪辑"], summary="直接引用本机文件或文件夹，不复制、不上传")
     def import_local(project_id: str, sequence_id: str, body: ImportLocalRequest, user: dict = Depends(mutating_user)):
-        call(service.project_or_error, project_id)
+        call(service.edit_scope_or_error, project_id, str(user["id"]))
         return call(service.import_local_media, body.path, body.recursive, user)
 
     @app.post(prefix + "/{sequence_id}/upload", tags=["智能剪辑"], summary="导入媒体并探测实际时长")
     def upload(project_id: str, sequence_id: str, file: UploadFile = File(...), user: dict = Depends(mutating_user)):
-        call(service.project_or_error, project_id)
+        call(service.edit_scope_or_error, project_id, str(user["id"]))
         extension = Path(file.filename or "").suffix.lower()
         kinds = {".mp4": "video", ".mov": "video", ".webm": "video", ".mkv": "video", ".png": "image", ".jpg": "image", ".jpeg": "image", ".webp": "image", ".mp3": "audio", ".wav": "audio", ".m4a": "audio", ".ogg": "audio", ".flac": "audio"}
         if extension not in kinds:

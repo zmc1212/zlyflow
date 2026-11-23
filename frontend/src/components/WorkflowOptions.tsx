@@ -1,5 +1,6 @@
 // 工作流选择器共享渲染 —— 从生成页（App.tsx）抽出，供生成页与资产画布 Prompt Bar 复用。
-// 选项行展示：图标 + 名称（默认标）+ 描述 + GRS 平台标价积分；分组信息来自 /api/modes 的 catalog_group 字段。
+// 选项行展示：图标 + 名称（默认标）+ 描述；积分消耗不在此处标价，
+// 统一展示在发送按钮左侧的实时预估（生成页 studio-submit-cost / 画布 canvas-composer-cost）。
 import { ImagePlus } from "lucide-react"
 
 /** /api/modes 单条工作流的最小结构；App 的 Workflow 与画布的 CanvasWorkflowMode 均满足。 */
@@ -9,7 +10,6 @@ export type WorkflowOptionSource = {
   description?: string
   available?: boolean
   is_default?: boolean
-  credit_cost?: number | null
   catalog_group?: string
   catalog_group_label?: string
   catalog_group_order?: number
@@ -21,7 +21,6 @@ export type WorkflowSelectOption = {
   title?: string
   disabled?: boolean
   description?: string
-  creditCost?: number | null
   isDefault?: boolean
 }
 
@@ -35,7 +34,6 @@ export function groupedWorkflowOptions(workflows: readonly WorkflowOptionSource[
       title: item.description,
       disabled: !item.available,
       description: item.description,
-      creditCost: item.credit_cost ?? null,
       isDefault: Boolean(item.is_default),
     }
     if (!item.catalog_group) {
@@ -70,9 +68,6 @@ export function WorkflowOptionRow({ item }: { item: WorkflowSelectOption }) {
         </span>
         {item.description ? <span className="studio-workflow-option-desc">{item.description}</span> : null}
       </span>
-      {typeof item.creditCost === "number" ? (
-        <span className="studio-workflow-option-cost">{item.creditCost} 积分/张</span>
-      ) : null}
     </span>
   )
 }

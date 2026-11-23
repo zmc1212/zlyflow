@@ -1,8 +1,8 @@
 import { AudioLines, Captions, Eraser, Film, Flame, Languages, MessageSquareText, Scissors, Sparkles, type LucideIcon } from "lucide-react"
-import type { EditingOperation, EditSnapshot, HookStrategy } from "../smart-edit/api"
+import type { EditingOperation, EditSnapshot, HookStrategy } from "../../editing/api"
 import type { AssistantSession } from "./api"
 
-export type { EditingOperation, HookStrategy } from "../smart-edit/api"
+export type { EditingOperation, HookStrategy } from "../../editing/api"
 export type EditingContext = { kind: "smart_edit"; sequence_id: string }
 export type EditorBridge = {
   projectId: string

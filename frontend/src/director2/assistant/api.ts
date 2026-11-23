@@ -1,6 +1,6 @@
 import { jsonMutation, requestJson } from "../../api"
 import type { EditingContext } from "./editing-tools"
-import type { EditingAction } from "../smart-edit/api"
+import type { EditingAction } from "../../editing/api"
 
 export const ASSISTANT_API = "/api/director-assistant"
 export type RecordBase = { id: string; status: string; version: number; created_at: string; updated_at: string }
@@ -27,7 +27,7 @@ export type AssistantSession = RecordBase & {
 }
 export type AssistantQuestion = { id: string; title: string; type: "single" | "multiple" | "text"; allow_custom: boolean; options: { label: string; value: string; description?: string; recommended?: boolean }[] }
 export type KnowledgeCitation = { id: string; filename: string; section: string; page: string; text: string }
-export type AssistantUsage = { prompt_tokens: number; completion_tokens: number; total_tokens: number; cached_tokens?: number; cache_creation_tokens?: number; requests?: number }
+export type AssistantUsage = { prompt_tokens: number; completion_tokens: number; total_tokens: number; cached_tokens?: number; cache_creation_tokens?: number; requests?: number; cost_cny?: number; cost_basis?: "actual" | "estimated" | string; unit_credits?: number; model?: string }
 export type WebSearchResult = { title: string; url: string; site?: string }
 export type MessagePart =
   | { type: "markdown"; text: string }

@@ -7,6 +7,7 @@ import remarkGfm from "remark-gfm"
 import ThemeToggle from "../../components/ThemeToggle"
 import { searchFilterOption } from "../../search-match"
 import { ApiRequestError } from "../../api"
+import { formatCny } from "../../credits/credits"
 import { cancelAiOperation, createDocument, createProject, director2ErrorDetail, getActiveAiOperation, getProject, type Director2AiOperation } from "../api"
 import { director2ProjectPath } from "../paths"
 import { homeProjectExtra, homeProjectMessage, type HomeProjectRequest } from "../home-creation"
@@ -22,7 +23,7 @@ import { ASSISTANT_API, artifactLabels, assistantGet, assistantMutate, emptySele
 import { releaseTerminalAssistantRun } from "./assistant-state"
 import { assistantReplyNotification, requestAssistantNotificationPermission, shouldNotifyReply, showAssistantReplyNotification } from "./assistant-notify"
 import { EDITING_TOOL_GROUPS, matchesAssistantScope, newestPendingEditingAction, type EditingContext, type EditingOperation, type EditorBridge, type HookStrategy } from "./editing-tools"
-import { confirmEditingAction, previewEditingAction, readEditingAction, readTranscript, readUnderstanding, reapplyEditingAction, reorderEditingAction, startTranscript, startUnderstanding, type EditingAction, type MediaTranscript, type MediaUnderstanding, type UnderstandingStatus } from "../smart-edit/api"
+import { confirmEditingAction, previewEditingAction, readEditingAction, readTranscript, readUnderstanding, reapplyEditingAction, reorderEditingAction, startTranscript, startUnderstanding, type EditingAction, type MediaTranscript, type MediaUnderstanding, type UnderstandingStatus } from "../../editing/api"
 import "./assistant.css"
 
 type AssistantControl = { enabled: boolean; ready: boolean; open: boolean; setOpen: (open: boolean) => void; prompt: (text: string) => void; registerEditor: (editor: EditorBridge) => () => void }
@@ -861,7 +862,9 @@ export default function DirectorAssistantProvider({ children, csrfToken, project
                 const usage = part.usage
                 const cached = usage.cached_tokens || 0
                 const requests = usage.requests || 0
-                return <div key={index} className="assistant-usage-line">输入 {usage.prompt_tokens.toLocaleString("zh-CN")} · 输出 {usage.completion_tokens.toLocaleString("zh-CN")} tokens{cached > 0 && ` · 缓存命中 ${cached.toLocaleString("zh-CN")}`}{requests > 1 && ` · ${requests} 次请求`}</div>
+                const cost = typeof usage.cost_cny === "number" ? usage.cost_cny : null
+                const credits = typeof usage.unit_credits === "number" ? usage.unit_credits : null
+                return <div key={index} className="assistant-usage-line">输入 {usage.prompt_tokens.toLocaleString("zh-CN")} · 输出 {usage.completion_tokens.toLocaleString("zh-CN")} tokens{cached > 0 && ` · 缓存命中 ${cached.toLocaleString("zh-CN")}`}{cost !== null && ` · ≈${formatCny(cost, 6)}${usage.cost_basis === "estimated" ? "（估算）" : ""}`}{credits !== null && ` · ${credits} 积分`}{requests > 1 && ` · ${requests} 次请求`}</div>
               }
               return null
             })}

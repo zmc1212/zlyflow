@@ -1,23 +1,29 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Background, BackgroundVariant, MiniMap, ReactFlow, ReactFlowProvider, applyEdgeChanges, applyNodeChanges, getBezierPath, Position, useReactFlow, type ConnectionLineComponentProps, type Connection, type Edge, type Node, type XYPosition } from "@xyflow/react"
+import { isSubmitEnter } from "../../lib/enter-submit"
+import { MiniMap, ReactFlow, ReactFlowProvider, applyEdgeChanges, applyNodeChanges, getBezierPath, Position, useReactFlow, type Connection, type Edge, type Node, type XYPosition } from "@xyflow/react"
 import { useNavigate } from "react-router-dom"
 import ThemeToggle from "../../components/ThemeToggle"
+import { CanvasConnectionLine, CanvasConnectionTrace, canvasEdgeTypes, canvasFlowStyle } from "../../canvas/CanvasFlowEdge"
 import { GeneratorOptionField } from "../../canvas/CanvasGeneratorInspector"
+import { CanvasGrid } from "../../canvas/CanvasGrid"
+import { CanvasCreditEstimate } from "../../canvas/CanvasCreditEstimate"
 import CreativeStylePicker from "../CreativeStylePicker"
 import CharacterDesignModal from "./assets/CharacterDesignModal"
 import { assetCanvasPollingKey, moveAssetCanvasReference, canvasEditingCloudUrl, canvasWorkflowReferenceKind, assetCanvasConnectionIssue, assetCanvasNodeKind, assetCanvasOutputKinds, assetCanvasMedia, assetCreativeSettings, compileAssetCreativePrompt, normalizeSlotAspect, slotAspectRatioOptions, EMPTY_CREATIVE_STYLE, isUniversalAssetNodeKind, type AssetCreativeSettings, type CharacterDesign } from "../asset-canvas-creative"
 import { groupedWorkflowOptions, WorkflowOptionRow, type WorkflowSelectOption } from "../../components/WorkflowOptions"
 import { filterGroupedOptions } from "../../search-match"
-import { AssetGroupNode, AssetCreationNode, UniversalAssetNode } from "./AssetCanvasNodes"
+import { AssetGroupNode, AssetCreationNode, DirectorEditorNode, UniversalAssetNode } from "./AssetCanvasNodes"
 import { AssetCanvasContext as Context, type AssetCanvasActions, type CanvasNodeData, type AssetCanvasContextValue as CanvasContext } from "./asset-canvas-context"
-import { readEdit, saveEdit, uploadMedia } from "../smart-edit/api"
-import { makeClip, blankDocument, type EditAsset } from "../smart-edit/model"
+import { readEdit, saveEdit, uploadMedia } from "../../editing/api"
+import { makeClip, blankDocument, type EditAsset } from "../../editing/model"
+import { canvasTimelineAssets } from "../../editing/editing-shared"
+import EditStudio from "../../editing/EditStudio"
 import { director2ProjectPath } from "../paths"
 import { ArrowUp, Undo2, Redo2, Link2, Layers, Hand, MousePointer2, Keyboard, ChevronsLeft, ChevronRight, Scissors, Copy, Volume2 } from "lucide-react"
 import { Alert, Button, ConfigProvider, Dropdown, Empty, Form, Input, Modal, Segmented, Select, Spin, Tag, Tooltip, message, Tabs, Popover, type MenuProps } from "antd"
 import { ArrowRight, Boxes, Check, ChevronDown, FileText, Image as ImageIcon, Images, LayoutGrid, Map as MapIcon, Maximize2, Mic, MoreHorizontal, Plus, RefreshCw, Search, Sparkles, Trash2, Video, Workflow, X, ZoomIn, ZoomOut } from "lucide-react"
 import type { Director2Asset } from "../api"
-import { assetDefinitionText, assetNodeId, assetSlotBlocker, assetSlotPrompt, buildAssetCanvas, readAssetCanvasLayout, type AssetCanvasNode, type AssetCanvasTarget } from "../asset-canvas-model"
+import { assetDefinitionText, assetNodeId, assetSlotBlocker, assetSlotImage, assetSlotPrompt, buildAssetCanvas, canvasIdentities, readAssetCanvasLayout, type AssetCanvasNode, type AssetCanvasTarget } from "../asset-canvas-model"
 import { sourceReferencesOf } from "../asset-source-references"
 import { useMediaPreview } from "../media-preview"
 import { assetReadiness } from "../project-flow"
@@ -26,15 +32,17 @@ import AssetPickerModal from "../../tools/AssetPickerModal"
 import { ensureLinkedCanvas, getCanvasProject, saveCanvasDraft } from "../../canvas/canvas-api"
 import { buildEdgeId, nextNodeId, type CanvasNode } from "../../canvas/canvas-model"
 import { buildNodeTypes } from "../../canvas/node-registry"
+import { canvasPortGeometry } from "../../canvas/node-primitives"
 import {
   cancelCanvasJob,
   refineCanvasJob,
   canvasJobOutputs,
   canvasJobResults,
-  canvasImageNodeFile,
+  canvasReferenceFile,
   defaultGeneratorOptionValues,
   fetchCanvasJob,
   fetchCanvasModes,
+  generatorOptionValues,
   generatorParameterFields,
   isCanvasJobActive,
   serializeGeneratorOptionValues,
@@ -57,8 +65,8 @@ import "@xyflow/react/dist/style.css"
 import "./asset-creation-canvas.css"
 import "./asset-canvas-generator.css"
 import "./asset-canvas-workspace.css"
-// 共享顶栏样式层：改一次两个画布同时生效
 import "../../canvas/canvas-chrome-shared.css"
+import "../../canvas/canvas-node-shared.css"
 
 export type { AssetCanvasActions } from "./asset-canvas-context"
 
@@ -81,11 +89,6 @@ const DRAFT_SAVE_DEBOUNCE_MS = 1500
 const JOB_POLL_INTERVAL_MS = 2500
 const errorText = (error: unknown, fallback = "操作失败") => error instanceof Error && error.message ? error.message : fallback
 const isActiveJobStatus = (status: unknown) => typeof status === "string" && (isCanvasJobActive(status) || status === "canceling")
-
-function AssetConnectionLine({ fromX, fromY, toX, toY, fromPosition, toPosition }: ConnectionLineComponentProps) {
-  const [path] = getBezierPath({ sourceX: fromX, sourceY: fromY, targetX: toX, targetY: toY, sourcePosition: fromPosition, targetPosition: toPosition })
-  return <g><path d={path} fill="none" stroke="var(--ac-link-active)" strokeWidth={1.5}/><path d={path} className="ac-connection-highlight" fill="none" stroke="var(--studio-text)" strokeWidth={2} pathLength={100}/></g>
-}
 
 function isAssetDerived(data: Record<string, unknown> | undefined): boolean {
   return !!data && data.origin !== "canvas" && !!data.asset && typeof (data.asset as { id?: unknown }).id === "string"
@@ -115,7 +118,7 @@ function isSameRenderedNode(a: Node, b: Node): boolean {
 }
 
 // 通用节点来自共享注册表（单一来源）；资产域专属节点在此叠加。
-const nodeTypes = buildNodeTypes({ assetGroup: AssetGroupNode, assetCreation: AssetCreationNode, generator: UniversalAssetNode, video: UniversalAssetNode, image: UniversalAssetNode, text: UniversalAssetNode, audio: UniversalAssetNode, editor: UniversalAssetNode })
+const nodeTypes = buildNodeTypes({ assetGroup: AssetGroupNode, assetCreation: AssetCreationNode, generator: UniversalAssetNode, video: UniversalAssetNode, image: UniversalAssetNode, text: UniversalAssetNode, audio: UniversalAssetNode, editor: DirectorEditorNode })
 
 const styleNumber = (value: unknown): number | null => typeof value === "number" && Number.isFinite(value) ? value : null
 function nodeWidth(node: Node | { width?: unknown; style?: Record<string, unknown>; measured?: { width?: number } } | undefined): number | null {
@@ -151,6 +154,8 @@ function AssetCreationCanvasInner(props: Props) {
   const [edges, setEdges] = useState<Edge[]>(graph.edges)
   const [currentNode, setCurrentNode] = useState<string | null>(selectedNode || null)
   const [composerOpen, setComposerOpen] = useState(false)
+  // 「多轨编辑器」节点全屏态：记录正在编辑的节点 id。
+  const [editorFullscreenId, setEditorFullscreenId] = useState<string | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(true)
   const [libraryKind, setLibraryKind] = useState("all")
   const [search, setSearch] = useState("")
@@ -183,7 +188,7 @@ function AssetCreationCanvasInner(props: Props) {
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [contextNodeId, setContextNodeId] = useState<string | null>(null)
   const [moving, setMoving] = useState(false)
-  const [portRequest, setPortRequest] = useState<{ id: string; direction: "in" | "out"; x: number; y: number; position: XYPosition } | null>(null)
+  const [portRequest, setPortRequest] = useState<{ id: string; direction: "in" | "out"; x: number; y: number; from: XYPosition; position: XYPosition } | null>(null)
   const connectionStart = useRef<{ id: string; direction: "in" | "out" } | null>(null)
   const pendingAssetConnection = useRef<{ ids: string[]; source: string; direction: "in" | "out" } | null>(null)
   const history = useRef<{ nodes: Node[]; edges: Edge[] }[]>([])
@@ -630,7 +635,7 @@ function AssetCreationCanvasInner(props: Props) {
       const files = []
       for (const [index, item] of inputMedia.entries()) {
         const ref: CanvasNode = { id: item.node.id, type: "image", position: { x: 0, y: 0 }, data: { url: item.media!.url, label: item.media!.name } }
-        files.push(await canvasImageNodeFile(ref, index + 1, item.media!.kind))
+        files.push(await canvasReferenceFile(ref, index + 1, item.media!.kind))
       }
       const job = await submitCanvasJob(csrfToken, { mode: mode!.id, prompt, options: serializeGeneratorOptionValues(mode, canvas.optionValues), references: files, title: String(canvas.label || "画布创作") })
       patchCanvasNode(id, { jobId: job.id, jobStatus: job.status, jobError: null })
@@ -639,11 +644,17 @@ function AssetCreationCanvasInner(props: Props) {
     finally { submitting.current.delete(id) }
   }
 
-  const portMenu = (id: string, direction: "in" | "out", anchor: HTMLElement) => {
-    const stage = stageRef.current?.getBoundingClientRect(), bounds = anchor.getBoundingClientRect()
+  const portMenu = (id: string, direction: "in" | "out", handle: HTMLElement) => {
+    const stage = stageRef.current?.getBoundingClientRect()
     if (!stage) return
-    const x = Math.min(stage.width - 248, Math.max(12, bounds.right - stage.left + 16)), y = Math.min(stage.height - 360, Math.max(12, bounds.top - stage.top))
-    setPortRequest({ id, direction, x, y, position: flow.screenToFlowPosition({ x: bounds.right + 150, y: bounds.top }) })
+    const { anchor, control } = canvasPortGeometry(handle)
+    const x = Math.min(stage.width - 248, Math.max(12, control.right - stage.left + 16))
+    const y = Math.min(stage.height - 360, Math.max(12, control.top - stage.top))
+    setPortRequest({
+      id, direction, x, y,
+      from: flow.screenToFlowPosition(anchor, { snapToGrid: false }),
+      position: flow.screenToFlowPosition({ x: control.right + 150, y: control.top }),
+    })
   }
   const duplicate = (id: string) => {
     const source = nodesRef.current.find(node => node.id === id)
@@ -676,7 +687,7 @@ function AssetCreationCanvasInner(props: Props) {
           }
           if (!/^https?:\/\//i.test(url)) {
             const ref: CanvasNode = { id: node.id, type: "image", position: { x: 0, y: 0 }, data: { url: media!.url } }
-            const file = await canvasImageNodeFile(ref, 1, media!.kind)
+            const file = await canvasReferenceFile(ref, 1, media!.kind)
             url = (await uploadMedia(csrfToken, projectId, sequence, file)).url
           }
         }
@@ -694,10 +705,37 @@ function AssetCreationCanvasInner(props: Props) {
   }
   const openTool = (_id: string, tool: string) => { void flushDraftSave(); navigate(`/tools/${tool}`) }
 
+  // 多轨编辑器资产池：导演资产的形象/设定图 + 画布媒体节点自动并入「全部资产」。
+  const editorPool = useMemo<EditAsset[]>(() => {
+    const pool: EditAsset[] = []
+    const pushImage = (id: string, name: string, url: string) => {
+      if (!url || pool.some(item => item.url === url)) return
+      pool.push({ id, name, kind: "image", url, duration: 5, thumbnail: url })
+    }
+    for (const asset of assets) {
+      if (asset.kind === "character") {
+        for (const look of canvasIdentities(asset)) pushImage(`director-${asset.id}-${look.id}`, `${asset.name} · ${look.name || "形象"}`, look.image_url || "")
+      } else if (asset.kind === "scene") {
+        pushImage(`director-${asset.id}-master`, `${asset.name} · 场景设定图`, assetSlotImage(asset, { type: "scene_master" }))
+        pushImage(`director-${asset.id}-reverse`, `${asset.name} · 反打机位`, String(asset.extra?.reverse_url || ""))
+        pushImage(`director-${asset.id}-pano`, `${asset.name} · 全景图`, String(asset.extra?.pano_url || ""))
+      } else if (asset.kind === "prop") {
+        pushImage(`director-${asset.id}-ref`, `${asset.name} · 道具设定图`, assetSlotImage(asset, { type: "prop_reference" }))
+        pushImage(`director-${asset.id}-turnaround`, `${asset.name} · 三视图`, String(asset.extra?.turnaround_url || ""))
+        pushImage(`director-${asset.id}-detail`, `${asset.name} · 细节图`, String(asset.extra?.detail_url || ""))
+      } else if (asset.image_url) {
+        pushImage(`director-${asset.id}`, asset.name, asset.image_url)
+      }
+    }
+    return [...pool, ...canvasTimelineAssets(nodesRef.current)]
+  }, [assets, nodes])
   const context: CanvasContext = {
     actions, working: uploadBusy || working, choose,
     editDesign: id => { choose(id, false); setDesignNode(id) },
     portMenu, inputsOf, openSmartEdit, duplicate, openTool,
+    csrfToken, projectId,
+    openEditorFullscreen: id => setEditorFullscreenId(id),
+    projectAssets: () => editorPool,
     editDefinition: id => openEditor(id, "definition"),
     editMetadata: id => openEditor(id, "metadata"),
     chooseFile,
@@ -769,6 +807,13 @@ function AssetCreationCanvasInner(props: Props) {
   const slotSettings = imageNode?.data.target ? selectedSettings as AssetCreativeSettings : null
   const slotMode = slotSettings?.model ? modes.find(item => item.id === slotSettings.model) || null : null
   const slotAspectOptions = slotAspectRatioOptions(slotMode)
+  // 发送按钮左侧积分预估：按实际提交路径取工作流与参考数（生成节点走 submitGenerator，资产槽位走 actions.generate）。
+  const slotNode = imageNode && imageNode.data.target ? imageNode : null
+  const estimateMode = slotNode ? (slotMode || defaultImageMode) : mode
+  const estimateReferenceCount = slotNode
+    ? selectedInputs.filter(node => !graph.edges.some(edge => edge.source === node.id && edge.target === slotNode.id)
+      && assetCanvasNodeKind(node) !== "text").length + sourceReferencesOf(slotNode.data.asset as Director2Asset).length
+    : selectedInputs.filter(node => assetCanvasNodeKind(node) !== "text" && assetCanvasMedia(node)).length
   const designTarget = nodes.find(node => node.id === designNode)
   const designAsset = designTarget?.data.asset as Director2Asset | undefined
   const designTargetSlot = designTarget?.data.target as AssetCanvasTarget | undefined
@@ -829,7 +874,7 @@ function AssetCreationCanvasInner(props: Props) {
     })),
     ...(referenceCandidates.length ? [] : [{ key: "reference-empty", label: "画布上暂无可引用的素材", disabled: true }]),
   ]
-  const relatedEdges: Edge[] = edges.map(edge => ({ ...edge, hidden: !linksVisible, type: "default", className: edge.source === currentNode || edge.target === currentNode ? "ac-edge-active" : "ac-edge-idle", style: { stroke: edge.source === currentNode || edge.target === currentNode ? "var(--ac-link-active)" : "var(--ac-link-idle)", strokeWidth: 1.4 }, label: undefined }))
+  const visibleEdges: Edge[] = edges.map(edge => ({ ...edge, hidden: !linksVisible, type: "canvasFlow", label: undefined }))
   const sidebarNodes = nodes.filter(node => node.data.origin === "canvas" && (!search || String(node.data.label || node.data.text || "").toLowerCase().includes(search.toLowerCase())) && (libraryKind === "all" || node.data.canvasKind === libraryKind))
   const focusNode = (id: string) => { choose(id, false); void flow.fitView({ nodes: [{ id }], padding: .5, maxZoom: .85, duration: 220 }) }
   const viewport = flow.getViewport()
@@ -838,8 +883,8 @@ function AssetCreationCanvasInner(props: Props) {
   const toolbarY = selectedPoint ? selectedPoint.y * viewport.zoom + viewport.y - 84 : 24
   let pendingPath = ""
   if (portRequest && portSource && stageRef.current) {
-    const from = absoluteOf(nodes, portSource.id), stage = stageRef.current.getBoundingClientRect()
-    const source = flow.flowToScreenPosition({ x: from.x + (portRequest.direction === "out" ? (nodeWidth(portSource) || 392) + 17 : -17), y: from.y + (nodeHeight(portSource) || 460) / 2 })
+    const stage = stageRef.current.getBoundingClientRect()
+    const source = flow.flowToScreenPosition(portRequest.from)
     const destination = flow.flowToScreenPosition(portRequest.position)
     pendingPath = getBezierPath({ sourceX: source.x - stage.left, sourceY: source.y - stage.top, targetX: destination.x - stage.left, targetY: destination.y - stage.top, sourcePosition: portRequest.direction === "out" ? Position.Right : Position.Left, targetPosition: Position.Left })[0]
   }
@@ -853,7 +898,7 @@ function AssetCreationCanvasInner(props: Props) {
     void actions.generate(imageNode.data.asset.id, imageNode.data.target, { prompt: [...text, assetSlotPrompt(imageNode.data.asset, imageNode.data.target)].filter(Boolean).join("\n\n"), images: images.map(node => String(node!.data.url)) })
   }
 
-  return <div className={`asset-creation-canvas${drawerOpen ? " has-library" : ""}${panMode ? " is-pan-mode" : ""}`}>
+  return <div className={`asset-creation-canvas canvas-flow${drawerOpen ? " has-library" : ""}${panMode ? " is-pan-mode" : ""}`}>
     <header className="ac-header canvas-chrome-bar"><div className="ac-header-start"><strong className="ac-project-title" title={props.projectTitle}>{props.projectTitle || "创作项目"}</strong><span className="ac-header-divider"/><strong>创作画布</strong><Segmented aria-label="资产视图" value="canvas" options={[{ value: "list", label: "列表", icon: <LayoutGrid size={13}/> }, { value: "canvas", label: "画布", icon: <Workflow size={13}/> }]} onChange={value => { if (value === "list") { syncDraftNow(); void flushDraftSave(); void actions.showList() } }}/><span className="ac-node-count">节点 {nodes.filter(node => node.type !== "assetGroup").length}</span></div><div className="ac-header-end"><Tooltip title={props.saveError ? "资产保存失败，点击重试" : draftStateLabel[draftSaveState]}><Button type="text" size="small" icon={draftSaveState === "error" || props.saveError ? <RefreshCw size={14}/> : <Check size={14}/>} danger={draftSaveState === "error" || props.saveError} onClick={() => { syncDraftNow(); void flushDraftSave(true); void actions.save().catch(error => message.error(errorText(error))) }}>{props.saveError ? "保存失败" : draftSaveState === "saved" ? "已保存" : draftStateLabel[draftSaveState]}</Button></Tooltip><span className="ac-header-divider"/><ThemeToggle/><Dropdown trigger={["click"]} menu={{ items: addMenuItems }}><Button className="ac-header-add" type="text" icon={<Plus size={16}/>} aria-label="新增节点"/></Dropdown></div></header>
     <div className="ac-stage" ref={stageRef}>
       <Context.Provider value={context}>
@@ -864,13 +909,13 @@ function AssetCreationCanvasInner(props: Props) {
             setContextNodeId(target?.getAttribute("data-id") || null)
             contextOrigin.current = flow.screenToFlowPosition({ x: event.clientX, y: event.clientY })
           }}>
-            <ReactFlow connectionLineComponent={AssetConnectionLine} nodes={nodes} edges={relatedEdges} nodeTypes={nodeTypes} deleteKeyCode={null} minZoom={.15} maxZoom={1.6} nodeDragThreshold={4} nodesConnectable selectionOnDrag={!panMode} panOnDrag={panMode ? true : [1, 2]} panActivationKeyCode="Space" multiSelectionKeyCode={["Control", "Meta", "Shift"]} onNodeDragStart={() => remember()} onConnectStart={(_event, params) => { if (params.nodeId) { setPortRequest(null); connectionStart.current = { id: params.nodeId, direction: params.handleType === "source" ? "out" : "in" } } }} onConnectEnd={(event, state) => {
+            <ReactFlow connectionLineComponent={CanvasConnectionLine} style={canvasFlowStyle} nodes={nodes} edges={visibleEdges} nodeTypes={nodeTypes} edgeTypes={canvasEdgeTypes} deleteKeyCode={null} minZoom={.15} maxZoom={1.6} nodeDragThreshold={4} nodesConnectable selectionOnDrag={!panMode} panOnDrag={panMode ? true : [1, 2]} panActivationKeyCode="Space" multiSelectionKeyCode={["Control", "Meta", "Shift"]} onNodeDragStart={() => remember()} onConnectStart={(_event, params) => { if (params.nodeId) { setPortRequest(null); connectionStart.current = { id: params.nodeId, direction: params.handleType === "source" ? "out" : "in" } } }} onConnectEnd={(event, state) => {
               const start = connectionStart.current; connectionStart.current = null
-              if (!start || state.isValid || !(event instanceof MouseEvent || event instanceof TouchEvent)) return
+              if (!start || !state.from || state.isValid || !(event instanceof MouseEvent || event instanceof TouchEvent)) return
               const point = "changedTouches" in event ? event.changedTouches[0] : event
               const stage = stageRef.current?.getBoundingClientRect()
               if (!stage || !point) return
-              setPortRequest({ ...start, x: Math.max(12, Math.min(stage.width - 248, point.clientX - stage.left)), y: Math.max(12, Math.min(stage.height - 360, point.clientY - stage.top)), position: flow.screenToFlowPosition({ x: point.clientX, y: point.clientY }) })
+              setPortRequest({ ...start, from: state.from, x: Math.max(12, Math.min(stage.width - 248, point.clientX - stage.left)), y: Math.max(12, Math.min(stage.height - 360, point.clientY - stage.top)), position: flow.screenToFlowPosition({ x: point.clientX, y: point.clientY }) })
             }} onConnect={(connection: Connection) => { if (connection.source && connection.target) addConnection(connection.source, connection.target); setPortRequest(null) }} onNodesChange={changes => {
               const next = applyNodeChanges(changes, nodesRef.current)
               nodesRef.current = next; setNodes(next)
@@ -887,14 +932,14 @@ function AssetCreationCanvasInner(props: Props) {
                 draftRef.current.viewport = { ...viewport }; scheduleDraftSave()
               }
             }} onInit={instance => { if (!canvasReadyRef.current) void instance.fitView({ padding: .2, maxZoom: .8 }) }}>
-              {showGrid && <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="var(--ac-grid)"/>}
+              {showGrid && <CanvasGrid />}
               {miniMap && <MiniMap position="bottom-right" pannable zoomable nodeColor="var(--studio-surface-raised)" maskColor="var(--ac-map-mask)"/>}
             </ReactFlow>
           </div>
         </Dropdown>
-        {portRequest && <Dropdown open trigger={["click"]} placement="bottomLeft" onOpenChange={open => { if (!open) setPortRequest(null) }} classNames={{ root: "ac-port-menu" }} menu={{ triggerSubMenuAction: "click", "aria-label": portRequest.direction === "out" ? "引用该节点生成" : "添加上下文", items: portItems }}><span className="ac-menu-anchor" style={{ left: portRequest.x, top: portRequest.y }}/></Dropdown>}
+        {portRequest && <Dropdown open trigger={["click"]} placement="bottomLeft" onOpenChange={open => { if (!open) setPortRequest(null) }} classNames={{ root: "canvas-port-menu" }} menu={{ triggerSubMenuAction: "click", "aria-label": portRequest.direction === "out" ? "引用该节点生成" : "添加上下文", items: portItems }}><span className="canvas-port-menu-anchor" style={{ left: portRequest.x, top: portRequest.y }}/></Dropdown>}
       </Context.Provider>
-      {pendingPath && <svg className="ac-pending-connection" aria-hidden="true"><path d={pendingPath} fill="none" stroke="var(--ac-link-active)" strokeWidth={1.5}/><path className="ac-connection-highlight" d={pendingPath} fill="none" stroke="var(--studio-text)" strokeWidth={2} pathLength={100}/></svg>}
+      {pendingPath && <svg className="ac-pending-connection" aria-hidden="true"><CanvasConnectionTrace path={pendingPath}/></svg>}
       {drawerOpen ? <aside className="ac-library-panel" aria-label="素材库"><header><strong>素材库</strong><Tooltip title="收起素材库"><Button type="text" aria-label="收起素材库" icon={<ChevronsLeft size={15}/>} onClick={() => setDrawerOpen(false)}/></Tooltip></header><Tabs activeKey={libraryTab} onChange={setLibraryTab} items={[{ key: "materials", label: "素材" }, { key: "layers", label: "图层" }, { key: "history", label: "历史" }]}/><Input aria-label="搜索素材与节点" placeholder="搜索素材与节点" prefix={<Search size={14}/>} value={search} onChange={event => setSearch(event.target.value)} allowClear variant="filled"/>{libraryTab === "materials" && <Segmented size="small" aria-label="画布素材分类" value={libraryKind} onChange={value => setLibraryKind(String(value))} options={[{ value: "all", label: "全部" }, { value: "character", label: "角色" }, { value: "scene", label: "场景" }, { value: "image", label: "图片" }, { value: "video", label: "视频" }]}/>}
         <div className="ac-library-scroll">
           {libraryTab === "materials" ? <><h3>项目资产 <ChevronDown size={12}/></h3><div className="ac-library-items">{filtered.map(asset => { const image = getAssetDisplayAvatar(asset); const Icon = getKindIcon(asset.kind); return <Button type="text" key={asset.id} className={asset.id === chosenAsset?.id ? "is-selected" : ""} onClick={() => { const node = nodes.find(item => (item.data.asset as Director2Asset | undefined)?.id === asset.id && item.data.role === "image"); if (node) focusNode(node.id) }}>{image ? <img src={image} alt=""/> : <span className="ac-library-icon"><Icon size={21}/></span>}<span><strong>{asset.name}</strong><small>{kindLabel(asset.kind)}资产 · {assetReadiness(asset).label}</small></span><ChevronRight size={13}/></Button> })}</div><h3 className="ac-library-separator">画布素材</h3><div className="ac-library-items">{sidebarNodes.map(node => <Button type="text" key={node.id} className={currentNode === node.id ? "is-selected" : ""} onClick={() => focusNode(node.id)}>{assetCanvasMedia(node)?.kind === "image" ? <img src={assetCanvasMedia(node)!.url} alt=""/> : <span className="ac-library-icon">{kindIcon(String(node.data.canvasKind))}</span>}<span><strong>{String(node.data.label || "未命名节点")}</strong><small>{kindName(String(node.data.canvasKind))} · {node.data.jobError ? "生成失败" : assetCanvasMedia(node) ? "已完成" : "草稿"}</small></span><ChevronRight size={13}/></Button>)}</div>{!filtered.length && !sidebarNodes.length && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有找到相关素材"/>}</> : libraryTab === "layers" ? <div className="ac-library-layers">{nodes.filter(node => !search || String((node.data.asset as Director2Asset | undefined)?.name || node.data.label || node.data.title || "").includes(search)).map(node => <Button type="text" key={node.id} className={currentNode === node.id ? "is-selected" : ""} style={{ paddingLeft: node.parentId ? 24 : 8 }} onClick={() => focusNode(node.id)}>{node.type === "assetGroup" ? <Layers size={14}/> : kindIcon(assetCanvasNodeKind(node))}<span>{String(node.data.title || node.data.label || "节点")}</span><small>{edges.filter(edge => edge.target === node.id).length || ""}</small></Button>)}</div> : <div className="ac-library-history">{nodes.filter(node => node.data.jobId || (node.data.resultHistory as unknown[])?.length).map(node => <Button type="text" key={node.id} onClick={() => focusNode(node.id)}>{kindIcon(assetCanvasNodeKind(node))}<span><strong>{String(node.data.label || "创作记录")}</strong><small>{isActiveJobStatus(node.data.jobStatus) ? "生成中" : node.data.jobError ? "失败 · 点击重试" : "已完成"} · {(node.data.resultHistory as unknown[])?.length || 0} 个版本</small></span></Button>)}{!nodes.some(node => node.data.jobId) && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="生成记录会显示在这里"/>}</div>}
@@ -906,25 +951,36 @@ function AssetCreationCanvasInner(props: Props) {
       {(canvasError || modesError) && <Alert className="ac-service-error" type="error" showIcon title={canvasError || modesError} action={<Button size="small" onClick={() => window.location.reload()}>重试</Button>}/>}
       {props.loading && <div className="ac-loading"><Spin/><span>正在读取项目资产</span></div>}
       {!props.loading && !nodes.length && <div className="ac-empty-canvas"><Empty description="把故事、素材和创作放在同一张画布"/><Dropdown trigger={["click"]} menu={{ items: addMenuItems }}><Button className="ac-monochrome" icon={<Plus size={15}/>}>新建节点</Button></Dropdown></div>}
-      {composerOpen && chosen && (imageNode?.data.target || selectedCanvas) && <section className="ac-composer" aria-label={`${chosenAsset?.name || selectedCanvas?.label || "节点"}创作面板`}>
+      {composerOpen && chosen && (imageNode?.data.target || selectedCanvas) && <section className="ac-composer canvas-creative-panel" aria-label={`${chosenAsset?.name || selectedCanvas?.label || "节点"}创作面板`}>
         <header><span>{chosenAsset ? `${chosenAsset.name} · ${imageNode?.data.title}` : `${selectedCanvas?.label || "创作"} · ${assetCanvasNodeKind(chosen) === "image" ? "图片" : "视频"}`}</span><Button type="text" aria-label="收起创作面板" icon={<X size={15}/>} onClick={() => setComposerOpen(false)}/></header>
         {(selectedInputs.length > 0 || (imageNode && sourceReferencesOf(imageNode.data.asset).length > 0)) && <div className="ac-composer-references">{selectedInputs.filter(node => node.type !== "assetGroup").map((node, i) => <Dropdown key={node.id} trigger={["contextMenu"]} disabled={isActiveJobStatus(selectedCanvas?.jobStatus) || graph.edges.some(edge => edge.source === node.id && edge.target === chosen.id)} menu={{ items: [{ key: "up", label: "向前移动", disabled: i === 0, onClick: () => { remember(); commitGraph(nodesRef.current, moveAssetCanvasReference(edgesRef.current, chosen.id, node.id, -1)) } }, { key: "down", label: "向后移动", disabled: i === selectedInputs.length - 1, onClick: () => { remember(); commitGraph(nodesRef.current, moveAssetCanvasReference(edgesRef.current, chosen.id, node.id, 1)) } }] }}><Tag title="右键调整引用顺序" closable={!graph.edges.some(edge => edge.source === node.id && edge.target === chosen.id)} onClose={() => { remember(); commitGraph(nodesRef.current, edgesRef.current.filter(edge => !(edge.source === node.id && edge.target === chosen.id))) }} icon={kindIcon(assetCanvasNodeKind(node))}><Button type="text" onClick={() => { if (selectedCanvas && asCanvasImageNode(node) && mode?.reference_mode === "collection") patchCanvasNode(chosen.id, { prompt: `${selectedCanvas.prompt || ""}<Picture ${referenceNodesFor(chosen.id).findIndex(ref => ref.id === node.id) + 1}>` }); else focusNode(node.id) }}>{asCanvasImageNode(node) ? `图${selectedInputs.slice(0, i + 1).filter(item => asCanvasImageNode(item)).length} ` : ""}{nodeLabel(node)}</Button></Tag></Dropdown>)}{imageNode && sourceReferencesOf(imageNode.data.asset).map(ref => <Tag key={ref.id} icon={<ImageIcon size={12}/>}>{ref.filename || "参考图"}</Tag>)}</div>}
-        <Input.TextArea disabled={!!working || isActiveJobStatus(selectedCanvas?.jobStatus)} aria-label={imageNode ? "节点创作提示词" : "画布创作提示词"} value={imageNode?.data.target ? assetSlotPrompt(imageNode.data.asset, imageNode.data.target) : selectedCanvas?.prompt || ""} onChange={event => { if (imageNode?.data.target) actions.prompt(imageNode.data.asset.id, imageNode.data.target, event.target.value); else patchCanvasNode(chosen.id, { prompt: event.target.value }) }} placeholder="描述你想要的画面、动作与氛围…" autoSize={{ minRows: 2, maxRows: 5 }} variant="borderless" onKeyDown={event => { if ((event.ctrlKey || event.metaKey) && event.key === "Enter") { event.preventDefault(); if (!working && !blocker) runChosen() } }}/>
+        <Input.TextArea disabled={!!working || isActiveJobStatus(selectedCanvas?.jobStatus)} aria-label={imageNode ? "节点创作提示词" : "画布创作提示词"} value={imageNode?.data.target ? assetSlotPrompt(imageNode.data.asset, imageNode.data.target) : selectedCanvas?.prompt || ""} onChange={event => { if (imageNode?.data.target) actions.prompt(imageNode.data.asset.id, imageNode.data.target, event.target.value); else patchCanvasNode(chosen.id, { prompt: event.target.value }) }} placeholder="描述你想要的画面、动作与氛围…" autoSize={{ minRows: 2, maxRows: 5 }} variant="borderless" onKeyDown={event => { if (isSubmitEnter(event)) { event.preventDefault(); if (!working && !blocker) runChosen() } }}/>
         {(props.errors?.[chosen.id] || selectedCanvas?.jobError) && <Alert type="error" title={props.errors?.[chosen.id] || selectedCanvas?.jobError} showIcon/>}{blocker && <p className="ac-composer-hint">{blocker}</p>}
         {selectedCanvas?.jobStatus === "awaiting_refine" && <Alert type="info" title="一采已完成，是否继续精修？" action={<><Button size="small" onClick={async () => { try { applyJobToNodes(await refineCanvasJob(csrfToken, String(selectedCanvas.jobId), "skip")) } catch (error) { message.error(errorText(error)) } }}>使用一采</Button><Button size="small" onClick={async () => { try { applyJobToNodes(await refineCanvasJob(csrfToken, String(selectedCanvas.jobId), "confirm")) } catch (error) { message.error(errorText(error)) } }}>继续精修</Button></>}/>}
         <footer><div className="ac-composer-controls"><Button type="text" aria-label="添加节点引用" icon={<Plus size={17}/>} onClick={() => setReferenceOpen(true)}/><Dropdown open={referenceOpen} onOpenChange={setReferenceOpen} trigger={["click"]} placement="topLeft" classNames={{ root: "ac-reference-menu" }} menu={{ selectable: false, items: referenceMenuItems, onClick: ({ key }) => { addConnection(String(key), chosen.id); setReferenceOpen(false) } }}><Button type="text" aria-label="引用画布节点">@</Button></Dropdown><CreativeStylePicker value={selectedSettings.style || EMPTY_CREATIVE_STYLE} onChange={changeStyle} placement="topLeft" compact disabled={!!working || isActiveJobStatus(selectedCanvas?.jobStatus)}/>
           {selectedCanvas ? <><Select size="small" variant="filled" aria-label="创作工作流" value={selectedCanvas.workflowId || undefined} placeholder="选择模型" disabled={isActiveJobStatus(selectedCanvas.jobStatus)} showSearch filterOption={false} onSearch={setWorkflowQuery} onOpenChange={open => { if (!open) setWorkflowQuery("") }} onChange={id => { const next = modes.find(item => item.id === id) || null; patchCanvasNode(chosen.id, { workflowId: id, optionValues: defaultGeneratorOptionValues(next) }) }} options={canvasWorkflowPickerOptions} optionRender={option => <WorkflowOptionRow item={option.data as WorkflowSelectOption} />} popupMatchSelectWidth={360}/>{parameterFields.primary.map(([name, definition]) => <Tooltip key={name} title={definition.label}><span><GeneratorOptionField disabled={isActiveJobStatus(selectedCanvas?.jobStatus)} name={name} definition={definition} value={selectedCanvas.optionValues?.[name] ?? definition.default} onChange={setOption}/></span></Tooltip>)}{parameterFields.advanced.length > 0 && <Popover trigger="click" placement="topLeft" arrow={false} content={<div className="ac-advanced-options">{parameterFields.advanced.map(([name, definition]) => <div key={name}><GeneratorOptionField disabled={isActiveJobStatus(selectedCanvas?.jobStatus)} name={name} definition={definition} value={selectedCanvas.optionValues?.[name] ?? definition.default} onChange={setOption}/></div>)}</div>}><Button type="text">更多设置<ChevronDown size={12}/></Button></Popover>}</> : <><Select size="small" variant="filled" allowClear aria-label="资产图片模型" placeholder={defaultImageMode?.name || "默认图片模型"} value={(selectedSettings as { model?: string }).model || undefined} disabled={!!working} popupMatchSelectWidth={360} showSearch filterOption={false} onSearch={setSlotModelQuery} onOpenChange={open => { if (!open) setSlotModelQuery("") }} options={imageModePickerOptions} optionRender={option => <WorkflowOptionRow item={option.data as WorkflowSelectOption} />} onChange={id => { if (!imageNode?.data.target) return; const next = id ? modes.find(item => item.id === id) || null : null; void actions.configure(imageNode.data.asset.id, imageNode.data.target, { model: id || undefined, ...(id ? { aspectRatio: normalizeSlotAspect(next, slotSettings?.aspectRatio) } : {}) }).catch(error => message.error(errorText(error))) }}/><Tooltip title={imageNode?.data.target?.type === "identity" ? "设定板比例" : undefined}><Select size="small" variant="filled" aria-label={imageNode?.data.target?.type === "identity" ? "设定板比例" : "资产图片比例"} value={(selectedSettings as { aspectRatio?: string }).aspectRatio || "16:9"} disabled={!!working} options={slotAspectOptions} onChange={value => { if (imageNode?.data.target) void actions.configure(imageNode.data.asset.id, imageNode.data.target, { aspectRatio: value }) }}/></Tooltip></>}
-        </div><div className="ac-send-controls"><small>Ctrl + Enter</small>{selectedCanvas && isActiveJobStatus(selectedCanvas.jobStatus) ? <Tooltip title="停止生成"><Button shape="circle" aria-label="停止生成" loading={selectedCanvas.jobStatus === "canceling"} icon={<X size={16}/>} onClick={async () => { if (!selectedCanvas.jobId) return; try { applyJobToNodes(await cancelCanvasJob(csrfToken, selectedCanvas.jobId)) } catch (error) { message.error(errorText(error)) } }}/></Tooltip> : <Tooltip title={`${imageNode || chosen.data.canvasKind === "image" ? "生成图片" : "生成视频"} · Ctrl + Enter`}><Button className="ac-send ac-monochrome" shape="circle" aria-label={imageNode || chosen.data.canvasKind === "image" ? "生成图片" : "生成视频"} icon={<ArrowUp size={20}/>} loading={working === chosen.id} disabled={props.loading || !!working || !!blocker || (!imageNode && (!mode || !canvasProjectRef.current)) || (imageNode ? !assetSlotPrompt(imageNode.data.asset, imageNode.data.target!).trim() && !sourceReferencesOf(imageNode.data.asset).length : !selectedCanvas?.prompt?.trim() && !selectedInputs.some(node => assetCanvasNodeKind(node) === "text"))} onClick={runChosen}/></Tooltip>}</div></footer>
+        </div><div className="ac-send-controls"><small>Enter</small>{!(selectedCanvas && isActiveJobStatus(selectedCanvas.jobStatus)) && estimateMode?.billing?.enabled ? <CanvasCreditEstimate mode={estimateMode} values={slotNode ? {} : generatorOptionValues(estimateMode, selectedCanvas?.optionValues || {})} referenceCount={estimateReferenceCount} /> : null}{selectedCanvas && isActiveJobStatus(selectedCanvas.jobStatus) ? <Tooltip title="停止生成"><Button shape="circle" aria-label="停止生成" loading={selectedCanvas.jobStatus === "canceling"} icon={<X size={16}/>} onClick={async () => { if (!selectedCanvas.jobId) return; try { applyJobToNodes(await cancelCanvasJob(csrfToken, selectedCanvas.jobId)) } catch (error) { message.error(errorText(error)) } }}/></Tooltip> : <Tooltip title={`${imageNode || chosen.data.canvasKind === "image" ? "生成图片" : "生成视频"} · Enter，Shift + Enter 换行`}><Button className="ac-send ac-monochrome" shape="circle" aria-label={imageNode || chosen.data.canvasKind === "image" ? "生成图片" : "生成视频"} icon={<ArrowUp size={20}/>} loading={working === chosen.id} disabled={props.loading || !!working || !!blocker || (!imageNode && (!mode || !canvasProjectRef.current)) || (imageNode ? !assetSlotPrompt(imageNode.data.asset, imageNode.data.target!).trim() && !sourceReferencesOf(imageNode.data.asset).length : !selectedCanvas?.prompt?.trim() && !selectedInputs.some(node => assetCanvasNodeKind(node) === "text"))} onClick={runChosen}/></Tooltip>}</div></footer>
       </section>}
       <div className="ac-viewport-tools"><Tooltip title="撤销 Ctrl+Z"><Button type="text" aria-label="撤销画布操作" disabled={!history.current.length} icon={<Undo2 size={15}/>} onClick={() => travelHistory(false)}/></Tooltip><Tooltip title="重做 Ctrl+Y"><Button type="text" aria-label="重做画布操作" disabled={!future.current.length} icon={<Redo2 size={15}/>} onClick={() => travelHistory(true)}/></Tooltip><Dropdown trigger={["click"]} menu={{ items: [{ key: "links", label: linksVisible ? "隐藏连线" : "显示连线", onClick: () => setLinksVisible(!linksVisible) }, { key: "grid", label: showGrid ? "隐藏网格" : "显示网格", onClick: () => setShowGrid(!showGrid) }] }}><Button type="text" aria-label="画布显示设置" icon={<Link2 size={16}/>} /></Dropdown><Tooltip title="整理节点"><Button type="text" aria-label="整理画布节点" icon={<LayoutGrid size={16}/>} onClick={() => { remember(); let x = 360; commitGraph(nodes.map(node => { if (node.parentId) return node; const next = { ...node, position: { x, y: 100 } }; x += (nodeWidth(node) || 400) + 130; return next })); void flow.fitView({ padding: .2, maxZoom: .7 }) }}/></Tooltip><Tooltip title="适应画布 Ctrl+0"><Button type="text" aria-label="适应全部节点" icon={<Maximize2 size={15}/>} onClick={() => void flow.fitView({ padding: .18, maxZoom: .85 })}/></Tooltip><Button type="text" aria-label="缩小画布" icon={<ZoomOut size={15}/>} onClick={() => void flow.zoomOut()}/><Button type="text" aria-label="放大画布" icon={<ZoomIn size={15}/>} onClick={() => void flow.zoomIn()}/><Dropdown trigger={["click"]} menu={{ items: [.25, .5, .75, 1, 1.25, 1.5].map(value => ({ key: String(value), label: `${value * 100}%`, onClick: () => void flow.zoomTo(value) })) }}><Button type="text" className="ac-zoom-value" aria-label="设置画布缩放">{Math.round(zoom * 100)}%<ChevronDown size={12}/></Button></Dropdown></div>
       <div className="ac-bottom-tools"><Dropdown trigger={["click"]} placement="topLeft" menu={{ items: addMenuItems }}><Button className="ac-add-button ac-monochrome" aria-label="新建画布节点" icon={<Plus size={20}/>} /></Dropdown><Tooltip title="图层"><Button type="text" aria-label="查看画布图层" icon={<Layers size={19}/>} onClick={() => { setDrawerOpen(true); setLibraryTab("layers") }}/></Tooltip><Tooltip title="小地图"><Button type="text" aria-label="画布小地图" aria-pressed={miniMap} icon={<MapIcon size={19}/>} onClick={() => setMiniMap(!miniMap)}/></Tooltip><Tooltip title="快捷键"><Button type="text" aria-label="画布快捷键" icon={<Keyboard size={19}/>} onClick={() => setShortcutsOpen(true)}/></Tooltip><Tooltip title="选择 V"><Button type="text" aria-label="画布选择工具" aria-pressed={!panMode} icon={<MousePointer2 size={19}/>} onClick={() => setPanMode(false)}/></Tooltip><Tooltip title="抓手 H / 空格拖动"><Button type="text" aria-label="画布抓手工具" aria-pressed={panMode} icon={<Hand size={19}/>} onClick={() => setPanMode(true)}/></Tooltip></div>
       {actions.continue && <Button className="ac-next-step ac-monochrome" icon={<ArrowRight size={15}/>} iconPlacement="end" onClick={() => { syncDraftNow(); void flushDraftSave(); void actions.continue?.() }}>进入分镜</Button>}
+      {editorFullscreenId && <EditStudio
+        key={editorFullscreenId}
+        csrfToken={csrfToken}
+        scopeProjectId={projectId}
+        sequence={`canvas-${editorFullscreenId}`}
+        variant="multitrack"
+        title="多轨道编辑器"
+        canvasAssets={editorPool}
+        allowSubtitle
+        onClose={() => setEditorFullscreenId(null)}
+      />}
     </div>
     <Modal title={editKind === "definition" ? `${chosenAsset ? kindLabel(chosenAsset.kind) : "资产"}信息` : `${chosenAsset?.kind === "scene" ? "场景" : chosenAsset?.kind === "prop" ? "道具" : "角色与形象"}信息`} open={!!editNode} onCancel={() => setEditNode(null)} onOk={() => void saveEditor()} confirmLoading={editing} okText="保存" cancelText="取消" width={760} className="ac-information-modal" destroyOnHidden>
       <div className="ac-information-grid"><Form layout="vertical"><Form.Item label={editKind === "definition" ? "名称" : chosenAsset?.kind === "scene" ? "视角名称" : "形象名称"} required><Input aria-label="画布节点名称" value={editName} onChange={event => setEditName(event.target.value)} maxLength={120}/></Form.Item>{editKind === "definition" ? <><Form.Item label="定位"><Input value={editRole} onChange={event => setEditRole(event.target.value)}/></Form.Item><Form.Item label="创作设定"><Input.TextArea aria-label="画布资产设定" value={editText} onChange={event => setEditText(event.target.value)} autoSize={{ minRows: 7, maxRows: 12 }}/></Form.Item></> : <><Form.Item label={chosenAsset?.kind === "scene" ? "所属场景" : "所属角色"}><Input value={chosenAsset?.name} readOnly/></Form.Item><Form.Item label="出现集数"><Input readOnly value={String(chosenAsset?.extra?.episodes || chosenAsset?.extra?.episode_numbers || "全剧复用")}/></Form.Item><Form.Item label="设定描述"><Input.TextArea value={chosenAsset ? assetDefinitionText(chosenAsset) : ""} readOnly autoSize={{ minRows: 4, maxRows: 8 }}/></Form.Item></>}</Form>{chosenAsset?.kind === "character" && <aside><h3>形象与音色</h3>{imageNode?.data.image ? <img src={imageNode.data.image} alt="角色形象"/> : <div className="ac-information-empty"><ImageIcon size={32}/><span>暂无形象图</span></div>}<Button icon={<Mic size={14}/>} onClick={() => { setEditNode(null); actions.voice(chosenAsset.id) }}>设置角色音色</Button><Button type="text" icon={<Plus size={14}/>} onClick={() => { setEditNode(null); actions.addLook(chosenAsset.id) }}>新增形象</Button></aside>}</div>
     </Modal>
     <CharacterDesignModal open={!!designNode} value={designValue} onCancel={() => setDesignNode(null)} onSave={async design => { try { if (designAsset && designTargetSlot) await actions.configure(designAsset.id, designTargetSlot, { design }); else if (designNode) patchCanvasNode(designNode, { design }); setDesignNode(null) } catch (error) { message.error(errorText(error, "角色设计保存失败")) } }}/>
-    <Modal title="画布快捷键" open={shortcutsOpen} onCancel={() => setShortcutsOpen(false)} footer={<Button onClick={() => setShortcutsOpen(false)}>知道了</Button>} width={420}><div className="ac-shortcuts">{[["新建节点", "Tab"], ["选择 / 抓手", "V / H"], ["临时平移", "Space + 拖动"], ["撤销 / 重做", "Ctrl + Z / Y"], ["保存画布", "Ctrl + S"], ["适应全部", "Ctrl + 0"], ["生成", "Ctrl + Enter"], ["取消连线 / 菜单", "Esc"]].map(([label, key]) => <div key={label}><span>{label}</span><kbd>{key}</kbd></div>)}</div></Modal>
+    <Modal title="画布快捷键" open={shortcutsOpen} onCancel={() => setShortcutsOpen(false)} footer={<Button onClick={() => setShortcutsOpen(false)}>知道了</Button>} width={420}><div className="ac-shortcuts">{[["新建节点", "Tab"], ["选择 / 抓手", "V / H"], ["临时平移", "Space + 拖动"], ["撤销 / 重做", "Ctrl + Z / Y"], ["保存画布", "Ctrl + S"], ["适应全部", "Ctrl + 0"], ["生成", "Enter / Ctrl + Enter"], ["取消连线 / 菜单", "Esc"]].map(([label, key]) => <div key={label}><span>{label}</span><kbd>{key}</kbd></div>)}</div></Modal>
     <input className="ac-file-input" type="file" accept={fileTarget && nodes.find(node => node.id === fileTarget)?.data.canvasKind === "audio" ? "audio/*" : fileTarget && nodes.find(node => node.id === fileTarget)?.data.canvasKind === "video" ? "video/*" : "image/jpeg,image/png,image/webp,image/gif"} multiple={nodes.find(node => node.id === fileTarget)?.data.role === "references"} ref={uploadRef} onChange={event => { const files = Array.from(event.target.files || []); event.target.value = ""; void uploadFiles(files) }}/>
     <AssetPickerModal open={mediaPicker} onClose={() => setMediaPicker(false)} onPick={file => void uploadFiles([file])}/>
   </div>

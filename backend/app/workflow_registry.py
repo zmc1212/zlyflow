@@ -4,7 +4,9 @@ import math
 import json
 import re
 import secrets
+from copy import deepcopy
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any, Callable
 
 from .grs_catalog import (
@@ -24,7 +26,7 @@ from .keep_face_restore_workflow import (
 from .h3_depth_workflow import DEPTH_DEFAULT_PROMPT, DEPTH_LENGTHS
 from .h3_video_edit_workflow import VIDEO_EDIT_MODELS, VIDEO_EDIT_LENGTHS
 from .h3_keyframe_workflow import resolve_keyframe_dimensions
-from .h3_motion_transfer_workflow import MOTION_TRANSFER_DEFAULT_PROMPT, resolve_motion_transfer_dimensions
+from .h3_motion_transfer_workflow import MOTION_TRANSFER_DEFAULT_PROMPT, resolve_motion_transfer_dimensions, snap_h3_length
 from .h3_motion_ref_video_workflow import MOTION_REF_VIDEO_DEFAULT_PROMPT
 from .image_edit_workflow import (
     DEFAULT_SAM3_MODEL,
@@ -86,6 +88,10 @@ class WorkflowDefinition:
     default_prompt: str | None = None
     # 显式槽位声明（如口型同步的 ("video", "audio")）；优先于 accepts_* 布尔推断。
     reference_slots: tuple[str, ...] = ()
+    # 按素材类型分槽的参考上限（如图生视频同时收图片/音频/视频）。有值时 references
+    # 仍是一条有序上传列表，但类型由文件本身判定、数量按类型分别校验，不再按上传位次推断。
+    reference_audio_limit: int = 0
+    reference_video_limit: int = 0
     # 结果能否与某个输入逐像素对比："overlay"=与原图叠层滑杆对比，"none"=只看待结果本身。
     result_compare: str = "none"
     # 图片服务生图目录的「默认模型」标记：决定创作页预选与导演台自动出图使用的模型，与显示顺序无关。
@@ -288,17 +294,17 @@ def grs_option_schema(
     default_resolution = "1K" if "1K" in resolution_enum else resolution_enum[0]
     properties: dict[str, Any] = {
         "aspect_ratio": option(
-            "比例", "string", "1:1", group="primary", enum=ratio_enum,
+            "画面比例", "string", "1:1", group="primary", enum=ratio_enum,
             ui_control="visual-settings", ui_companion="resolution",
             ui_companions=companions, ui_options=ratio_ui,
         ),
         "resolution": option(
             "分辨率", "string", default_resolution, group="primary", enum=resolution_enum,
-            ui_control="select",
+            ui_control="select", ui_options=[{"value": item, "label": "自定义" if item == "CUSTOM" else item} for item in resolution_enum],
         ),
         "count": option(
             "生成数量", "integer", 1, group="primary", minimum=1, maximum=4, step=1,
-            ui_control="input-number",
+            unit="张", ui_control="input-number",
         ),
         "provider_model": option("远端模型", "string", provider_model, group="internal"),
         "poll_interval_seconds": option("轮询间隔", "integer", 5, minimum=5, maximum=30),
@@ -406,6 +412,61 @@ SCNET_BILLING_NOTICE = (
     "平台暂不提供剩余额度查询，请以超算互联网控制台为准。"
 )
 
+# GRS 视频服务（grsai.ai）：MiniMax-H3 按秒计费，原生价（元/秒）经供应商系数换算为平台积分。
+# 价格明细由 /api/modes 的 billing 与选项标注动态下发，这里不再写死金额，避免价格表调整后文案漂移。
+GRS_H3_MODEL = "minimax-h3"
+GRS_H3_RESOLUTIONS = ["480p", "768p", "1080p"]
+GRS_H3_ASPECTS = ["landscape", "portrait"]
+GRS_BILLING_NOTICE = (
+    "GRS 按秒计费，分辨率档位决定每秒积分（单价见选项标注与提交预估）；"
+    "任务失败自动全额退回积分。"
+)
+
+# GRS 视频服务（grsai.ai）第二模型族：Agnes Video 2.5。
+# 上游按秒计费（720p ¥0.10 / 1080p ¥0.17 / 2k ¥0.23，官网模型列表 2000/3400/4600 积分，
+# ¥1 = 20000 积分）；时长 4-12 秒；参考图最多 5 张；首尾帧与参考图/音频互斥。
+GRS_AGNES_MODEL = "agnes-video-2.5"
+GRS_AGNES_RESOLUTIONS = ["720p", "1080p", "2k"]
+GRS_AGNES_ASPECTS = ["16:9", "9:16", "21:9", "4:3", "1:1", "3:4"]
+GRS_AGNES_BILLING_NOTICE = (
+    "GRS 按秒计费，720p/1080p/2k 档位单价不同（单价见选项标注与提交预估）；"
+    "单条 4-12 秒，任务失败自动全额退回积分。"
+)
+
+# GRS 视频服务（grsai.ai）第三模型族：Wan 3.0（阿里万相）。
+# 上游按秒计费，GRS 模型列表标注 2700/5400/10800 积分每秒（¥1 = 20000 积分），
+# 即 ¥0.135/0.27/0.54 每秒；单条 2-30 秒；参考图最多 10 张；首尾帧与参考图互斥。
+# 上游另支持音频/视频参考与文档输入，工作台暂未提供对应上传链路。
+GRS_WAN_MODEL = "wan-3.0"
+GRS_WAN_RESOLUTIONS = ["480p", "720p", "1080p"]
+GRS_WAN_ASPECTS = ["16:9", "9:16", "21:9", "4:3", "1:1", "3:4"]
+GRS_WAN_MAX_REFERENCES = 10
+GRS_WAN_MAX_AUDIO_REFERENCES = 5
+GRS_WAN_MAX_VIDEO_REFERENCES = 5
+GRS_WAN_MAX_AUDIO_SECONDS = 15
+GRS_WAN_MAX_VIDEO_SECONDS = 15
+GRS_WAN_BILLING_NOTICE = (
+    "GRS Wan 3.0 按秒计费，480p/720p/1080p 档位单价不同（单价见选项标注与提交预估）；"
+    "参考视频按输入秒数同价计费；单条 2-30 秒，任务失败自动全额退回积分。"
+)
+
+# MiniMax 官方平台（platform.minimax.cn）：H3 系列 v2 API，按秒计费，原生价（元/秒）
+# 经供应商系数换算为平台积分；积分单价按「模型档位 × 分辨率」分档，见 storage._seed_credit_price_rules。
+MINIMAX_H3_MODEL_DEFAULT = "MiniMax-H3-Lite"
+MINIMAX_H3_MODEL_OPTIONS = ["MiniMax-H3-Lite", "MiniMax-H3-Highspeed", "MiniMax-H3", "MiniMax-H3-Max"]
+MINIMAX_H3_MODEL_UI_OPTIONS = [
+    {"value": "MiniMax-H3-Lite", "label": "Lite · 最省"},
+    {"value": "MiniMax-H3-Highspeed", "label": "Highspeed · 提速"},
+    {"value": "MiniMax-H3", "label": "H3 · 旗舰"},
+    {"value": "MiniMax-H3-Max", "label": "H3-Max · 增强"},
+]
+MINIMAX_H3_RESOLUTIONS = ["480P", "768P", "2K"]
+MINIMAX_H3_RATIOS = ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"]
+MINIMAX_BILLING_NOTICE = (
+    "MiniMax 官方按秒计费，积分单价由「模型档位 × 分辨率」换算（见选项标注与提交预估）；"
+    "每任务前 5 张参考图免费，超出部分按输入图片档价加收。任务失败自动全额退回积分。"
+)
+
 # 云端视频比例标签（ui_control=visual-settings）
 CLOUD_ASPECT_RATIO_UI_OPTIONS = {
     "16:9": "16:9 横屏",
@@ -425,7 +486,8 @@ def _cloud_aspect_ratio_option(ratios: list[str]) -> dict[str, Any]:
     return option(
         "画面比例", "string", ratios[0], group="primary", enum=list(ratios),
         ui_control="visual-settings",
-        ui_options=[{"value": value, "label": CLOUD_ASPECT_RATIO_UI_OPTIONS.get(value, value)} for value in ratios],
+        ui_options=[{"value": value, "label": CLOUD_ASPECT_RATIO_UI_OPTIONS.get(value, value),
+                     **({"short_label": "自适应"} if value == "adaptive" else {})} for value in ratios],
     )
 
 
@@ -525,6 +587,85 @@ def cloud_video_option_schema(mode_id: str) -> dict[str, Any]:
             "分辨率", "string", "720p", group="advanced",
             enum=SCNET_HAPPYHORSE_RESOLUTIONS, ui_control="select",
         )
+    elif mode_id.startswith("cloud-grs-h3"):
+        # GRS MiniMax-H3：分辨率直接决定积分价位，放 primary；单价由 /api/modes 的
+        # billing 数据动态标注，注册表不再写死金额。
+        properties["aspect_ratio"] = option(
+            "画幅", "string", "landscape", group="primary",
+            enum=GRS_H3_ASPECTS, ui_control="visual-settings", ui_companions=["resolution"],
+            ui_options=[{"value": "landscape", "label": "横屏"}, {"value": "portrait", "label": "竖屏"}],
+        )
+        properties["duration"] = _cloud_duration_slider(1, 15, 5)
+        properties["resolution"] = option(
+            "分辨率", "string", "768p", group="primary",
+            enum=GRS_H3_RESOLUTIONS, ui_control="select",
+            description="档位单价见选项标注与提交预估；1080p 最长 10 秒。",
+        )
+        properties["prompt_skill"] = option(
+            "提示词优化", "boolean", False, group="advanced",
+            description="开启后由上游改写提示词；工作台提示词已编排，默认关闭。",
+        )
+        properties["seed"] = option(
+            "随机种子", "integer", 0, group="advanced", minimum=0, maximum=2147483647,
+            description="0 表示随机。",
+        )
+    elif mode_id.startswith("cloud-grs-agnes"):
+        # GRS Agnes Video 2.5：分辨率直接决定积分价位，放 primary；上游必填 aspectRatio。
+        properties["aspect_ratio"] = _cloud_aspect_ratio_option(GRS_AGNES_ASPECTS)
+        properties["duration"] = _cloud_duration_slider(4, 12, 5)
+        properties["resolution"] = option(
+            "分辨率", "string", "720p", group="primary",
+            enum=GRS_AGNES_RESOLUTIONS, ui_control="select",
+            description="档位单价见选项标注与提交预估。",
+        )
+        properties["seed"] = option(
+            "随机种子", "integer", 0, group="advanced", minimum=0, maximum=2147483647,
+            description="0 表示随机。",
+        )
+    elif mode_id.startswith("cloud-grs-wan"):
+        # GRS Wan 3.0：六种画幅、480p/720p/1080p、2-30 秒；上游必填 aspectRatio。
+        properties["aspect_ratio"] = _cloud_aspect_ratio_option(GRS_WAN_ASPECTS)
+        properties["duration"] = _cloud_duration_slider(2, 30, 5)
+        properties["resolution"] = option(
+            "分辨率", "string", "720p", group="primary",
+            enum=GRS_WAN_RESOLUTIONS, ui_control="select",
+            description="档位单价见选项标注与提交预估；480p 适草稿，1080p 长镜头成本最高。",
+        )
+        properties["seed"] = option(
+            "随机种子", "integer", 0, group="advanced", minimum=0, maximum=2147483647,
+            description="0 表示随机。",
+        )
+    elif mode_id.startswith("cloud-minimax-h3"):
+        # MiniMax 官方 H3：文生视频 ratio 必填非 adaptive；图生/首尾帧宽高比恒随输入，不下发；
+        # 多模态参考生成（r2va）官方文档虽写 ratio 默认 adaptive，但 Lite/Highspeed/Max 档不支持 adaptive，
+        # 必须显式指定具体比例，否则上游返回 2013「参考生场景必须显式指定 ratio」，故同样暴露画幅。
+        # 积分单价按「模型档位 × 分辨率」分档（unit_by_variant 键为 f"{model}:{resolution}"）。
+        if mode_id in ("cloud-minimax-h3-t2v", "cloud-minimax-h3-r2v"):
+            properties["aspect_ratio"] = _cloud_aspect_ratio_option(MINIMAX_H3_RATIOS)
+            properties["aspect_ratio"]["ui_companions"] = ["resolution"]
+        properties["duration"] = _cloud_duration_slider(4, 15, 5)
+        properties["resolution"] = option(
+            "分辨率", "string", "768P", group="primary",
+            enum=MINIMAX_H3_RESOLUTIONS, ui_control="select",
+            ui_options=[
+                {"value": "480P", "label": "480P · 旗舰档除外"},
+                {"value": "768P", "label": "768P · 高清"},
+                {"value": "2K", "label": "2K · 仅 H3 旗舰档"},
+            ],
+            description="档位单价见积分预估；480P 仅 Lite/Highspeed/H3-Max，2K 仅 H3 旗舰档。",
+        )
+        properties["model"] = option(
+            "模型档位", "string", MINIMAX_H3_MODEL_DEFAULT, group="advanced",
+            enum=MINIMAX_H3_MODEL_OPTIONS, ui_control="select",
+            ui_options=MINIMAX_H3_MODEL_UI_OPTIONS,
+            description="Lite 最省；Highspeed 提速；H3 旗舰画质更强且独享 2K；H3-Max 创意表现增强。",
+        )
+        properties["generate_audio"] = option(
+            "生成声音", "boolean", True, group="advanced",
+            description="默认开启，生成与画面同步的环境声/音效；关闭则输出无声视频，便于后期统一配音。",
+        )
+    if "resolution" in properties:
+        properties["resolution"]["ui_summary"] = "value"
     return {"type": "object", "properties": properties}
 
 H3_STANDARD_RESOLUTION_PRESETS = {
@@ -1485,7 +1626,7 @@ H3_IMAGE_CFG = 1.0
 
 
 def h3_image_option_schema(edit_mode: bool) -> dict[str, Any]:
-    aspect_choices = [{"value": "auto", "label": "自动（跟随第 1 张参考图）"}] if edit_mode else []
+    aspect_choices = [{"value": "auto", "label": "自动（跟随第 1 张参考图）", "short_label": "自动", "hint": "跟随第 1 张参考图"}] if edit_mode else []
     aspect_choices += [
         {"value": "1:1", "label": "1:1 方形"},
         {"value": "16:9", "label": "16:9 横屏"},
@@ -1501,17 +1642,17 @@ def h3_image_option_schema(edit_mode: bool) -> dict[str, Any]:
         "properties": {
             "aspect_ratio": option(
                 "画面比例", "string", "auto" if edit_mode else "1:1", group="primary",
-                ui_control="select", ui_options=aspect_choices,
-                description="编辑模式可选自动，跟随第一张参考图的比例。",
+                ui_control="visual-settings", ui_companions=["quality"], ui_options=aspect_choices,
+                description="选择自动时，跟随第一张参考图的比例。" if edit_mode else "选择生成画面的横竖比例。",
             ),
             "quality": option(
                 "输出清晰度", "string", "standard", group="primary",
                 ui_control="select",
                 enum=list(H3_IMAGE_RESOLUTION_PRESETS),
                 ui_options=[
-                    {"value": "standard", "label": "标准（约 400 万像素）"},
-                    {"value": "high", "label": "高清（约 900 万像素）"},
-                    {"value": "ultra", "label": "超清（约 1600 万像素）"},
+                    {"value": "standard", "label": "标准（约 400 万像素）", "short_label": "标准", "hint": "约 400 万像素"},
+                    {"value": "high", "label": "高清（约 900 万像素）", "short_label": "高清", "hint": "约 900 万像素"},
+                    {"value": "ultra", "label": "超清（约 1600 万像素）", "short_label": "超清", "hint": "约 1600 万像素"},
                 ],
                 megapixels_by_quality=H3_IMAGE_RESOLUTION_PRESETS,
                 ui_resolution_preview=H3_LOCAL_RESOLUTION_PREVIEW,
@@ -1593,11 +1734,12 @@ MOTION_TRANSFER_OPTION_SCHEMA = {
         ),
         "aspect_ratio": option(
             "画面比例", "string", "16:9", group="primary", enum=["16:9", "9:16", "1:1"],
+            ui_control="visual-settings",
             description="横版 864×480 / 竖版 480×864 / 方形 640×640。",
         ),
         "duration": option(
-            "生成时长", "string", "5s", group="primary", enum=["5s", "10s", "15s"],
-            description="复刻动作参考视频前 5/10/15 秒的动作。",
+            "生成时长（秒）", "number", 5, group="primary", minimum=2, maximum=15, step=0.1,
+            description="复刻动作参考视频前 N 秒的动作;按 H3 帧网格向上对齐,成片不短于所填时长,最长 15 秒。旧版 5s/10s/15s 写法仍兼容。",
         ),
         "render_quality": option(
             "生成质量", "string", "standard", group="advanced", enum=["preview", "standard", "fine"],
@@ -1675,11 +1817,12 @@ MOTION_REF_VIDEO_OPTION_SCHEMA = {
     "properties": {
         "aspect_ratio": option(
             "画面比例", "string", "9:16", group="primary", enum=["16:9", "9:16", "1:1"],
+            ui_control="visual-settings",
             description="横版 864×480 / 竖版 480×864 / 方形 640×640;建议与动作参考视频一致。",
         ),
         "duration": option(
-            "生成时长", "string", "5s", group="primary", enum=["5s", "10s", "15s"],
-            description="复刻动作参考视频前 5/10/15 秒的表演与运镜。",
+            "生成时长（秒）", "number", 5, group="primary", minimum=2, maximum=15, step=0.1,
+            description="复刻动作参考视频前 N 秒的表演与运镜;按 H3 帧网格向上对齐,成片不短于所填时长,最长 15 秒。旧版 5s/10s/15s 写法仍兼容。",
         ),
         "preserve_audio": option(
             "保留原片声音", "boolean", True, group="advanced",
@@ -1721,6 +1864,31 @@ def is_motion_ref_video_workflow(mode: JobMode | str) -> bool:
 def is_motion_transfer_workflow(mode: JobMode | str) -> bool:
 
     return mode_key(mode) in MOTION_TRANSFER_WORKFLOW_IDS
+
+
+def motion_duration_seconds(value: Any) -> float:
+    """解析生成时长: 兼容旧枚举("5s"/"10s"/"15s")与新数字秒数, 限定 2~15 秒。
+
+    H3 单次生成的稳定包络为 362 帧(约 15.08 秒);超过 15 秒的长片需要分段拼接,
+    不在单次生成参数里放开。"""
+    if isinstance(value, str):
+        seconds = float(value.strip().lower().rstrip("s"))
+    elif isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("生成时长必须为数字秒数。")
+    else:
+        seconds = float(value)
+    if not 2 <= seconds <= 15:
+        raise ValueError("生成时长必须在 2~15 秒之间(更长时长请用分段拼接)。")
+    return seconds
+
+
+def h3_length_covering(seconds: float, fps: int = 24) -> int:
+    """按 H3 17n+5 帧网格向上取整, 保证成片时长不短于请求秒数（只能多不能少）。"""
+    frames_needed = math.ceil(seconds * fps)
+    snapped = snap_h3_length(frames_needed)
+    if snapped < frames_needed:
+        snapped = 17 * (int((snapped - 5) / 17) + 1) + 5
+    return min(snapped, 362)
 
 
 # MiniMax H3 角色替换（换头 / 修脸 / 表情迁移）：以远端已验证的干净模板为基线，
@@ -1885,6 +2053,7 @@ KEYFRAME_OPTION_SCHEMA = {
     "properties": {
         "aspect_ratio": option(
             "画面比例", "string", "16:9", group="primary", enum=["16:9", "9:16", "1:1"],
+            ui_control="visual-settings",
             ui_options=[
                 {"value": "16:9", "label": "16:9 横屏"},
                 {"value": "9:16", "label": "9:16 竖屏"},
@@ -2756,7 +2925,7 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
             "properties": {
                 "target_aspect": option(
                     "扩展到", "string", "16:9", group="primary",
-                    enum=list(OUTPAINT_TARGET_ASPECTS), ui_control="select",
+                    enum=list(OUTPAINT_TARGET_ASPECTS), ui_control="visual-settings",
                 ),
                 # 工具页画布交互提交的显式目标画布（优先于 target_aspect）；0 表示未指定。
                 "target_width": option("目标画布宽", "integer", 0, group="internal", minimum=0, maximum=OUTPAINT_MAX_SIDE, step=2),
@@ -2935,6 +3104,250 @@ WORKFLOWS: tuple[WorkflowDefinition, ...] = (
         cloud_family="scnet-happyhorse",
         catalog_group=CATALOG_GROUP_CLOUD_VIDEO,
         billing_notice=SCNET_BILLING_NOTICE,
+    ),
+    WorkflowDefinition(
+        JobMode.CLOUD_GRS_H3_T2V.value,
+        "GRS MiniMax-H3 · 文生视频",
+        "GRS 云端 MiniMax-H3，横竖屏、480p-1080p 与 1-15 秒；按秒计费，积分按档位直换。",
+        "none",
+        0,
+        0,
+        option_schema=cloud_video_option_schema("cloud-grs-h3-t2v"),
+        executor="cloud_video",
+        cloud_provider="grs",
+        cloud_model=GRS_H3_MODEL,
+        cloud_family="grs-h3",
+        catalog_group=CATALOG_GROUP_CLOUD_VIDEO,
+        billing_notice=GRS_BILLING_NOTICE,
+    ),
+    WorkflowDefinition(
+        JobMode.CLOUD_GRS_H3_R2V.value,
+        "GRS MiniMax-H3 · 参考图生视频",
+        "GRS 云端 MiniMax-H3，按顺序添加最多 9 张参考图（单张参考图可近似图生视频），提示词中用 <Picture n> 引用。",
+        "collection",
+        1,
+        9,
+        option_schema=cloud_video_option_schema("cloud-grs-h3-r2v"),
+        executor="cloud_video",
+        cloud_provider="grs",
+        cloud_model=GRS_H3_MODEL,
+        cloud_family="grs-h3",
+        catalog_group=CATALOG_GROUP_CLOUD_VIDEO,
+        billing_notice=GRS_BILLING_NOTICE,
+    ),
+    WorkflowDefinition(
+        JobMode.CLOUD_GRS_H3_FL2V.value,
+        "GRS MiniMax-H3 · 首尾帧",
+        "GRS 云端 MiniMax-H3，以首帧与尾帧共同控制起止画面；上游要求首尾帧必须成对提供。",
+        "keyframes",
+        2,
+        2,
+        ("首帧", "尾帧"),
+        option_schema=cloud_video_option_schema("cloud-grs-h3-fl2v"),
+        executor="cloud_video",
+        cloud_provider="grs",
+        cloud_model=GRS_H3_MODEL,
+        cloud_family="grs-h3",
+        catalog_group=CATALOG_GROUP_CLOUD_VIDEO,
+        billing_notice=GRS_BILLING_NOTICE,
+    ),
+    # GRS Agnes Video 2.5：同一 GRS 供应商下的第二个模型族（复用 grs 连接配置与 API Key）。
+    # 定义顺序即导演台族路由覆盖顺序：i2v（单首帧，上游允许单帧）放最后，作为族内图生路由；
+    # fl2v（首尾帧成对）仅在生成页可选。
+    WorkflowDefinition(
+        JobMode.CLOUD_GRS_AGNES_T2V.value,
+        "GRS Agnes 2.5 · 文生视频",
+        "GRS 云端 Agnes Video 2.5，六种画幅、720p/1080p/2k 与 4-12 秒；按秒计费，支持原生配音与音效。",
+        "none",
+        0,
+        0,
+        option_schema=cloud_video_option_schema("cloud-grs-agnes-t2v"),
+        executor="cloud_video",
+        cloud_provider="grs",
+        cloud_model=GRS_AGNES_MODEL,
+        cloud_family="grs-agnes",
+        catalog_group=CATALOG_GROUP_CLOUD_VIDEO,
+        billing_notice=GRS_AGNES_BILLING_NOTICE,
+    ),
+    WorkflowDefinition(
+        JobMode.CLOUD_GRS_AGNES_R2V.value,
+        "GRS Agnes 2.5 · 参考图生视频",
+        "GRS 云端 Agnes Video 2.5，按顺序添加最多 5 张参考图控制人物、道具与场景，提示词中用 <Picture n> 引用。",
+        "collection",
+        1,
+        5,
+        option_schema=cloud_video_option_schema("cloud-grs-agnes-r2v"),
+        executor="cloud_video",
+        cloud_provider="grs",
+        cloud_model=GRS_AGNES_MODEL,
+        cloud_family="grs-agnes",
+        catalog_group=CATALOG_GROUP_CLOUD_VIDEO,
+        billing_notice=GRS_AGNES_BILLING_NOTICE,
+    ),
+    WorkflowDefinition(
+        JobMode.CLOUD_GRS_AGNES_FL2V.value,
+        "GRS Agnes 2.5 · 首尾帧",
+        "GRS 云端 Agnes Video 2.5，以首帧与尾帧共同控制起止画面，适合镜头衔接与转场补帧。",
+        "keyframes",
+        2,
+        2,
+        ("首帧", "尾帧"),
+        option_schema=cloud_video_option_schema("cloud-grs-agnes-fl2v"),
+        executor="cloud_video",
+        cloud_provider="grs",
+        cloud_model=GRS_AGNES_MODEL,
+        cloud_family="grs-agnes",
+        catalog_group=CATALOG_GROUP_CLOUD_VIDEO,
+        billing_notice=GRS_AGNES_BILLING_NOTICE,
+    ),
+    WorkflowDefinition(
+        JobMode.CLOUD_GRS_AGNES_I2V.value,
+        "GRS Agnes 2.5 · 图生视频",
+        "GRS 云端 Agnes Video 2.5，以一张首帧图片为起点生成镜头；上游支持首帧单独使用。",
+        "keyframes",
+        1,
+        1,
+        ("首帧",),
+        option_schema=cloud_video_option_schema("cloud-grs-agnes-i2v"),
+        executor="cloud_video",
+        cloud_provider="grs",
+        cloud_model=GRS_AGNES_MODEL,
+        cloud_family="grs-agnes",
+        catalog_group=CATALOG_GROUP_CLOUD_VIDEO,
+        billing_notice=GRS_AGNES_BILLING_NOTICE,
+    ),
+    # GRS Wan 3.0：同一 GRS 供应商下的第三个模型族（复用 grs 连接配置与 API Key）。
+    # 定义顺序即导演台族路由覆盖顺序：i2v（单首帧）放最后，作为族内图生路由；
+    # fl2v（首尾帧成对）仅在生成页可选。
+    WorkflowDefinition(
+        JobMode.CLOUD_GRS_WAN_T2V.value,
+        "GRS Wan 3.0 · 文生视频",
+        "GRS 云端 Wan 3.0，六种画幅、480p/720p/1080p 与 2-30 秒长镜头；按秒计费，支持音画同步。",
+        "none",
+        0,
+        0,
+        option_schema=cloud_video_option_schema("cloud-grs-wan-t2v"),
+        executor="cloud_video",
+        cloud_provider="grs",
+        cloud_model=GRS_WAN_MODEL,
+        cloud_family="grs-wan",
+        catalog_group=CATALOG_GROUP_CLOUD_VIDEO,
+        billing_notice=GRS_WAN_BILLING_NOTICE,
+    ),
+    WorkflowDefinition(
+        JobMode.CLOUD_GRS_WAN_R2V.value,
+        "GRS Wan 3.0 · 参考生视频",
+        "GRS 云端 Wan 3.0，参考图最多 10 张（提示词中用 <Picture n> 引用）、参考音频最多 5 段"
+        "（每段不超过 15 秒）、参考视频最多 5 段（MP4，合计不超过 15 秒），可只用其中一种。",
+        "collection",
+        1,
+        GRS_WAN_MAX_REFERENCES,
+        option_schema=cloud_video_option_schema("cloud-grs-wan-r2v"),
+        reference_audio_limit=GRS_WAN_MAX_AUDIO_REFERENCES,
+        reference_video_limit=GRS_WAN_MAX_VIDEO_REFERENCES,
+        executor="cloud_video",
+        cloud_provider="grs",
+        cloud_model=GRS_WAN_MODEL,
+        cloud_family="grs-wan",
+        catalog_group=CATALOG_GROUP_CLOUD_VIDEO,
+        billing_notice=GRS_WAN_BILLING_NOTICE,
+    ),
+    WorkflowDefinition(
+        JobMode.CLOUD_GRS_WAN_FL2V.value,
+        "GRS Wan 3.0 · 首尾帧",
+        "GRS 云端 Wan 3.0，以首帧与尾帧共同控制起止画面，适合镜头衔接、转场补帧与长镜头续写。",
+        "keyframes",
+        2,
+        2,
+        ("首帧", "尾帧"),
+        option_schema=cloud_video_option_schema("cloud-grs-wan-fl2v"),
+        executor="cloud_video",
+        cloud_provider="grs",
+        cloud_model=GRS_WAN_MODEL,
+        cloud_family="grs-wan",
+        catalog_group=CATALOG_GROUP_CLOUD_VIDEO,
+        billing_notice=GRS_WAN_BILLING_NOTICE,
+    ),
+    WorkflowDefinition(
+        JobMode.CLOUD_GRS_WAN_I2V.value,
+        "GRS Wan 3.0 · 图生视频",
+        "GRS 云端 Wan 3.0，以一张首帧图片为起点生成镜头；上游支持首帧单独使用。",
+        "keyframes",
+        1,
+        1,
+        ("首帧",),
+        option_schema=cloud_video_option_schema("cloud-grs-wan-i2v"),
+        executor="cloud_video",
+        cloud_provider="grs",
+        cloud_model=GRS_WAN_MODEL,
+        cloud_family="grs-wan",
+        catalog_group=CATALOG_GROUP_CLOUD_VIDEO,
+        billing_notice=GRS_WAN_BILLING_NOTICE,
+    ),
+    # MiniMax 官方平台（platform.minimax.cn）H3 系列：v2 API 按秒计费。
+    # 定义顺序即导演台族路由覆盖顺序：i2v（单首帧）放最后，作为族内图生路由；
+    # fl2v（首尾帧成对）仅在生成页可选，避免导演链路单首帧触发上游成对校验失败。
+    WorkflowDefinition(
+        JobMode.CLOUD_MINIMAX_H3_T2V.value,
+        "MiniMax 官方 H3 · 文生视频",
+        "MiniMax 官方平台云端 H3 系列文生视频，480P/768P/2K（H3 旗舰档仅 768P/2K）与 4-15 秒；按秒计费，积分按档位×分辨率直换。",
+        "none",
+        0,
+        0,
+        option_schema=cloud_video_option_schema("cloud-minimax-h3-t2v"),
+        executor="cloud_video",
+        cloud_provider="minimax",
+        cloud_model=MINIMAX_H3_MODEL_DEFAULT,
+        cloud_family="minimax-h3",
+        catalog_group=CATALOG_GROUP_CLOUD_VIDEO,
+        billing_notice=MINIMAX_BILLING_NOTICE,
+    ),
+    WorkflowDefinition(
+        JobMode.CLOUD_MINIMAX_H3_R2V.value,
+        "MiniMax 官方 H3 · 参考图生视频",
+        "MiniMax 官方平台云端 H3 系列参考图生视频，按顺序添加最多 9 张参考图控制主体与风格。",
+        "collection",
+        1,
+        9,
+        option_schema=cloud_video_option_schema("cloud-minimax-h3-r2v"),
+        executor="cloud_video",
+        cloud_provider="minimax",
+        cloud_model=MINIMAX_H3_MODEL_DEFAULT,
+        cloud_family="minimax-h3",
+        catalog_group=CATALOG_GROUP_CLOUD_VIDEO,
+        billing_notice=MINIMAX_BILLING_NOTICE,
+    ),
+    WorkflowDefinition(
+        JobMode.CLOUD_MINIMAX_H3_FL2V.value,
+        "MiniMax 官方 H3 · 首尾帧",
+        "MiniMax 官方平台云端 H3 系列首尾帧视频，以首帧与尾帧共同控制起止画面；首尾帧必须成对提供。",
+        "keyframes",
+        2,
+        2,
+        ("首帧", "尾帧"),
+        option_schema=cloud_video_option_schema("cloud-minimax-h3-fl2v"),
+        executor="cloud_video",
+        cloud_provider="minimax",
+        cloud_model=MINIMAX_H3_MODEL_DEFAULT,
+        cloud_family="minimax-h3",
+        catalog_group=CATALOG_GROUP_CLOUD_VIDEO,
+        billing_notice=MINIMAX_BILLING_NOTICE,
+    ),
+    WorkflowDefinition(
+        JobMode.CLOUD_MINIMAX_H3_I2V.value,
+        "MiniMax 官方 H3 · 图生视频",
+        "MiniMax 官方平台云端 H3 系列图生视频，以首帧图片为起点生成视频。",
+        "keyframes",
+        1,
+        1,
+        ("首帧",),
+        option_schema=cloud_video_option_schema("cloud-minimax-h3-i2v"),
+        executor="cloud_video",
+        cloud_provider="minimax",
+        cloud_model=MINIMAX_H3_MODEL_DEFAULT,
+        cloud_family="minimax-h3",
+        catalog_group=CATALOG_GROUP_CLOUD_VIDEO,
+        billing_notice=MINIMAX_BILLING_NOTICE,
     ),
 )
 
@@ -3116,6 +3529,21 @@ CLOUD_VIDEO_WORKFLOW_IDS = {
     JobMode.CLOUD_SCNET_SEEDANCE_T2V.value,
     JobMode.CLOUD_SCNET_SEEDANCE_I2V.value,
     JobMode.CLOUD_SCNET_HAPPYHORSE_T2V.value,
+    JobMode.CLOUD_GRS_H3_T2V.value,
+    JobMode.CLOUD_GRS_H3_R2V.value,
+    JobMode.CLOUD_GRS_H3_FL2V.value,
+    JobMode.CLOUD_GRS_AGNES_T2V.value,
+    JobMode.CLOUD_GRS_AGNES_I2V.value,
+    JobMode.CLOUD_GRS_AGNES_FL2V.value,
+    JobMode.CLOUD_GRS_AGNES_R2V.value,
+    JobMode.CLOUD_GRS_WAN_T2V.value,
+    JobMode.CLOUD_GRS_WAN_I2V.value,
+    JobMode.CLOUD_GRS_WAN_FL2V.value,
+    JobMode.CLOUD_GRS_WAN_R2V.value,
+    JobMode.CLOUD_MINIMAX_H3_T2V.value,
+    JobMode.CLOUD_MINIMAX_H3_I2V.value,
+    JobMode.CLOUD_MINIMAX_H3_FL2V.value,
+    JobMode.CLOUD_MINIMAX_H3_R2V.value,
 }
 
 
@@ -3137,7 +3565,7 @@ def cloud_model_for(mode: JobMode | str, options: dict[str, Any] | None = None) 
 
 
 def cloud_provider_for(mode: JobMode | str) -> str | None:
-    """云端视频工作流对应的供应商 key（kling / jimeng / hailuo / scnet）；非云端返回 None。"""
+    """云端视频工作流对应的供应商 key（kling / jimeng / hailuo / scnet / grs / minimax）；非云端返回 None。"""
     try:
         definition = workflow_for(mode)
     except KeyError:
@@ -3149,14 +3577,252 @@ def cloud_provider_for(mode: JobMode | str) -> str | None:
 
 # 导演台族标签（按厂商分族用）
 CLOUD_PROVIDER_DIRECTOR_LABELS = {
-    "kling": "可灵", "jimeng": "即梦 Seedance", "hailuo": "海螺", "scnet": "超算互联网",
+    "kling": "可灵", "jimeng": "即梦 Seedance", "hailuo": "海螺", "scnet": "超算互联网", "grs": "GRS",
+    "minimax": "MiniMax 官方",
 }
 # 一个供应商下挂多个模型族时的显式族标签（族键 = WorkflowDefinition.cloud_family）
 CLOUD_DIRECTOR_FAMILY_LABELS = {
     "scnet-h3": "云端 · 超算互联网 MiniMax-H3",
     "scnet-seedance": "云端 · 超算互联网 Seedance",
     "scnet-happyhorse": "云端 · 超算互联网 HappyHorse",
+    "grs-h3": "云端 · GRS MiniMax-H3",
+    "grs-agnes": "云端 · GRS Agnes 2.5",
+    "grs-wan": "云端 · GRS Wan 3.0",
+    "minimax-h3": "云端 · MiniMax 官方 H3",
 }
+
+# 价格页展示目录：只声明能力/档位结构，不含任何金额；金额由 credit_price_rules 动态解析。
+# 当前仅开放 GRS 与 MiniMax 官方两条云端视频产线。
+CLOUD_PRICING_PROVIDERS: tuple[dict[str, Any], ...] = (
+    {
+        "key": "grs",
+        "family": "grs-h3",
+        "label": "GRS",
+        "subtitle": "性价比优先",
+        "description": "GRS 云端 MiniMax-H3，按秒计费，适合草稿、批量试错和高频创作。",
+        "workflow_id": "cloud-grs-h3-t2v",
+        "modes": ("文生视频", "参考图生视频", "首尾帧"),
+        "models": (
+            {
+                "key": "minimax-h3",
+                "label": "MiniMax-H3",
+                "tagline": "高性价比",
+                "description": "单模型三档分辨率，480p/768p 最长 15 秒，1080p 最长 10 秒。",
+                "resolutions": ("480p", "768p", "1080p"),
+            },
+        ),
+        "notes": (
+            "按秒计费，分辨率决定每秒积分。",
+            "1080p 单次最长 10 秒，480p/768p 最长 15 秒。",
+            "输入图片当前暂不额外收费。",
+        ),
+    },
+    {
+        # GRS 同一账号下的第二个模型族：连接与 API Key 复用 grs 供应商。
+        "key": "grs-agnes",
+        "provider_key": "grs",
+        "variant_by": "resolution",
+        "family": "grs-agnes",
+        "label": "GRS · Agnes 2.5",
+        "subtitle": "带原生配音",
+        "description": "GRS 云端 Agnes Video 2.5，六种画幅与 720p/1080p/2k，适合带对白、音效的短剧镜头。",
+        "workflow_id": "cloud-grs-agnes-t2v",
+        "modes": ("文生视频", "图生视频", "参考图生视频", "首尾帧"),
+        "models": (
+            {
+                "key": "agnes-video-2.5",
+                "label": "Agnes Video 2.5",
+                "tagline": "原生配音",
+                "description": "单条 4-12 秒，最多 5 张参考图，支持对白与音效同步输出。",
+                "resolutions": ("720p", "1080p", "2k"),
+            },
+        ),
+        "notes": (
+            "按秒计费，分辨率决定每秒积分。",
+            "单条时长 4-12 秒，参考图最多 5 张。",
+            "首尾帧与参考图互斥，不支持同时使用。",
+            "任务失败自动全额退回积分。",
+        ),
+    },
+    {
+        # GRS 同一账号下的第三个模型族：Wan 3.0，连接与 API Key 复用 grs 供应商。
+        "key": "grs-wan",
+        "provider_key": "grs",
+        "variant_by": "resolution",
+        "family": "grs-wan",
+        "label": "GRS · Wan 3.0",
+        "subtitle": "30 秒长镜头",
+        "description": "GRS 云端 Wan 3.0，六种画幅与 480p/1080p，单条最长 30 秒，适合长镜头叙事与音画同步。",
+        "workflow_id": "cloud-grs-wan-t2v",
+        "modes": ("文生视频", "图生视频", "参考图生视频", "首尾帧"),
+        "models": (
+            {
+                "key": "wan-3.0",
+                "label": "Wan 3.0",
+                "tagline": "长镜头",
+                "description": "单条 2-30 秒，最多 10 张参考图，支持首尾帧与原生音画同步。",
+                "resolutions": ("480p", "720p", "1080p"),
+            },
+        ),
+        "notes": (
+            "按秒计费，分辨率决定每秒积分。",
+            "单条时长 2-30 秒，参考图最多 10 张。",
+            "首尾帧与参考图互斥，不支持同时使用。",
+            "任务失败自动全额退回积分。",
+        ),
+    },
+    {
+        "key": "minimax",
+        "family": "minimax-h3",
+        "variant_by": "model:resolution",
+        "label": "MiniMax 官方",
+        "subtitle": "旗舰画质",
+        "description": "MiniMax 官方 H3 系列，四档模型与 2K 分辨率，适合正式成片。",
+        "workflow_id": "cloud-minimax-h3-t2v",
+        "modes": ("文生视频", "图生视频", "参考图生视频", "首尾帧"),
+        "models": (
+            {
+                "key": "MiniMax-H3-Lite",
+                "label": "Lite",
+                "tagline": "最省",
+                "description": "成本最低，适合创意尝试与批量生成。",
+                "resolutions": ("480P", "768P"),
+            },
+            {
+                "key": "MiniMax-H3-Highspeed",
+                "label": "Highspeed",
+                "tagline": "提速",
+                "description": "兼顾质量与速度，适合日常内容创作。",
+                "resolutions": ("480P", "768P"),
+            },
+            {
+                "key": "MiniMax-H3",
+                "label": "H3",
+                "tagline": "旗舰",
+                "description": "画质优先，独享 2K，适合高质量视频创作。",
+                "resolutions": ("768P", "2K"),
+            },
+            {
+                "key": "MiniMax-H3-Max",
+                "label": "H3-Max",
+                "tagline": "增强",
+                "description": "创意表现增强，适合复杂镜头与高要求画面。",
+                "resolutions": ("480P", "768P"),
+            },
+        ),
+        "notes": (
+            "按秒计费，积分由「模型档位 × 分辨率」换算。",
+            "H3 旗舰档仅 768P / 2K；480P 仅 Lite / Highspeed / H3-Max。",
+            "每任务前 5 张参考图免费，超出按档位加收输入图片费。",
+            "任务失败自动全额退回积分。",
+        ),
+    },
+)
+
+
+def cloud_billing_variant(mode: JobMode | str, options: dict[str, Any] | None = None) -> str:
+    """积分按档计价的变体键：MiniMax 官方按「模型档位:分辨率」分档；其余工作流用 kling_mode / resolution。
+
+    选项缺失时回落 schema 默认档，保证提交前估算与实际扣费口径一致。
+    """
+    opts = dict(options or {})
+    mode_id = mode_key(mode)
+    if mode_id.startswith("cloud-minimax-h3"):
+        model = str(opts.get("model") or "").strip() or _cloud_schema_default(mode_id, "model") or MINIMAX_H3_MODEL_DEFAULT
+        resolution = (
+            str(opts.get("resolution") or "").strip() or _cloud_schema_default(mode_id, "resolution")
+        ).upper()
+        return f"{model}:{resolution}" if resolution else ""
+    return str(opts.get("kling_mode") or opts.get("resolution") or "").strip()
+
+
+def _credits_range_label(values: list[int]) -> str:
+    positive = sorted({int(value) for value in values if int(value) > 0})
+    if not positive:
+        return ""
+    if len(positive) == 1:
+        return f"{positive[0]} 积分/秒"
+    return f"{positive[0]}-{positive[-1]} 积分/秒"
+
+
+def billing_option_hints(
+    definition: WorkflowDefinition, variant_prices: dict[str, int] | None,
+) -> dict[str, dict[str, str]]:
+    """把实际扣费分档映射到选项值，生成「768P · 26 积分/秒」这类标注。
+
+    价格来源是价格表解析后的平台积分（原值或原生价换算结果），注册表只负责
+    说明「哪个选项决定档位」，不再保存任何金额。
+    """
+    units = {
+        str(key): int(value)
+        for key, value in (variant_prices or {}).items()
+        if int(value) > 0
+    }
+    if not units:
+        return {}
+    mode_id = definition.id
+    if mode_id.startswith("cloud-minimax-h3"):
+        by_model: dict[str, list[int]] = {}
+        by_resolution: dict[str, list[int]] = {}
+        for variant, credits in units.items():
+            if ":" not in variant:
+                continue
+            model, resolution = variant.split(":", 1)
+            by_model.setdefault(model, []).append(credits)
+            by_resolution.setdefault(resolution, []).append(credits)
+        return {
+            "model": {model: _credits_range_label(values) for model, values in by_model.items()},
+            "resolution": {resolution: _credits_range_label(values) for resolution, values in by_resolution.items()},
+        }
+    if mode_id.startswith("cloud-kling"):
+        return {"kling_mode": {variant: _credits_range_label([credits]) for variant, credits in units.items()}}
+    return {"resolution": {variant: _credits_range_label([credits]) for variant, credits in units.items()}}
+
+
+def apply_billing_option_hints(
+    payload: dict[str, Any], definition: WorkflowDefinition, variant_prices: dict[str, int] | None,
+) -> dict[str, Any]:
+    """把价格标注写进 /api/modes 返回的参数 schema 副本（不修改注册表原始 schema）。"""
+    hints = billing_option_hints(definition, variant_prices)
+    if not hints:
+        return payload
+    for parameter in payload.get("parameters", []):
+        if parameter.get("name") != "options":
+            continue
+        schema = deepcopy(parameter.get("schema") or {})
+        properties = schema.get("properties")
+        if not isinstance(properties, dict):
+            continue
+        for option_name, value_hints in hints.items():
+            property_schema = properties.get(option_name)
+            if not isinstance(property_schema, dict):
+                continue
+            ui_options = property_schema.get("ui_options")
+            if not ui_options:
+                ui_options = [
+                    {"value": value, "label": str(value)}
+                    for value in property_schema.get("enum", [])
+                ]
+                property_schema["ui_options"] = ui_options
+            for item in ui_options:
+                hint = value_hints.get(str(item.get("value")))
+                if not hint:
+                    continue
+                label = str(item.get("label") or item.get("value"))
+                if "积分" in label:
+                    continue
+                item["label"] = f"{label} · {hint}"
+        parameter["schema"] = schema
+    return payload
+
+
+def _cloud_schema_default(mode_id: str, name: str) -> str:
+    try:
+        definition = workflow_for(mode_id)
+    except KeyError:
+        return ""
+    schema_def = (definition.option_schema or {}).get("properties", {}).get(name) or {}
+    return str(schema_def.get("default") or "").strip()
 
 
 def clamp_cloud_video_options(mode: JobMode | str, options: dict[str, Any] | None) -> dict[str, Any]:
@@ -3192,6 +3858,19 @@ def clamp_cloud_video_options(mode: JobMode | str, options: dict[str, Any] | Non
             clamped[name] = max(int(schema_def.get("minimum", 3)), min(int(schema_def.get("maximum", 12)), number))
             continue
         clamped[name] = value
+    if definition.id.startswith("cloud-minimax-h3"):
+        # 官方平台跨档约束：2K 仅 MiniMax-H3 旗舰档支持；H3 旗舰档不支持 480P；H3-Max 时长起步 5 秒。
+        model = str(clamped.get("model") or "").strip() or MINIMAX_H3_MODEL_DEFAULT
+        if clamped.get("resolution") == "2K" and model != "MiniMax-H3":
+            clamped["resolution"] = "768P"
+        if clamped.get("resolution") == "480P" and model == "MiniMax-H3":
+            clamped["resolution"] = "768P"
+        if model == "MiniMax-H3-Max":
+            try:
+                duration = int(float(clamped.get("duration") or 5))
+            except (TypeError, ValueError):
+                duration = 5
+            clamped["duration"] = max(5, min(15, duration))
     return clamped
 
 
@@ -3378,6 +4057,14 @@ def parameter_payload(definition: WorkflowDefinition) -> list[dict[str, Any]]:
             "name": "references", "label": "参考素材", "type": "array",
             "required": definition.min_references > 0,
             "description": (
+                "文件数组：图片最多 {images} 张、音频最多 {audios} 段（每段 ≤{audio_seconds} 秒）、"
+                "视频最多 {videos} 段（MP4，合计 ≤{video_seconds} 秒）；类型按文件本身判定，可只传其中一种。"
+                "首尾帧与参考图/音频互斥。".format(
+                    images=definition.max_references, audios=definition.reference_audio_limit,
+                    videos=definition.reference_video_limit, audio_seconds=GRS_WAN_MAX_AUDIO_SECONDS,
+                    video_seconds=GRS_WAN_MAX_VIDEO_SECONDS,
+                )
+                if definition.reference_audio_limit or definition.reference_video_limit else
                 "视频文件数组：第 1 项为待修复视频，第 2 项为同一片段的高清前原片（可选）。"
                 "每份最大 500 MB；必须在 options.target_point 中提供首帧人脸中心的归一化坐标 JSON 字符串。"
                 if definition.id == JobMode.KEEP_FACE_RESTORE.value else
@@ -3394,8 +4081,14 @@ def parameter_payload(definition: WorkflowDefinition) -> list[dict[str, Any]]:
                 if video_reference else
                 "图片文件数组。多图工作流按上传顺序解释参考图。单张文件最大 50 MB。"
             ),
-            "min_items": definition.min_references, "max_items": definition.max_references,
+            "min_items": definition.min_references,
+            "max_items": (
+                definition.max_references + definition.reference_audio_limit + definition.reference_video_limit
+                if definition.reference_audio_limit or definition.reference_video_limit
+                else definition.max_references
+            ),
             "content_type": (
+                "image/*,audio/*,video/*" if definition.reference_audio_limit or definition.reference_video_limit else
                 "image/*,audio/*" if audio_reference else
                 "video/*,audio/*" if is_lip_sync_workflow_by_definition(definition) else
                 "video/*" if definition.reference_slots and set(definition.reference_slots) == {"video"} else
@@ -3446,12 +4139,57 @@ def workflow_for(mode: JobMode | str) -> WorkflowDefinition:
     raise KeyError(key)
 
 
+AUDIO_REFERENCE_SUFFIXES = {".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".opus", ".wma"}
+VIDEO_REFERENCE_SUFFIXES = {".mp4", ".mov", ".webm", ".mkv", ".m4v", ".avi"}
+
+
+def reference_media_kind(item: object) -> str:
+    """判断一份参考素材是 image / audio / video。
+
+    同时适用于 FastAPI UploadFile（读取 content_type/filename）与本地文件路径；
+    Content-Type 优先，其次看后缀，无法判定时按图片处理（与历史图片工作流兼容）。
+    """
+    content_type = str(getattr(item, "content_type", "") or "").split(";")[0].strip().lower()
+    if content_type.startswith("audio/"):
+        return "audio"
+    if content_type.startswith("video/"):
+        return "video"
+    if content_type.startswith("image/"):
+        return "image"
+    name = getattr(item, "filename", None) or getattr(item, "name", None) or item
+    suffix = Path(str(name or "")).suffix.lower()
+    if suffix in AUDIO_REFERENCE_SUFFIXES:
+        return "audio"
+    if suffix in VIDEO_REFERENCE_SUFFIXES:
+        return "video"
+    return "image"
+
+
 def validate_references(mode: JobMode | str, references: list[object]) -> None:
     try:
         definition = workflow_for(mode)
     except KeyError as error:
         raise ValueError(f"工作流 {mode_key(mode)} 已从当前工作台移除") from error
     count = len(references)
+    if definition.reference_audio_limit or definition.reference_video_limit:
+        # 按类型分槽：图片/音频/视频各自限数，总上限为三者之和。
+        kinds = [reference_media_kind(item) for item in references]
+        images = kinds.count("image")
+        audios = kinds.count("audio")
+        videos = kinds.count("video")
+        if images > definition.max_references:
+            raise ValueError(f"{definition.name}最多支持 {definition.max_references} 张参考图，当前 {images} 张。")
+        if audios > definition.reference_audio_limit:
+            raise ValueError(
+                f"{definition.name}最多支持 {definition.reference_audio_limit} 段参考音频，当前 {audios} 段。",
+            )
+        if videos > definition.reference_video_limit:
+            raise ValueError(
+                f"{definition.name}最多支持 {definition.reference_video_limit} 段参考视频，当前 {videos} 段。",
+            )
+        if count < definition.min_references:
+            raise ValueError(f"{definition.name}至少需要 1 份参考素材（图片、音频或视频）。")
+        return
     if not definition.min_references <= count <= definition.max_references:
         if definition.reference_slots:
             parts = "、".join(f"1 份{label}" for label in definition.reference_labels)
@@ -3606,21 +4344,32 @@ def normalize_options(mode: JobMode | str, raw: dict[str, Any] | None) -> dict[s
             normalized[key] = json.dumps(subject_points(normalized[key], label, int(normalized["subject_count"])), ensure_ascii=False)
         return normalized
     if is_motion_ref_video_workflow(mode):
-        normalized = _normalize_schema_options(MOTION_REF_VIDEO_OPTION_SCHEMA, raw or {})
+        raw_options = dict(raw or {})
+        if isinstance(raw_options.get("duration"), str):
+            # 旧版调用方传 "5s"/"10s"/"15s", 先归一成数字秒数再过 schema 校验
+            raw_options["duration"] = motion_duration_seconds(raw_options["duration"])
+        normalized = _normalize_schema_options(MOTION_REF_VIDEO_OPTION_SCHEMA, raw_options)
         quality = MOTION_REF_VIDEO_OPTION_SCHEMA["properties"]["render_quality"]
         if "steps" not in (raw or {}):
             normalized["steps"] = quality["steps_by_quality"][normalized["render_quality"]]
-        width, height, length = resolve_motion_transfer_dimensions(normalized["aspect_ratio"], normalized["duration"])
-        normalized.update(width=width, height=height, length=length, fps=24)
+        seconds = motion_duration_seconds(normalized["duration"])
+        # 画幅沿用 16:9/9:16/1:1 尺寸表; 帧数按请求秒数向上对齐 17n+5 网格
+        width, height = resolve_motion_transfer_dimensions(normalized["aspect_ratio"], "5s")[:2]
+        normalized.update(width=width, height=height, length=h3_length_covering(seconds), fps=24)
         return normalized
     if is_motion_transfer_workflow(mode):
-        normalized = _normalize_schema_options(MOTION_TRANSFER_OPTION_SCHEMA, raw or {})
+        raw_options = dict(raw or {})
+        if isinstance(raw_options.get("duration"), str):
+            # 旧版调用方传 "5s"/"10s"/"15s", 先归一成数字秒数再过 schema 校验
+            raw_options["duration"] = motion_duration_seconds(raw_options["duration"])
+        normalized = _normalize_schema_options(MOTION_TRANSFER_OPTION_SCHEMA, raw_options)
         quality = MOTION_TRANSFER_OPTION_SCHEMA["properties"]["render_quality"]
         # Legacy API clients may submit steps directly; new forms submit semantic presets.
         if "steps" not in (raw or {}):
             normalized["steps"] = quality["steps_by_quality"][normalized["render_quality"]]
-        width, height, length = resolve_motion_transfer_dimensions(normalized["aspect_ratio"], normalized["duration"])
-        normalized.update(width=width, height=height, length=length, fps=24)
+        seconds = motion_duration_seconds(normalized["duration"])
+        width, height = resolve_motion_transfer_dimensions(normalized["aspect_ratio"], "5s")[:2]
+        normalized.update(width=width, height=height, length=h3_length_covering(seconds), fps=24)
         return normalized
     if is_depth_workflow(mode):
         normalized = _normalize_schema_options(DEPTH_OPTION_SCHEMA, raw or {})
@@ -3664,7 +4413,23 @@ def normalize_options(mode: JobMode | str, raw: dict[str, Any] | None) -> dict[s
     if not is_h3_workflow(mode):
         definition = workflow_for(mode)
         if definition.option_schema is not None:
-            return _normalize_schema_options(definition.option_schema, raw or {})
+            normalized = _normalize_schema_options(definition.option_schema, raw or {})
+            if mode_key(mode).startswith("cloud-grs-h3"):
+                # 1080p 的 10 秒上限是上游硬约束：提交前拦截，避免预扣积分后任务失败退款。
+                if str(normalized.get("resolution")) == "1080p" and int(normalized.get("duration") or 0) > 10:
+                    raise ValueError("1080p 分辨率最长支持 10 秒，请降低时长或改用 768p。")
+            if mode_key(mode).startswith("cloud-minimax-h3"):
+                # 官方平台跨档硬约束：2K 仅 H3 旗舰档支持、H3 旗舰档不支持 480P、H3-Max 时长起步 5 秒；
+                # 提交前拦截，避免预扣积分后才由上游拒绝退款。
+                model = str(normalized.get("model") or "").strip() or MINIMAX_H3_MODEL_DEFAULT
+                resolution = str(normalized.get("resolution") or "").strip().upper()
+                if resolution == "2K" and model != "MiniMax-H3":
+                    raise ValueError("2K 分辨率仅 MiniMax-H3 旗舰档支持，请改用 768P 或切换旗舰档。")
+                if resolution == "480P" and model == "MiniMax-H3":
+                    raise ValueError("480P 分辨率仅 Lite / Highspeed / H3-Max 档支持，MiniMax-H3 旗舰档请改用 768P 或 2K。")
+                if model == "MiniMax-H3-Max" and int(normalized.get("duration") or 0) < 5:
+                    raise ValueError("H3-Max 档时长起步 5 秒，请调高时长或更换模型档位。")
+            return normalized
         return {}
     raw = dict(raw or {})
     raw.pop("upscale_after", None)

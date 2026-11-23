@@ -868,8 +868,9 @@ class JobWorker:
         task.add_done_callback(_release)
 
     @staticmethod
-    def _cloud_video_reference_paths(definition, context: dict) -> tuple[Path | None, Path | None]:
-        """keyframes 参考槽位映射：references[0]=首帧，references[1]=尾帧（可选）；T2V 无参考。"""
+    def _cloud_video_reference_media(definition, context: dict) -> tuple[Path | None, Path | None, list[Path]]:
+        """云端参考槽位映射：keyframes → references[0]=首帧、references[1]=尾帧（可选）；
+        collection → 全部作为有序参考图透传（GRS R2V 等）；T2V 无参考。"""
         uploads_root = settings.uploads_dir.resolve()
         resolved: list[Path] = []
         for name in context.get("references") or []:
@@ -881,8 +882,10 @@ class JobWorker:
                 raise CloudVideoError(f"参考图片不存在或超出上传目录: {path.name}")
             resolved.append(path)
         if definition.reference_mode == "keyframes" and resolved:
-            return resolved[0], (resolved[1] if len(resolved) > 1 else None)
-        return None, None
+            return resolved[0], (resolved[1] if len(resolved) > 1 else None), []
+        if definition.reference_mode == "collection" and resolved:
+            return None, None, resolved
+        return None, None, []
 
     async def execute_cloud_video(self, generation_item_id: str) -> None:
         if self._generation_cancelled(generation_item_id):
@@ -935,13 +938,14 @@ class JobWorker:
                     ):
                         return
                     options = dict(context.get("options") or {})
-                    first_frame, last_frame = self._cloud_video_reference_paths(definition, context)
+                    first_frame, last_frame, reference_media = self._cloud_video_reference_media(definition, context)
                     remote_task_id = await asyncio.to_thread(
                         service.submit_generation, provider_key,
                         model=cloud_model_for(mode, options) or definition.cloud_model or "",
                         prompt=context["prompt"],
                         negative_prompt=str(context.get("negative_prompt") or "").strip() or None,
                         first_frame=first_frame, last_frame=last_frame,
+                        references=reference_media,
                         options=options, client_ref=generation_item_id,
                     )
                     if self._generation_cancelled(generation_item_id):

@@ -70,7 +70,7 @@ class MotionTransferRegistryTests(unittest.TestCase):
         normalized = normalize_options(JobMode.MINIMAX_H3_MOTION_TRANSFER, {})
         self.assertEqual(normalized["control_strength"], 1.0)
         self.assertEqual(normalized["aspect_ratio"], "16:9")
-        self.assertEqual(normalized["duration"], "5s")
+        self.assertEqual(normalized["duration"], 5)
         self.assertEqual(normalized["steps"], 20)
         self.assertEqual(normalized["fps"], 24)
         self.assertEqual((normalized["width"], normalized["height"], normalized["length"]), (864, 480, 124))

@@ -25,13 +25,16 @@ export default function Inspector({
   clip,
   thumbnails,
   onPatch,
-  onClose
+  onClose,
+  heading = "片段属性"
 }: {
   doc: EditDocument
   clip?: EditClip
   thumbnails: Record<string, string>
   onPatch: (patch: Partial<EditClip>) => void
   onClose: () => void
+  /** 多轨编辑器全屏态使用「片段设置」文案。 */
+  heading?: string
 }) {
   const asset = doc.assets.find((a) => a.id === clip?.asset_id)
   const transitionable = clip ? canTransition(doc, clip) : false
@@ -328,7 +331,7 @@ export default function Inspector({
       <div className="se-panel-heading">
         <strong>
           <SlidersHorizontal size={14} />
-          片段属性
+          {heading}
         </strong>
         <Button type="text" size="small" aria-label="收起片段属性" icon={<X size={15} />} onClick={onClose} />
       </div>

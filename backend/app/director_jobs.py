@@ -10,6 +10,7 @@ from typing import Any
 from urllib.error import URLError
 
 from .config import settings
+from .enterprise_service import ensure_mode_allowed
 from .director_compiler import (
     H3_MAX_REFERENCE_IMAGES,
     apply_recipe_continuity,
@@ -35,7 +36,7 @@ from .director_recipe import (
 from .director_takes import preferred_usable_take, take_key
 from .models import JobStatus
 from .resource_storage import resource_object_url
-from .storage import JobStore
+from .storage import JobCreditQuote, JobStore
 from .workflow_registry import (
     normalize_options,
     validate_option_relationships,
@@ -453,11 +454,14 @@ def create_queued_job(
     references: list[str] | None = None,
     title: str | None = None,
     image_size: str | None = None,
+    billing: Callable[[str, dict[str, Any], int], JobCreditQuote | None] | None = None,
 ) -> dict[str, Any]:
     prompt = (prompt or "").strip()
     if not prompt:
         raise ValueError("请填写创作提示词")
     workflow_for(mode)
+    # 企业模型访问策略：导演台链路（批量台/镜头渲染/工坊）与浏览器提交共用同一校验。
+    ensure_mode_allowed(store, owner_user_id, mode)
     if is_cloud_video_workflow(mode):
         # 导演链路透传 H3 语义参数（quality/speed 等），云端工作流按自身 schema 裁剪档位
         options = clamp_cloud_video_options(mode, options)
@@ -466,6 +470,7 @@ def create_queued_job(
     generation_options = normalize_options(mode, options or {})
     validate_option_relationships(mode, generation_options, len(refs))
     job_id = new_job_id()
+    quote = billing(mode, generation_options, len(refs)) if billing is not None else None
     if refs:
         upload_dir = settings.uploads_dir / owner_user_id / job_id
         upload_dir.mkdir(parents=True, exist_ok=True)
@@ -487,6 +492,7 @@ def create_queued_job(
         submitted_options=options or {},
         owner_user_id=owner_user_id,
         title=title,
+        credit_quote=quote,
     )
 
 
@@ -835,6 +841,7 @@ def render_recipe_shots(
     h3_prompt_refiner: Callable[[str, str, Callable[[str], None] | None], str] | None = None,
     on_progress: Callable[[dict[str, Any]], None] | None = None,
     on_message: Callable[[str], None] | None = None,
+    billing: Callable[[str, dict[str, Any], int], JobCreditQuote | None] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     recipe = sync_recipe_asset_images(store, recipe, resource_storage=resource_storage)
     wanted = {item for item in (shot_ids or []) if item}
@@ -943,6 +950,7 @@ def render_recipe_shots(
             },
             references=refs,
             title=str(shot.get("title") or "分镜"),
+            billing=billing,
         )
         shot["jobId"] = job["id"]
         shot["compiledPrompt"] = submission["prompt"]
@@ -986,6 +994,7 @@ def render_batch_items(
     owner_user_id: str,
     payload: dict[str, Any],
     item_ids: list[str] | None = None,
+    billing: Callable[[str, dict[str, Any], int], JobCreditQuote | None] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     prefix = ""
     art = payload.get("artStyle") if isinstance(payload.get("artStyle"), dict) else {}
@@ -1020,6 +1029,7 @@ def render_batch_items(
                 "duration": duration,
             },
             title=str(item.get("title") or payload.get("theme") or "批量短视频"),
+            billing=billing,
         )
         item["jobId"] = job["id"]
         item["status"] = "queued"

@@ -9,6 +9,7 @@ import { generateJobPath } from "../paths"
 import { useMediaHandoffPrefill } from "../media-handoff-prefill"
 import { restoreReferenceFiles, roundReferenceSources, type ReferenceSource } from "../reference-assets"
 import { createLocalId } from "../lib/utils"
+import { isSubmitEnter } from "../lib/enter-submit"
 import "./photo-edit-editor.css"
 import "./image-layer-split.css"
 
@@ -409,6 +410,12 @@ export default function ImageLayerSplitTool({ csrfToken }: { csrfToken: string }
                     : "先上传原图，再描述要拆出的主体"}
                   autoSize={{ minRows: 1, maxRows: 3 }}
                   maxLength={500}
+                  onKeyDown={(event) => {
+                    // 回车提交拆分；与「确认拆分」按钮同一可用条件。
+                    if (!isSubmitEnter(event)) return
+                    event.preventDefault()
+                    if (ready) void submit()
+                  }}
                 />
               ) : null}
               <Tooltip title={ready ? "提交拆分任务" : unavailable ? "图层拆分暂不可用" : !hasSource ? "请先上传原图" : splitMode === "box" ? "请先框选主体" : "请填写主体描述"}>

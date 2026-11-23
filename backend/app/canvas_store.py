@@ -80,13 +80,14 @@ def decode_canvas_tags(raw: Any) -> list[str]:
     ]
 
 
-_PREVIEW_NODE_TYPES = {"text", "image", "video", "artboard", "generator", "unknown"}
+_PREVIEW_NODE_TYPES = {"text", "image", "video", "artboard", "generator", "timeline", "unknown"}
 _PREVIEW_FALLBACK_SIZES: dict[str, tuple[int, int]] = {
     "text": (260, 120),
     "image": (320, 200),
     "video": (360, 220),
     "artboard": (720, 480),
     "generator": (340, 240),
+    "timeline": (880, 260),
     "unknown": (260, 150),
 }
 

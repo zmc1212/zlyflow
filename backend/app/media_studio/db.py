@@ -40,8 +40,28 @@ def ensure_schema(*, force: bool = False) -> None:
         database = MysqlDatabase(get_mysql_config())
         with database.connection() as connection:
             database.apply_mysql_schema(connection)
+            _relax_smart_edit_foreign_key(database, connection)
             _ensure_project_owner(database, connection)
         _schema_ready = True
+
+
+def _relax_smart_edit_foreign_key(database: Any, connection: Any) -> None:
+    """剪除 ai_smart_edit_documents.project_id 对 ai_projects 的外键。
+
+    画布「时间线」节点把剪辑工程挂在 `canvas:<画布id>` scope 下，不属于 ai_projects；
+    共享库曾手工给该表加过 fk_smart_edit_project（ON DELETE CASCADE），画布 scope
+    的 INSERT 会被 1452 拒绝。级联语义由 ProjectService.delete_project 显式清理补偿。
+    幂等：外键不存在时跳过。
+    """
+    row = connection.execute(
+        "SELECT COUNT(*) AS n FROM information_schema.TABLE_CONSTRAINTS "
+        "WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_smart_edit_documents' "
+        "AND CONSTRAINT_NAME = 'fk_smart_edit_project' AND CONSTRAINT_TYPE = 'FOREIGN KEY'"
+    ).fetchone()
+    count = row["n"] if isinstance(row, dict) else row[0]
+    if not count:
+        return
+    connection.execute("ALTER TABLE ai_smart_edit_documents DROP FOREIGN KEY fk_smart_edit_project")
 
 
 def _ensure_project_owner(database: Any, connection: Any) -> None:

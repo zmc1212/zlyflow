@@ -42,6 +42,7 @@ import {
   readCanvasViewport,
   readCanvasViewpoints,
   redoCanvasHistory,
+  separateCanvasOverlaps,
   serializeCanvasDraft,
   undoCanvasHistory,
   type CanvasLibraryItem,
@@ -655,6 +656,24 @@ describe("canvas free placement", () => {
     const occupied = layoutNode("occupied", 0, 0, 340, 218)
     expect(findCanvasFreePosition({ x: 0, y: 0 }, { width: 340, height: 218 }, [occupied]))
       .toEqual({ x: 364, y: 0 })
+  })
+})
+
+describe("separate canvas overlaps", () => {
+  it("moves selected cards down independently in each column, including the room for headings", () => {
+    const nodes = [
+      layoutNode("first", 0, 0, 260, 460),
+      layoutNode("second", 0, 184, 260, 440),
+      layoutNode("video-1", 324, 0, 400, 259),
+      layoutNode("video-2", 324, 184, 400, 259),
+      layoutNode("obstacle", 324, 560, 400, 100),
+      { ...layoutNode("board", 0, 0, 800, 800), type: "artboard" },
+    ]
+    expect(separateCanvasOverlaps(nodes, new Set(["first", "second", "video-1", "video-2", "board"]))).toEqual({
+      second: { x: 0, y: 508 },
+      "video-2": { x: 324, y: 708 },
+    })
+    expect(nodes[1].position).toEqual({ x: 0, y: 184 })
   })
 })
 

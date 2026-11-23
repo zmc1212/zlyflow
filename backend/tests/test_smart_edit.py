@@ -20,6 +20,8 @@ from backend.app.local_media import LOCAL_MEDIA_PREFIX, path_for_url, url_for_pa
 from backend.app.media_studio.routers.smart_edit_router import register_smart_edit_routes
 from backend.app.media_studio.services import smart_edit_service as service
 from backend.app.media_studio.services.job_payload import serialize_job_row
+from backend.app.media_studio.services.project_service import ProjectService
+from backend.app.media_studio.services import project_service as project_service_module
 from backend.app.media_studio.services.smart_edit_document import empty_document, validate_document, wrap_text
 from backend.app.media_studio.services.smart_edit_render import export_jianying, export_otio, export_xml, probe, render_document
 
@@ -212,6 +214,53 @@ class SmartEditPersistenceTests(unittest.TestCase):
         self.assertEqual(service.read_document("p1", "alice", "ep1")["document"], fixture())
         for args in (("p1", "bob", "ep1"), ("p2", "alice", "ep1"), ("p1", "alice", "ep2")):
             self.assertEqual(service.read_document(*args)["revision"], 0)
+
+    def _create_canvas(self, canvas_id, owner, title="画布一", deleted=None):
+        self.db.execute("CREATE TABLE IF NOT EXISTS canvas_projects (id TEXT PRIMARY KEY, owner_user_id TEXT, title TEXT, deleted_at TEXT)")
+        self.db.execute("INSERT INTO canvas_projects VALUES (?, ?, ?, ?)", (canvas_id, owner, title, deleted))
+
+    def test_canvas_scope_documents_are_isolated_per_canvas_and_owner(self):
+        # 无限画布「时间线」节点：`canvas:<画布id>` scope 复用同一张工程表与乐观锁。
+        self._create_canvas("cv1", "alice", "画布一")
+        scope = "canvas:cv1"
+        self.assertEqual(service.read_document(scope, "alice", "tl-1")["revision"], 0)
+        self.assertEqual(service.read_document(scope, "alice", "tl-1")["document"]["name"], "画布一 · 时间线")
+        service.save_document(scope, "alice", "tl-1", 0, fixture())
+        self.assertEqual(service.read_document(scope, "alice", "tl-1")["document"], fixture())
+        for args in ((scope, "bob", "tl-1"), ("canvas:missing", "alice", "tl-1")):
+            with self.subTest(args=args), self.assertRaises(ValueError):
+                service.read_document(*args)
+        # 未创建的画布拒绝访问；画布 scope 的工坊素材投影为空。
+        with self.assertRaises(ValueError):
+            service.read_document("canvas:cv2", "alice", "tl-1")
+        self.assertEqual(service.project_sources(scope, "tl-1", "alice"), [])
+        # 已删除画布拒绝读写。
+        self._create_canvas("cv3", "alice", "已删除画布", deleted="2026-11-23 00:00:00")
+        with self.assertRaises(ValueError):
+            service.read_document("canvas:cv3", "alice", "tl-1")
+        with self.assertRaises(ValueError):
+            service.save_document("canvas:cv3", "alice", "tl-1", 0, fixture())
+
+    def test_project_delete_explicitly_cleans_smart_edit_documents(self):
+        # 外键 fk_smart_edit_project 已被 ensure_schema 剪除（画布 scope 不属于 ai_projects），
+        # 级联语义改由 delete_project 显式补偿：先删文档再删工程行。
+        self.db.execute("CREATE TABLE ai_projects (id TEXT PRIMARY KEY)")
+        self.db.execute("INSERT INTO ai_projects VALUES ('p')")
+        self.db.commit()
+        service.save_document("p", "u", "ep", 0, fixture())
+        with patch.object(project_service_module, "execute_sql", side_effect=self.execute):
+            self.assertTrue(ProjectService.delete_project("p"))
+        self.assertIsNone(self.query("SELECT * FROM ai_smart_edit_documents WHERE id=%s", (service.document_id("p", "u", "ep"),)))
+
+    def test_canvas_scope_export_jobs_stay_reachable_for_owner(self):
+        self._create_canvas("cv1", "alice")
+        with patch.object(service.QiniuService, "get_config", return_value=SimpleNamespace(available=True)),                 patch.object(service.shutil, "which", return_value="ffmpeg"), patch.object(service._EXECUTOR, "submit"):
+            self.addCleanup(service._ACTIVE.clear)
+            job = service.create_export("canvas:cv1", "alice", fixture(), 720)
+        self.assertEqual(service.get_export("canvas:cv1", "alice", job["id"])["status"], "queued")
+        with self.assertRaises(ValueError):
+            service.get_export("canvas:cv1", "bob", job["id"])
+        self.assertEqual(service.read_document("canvas:cv1", "alice", job["snapshot_id"] if False else f"export:{job['id']}")["document"], fixture())
 
     def test_stale_writes_and_simultaneous_initial_saves_cannot_overwrite(self):
         service.save_document("p", "u", "ep", 0, fixture())

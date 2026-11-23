@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Literal
+from math import isfinite
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, StringConstraints, field_validator
 
 
 class JobMode(str, Enum):
@@ -66,6 +67,25 @@ class JobMode(str, Enum):
     CLOUD_SCNET_SEEDANCE_T2V = "cloud-scnet-seedance-t2v"
     CLOUD_SCNET_SEEDANCE_I2V = "cloud-scnet-seedance-i2v"
     CLOUD_SCNET_HAPPYHORSE_T2V = "cloud-scnet-happyhorse-t2v"
+    # GRS 视频服务：MiniMax-H3（文生 / 参考图生 / 首尾帧）
+    CLOUD_GRS_H3_T2V = "cloud-grs-h3-t2v"
+    CLOUD_GRS_H3_R2V = "cloud-grs-h3-r2v"
+    CLOUD_GRS_H3_FL2V = "cloud-grs-h3-fl2v"
+    # GRS 视频服务：Agnes Video 2.5（文生 / 图生 / 首尾帧 / 参考图生）
+    CLOUD_GRS_AGNES_T2V = "cloud-grs-agnes-t2v"
+    CLOUD_GRS_AGNES_I2V = "cloud-grs-agnes-i2v"
+    CLOUD_GRS_AGNES_FL2V = "cloud-grs-agnes-fl2v"
+    CLOUD_GRS_AGNES_R2V = "cloud-grs-agnes-r2v"
+    # GRS 视频服务：Wan 3.0（文生 / 图生 / 首尾帧 / 参考图生）
+    CLOUD_GRS_WAN_T2V = "cloud-grs-wan-t2v"
+    CLOUD_GRS_WAN_I2V = "cloud-grs-wan-i2v"
+    CLOUD_GRS_WAN_FL2V = "cloud-grs-wan-fl2v"
+    CLOUD_GRS_WAN_R2V = "cloud-grs-wan-r2v"
+    # MiniMax 官方平台（platform.minimax.cn）：H3 系列（文生 / 图生 / 首尾帧 / 参考图生）
+    CLOUD_MINIMAX_H3_T2V = "cloud-minimax-h3-t2v"
+    CLOUD_MINIMAX_H3_I2V = "cloud-minimax-h3-i2v"
+    CLOUD_MINIMAX_H3_FL2V = "cloud-minimax-h3-fl2v"
+    CLOUD_MINIMAX_H3_R2V = "cloud-minimax-h3-r2v"
 
 
 class MediaType(str, Enum):
@@ -149,6 +169,9 @@ class GenerationItemResponse(BaseModel):
     finished_at: str | None = None
     elapsed_ms: int | None = Field(default=None, ge=0, description="从发起到结束的等待毫秒数；进行中为 null。")
     execution_elapsed_ms: int | None = Field(default=None, ge=0, description="ComfyUI 历史记录中的推理耗时毫秒数；没有时为 null。")
+    # 积分计费：本条预扣积分数；本地免费工作流为 null。credits_settled=1 表示失败退款已完成。
+    credits_billed: int | None = Field(default=None, ge=0, description="本条生成项预扣的积分。")
+    credits_settled: bool = Field(default=False, description="失败/取消后退款是否已结算。")
 
 
 class JobRoundResponse(BaseModel):
@@ -228,6 +251,9 @@ class UserResponse(BaseModel):
     is_active: bool
     must_change_password: bool
     email: str | None = None
+    avatar_url: str | None = Field(default=None, description="账号头像的同站地址。旧账号或未上传时为 null。")
+    enterprise_id: str | None = None
+    enterprise_name: str | None = None
     created_at: str
     # 登录失败锁定状态由内存计数实时计算，仅账号列表返回真实值。
     login_blocked: bool = False
@@ -257,6 +283,31 @@ class LoginRequest(BaseModel):
 
 class CreateUserRequest(SetupAdminRequest):
     role: UserRole = UserRole.EMPLOYEE
+    enterprise_id: str | None = Field(default=None, max_length=64, description="归属企业 ID；空为平台内部账号。")
+
+
+class BatchCreateUsersRequest(BaseModel):
+    enterprise_id: str = Field(min_length=1, max_length=64, description="所属企业 ID（必须为启用状态）。")
+    username_prefix: str = Field(min_length=1, max_length=40, pattern=r"^[A-Za-z0-9._-]+$", description="登录账号前缀，例如 xh。")
+    start_index: int = Field(default=1, ge=1, le=999999, description="起始序号。")
+    count: int = Field(ge=1, le=200, description="创建数量，单次最多 200 个。")
+    display_name_prefix: str = Field(default="员工", min_length=1, max_length=40, description="姓名前缀，例如 员工。")
+    password: str = Field(min_length=6, max_length=128, description="统一初始密码，成员首次登录后需修改。")
+
+
+class BatchCreatedUser(BaseModel):
+    id: str = Field(description="用户 ID。")
+    username: str = Field(description="登录账号名。")
+    display_name: str = Field(description="姓名。")
+    enterprise_id: str | None = Field(default=None, description="归属企业 ID。")
+
+
+class BatchCreateUsersResponse(BaseModel):
+    enterprise_id: str = Field(description="所属企业 ID。")
+    count: int = Field(description="实际创建数量。")
+    first_username: str = Field(description="第一个登录账号。")
+    last_username: str = Field(description="最后一个登录账号。")
+    users: list[BatchCreatedUser] = Field(description="创建的账号列表。")
 
 
 class UpdateUserRequest(BaseModel):
@@ -264,6 +315,7 @@ class UpdateUserRequest(BaseModel):
     role: UserRole | None = None
     is_active: bool | None = None
     email: str | None = Field(default=None, max_length=255)
+    enterprise_id: str | None = Field(default=None, max_length=64, description="归属企业 ID；显式传 null 解除归属。")
 
 
 class UpdateProfileRequest(BaseModel):
@@ -367,6 +419,401 @@ class ModeResponse(BaseModel):
     credit_cost: int | None = None
     # 云端视频计费提示；目前用于超算互联网每日免费额度说明。
     billing_notice: str | None = None
+    # 积分计价信息（来自 credit_price_rules）；本地免费工作流为 null。
+    billing: "WorkflowBillingResponse | None" = None
+
+
+class WorkflowBillingResponse(BaseModel):
+    """工作流积分计价语义：per_second（云端视频）/ per_item（生图），per_call 不在此暴露。"""
+    scope: str = Field(description="cloud_video | grs_image | llm | vlm")
+    pricing_kind: str = Field(description="per_second | per_item | per_call")
+    unit_credits: int = Field(default=0, description="基准单价（积分）；未匹配档位时使用。")
+    unit_by_variant: dict[str, int] | None = Field(
+        default=None, description="按分辨率/档位单价表，键与提交参数值一致（如 768P/2K/std/pro）。",
+    )
+    resolved_unit_by_variant: dict[str, int] | None = Field(
+        default=None, description="实际扣费分档：原生价按系数换算后的平台积分；与 unit_by_variant 一致。",
+    )
+    native_unit: str | None = Field(default=None, description="原生计价单位，如 rmb_per_second。")
+    native_variant_prices: dict[str, float] | None = Field(
+        default=None, description="上游原生单价表（元/秒或官方积分/秒），用于解释平台积分来源。",
+    )
+    credits_per_native_unit: float | None = Field(default=None, description="每 1 原生单位兑换的平台积分（元→积分默认 100）。")
+    provider_coefficient: float | None = Field(default=None, description="供应商换算系数，默认 1.0（成本直换）；可加价或补贴。")
+    input_image_price: dict[str, float] | None = Field(
+        default=None, description="按模型档位的输入图片单价（原生单位），超出免费额度后使用。",
+    )
+    input_image_free_quota: int | None = Field(default=None, description="每任务免费的输入图片张数。")
+    price_source: str | None = Field(default=None, description="native=按原生价换算；manual=直接使用平台分档单价。")
+    summary: str | None = Field(default=None, description="下拉/选项展示用摘要，如「5-15 积分/秒」。")
+    enabled: bool = Field(default=True, description="该条目是否参与计费。")
+
+
+class CreditAccountResponse(BaseModel):
+    user_id: str = Field(description="用户 ID。")
+    balance: int = Field(description="当前积分余额（100 积分 = 1 元）；企业成员为企业钱包余额。")
+    total_recharged: int = Field(default=0, description="累计充值积分。")
+    total_consumed: int = Field(default=0, description="累计消耗积分（退款会回减）。")
+    updated_at: str = Field(description="账户最近变动时间。")
+    username: str | None = Field(default=None, description="登录账号名；账户列表接口返回。")
+    display_name: str | None = Field(default=None, description="用户昵称。")
+    role: str | None = Field(default=None, description="用户角色。")
+    is_active: bool | None = Field(default=None, description="账号是否启用。")
+    scope: str = Field(default="user", description="结算范围：user（个人钱包）| enterprise（企业钱包）。")
+    enterprise: dict[str, Any] | None = Field(default=None, description="企业成员时返回 {id, name, status, code}。")
+
+
+class CreditTransactionResponse(BaseModel):
+    id: int = Field(description="流水 ID（自增）。")
+    user_id: str | None = Field(description="用户或消费成员 ID；企业直接充值或调整时为空。")
+    delta: int = Field(description="积分变动数：正数入账，负数扣减。")
+    type: str = Field(description="流水类型：admin_recharge（充值）| admin_adjust（调整）| consume（扣费）| refund（退款）。")
+    reason: str | None = Field(default=None, description="流水说明（充值备注或扣费明细）。")
+    price_key: str | None = Field(default=None, description="命中的计价条目键，如 cloud:cloud-scnet-h3-t2v。")
+    ref_type: str | None = Field(default=None, description="关联对象类型：job / generation_item / llm_call 等。")
+    ref_id: str | None = Field(default=None, description="关联对象 ID（任务 ID、生成项 ID 或操作 ID）。")
+    balance_after: int = Field(description="变动后的余额（对账用）。")
+    actor_user_id: str | None = Field(default=None, description="操作者用户 ID（管理员充值/调整时记录）。")
+    created_at: str = Field(description="流水时间。")
+    username: str | None = Field(default=None, description="登录账号名；管理端查询时返回。")
+    display_name: str | None = Field(default=None, description="消费成员或个人钱包持有者的昵称。")
+    scope: Literal["user", "enterprise"] = Field(default="user", description="实际记账的钱包类型。")
+    enterprise_id: str | None = Field(default=None, description="企业钱包 ID。")
+    enterprise_name: str | None = Field(default=None, description="企业钱包名称。")
+    actor_username: str | None = Field(default=None, description="管理端查询时返回操作人账号。")
+    meta: dict[str, Any] | None = Field(
+        default=None,
+        description="调用明细：model / prompt_tokens / completion_tokens / cached_tokens / cost_cny / cost_basis。",
+    )
+
+
+class CreditUsageReportRow(BaseModel):
+    key: str = Field(description="分组键：价格条目、模型、账号、企业或日期。")
+    label: str = Field(description="展示名称。")
+    calls: int = Field(default=0, description="成功扣费次数。")
+    credits: int = Field(default=0, description="扣减积分合计。")
+    revenue_cny: float = Field(default=0, description="扣减积分折算收入（100 积分 = 1 元）。")
+    cost_cny: float = Field(default=0, description="上游成本合计；只统计流水里带 cost_cny 的调用。")
+    costed_calls: int = Field(default=0, description="带上游成本的调用次数。")
+    uncosted_calls: int = Field(default=0, description="未记录上游成本的调用次数。")
+    actual_cost_calls: int = Field(default=0, description="按真实 usage 计算成本的调用次数。")
+    estimated_cost_calls: int = Field(default=0, description="按典型用量估算成本的调用次数。")
+    token_calls: int = Field(default=0, description="按真实 token 结算的调用次数。")
+    tokens: int = Field(default=0, description="输入 + 输出 tokens 合计。")
+    refunds: int = Field(default=0, description="退款笔数；仅按价格条目分组时归入对应行。")
+    refunded_credits: int = Field(default=0, description="退款积分；仅按价格条目分组时归入对应行。")
+    net_credits: int = Field(default=0, description="扣减积分减退款积分。")
+    net_revenue_cny: float = Field(default=0, description="净收入。")
+    margin_cny: float = Field(default=0, description="净收入减上游成本。")
+    margin_rate: float | None = Field(default=None, description="毛利率 = 毛利 / 净收入。")
+    coverage: float | None = Field(default=None, description="覆盖率 = 扣费收入 / 上游成本。")
+
+
+class CreditUsageReportResponse(BaseModel):
+    start: str = Field(description="报表开始日期（北京时间）。")
+    end: str = Field(description="报表结束日期（北京时间，含当日）。")
+    group_by: Literal["price_key", "model", "user", "enterprise", "day"] = Field(description="聚合维度。")
+    scope: Literal["user", "enterprise", "all"] = Field(description="钱包范围。")
+    totals: CreditUsageReportRow = Field(description="全范围汇总。")
+    rows: list[CreditUsageReportRow] = Field(default_factory=list, description="分组明细。")
+    refunds_grouped: bool = Field(default=False, description="退款是否已归入分组；只有按价格条目分组时为 true。")
+    generated_at: str = Field(description="生成时间。")
+
+
+class CreditPriceRuleResponse(BaseModel):
+    rule_key: str = Field(description="计价条目键：cloud:<mode> / grs_image:global / llm:<kind> / vlm:<kind>。")
+    scope: str = Field(description="计费范围：cloud_video | grs_image | llm | vlm。")
+    pricing_kind: str = Field(description="计价方式：per_second | per_item | per_call。")
+    unit_credits: int = Field(description="基准单价（积分）；未匹配档位时使用。")
+    unit_by_variant: dict[str, int] | None = Field(default=None, description="按分辨率/档位单价表（JSON）。")
+    resolved_unit_by_variant: dict[str, int] | None = Field(
+        default=None, description="按原生价与系数换算后的实际平台单价；管理端换算预览使用。",
+    )
+    extra_config: dict[str, Any] | None = Field(default=None, description="附加配置：生图换算系数与按模型覆盖价等（JSON）。")
+    cost_preview: dict[str, Any] | None = Field(
+        default=None,
+        description="按次计费（LLM/VLM）的成本参考预览：单次成本、当前扣费、覆盖率与建议积分。",
+    )
+    enabled: bool = Field(description="是否参与计费；停用后该条目免费。")
+    note: str | None = Field(default=None, description="条目说明。")
+    updated_at: str = Field(description="最近更新时间。")
+
+
+class CreditEstimateResponse(BaseModel):
+    mode: str = Field(description="工作流 ID。")
+    credits: int = Field(description="本次提交预计扣减的积分总额。")
+    unit_credits: int = Field(default=0, description="单条/单张/单位单价（积分）。")
+    items: int = Field(default=0, description="本次计费的条数（张数或视频条数）。")
+    breakdown: str = Field(default="", description="人类可读的计费说明，如「云端视频 5 秒 · std」。")
+    input_image_credits: int = Field(default=0, description="本次输入图片费（积分）；已包含在 credits 总额内。")
+    input_image_count: int = Field(default=0, description="本次超出免费额度、参与计费的输入图片张数。")
+    input_image_unit_credits: int = Field(default=0, description="每张输入图片的平台积分单价。")
+    price_key: str | None = Field(default=None, description="命中的计价条目键。")
+    balance: int = Field(description="当前用户余额（用于前端余额不足预判）。")
+    sufficient: bool = Field(default=True, description="余额是否足够支付本次提交。")
+
+
+MAX_CREDIT_AMOUNT = 2**31 - 1
+CreditUnit = Annotated[int, Field(strict=True, ge=0, le=MAX_CREDIT_AMOUNT)]
+
+
+class CreditAdjustment(BaseModel):
+    delta: int = Field(strict=True, ge=-MAX_CREDIT_AMOUNT, le=MAX_CREDIT_AMOUNT, description="正数为充值，负数为扣减（不为 0）。")
+    reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)] = Field(
+        description="调整原因，写入流水。",
+    )
+    request_id: str | None = Field(default=None, min_length=1, max_length=64, description="可选的操作标识；重复提交同一调整只记一次。")
+
+
+class CreditAdjustRequest(CreditAdjustment):
+    user_id: str = Field(min_length=1, max_length=64, description="目标用户 ID。")
+
+
+class CreditEstimateRequest(BaseModel):
+    mode: str = Field(min_length=1, max_length=128, description="工作流 ID（GET /api/modes）。")
+    options: dict = Field(default_factory=dict, description="与提交一致的 options（duration/resolution/count 等）。")
+    reference_count: int = Field(
+        default=0, ge=0, le=32, description="本次提交的输入图片张数；用于按免费额度计算输入图片费。",
+    )
+    input_video_seconds: float = Field(
+        default=0, ge=0, le=3600,
+        description="本次提交的参考视频总时长（秒）；仅收视频参考的工作流用于预估按输入秒数计费的部分。",
+    )
+
+
+class CreditPriceRuleUpdateItem(BaseModel):
+    rule_key: str = Field(min_length=1, max_length=128, description="要更新的计价条目键。")
+    unit_credits: CreditUnit | None = Field(default=None, description="基准单价（积分）；不传保持不变。")
+    unit_by_variant: dict[str, CreditUnit] | None = Field(default=None, description="按分辨率/档位单价表；不传保持不变。")
+    extra_config: dict[str, Any] | None = Field(default=None, description="附加配置（整体覆盖）；不传保持不变。")
+    enabled: bool | None = Field(default=None, description="是否参与计费；不传保持不变。")
+    note: str | None = Field(default=None, max_length=256, description="条目说明；不传保持不变。")
+    expected_updated_at: str | None = Field(default=None, max_length=64, description="编辑时读取的版本；过期版本返回 409。")
+
+    def validate_pricing_config(self) -> None:
+        config = self.extra_config
+        if config is None:
+            return
+
+        def is_price(value: Any) -> bool:
+            return type(value) in {int, float} and 0 <= value <= MAX_CREDIT_AMOUNT and isfinite(value)
+
+        def is_credit_unit(value: Any) -> bool:
+            return type(value) is int and 0 <= value <= MAX_CREDIT_AMOUNT
+
+        for key in ("native_variant_prices", "input_image_price", "model_overrides"):
+            if key not in config:
+                continue
+            prices = config[key]
+            valid_value = is_credit_unit if key == "model_overrides" else is_price
+            if not isinstance(prices, dict) or any(not k.strip() or not valid_value(v) for k, v in prices.items()):
+                raise ValueError(f"{key} 必须是由档位或模型标识和非负单价组成的对象")
+        for key in ("credits_per_native_unit", "provider_coefficient", "grs_credits_to_platform"):
+            if key in config and not is_price(config[key]):
+                raise ValueError(f"{key} 必须是有限的非负数")
+        if "input_image_free_quota" in config and not is_credit_unit(config["input_image_free_quota"]):
+            raise ValueError("每任务免费参考图张数必须是非负整数")
+        source = config.get("price_source")
+        if "price_source" in config and source not in ("native", "manual"):
+            raise ValueError("计价来源必须是原生价换算或手动单价")
+        per_unit = config.get("credits_per_native_unit", 0)
+        if source == "native" and (per_unit <= 0 or not config.get("native_variant_prices")):
+            raise ValueError("原生价换算需要分档原生价和大于 0 的兑换比例")
+        coefficient = config.get("provider_coefficient", 1)
+        for key in ("native_variant_prices", "input_image_price"):
+            if any(price * per_unit * coefficient > MAX_CREDIT_AMOUNT for price in config.get(key, {}).values()):
+                raise ValueError("换算后的积分单价超出范围")
+
+        # LLM/VLM P1 结算方式：按次（默认）或按真实 token；只有 per_token 会改变实际扣费。
+        mode = config.get("billing_mode")
+        if mode is not None and mode not in ("per_call", "per_token"):
+            raise ValueError("billing_mode 必须是 per_call 或 per_token")
+        if "billing_margin" in config and not is_price(config["billing_margin"]):
+            raise ValueError("billing_margin 必须是有限的非负数")
+        if config.get("billing_margin", 1) <= 0:
+            raise ValueError("billing_margin 必须大于 0")
+        if "min_credits" in config and not is_credit_unit(config["min_credits"]):
+            raise ValueError("min_credits 必须是非负整数")
+
+        # LLM/VLM 成本参考：不参与结算，但必须是可核对的上游口径。
+        reference = config.get("cost_reference")
+        if reference is not None:
+            if not isinstance(reference, dict):
+                raise ValueError("成本参考必须是对象")
+            for key in ("input_per_mtok", "cached_input_per_mtok", "output_per_mtok", "provider_coefficient"):
+                if key in reference and not is_price(reference[key]):
+                    raise ValueError(f"成本参考 {key} 必须是有限的非负数")
+            for key in ("assumed_input_tokens", "assumed_cached_tokens", "assumed_output_tokens"):
+                if key in reference and not is_credit_unit(reference[key]):
+                    raise ValueError(f"成本参考 {key} 必须是非负整数")
+            if not any(reference.get(key) for key in ("input_per_mtok", "output_per_mtok")):
+                raise ValueError("成本参考至少需要输入或输出 token 单价")
+            if "estimated" in reference and not isinstance(reference["estimated"], bool):
+                raise ValueError("成本参考 estimated 必须是布尔值")
+            if "reference_note" in reference and not isinstance(reference["reference_note"], str):
+                raise ValueError("成本参考说明必须是文本")
+            if int(reference.get("assumed_cached_tokens") or 0) > int(reference.get("assumed_input_tokens") or 0):
+                raise ValueError("缓存命中 tokens 不能大于输入 tokens")
+            model_prices = reference.get("model_prices")
+            if model_prices is not None:
+                if not isinstance(model_prices, dict):
+                    raise ValueError("成本参考 model_prices 必须是对象")
+                for model, tier in model_prices.items():
+                    if not str(model).strip() or not isinstance(tier, dict):
+                        raise ValueError("成本参考 model_prices 的模型名和档位必须是对象")
+                    for key in ("input_per_mtok", "cached_input_per_mtok", "output_per_mtok", "provider_coefficient"):
+                        if key in tier and not is_price(tier[key]):
+                            raise ValueError(f"成本参考 {model}.{key} 必须是有限的非负数")
+            off_peak = reference.get("off_peak")
+            if off_peak is not None:
+                if not isinstance(off_peak, dict):
+                    raise ValueError("成本参考 off_peak 必须是对象")
+                if "enabled" in off_peak and not isinstance(off_peak["enabled"], bool):
+                    raise ValueError("off_peak.enabled 必须是布尔值")
+                if "discount" in off_peak and not (is_price(off_peak["discount"]) and 0 <= off_peak["discount"] <= 1):
+                    raise ValueError("off_peak.discount 必须是 0-1 之间的折扣系数")
+                windows = off_peak.get("windows")
+                if windows is not None:
+                    if not isinstance(windows, list) or len(windows) > 8:
+                        raise ValueError("off_peak.windows 必须是最多 8 段的数组")
+                    for window in windows:
+                        if not isinstance(window, dict) or not str(window.get("start") or "").strip() or not str(window.get("end") or "").strip():
+                            raise ValueError("off_peak 每个时段需要 start 和 end（HH:MM）")
+
+
+class CreditPriceRulesUpdateRequest(BaseModel):
+    rules: list[CreditPriceRuleUpdateItem] = Field(min_length=1, max_length=200, description="批量更新的计价条目列表（局部更新语义）。")
+
+
+# ---------------------------------------------------------------------------
+# 企业管理：主档 / 成员 / 企业钱包 / 模型访问策略
+# ---------------------------------------------------------------------------
+
+class EnterpriseResponse(BaseModel):
+    id: str = Field(description="企业 ID。")
+    name: str = Field(description="企业名称。")
+    code: str | None = Field(default=None, description="企业编码（可选，唯一）。")
+    parent_id: str | None = Field(default=None, description="上级企业 ID；为空表示顶级企业（集团/独立企业）。")
+    contact_name: str | None = Field(default=None, description="联系人。")
+    contact_phone: str | None = Field(default=None, description="联系电话。")
+    notes: str | None = Field(default=None, description="备注。")
+    status: str = Field(description="状态：active（正常）| disabled（停用）。")
+    member_count: int = Field(default=0, description="归属账号数。")
+    balance: int = Field(default=0, description="企业钱包余额（积分）。")
+    total_recharged: int = Field(default=0, description="企业累计充值（积分）。")
+    total_consumed: int = Field(default=0, description="企业累计消耗（积分，退款回减）。")
+    created_at: str = Field(description="创建时间。")
+    updated_at: str = Field(description="最近更新时间。")
+
+
+class EnterpriseCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=128, description="企业名称。")
+    code: str | None = Field(default=None, max_length=64, description="企业编码（可选，唯一）。")
+    parent_id: str | None = Field(default=None, max_length=64, description="上级企业 ID；不传或 null 表示顶级企业。")
+    contact_name: str | None = Field(default=None, max_length=80, description="联系人。")
+    contact_phone: str | None = Field(default=None, max_length=64, description="联系电话。")
+    notes: str | None = Field(default=None, max_length=512, description="备注。")
+    status: str = Field(default="active", description="状态：active | disabled。")
+
+
+class EnterpriseUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=128, description="企业名称；不传保持不变。")
+    code: str | None = Field(default=None, max_length=64, description="企业编码；显式传 null 清空。")
+    parent_id: str | None = Field(default=None, max_length=64, description="上级企业 ID；显式传 null 调整为顶级企业。")
+    contact_name: str | None = Field(default=None, max_length=80, description="联系人；显式传 null 清空。")
+    contact_phone: str | None = Field(default=None, max_length=64, description="联系电话；显式传 null 清空。")
+    notes: str | None = Field(default=None, max_length=512, description="备注；显式传 null 清空。")
+    status: str | None = Field(default=None, description="状态：active | disabled。")
+
+
+class EnterprisePolicyItem(BaseModel):
+    model_kind: str = Field(description="模型类型：video | image | llm | vlm。")
+    mode: str = Field(description="开放模式：all（全部开放）| whitelist（仅开放 models 清单）| none（全部关闭）。")
+    models: list[str] = Field(default_factory=list, description="whitelist 模式下允许的模型键（工作流 ID 或 LLM/VLM 能力键）。")
+
+
+class EnterprisePoliciesUpdateRequest(BaseModel):
+    policies: list[EnterprisePolicyItem] = Field(min_length=1, max_length=8, description="整表覆盖的企业模型策略列表（通常四类各一条）。")
+
+
+class EnterprisePolicyCatalogEntry(BaseModel):
+    key: str = Field(description="模型/能力键。")
+    label: str = Field(description="展示名称。")
+
+
+class EnterprisePolicyCatalogResponse(BaseModel):
+    video: list[EnterprisePolicyCatalogEntry] = Field(description="视频工作流清单。")
+    image: list[EnterprisePolicyCatalogEntry] = Field(description="生图工作流清单。")
+    llm: list[EnterprisePolicyCatalogEntry] = Field(description="大语言能力清单。")
+    vlm: list[EnterprisePolicyCatalogEntry] = Field(description="视觉理解能力清单。")
+
+
+class EnterpriseDetailResponse(BaseModel):
+    enterprise: EnterpriseResponse = Field(description="企业主档。")
+    policies: list[EnterprisePolicyItem] = Field(description="已配置的模型访问策略（未配置类型默认全部开放）。")
+    catalog: EnterprisePolicyCatalogResponse = Field(description="可勾选的模型/能力清单。")
+
+
+class EnterpriseMemberResponse(BaseModel):
+    id: str = Field(description="用户 ID。")
+    username: str = Field(description="登录账号名。")
+    display_name: str = Field(description="姓名。")
+    role: str = Field(description="角色。")
+    is_active: bool = Field(description="是否启用。")
+    email: str | None = Field(default=None, description="邮箱。")
+    enterprise_id: str | None = Field(default=None, description="归属企业 ID。")
+    enterprise_name: str | None = Field(default=None, description="归属企业名称。")
+    created_at: str = Field(description="账号创建时间。")
+    last_login_at: str | None = Field(default=None, description="最近登录时间。")
+    gross_consumed: int = Field(default=0, description="累计消耗（积分，含已退款部分）。")
+    refunded: int = Field(default=0, description="累计退款（积分）。")
+    net_consumed: int = Field(default=0, description="净消耗（积分 = 累计消耗 - 退款）。")
+    tx_count: int = Field(default=0, description="消费/退款流水笔数。")
+    last_active_at: str | None = Field(default=None, description="最近一次消费/退款时间。")
+    quota_period: str = Field(default="none", description="额度周期：none（不限制）| monthly（每月）| total（累计）。")
+    quota_limit: int = Field(default=0, description="额度上限（积分）；none 时为 0。")
+    quota_used: int = Field(default=0, description="当前额度周期内已用积分（consume - refund）。")
+    month_consumed: int = Field(default=0, description="北京时间当前自然月净消耗（积分）。")
+
+
+class EnterpriseMemberQuotaRequest(BaseModel):
+    period: Literal["none", "monthly", "total"] = Field(default="none", description="额度周期。")
+    credit_limit: int = Field(default=0, ge=0, le=MAX_CREDIT_AMOUNT, description="额度上限（积分）；none 时忽略。")
+
+
+class EnterpriseMemberQuotaResponse(BaseModel):
+    user_id: str = Field(description="用户 ID。")
+    enterprise_id: str = Field(description="企业 ID。")
+    quota_period: str = Field(description="额度周期。")
+    quota_limit: int = Field(description="额度上限（积分）。")
+    quota_used: int = Field(description="当前周期已用积分。")
+    month_consumed: int = Field(description="北京时间当前自然月净消耗（积分）。")
+
+
+class EnterpriseCreditTransactionResponse(BaseModel):
+    id: int = Field(description="流水 ID（自增）。")
+    enterprise_id: str = Field(description="企业 ID。")
+    user_id: str | None = Field(default=None, description="消费人用户 ID；充值/调整为空。")
+    delta: int = Field(description="积分变动数：正数入账，负数扣减。")
+    type: str = Field(description="流水类型：admin_recharge | admin_adjust | consume | refund。")
+    reason: str | None = Field(default=None, description="流水说明。")
+    price_key: str | None = Field(default=None, description="命中的计价条目键。")
+    ref_type: str | None = Field(default=None, description="关联对象类型。")
+    ref_id: str | None = Field(default=None, description="关联对象 ID。")
+    balance_after: int = Field(description="变动后企业钱包余额。")
+    actor_user_id: str | None = Field(default=None, description="操作者用户 ID。")
+    created_at: str = Field(description="流水时间。")
+    username: str | None = Field(default=None, description="消费人登录账号名。")
+    display_name: str | None = Field(default=None, description="消费人姓名。")
+    meta: dict[str, Any] | None = Field(default=None, description="调用明细：模型、tokens 与上游成本。")
+
+
+class EnterpriseCreditAdjustRequest(CreditAdjustment):
+    pass
+
+
+class EnterpriseMemberBindRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=64, description="要绑定到企业的用户 ID。")
 
 
 class ComfyHealthResponse(BaseModel):
@@ -1336,6 +1783,14 @@ class CanvasDraftSaveRequest(BaseModel):
     checksum: str | None = Field(default=None, max_length=64, description="内容的 MD5，可选；提供时后端校验")
 
 
+class CanvasProjectCreditStatsRequest(BaseModel):
+    job_ids: list[str] = Field(
+        default_factory=list,
+        max_length=500,
+        description="画布节点引用的任务 ID（sourceRun/lastRun/runHistory 收集去重）",
+    )
+
+
 class CanvasPreviewItem(BaseModel):
     type: str
     x: float
@@ -1393,3 +1848,8 @@ class CanvasDraftVersionItem(BaseModel):
     node_count: int
     created_by: str
     created_at: str
+
+
+class CanvasTtsRequest(BaseModel):
+    text: str = Field(max_length=1200, description="要合成的说话内容，最多 1200 字。")
+    voice: str | None = Field(default=None, max_length=120, description="音色 id；省略时用管理设置里配置的默认音色。")

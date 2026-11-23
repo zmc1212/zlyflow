@@ -2,9 +2,9 @@
 // Vue → React 对应：ref→useState、onMounted/onUnmounted→useEffect（静默轮询与清理保留）；
 // a-table bodyCell 自定义渲染 → columns render；a-* 组件 → antd 同名组件；
 // 写操作（重试）首参补 csrfToken；轮询经最新闭包 trampoline 读取最新 props/state（等价 Vue 响应式读取）。
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useNavigate } from "react-router-dom"
-import { Alert, Button, Input, Modal, Progress, Select, Space, Table, Tabs, Tag, Tooltip, message } from "antd"
+import { Alert, Button, Collapse, Input, Modal, Progress, Segmented, Select, Space, Table, Tabs, Tag, Tooltip, message } from "antd"
 import type { TableProps } from "antd"
 import { RefreshCw, ExternalLink, Copy, ListChecks, Search } from "lucide-react"
 import { director2ErrorDetail, confirmProjectVideoRefine, listJobs, retryJob, skipProjectVideoRefine, upscaleProjectVideoJob, type Director2Job } from "../api"
@@ -26,6 +26,7 @@ import {
 import { director2ContentLibraryDocPath, director2WorkshopEpisodePath } from "../paths"
 import { jobCanConfirmRefine, jobCanShowUpscaleAction, jobPreviewVideoUrl, jobRefineShotCount, jobSourceVideoUrl, jobUpscaleDisabledReason, jobUpscaleHint, jobUpscaledVideoUrl, smartClarifyConfirmText } from "../director2-video-settings"
 import { useMediaPreview, type OpenMediaPreviewInput } from "../media-preview"
+import MediaPreviewModal, { type MediaPreviewAction } from "../../components/MediaPreviewModal"
 import "./jobs-center.css"
 
 const ACTIVE_JOB_STATUSES = new Set([
@@ -90,6 +91,8 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
   const [statusFilter, setStatusFilter] = useState("all")
   const [upscalingJobId, setUpscalingJobId] = useState<string | null>(null)
   const [refineAction, setRefineAction] = useState<{ jobId: string; action: "confirm" | "skip" } | null>(null)
+  // 详情弹层复用视频预览弹窗时，右侧可在「成片 / 原片」之间切换
+  const [detailVideoSource, setDetailVideoSource] = useState<"preview" | "source">("preview")
   const hasInitializedTab = useRef(false)
   const requestInFlight = useRef(false)
   const requestSequence = useRef(0)
@@ -389,7 +392,281 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
 
   function openDetail(job: Director2Job) {
     applySelectedJob(job)
+    setDetailVideoSource("preview")
     setDetailVisible(true)
+  }
+
+  // 视频生成的详情统一复用预览弹层：左舞台、右参数；无成片时左舞台显示生成中占位。
+  function usesPreviewDetail(job: Director2Job): boolean {
+    return job.job_type === "video_generation"
+  }
+
+  function videoAspectHint(job: Director2Job): string {
+    const raw = String(job.payload?.aspect_ratio || "").trim().toLowerCase()
+    if (raw === "landscape") return "16:9"
+    if (raw === "portrait") return "9:16"
+    if (raw === "square") return "1:1"
+    if (/^\d+(?:\.\d+)?\s*:\s*\d+(?:\.\d+)?$/.test(raw)) return raw
+    return "16:9"
+  }
+
+  function videoAspectLabel(job: Director2Job): string {
+    const raw = String(job.payload?.aspect_ratio || "").trim().toLowerCase()
+    if (raw === "landscape") return "16:9 横屏"
+    if (raw === "portrait") return "9:16 竖屏"
+    if (raw === "16:9") return "16:9 横屏"
+    if (raw === "9:16") return "9:16 竖屏"
+    if (raw === "square") return "1:1 方形"
+    if (raw === "adaptive") return "自适应"
+    return videoAspectHint(job)
+  }
+
+  function renderVideoStagePlaceholder(job: Director2Job): ReactNode {
+    const failed = job.status === "failed"
+    const finished = isFinishedJob(job.status)
+    const statusText = getStatusTag(job.status).text
+    return (
+      <div className={`job-detail-stage${failed ? " is-failed" : ""}`}>
+        <span className="job-detail-stage-orbit" aria-hidden="true">
+          <span className="job-detail-stage-dot" />
+        </span>
+        <div className="job-detail-stage-copy">
+          <strong>{failed ? "生成失败" : finished ? "没有可播放的成片" : `${statusText} ${job.progress}%`}</strong>
+          <span>
+            {failed
+              ? "云端没有返回成片，可在任务列表重试。"
+              : finished
+                ? "任务已完成，但没有返回视频文件。"
+                : "云端正在生成，完成后会自动加载成片。"}
+          </span>
+        </div>
+        {failed || finished ? null : (
+          <div className="job-detail-stage-progress">
+            <Progress percent={job.progress} showInfo={false} size="small" strokeColor="var(--studio-primary)" />
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  function isFinishedJob(status: string): boolean {
+    return ["completed", "succeeded", "failed", "cancelled", "canceled", "interrupted"].includes(status)
+  }
+
+  function runtimeStageLabel(stage: unknown): string {
+    const raw = String(stage || "").trim()
+    const labels: Record<string, string> = {
+      queued: "排队中",
+      pending: "等待中",
+      preparing: "准备数据",
+      prompt_generation: "生成提示词",
+      uploading: "上传素材",
+      comfy_queued: "视频服务排队",
+      running: "生成中",
+      assembling: "合成中",
+      downloading: "下载成片",
+      upscaling: "智能超清中",
+      awaiting_refine: "一采预览待确认",
+      succeeded: "已完成",
+      completed: "已完成",
+      failed: "失败",
+      cancelled: "已取消",
+      canceled: "已取消",
+      interrupted: "已中断",
+    }
+    return labels[raw] || raw
+  }
+
+  // 创作参数直接展示，Comfy Prompt / 步数 / 队列序号等技术字段收进「运行参数」折叠区。
+  function renderVideoDetailMeta(job: Director2Job): ReactNode {
+    const payload = job.payload || {}
+    const shots = videoShots(job)
+    const attempts = llmAttempts(job)
+    const finished = isFinishedJob(job.status)
+    const statusTag = getStatusTag(job.status)
+    const previewUrl = jobPreviewVideoUrl(job)
+    const sourceUrl = jobSourceVideoUrl(job)
+    const hasSourceVersion = Boolean(previewUrl && sourceUrl && sourceUrl !== previewUrl)
+    const duration = Number(payload.total_duration_seconds || 0)
+    const shotCount = Number(payload.shot_count || shots.length || 0)
+    const spec = [
+      shotCount ? `${shotCount} 镜` : "",
+      duration ? `${duration} 秒` : "",
+      payload.fps ? `${payload.fps} fps` : "",
+    ].filter(Boolean).join(" · ")
+    const episodeLabel = payload.episode_number
+      ? `第 ${payload.episode_number} 集${payload.episode_title ? ` · ${payload.episode_title}` : ""}`
+      : (payload.episode_title || "—")
+
+    const runtimeRows: Array<[string, string]> = []
+    if (payload.width && payload.height) runtimeRows.push(["输出分辨率", `${payload.width} × ${payload.height} px`])
+    if (payload.quality) runtimeRows.push(["目标画质", `${payload.quality} MP`])
+    if (payload.steps) {
+      runtimeRows.push(["生成质量", `${payload.steps} 步${payload.weight_profile === "full" ? " · 完整权重" : payload.weight_profile ? " · 精简权重" : ""}`])
+    }
+    if (payload.audio_mode) runtimeRows.push(["音频模式", String(payload.audio_mode)])
+    if (payload.prompt_id) runtimeRows.push(["Prompt ID", String(payload.prompt_id)])
+    if (payload.queue_number != null) runtimeRows.push(["队列序号", String(payload.queue_number)])
+    if (payload.runtime_stage && !finished) runtimeRows.push(["运行阶段", runtimeStageLabel(payload.runtime_stage)])
+    if (payload.workflow) runtimeRows.push(["工作流", String(payload.workflow)])
+    runtimeRows.push(["任务 ID", job.id])
+
+    const collapseItems: Array<{ key: string; label: string; children: ReactNode }> = [
+      {
+        key: "runtime",
+        label: "运行参数",
+        children: (
+          <div className="job-detail-grid">
+            {runtimeRows.map(([key, value]) => (
+              <div key={key} className="job-detail-fact"><span>{key}</span><b>{value}</b></div>
+            ))}
+          </div>
+        ),
+      },
+    ]
+    if (shots.length) {
+      collapseItems.push({
+        key: "shots",
+        label: `镜头与提示词 (${shots.length})`,
+        children: (
+          <>
+            {payload.prompt_source === "workshop_material" ? (
+              <div className="job-detail-note">复用剧集工坊已保存的 H3 提示词</div>
+            ) : payload.prompt_source === "configured_llm" ? (
+              <div className="job-detail-note">任务内重新生成（工坊提示词未通过出片校验）</div>
+            ) : payload.prompt_source === "program_preview" ? (
+              <div className="job-detail-note">本次任务使用程序装箱预览，提示词未保存到镜头</div>
+            ) : null}
+            <div className="job-shot-list">
+              {shots.map((shot) => {
+                const promptText = videoShotPromptText(shot)
+                const references = shot.reference_urls || []
+                return (
+                  <section key={shot.beat_id} className="job-shot">
+                    <div className="job-shot-head">Beat {shot.sequence}{shot.heading || shot.scene ? ` · ${shot.heading || shot.scene}` : ""}</div>
+                    {references.length ? (
+                      <div className="job-shot-refs">
+                        {references.map((url, idx) => (
+                          <a key={url} href={url} target="_blank" rel="noreferrer" title={`Picture ${idx + 1} · ${videoReferenceLabel(shot, idx)}`}>
+                            <img src={url} alt={`Picture ${idx + 1}`} />
+                          </a>
+                        ))}
+                      </div>
+                    ) : null}
+                    {promptText ? (
+                      <details className="job-shot-prompt">
+                        <summary>MiniMax H3 Ref2VA Prompt</summary>
+                        <pre>{promptText}</pre>
+                      </details>
+                    ) : (
+                      <div className="job-detail-empty">提示词尚未生成</div>
+                    )}
+                  </section>
+                )
+              })}
+            </div>
+          </>
+        ),
+      })
+    }
+    if (attempts.length) {
+      collapseItems.push({
+        key: "attempts",
+        label: `提示词生成记录 (${attempts.length})`,
+        children: (
+          <div className="job-shot-list">
+            {attempts.map((attempt, idx) => (
+              <details key={`${attempt.beat_id}-${attempt.attempt}-${idx}`} className="job-shot-prompt">
+                <summary>
+                  Beat {attempt.sequence} · 第 {attempt.attempt} 次 · {attempt.status === "passed" ? "通过" : "失败"}
+                </summary>
+                {attempt.errors?.length ? <div className="job-detail-note">{attempt.errors.join("\n")}</div> : null}
+                <pre>{attempt.raw_response || "无原始响应"}</pre>
+              </details>
+            ))}
+          </div>
+        ),
+      })
+    }
+    if (payload.director_report) {
+      collapseItems.push({
+        key: "director",
+        label: "MiniMax H3 Director 报告",
+        children: <pre className="job-shot-director">{payload.director_report}</pre>,
+      })
+    }
+    if (job.error_message) {
+      collapseItems.push({
+        key: "error",
+        label: "错误信息",
+        children: <div className="job-detail-error">{job.error_message}</div>,
+      })
+    }
+
+    return (
+      <div className="job-detail-meta">
+        <div className="job-detail-status">
+          <Tag color={statusTag.color}>{statusTag.text}</Tag>
+          <span>创建 {job.created_at}</span>
+          {job.completed_at && finished ? <span>· 完成 {job.completed_at}</span> : null}
+        </div>
+        {!finished || job.progress < 100 ? (
+          <div className="job-detail-progress">
+            <Progress percent={job.progress} size="small" showInfo={false} status={job.status === "failed" ? "exception" : "active"} />
+          </div>
+        ) : null}
+        {hasSourceVersion ? (
+          <Segmented
+            block
+            size="small"
+            value={detailVideoSource}
+            onChange={(value) => setDetailVideoSource(value === "source" ? "source" : "preview")}
+            options={[{ label: "成片", value: "preview" }, { label: "原片", value: "source" }]}
+          />
+        ) : null}
+        {jobCanConfirmRefine(job) ? (
+          <div className="job-detail-refine-note">
+            一采预览已生成，尚未写入本镜成片。确认二采会复用同一 seed 只跑精修{jobRefineShotCount(job) > 1 ? `（共 ${jobRefineShotCount(job)} 镜）` : ""}；保留一采则直接把当前预览作为成片。
+          </div>
+        ) : null}
+        <div className="job-detail-facts">
+          <div className="job-detail-fact"><span>分集</span><b>{episodeLabel}</b></div>
+          {spec ? <div className="job-detail-fact"><span>生成规格</span><b>{spec}</b></div> : null}
+          <div className="job-detail-fact"><span>画面比例</span><b>{videoAspectLabel(job)}</b></div>
+        </div>
+        <Collapse ghost size="small" items={collapseItems} />
+      </div>
+    )
+  }
+
+  function videoDetailActions(job: Director2Job): MediaPreviewAction[] {
+    const actions: MediaPreviewAction[] = []
+    if (jobCanConfirmRefine(job)) {
+      actions.push({
+        key: "confirm-refine",
+        label: "确认二采",
+        type: "primary",
+        disabled: Boolean(refineAction),
+        onClick: () => void handleRefineDecision(job, "confirm"),
+      })
+      actions.push({
+        key: "keep-preview",
+        label: "保留一采",
+        disabled: Boolean(refineAction),
+        onClick: () => void handleRefineDecision(job, "skip"),
+      })
+    }
+    if (jobCanShowUpscaleAction(job) && jobPreviewVideoUrl(job)) {
+      const reason = jobUpscaleDisabledReason(job, jobs)
+      actions.push({
+        key: "upscale",
+        label: "智能超清",
+        disabled: Boolean(reason) || upscalingJobId === job.id,
+        hint: reason || jobUpscaleHint(job),
+        onClick: () => confirmSmartClarifyJob(job),
+      })
+    }
+    return actions
   }
 
   async function fetchJobs(silent = false): Promise<Director2Job[] | undefined> {
@@ -484,6 +761,8 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
       okText: "开始超清",
       cancelText: "取消",
       centered: true,
+      // 任务详情复用预览弹层（zIndex 1100），确认框需要再高一层才不会被盖住。
+      zIndex: 1150,
       onOk: () => void handleUpscaleJob(job),
     })
   }
@@ -564,6 +843,13 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])
 
+  // 视频生成任务有可播放结果时，详情直接复用共用预览弹层；参数在右侧栏展示。
+  const previewDetailJob = detailVisible && selectedJob && usesPreviewDetail(selectedJob) ? selectedJob : null
+  const previewDetailSourceUrl = previewDetailJob ? jobSourceVideoUrl(previewDetailJob) : ""
+  const previewDetailUrl = previewDetailJob
+    ? (detailVideoSource === "source" && previewDetailSourceUrl ? previewDetailSourceUrl : jobPreviewVideoUrl(previewDetailJob))
+    : ""
+
   return (
     <div className="d2-jobs-center jobs-pane">
       <div className="sub-pane-header">
@@ -641,9 +927,9 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
         />
       </div>
 
-      {/* 任务详情弹窗 */}
+      {/* 任务详情弹窗：视频生成有结果时改用共用预览弹层（左视频 / 右参数） */}
       <Modal
-        open={detailVisible}
+        open={detailVisible && !previewDetailJob}
         title="任务详情"
         width="860px"
         footer={null}
@@ -678,10 +964,12 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
                   <span className="detail-key">创建时间</span>
                   <span className="detail-val">{selectedJob.created_at}</span>
                 </div>
-                <div className="detail-row">
-                  <span className="detail-key">完成时间</span>
-                  <span className="detail-val">{selectedJob.completed_at || selectedJob.updated_at}</span>
-                </div>
+                {selectedJob.completed_at ? (
+                  <div className="detail-row">
+                    <span className="detail-key">完成时间</span>
+                    <span className="detail-val">{selectedJob.completed_at}</span>
+                  </div>
+                ) : null}
                 <div className="detail-row">
                   <span className="detail-key">执行进度</span>
                   <span className="detail-val">
@@ -719,144 +1007,6 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
             ) : null}
 
             {selectedJob.job_type === "smart_edit_export" && <div className="detail-section"><div className="detail-section-title">剪辑导出参数</div><div className="detail-grid"><div className="detail-row"><span className="detail-key">剪辑名称</span><span className="detail-val">{selectedJob.payload?.name || selectedJob.title}</span></div><div className="detail-row"><span className="detail-key">输出规格</span><span className="detail-val">{selectedJob.payload?.aspect_ratio} · {selectedJob.payload?.quality}P · {selectedJob.payload?.fps} fps</span></div><div className="detail-row"><span className="detail-key">片段数量</span><span className="detail-val">{selectedJob.payload?.clip_count}</span></div></div></div>}
-            {selectedJob.job_type === "video_generation" ? (
-              <div className="detail-section">
-                <div className="detail-section-title">视频生成参数</div>
-                <div className="detail-grid">
-                  <div className="detail-row">
-                    <span className="detail-key">分集</span>
-                    <span className="detail-val">
-                      第 {selectedJob.payload?.episode_number} 集 · {selectedJob.payload?.episode_title}
-                    </span>
-                  </div>
-                  <div className="detail-row">
-                    <span className="detail-key">生成规格</span>
-                    <span className="detail-val">
-                      {selectedJob.payload?.shot_count} 镜 × 8 秒 · {selectedJob.payload?.total_duration_seconds} 秒 ·{" "}
-                      {selectedJob.payload?.fps} fps
-                    </span>
-                  </div>
-                  <div className="detail-row">
-                    <span className="detail-key">输出分辨率</span>
-                    <span className="detail-val">
-                      {selectedJob.payload?.width} × {selectedJob.payload?.height} px
-                      {selectedJob.payload?.quality ? ` · ${selectedJob.payload.quality} MP` : ""}
-                    </span>
-                  </div>
-                  <div className="detail-row">
-                    <span className="detail-key">画面比例</span>
-                    <span className="detail-val">{selectedJob.payload?.aspect_ratio || "16:9"}</span>
-                  </div>
-                  <div className="detail-row">
-                    <span className="detail-key">生成质量</span>
-                    <span className="detail-val">
-                      {selectedJob.payload?.steps || "—"} 步
-                      {selectedJob.payload?.weight_profile === "full" ? " · 完整权重" : " · 精简权重"}
-                    </span>
-                  </div>
-                  <div className="detail-row">
-                    <span className="detail-key">音频模式</span>
-                    <span className="detail-val">{selectedJob.payload?.audio_mode}</span>
-                  </div>
-                  <div className="detail-row">
-                    <span className="detail-key">Comfy Prompt</span>
-                    <span className="detail-val mono">{selectedJob.payload?.prompt_id || "尚未提交"}</span>
-                  </div>
-                  <div className="detail-row">
-                    <span className="detail-key">队列序号</span>
-                    <span className="detail-val">{selectedJob.payload?.queue_number ?? "—"}</span>
-                  </div>
-                  <div className="detail-row">
-                    <span className="detail-key">当前阶段</span>
-                    <span className="detail-val">{selectedJob.payload?.runtime_stage || selectedJob.status}</span>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-
-            {isVideoJob(selectedJob) && videoShots(selectedJob).length ? (
-              <div className="detail-section">
-                <div className="detail-section-title">镜头参考图与 H3 提示词</div>
-                {selectedJob.payload?.prompt_source === "workshop_material" ? (
-                  <div className="text-muted">复用剧集工坊已保存的 H3 提示词</div>
-                ) : selectedJob.payload?.prompt_source === "configured_llm" ? (
-                  <div className="text-muted">任务内重新生成（工坊提示词未通过出片校验）</div>
-                ) : selectedJob.payload?.prompt_source === "program_preview" ? (
-                  <div className="text-muted">本次任务使用程序装箱预览，提示词未保存到镜头</div>
-                ) : null}
-                <div className="video-shot-list">
-                  {videoShots(selectedJob).map((shot) => {
-                    const promptText = videoShotPromptText(shot)
-                    return (
-                    <section key={shot.beat_id} className="video-shot-item">
-                      <div className="video-shot-head">
-                        Beat {shot.sequence} · {shot.heading || shot.scene}
-                      </div>
-                      <div className="video-ref-grid">
-                        {(shot.reference_urls || []).map((url, idx) => (
-                          <div key={url} className="video-ref-item">
-                            <button
-                              type="button"
-                              className="preview-media-btn"
-                              onClick={() => openMediaPreview({
-                                src: url,
-                                title: `Picture ${idx + 1} · ${videoReferenceLabel(shot, idx)}`,
-                              })}
-                            >
-                              <img src={url} alt={`Picture ${idx + 1}`} />
-                            </button>
-                            <span>
-                              Picture {idx + 1} · {videoReferenceLabel(shot, idx)}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                      {promptText ? (
-                        <div className="prompt-block">
-                          <div className="prompt-label">MiniMax H3 Ref2VA Prompt</div>
-                          <pre className="prompt-text">{promptText}</pre>
-                        </div>
-                      ) : (
-                        <div className="text-muted">提示词尚未生成</div>
-                      )}
-                    </section>
-                    )
-                  })}
-                </div>
-              </div>
-            ) : null}
-
-            {isVideoJob(selectedJob) && llmAttempts(selectedJob).length ? (
-              <div className="detail-section">
-                <div className="detail-section-title">LLM 提示词生成记录</div>
-                <div className="attempt-list">
-                  {llmAttempts(selectedJob).map((attempt, idx) => (
-                    <details key={`${attempt.beat_id}-${attempt.attempt}-${idx}`} className="attempt-item">
-                      <summary>
-                        Beat {attempt.sequence} · 第 {attempt.attempt} 次
-                        <Tag color={attempt.status === "passed" ? "green" : "red"}>
-                          {attempt.status === "passed" ? "通过" : "失败"}
-                        </Tag>
-                      </summary>
-                      {attempt.errors?.length ? (
-                        <div className="attempt-errors">{attempt.errors.join("\n")}</div>
-                      ) : null}
-                      <pre className="prompt-text">{attempt.raw_response || "无原始响应"}</pre>
-                    </details>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            {isVideoJob(selectedJob) && selectedJob.payload?.director_report ? (
-              <div className="detail-section">
-                <div className="detail-section-title">MiniMax H3 Director 报告</div>
-                <div className="prompt-block">
-                  <pre className="prompt-text">{selectedJob.payload.director_report}</pre>
-                </div>
-              </div>
-            ) : null}
-
             {isShotPlanJob(selectedJob) ? (
               <div className="detail-section">
                 <div className="detail-section-title">分集与镜头</div>
@@ -1098,82 +1248,26 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
               </div>
             ) : null}
 
-            {/* 结果图片 */}
-            {isVideoJob(selectedJob) && (jobPreviewVideoUrl(selectedJob) || selectedJob.result_url) ? (
+            {/* 结果：视频生成统一在共用预览弹层里查看；此处只保留剪辑导出与图片 / 配音结果 */}
+            {selectedJob.job_type === "smart_edit_export" && selectedJob.result_url ? (
               <div className="detail-section">
-                <div className="detail-section-title">🖼️ 生成结果{jobUpscaledVideoUrl(selectedJob) ? " · 含超清版本" : selectedJob.status === "awaiting_refine" ? " · 一采预览" : ""}</div>
-                {jobCanConfirmRefine(selectedJob) ? (
-                  <Alert
-                    type="info"
-                    showIcon
-                    className="mt-3"
-                    message="一采预览已生成，尚未写入本镜成片"
-                    description={`确认后会用同一 seed 只跑二采精修${jobRefineShotCount(selectedJob) > 1 ? `（本任务共 ${jobRefineShotCount(selectedJob)} 镜）` : ""}；保留一采会把当前预览直接作为成片。`}
-                    action={
-                      <Space direction="vertical">
-                        <Button
-                          size="small"
-                          type="primary"
-                          loading={refineAction?.jobId === selectedJob.id && refineAction.action === "confirm"}
-                          disabled={Boolean(refineAction)}
-                          onClick={() => void handleRefineDecision(selectedJob, "confirm")}
-                        >
-                          确认二采
-                        </Button>
-                        <Button
-                          size="small"
-                          loading={refineAction?.jobId === selectedJob.id && refineAction.action === "skip"}
-                          disabled={Boolean(refineAction)}
-                          onClick={() => void handleRefineDecision(selectedJob, "skip")}
-                        >
-                          保留一采
-                        </Button>
-                      </Space>
-                    }
-                  />
-                ) : null}
+                <div className="detail-section-title">🖼️ 生成结果</div>
                 <div className="result-preview">
-                  {jobUpscaledVideoUrl(selectedJob) ? (
-                    <>
-                      <p className="prompt-label">超清版本</p>
-                      <video src={jobUpscaledVideoUrl(selectedJob)} className="result-video" controls preload="metadata" />
-                    </>
-                  ) : (
-                    <video src={jobPreviewVideoUrl(selectedJob) || selectedJob.result_url || undefined} className="result-video" controls preload="metadata" />
-                  )}
-                  {jobSourceVideoUrl(selectedJob) && jobSourceVideoUrl(selectedJob) !== jobUpscaledVideoUrl(selectedJob) ? (
-                    <>
-                      <p className="prompt-label mt-3">原片</p>
-                      <video src={jobSourceVideoUrl(selectedJob)} className="result-video" controls preload="metadata" />
-                    </>
-                  ) : null}
-                  {jobCanShowUpscaleAction(selectedJob) ? (
-                    <Tooltip title={jobUpscaleDisabledReason(selectedJob, jobs) || jobUpscaleHint(selectedJob)}>
-                      <span className="mt-3">
-                        <Button
-                          disabled={Boolean(jobUpscaleDisabledReason(selectedJob, jobs)) || upscalingJobId === selectedJob.id}
-                          loading={upscalingJobId === selectedJob.id}
-                          onClick={() => confirmSmartClarifyJob(selectedJob)}
-                        >
-                          智能超清
-                        </Button>
-                      </span>
-                    </Tooltip>
-                  ) : null}
+                  <video src={selectedJob.result_url} className="result-video" controls preload="metadata" />
                   <button
                     type="button"
                     className="result-open-link"
                     onClick={() => openMediaPreview({
-                      src: jobPreviewVideoUrl(selectedJob) || selectedJob.result_url,
+                      src: selectedJob.result_url,
                       kind: "video",
-                      title: jobUpscaledVideoUrl(selectedJob) ? `${selectedJob.title || "生成结果"} · 超清` : selectedJob.title || "生成结果",
+                      title: selectedJob.title || "生成结果",
                     })}
                   >
                     <ExternalLink size={13} /> 预览原文件
                   </button>
                 </div>
               </div>
-            ) : selectedJob.result_url ? (
+            ) : selectedJob.result_url && selectedJob.job_type !== "video_generation" ? (
               <div className="detail-section">
                 <div className="detail-section-title">🖼️ 生成结果</div>
                 <div className="result-preview">
@@ -1217,6 +1311,23 @@ export default function JobsCenterPane({ csrfToken, projectId }: JobsCenterPaneP
           </div>
         ) : null}
       </Modal>
+
+      {previewDetailJob ? (
+        <MediaPreviewModal
+          open
+          kind="video"
+          src={previewDetailUrl}
+          title={detailVideoSource === "source" ? `${previewDetailJob.title || "视频任务"} · 原片` : previewDetailJob.title || "视频任务"}
+          description={`任务 ${previewDetailJob.id}`}
+          headingLabel="任务详情"
+          aspectRatio={videoAspectHint(previewDetailJob)}
+          downloadName={`${previewDetailJob.title || "video"}.mp4`}
+          meta={renderVideoDetailMeta(previewDetailJob)}
+          actions={videoDetailActions(previewDetailJob)}
+          placeholder={renderVideoStagePlaceholder(previewDetailJob)}
+          onClose={() => setDetailVisible(false)}
+        />
+      ) : null}
     </div>
   )
 }

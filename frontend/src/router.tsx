@@ -15,6 +15,8 @@ import {
 } from "./paths"
 
 const App = lazy(() => import("./App"))
+const CanvasEditorWindow = lazy(() => import("./canvas/CanvasEditorWindow"))
+const DirectorCanvasWindow = lazy(() => import("./director2/DirectorCanvasWindow"))
 const McpPage = lazy(() => import("./mcp/McpPage"))
 const McpAuthorizePage = lazy(() => import("./mcp/McpAuthorizePage"))
 
@@ -114,6 +116,22 @@ export function AppRoutes({
         <Route key={path} path={path} element={<Director2Redirect />} />
       ))}
       <Route path={ROUTE_PATTERNS.directorLegacyRecipe} element={<Navigate to={PATHS.director} replace />} />
+      {/* 无限画布编辑页在独立浏览器窗口中渲染：不套全局顶栏与侧栏，画布占满整个视口。 */}
+      <Route
+        path={ROUTE_PATTERNS.canvasProject}
+        element={studioSession
+          ? <Suspense fallback={<CenteredStatus label="正在加载无限画布" />}>
+              <CanvasEditorWindow csrfToken={studioSession.csrfToken} user={studioSession.user} onLogout={onLogout} logoutPending={logoutPending} />
+            </Suspense>
+          : <Navigate to={PATHS.login} replace />}
+      />
+      {/* 导演台资产画布同样单独成窗：不渲染项目阶段导航与全局壳层，画布占满视口。 */}
+      <Route
+        path={ROUTE_PATTERNS.directorAssetCanvas}
+        element={studioSession
+          ? <Suspense fallback={<CenteredStatus label="正在加载资产画布" />}><DirectorCanvasWindow csrfToken={studioSession.csrfToken} /></Suspense>
+          : <Navigate to={PATHS.login} replace />}
+      />
       <Route
         element={
             <Suspense fallback={<CenteredStatus label="正在加载创作工作台" />}>
@@ -128,7 +146,7 @@ export function AppRoutes({
             </Suspense>
         }
       >
-        {[PATHS.login, ...STUDIO_ROUTE_PATHS].map((path) => (
+        {[PATHS.login, ...STUDIO_ROUTE_PATHS.filter((path) => path !== ROUTE_PATTERNS.canvasProject)].map((path) => (
           <Route key={path} path={path} element={<></>} />
         ))}
       </Route>

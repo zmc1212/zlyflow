@@ -35,7 +35,8 @@ class MediaStudioSchemaTests(unittest.TestCase):
             "llm_provider_settings": {"id", "enabled", "base_url", "model", "api_key_encrypted"},
             "vlm_provider_settings": {"use_llm_credentials"},
             "canvas_projects": {"tags_json", "is_favorite", "deleted_at", "preview_json", "linked_director_project_id"},
-            "generation_items": {"refine_state_json"},
+            # 当前基线 generation_items 已含积分计费列；本用例只验证 LLM 迁移恰好执行一次。
+            "generation_items": {"refine_state_json", "credits_billed", "credits_settled"},
             "job_rounds": {"display_prompt"},
             # 当前基线 music_jobs 已含 chat_id；本用例只验证 LLM 迁移恰好执行一次。
             "music_jobs": {"chat_id"},

@@ -1,0 +1,468 @@
+/* 时间线节点与全屏编辑器的样式层（即梦式）。
+   颜色一律走 --studio-* 语义 token，双主题由根级 data-theme 驱动；
+   复用 editing.css 中 --se-* 片段配色变量（在 .se-studio / .se-node-card 上重新声明）。 */
+
+/* ---------- 全屏编辑器 ---------- */
+.se-studio {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--studio-canvas);
+  color: var(--studio-text);
+  outline: none;
+  --se-picture: #435ce8;
+  --se-audio: #14866b;
+  --se-title: #a15e14;
+  --se-playhead: #e84957;
+  --se-selected-ink: color-mix(in srgb, var(--studio-accent-text) 85%, var(--studio-text));
+}
+[data-theme="dark"] .se-studio {
+  --se-picture: #8c9aff;
+  --se-audio: #6dd9bb;
+  --se-title: #f3bc6e;
+  --se-playhead: #ff7888;
+}
+.se-studio-loading {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 12px;
+  color: var(--studio-text-secondary);
+}
+.se-studio-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 44px;
+}
+.se-studio-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+}
+.se-studio-title strong {
+  font-size: 15px;
+}
+.se-studio-ratio {
+  font-variant-numeric: tabular-nums;
+  padding-inline: 8px;
+}
+.se-studio-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.se-studio-export-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--studio-text-secondary);
+  font-size: 12px;
+}
+.se-studio-export-progress .ant-progress {
+  width: 140px;
+  margin: 0;
+}
+.se-studio-alert {
+  flex: none;
+}
+.se-studio-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(240px, 300px) minmax(240px, 1fr);
+}
+.se-studio.is-multitrack .se-studio-body {
+  grid-template-columns: minmax(240px, 300px) minmax(240px, 1fr) auto;
+}
+.se-studio-body > .se-preview {
+  min-width: 0;
+  min-height: 0;
+}
+.se-studio-library {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--studio-border);
+  border-radius: 10px;
+  background: var(--studio-surface);
+  overflow: hidden;
+}
+.se-studio-library-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.se-studio-library-head strong {
+  font-size: 14px;
+  flex: none;
+}
+.se-studio-library-head .ant-segmented {
+  flex: 1;
+  min-width: 0;
+}
+.se-studio-library-head .ant-segmented-item-label {
+  padding-inline: 7px;
+}
+.se-studio-library .se-asset-grid {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  align-content: start;
+  padding-right: 2px;
+}
+.se-studio-group h4 {
+  margin: 4px 0;
+  font-size: 12px;
+  color: var(--studio-text-secondary);
+  font-weight: 600;
+}
+.se-studio-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 240px;
+  padding: 4px 2px;
+}
+.se-studio-settings .se-property {
+  margin: 0;
+}
+/* 片段设置列在多轨形态下自动收窄 */
+.se-studio.is-multitrack .se-inspector {
+  width: 300px;
+  max-width: 340px;
+}
+.se-preview-nopicture {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: var(--studio-text-tertiary, var(--studio-text-secondary));
+  pointer-events: none;
+}
+.se-asset-used {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  background: color-mix(in srgb, var(--studio-accent-text) 18%, transparent);
+  color: var(--studio-accent-text);
+}
+
+/* ---------- 迷你时间线节点卡片 ---------- */
+.se-node-host {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+.se-node-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--studio-border);
+  border-radius: 12px;
+  background: var(--studio-surface);
+  color: var(--studio-text);
+  outline: none;
+  overflow: hidden;
+  --se-picture: #435ce8;
+  --se-audio: #14866b;
+  --se-title: #a15e14;
+  --se-playhead: #e84957;
+}
+[data-theme="dark"] .se-node-card {
+  --se-picture: #8c9aff;
+  --se-audio: #6dd9bb;
+  --se-title: #f3bc6e;
+  --se-playhead: #ff7888;
+}
+.se-node-card.is-selected {
+  border-color: var(--studio-accent-text);
+  box-shadow: 0 0 0 1px var(--studio-accent-text);
+}
+.se-node-heading {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--studio-text-secondary);
+}
+.se-node-heading strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--studio-text);
+  font-size: 12px;
+}
+.se-node-toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 30px;
+}
+.se-node-toolbar-divider {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--studio-border);
+}
+.se-node-transport {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--studio-text-secondary);
+  min-width: 0;
+}
+.se-node-transport b {
+  color: var(--studio-text);
+  font-weight: 600;
+}
+.se-node-volume {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 120px;
+  flex: none;
+  color: var(--studio-text-secondary);
+}
+.se-node-volume .ant-slider {
+  margin: 0;
+  flex: 1;
+}
+.se-node-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+.se-node-fullscreen {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+.se-node-subtitle-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--studio-accent-text);
+}
+.se-node-ruler {
+  position: relative;
+  flex: none;
+  height: 26px;
+  margin-left: 26px;
+  border-bottom: 1px solid var(--studio-border);
+  font-size: 10px;
+  color: var(--studio-text-secondary);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  user-select: none;
+}
+.se-node-ruler span {
+  position: absolute;
+  top: 1px;
+  left: 0;
+  padding-left: 2px;
+  line-height: 1;
+}
+.se-node-ruler span::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -6px;
+  width: 1px;
+  height: 5px;
+  background: var(--studio-border);
+}
+.se-node-ruler .se-node-playhead {
+  position: absolute;
+  top: -2px;
+  bottom: -3px;
+  width: 1.5px;
+  background: var(--se-playhead);
+}
+.se-node-ruler .se-node-playhead::before {
+  content: "";
+  position: absolute;
+  top: -3px;
+  left: -3.25px;
+  border: 4px solid transparent;
+  border-top-color: var(--se-playhead);
+}
+.se-node-lanes {
+  flex: 1;
+  min-height: 0;
+  margin-left: 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: hidden;
+}
+.se-node-lane {
+  position: relative;
+  flex: 1;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--studio-text) 5%, transparent);
+  cursor: pointer;
+}
+.se-node-lane-icon {
+  position: absolute;
+  left: -26px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--studio-text-secondary);
+  display: grid;
+  place-items: center;
+}
+.se-node-lane-clip {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  border-radius: 6px;
+  overflow: hidden;
+  font-size: 11px;
+  color: #fff;
+  background: var(--se-picture);
+  border: 1px solid transparent;
+  cursor: grab;
+  min-width: 0;
+}
+/* 即梦式胶片带：帧从左往右平铺铺满片段，左侧留出选中竖条 */
+.se-node-filmstrip {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  overflow: hidden;
+  pointer-events: none;
+}
+.se-node-filmstrip img {
+  height: 100%;
+  width: auto;
+  flex: none;
+  object-fit: cover;
+  min-width: 24px;
+  user-select: none;
+}
+.se-node-lane-clip.is-audio {
+  background: var(--se-audio);
+}
+.se-node-lane-clip.is-text {
+  background: var(--se-title);
+}
+.se-node-lane-clip.is-selected {
+  border-color: var(--studio-text);
+  box-shadow: 0 0 0 1px var(--studio-text);
+}
+.se-node-lane-clip .se-node-clip-name {
+  position: absolute;
+  left: 2px;
+  bottom: 1px;
+  max-width: calc(100% - 4px);
+  padding: 0 3px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.45);
+  font-size: 10px;
+  line-height: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.se-node-lane-clip img {
+  height: 100%;
+  width: 26px;
+  object-fit: cover;
+  border-radius: 4px 0 0 4px;
+  flex: none;
+}
+.se-node-lane-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: var(--studio-text-secondary);
+  gap: 2px;
+}
+.se-node-lane-empty.is-clickable {
+  cursor: pointer;
+}
+.se-node-status {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--studio-text-secondary);
+  min-height: 16px;
+}
+.se-node-status.is-error {
+  color: var(--studio-danger, #d4380d);
+}
+.se-node-loading {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  color: var(--studio-text-secondary);
+  font-size: 12px;
+}
+/* 播放时浮在节点上方的小预览窗：无边框裸视频样式，与画布默认输出的视频一致 */
+.se-node-stage {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 12px;
+  z-index: 30;
+  overflow: hidden;
+  background: #000;
+}
+.se-node-stage video,
+.se-node-stage img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.se-node-stage .se-preview-text {
+  position: absolute;
+  width: 100%;
+  text-align: center;
+  text-wrap: balance;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+  white-space: pre-wrap;
+}

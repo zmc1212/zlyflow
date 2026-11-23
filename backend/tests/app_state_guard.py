@@ -19,6 +19,7 @@ from backend.app.music_job_service import MusicJobService
 APP_STATE_ATTRS = (
     "auth_store",
     "store",
+    "credits",
     "llm_provider",
     "vlm_provider",
     "tts_provider",

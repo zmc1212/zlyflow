@@ -29,6 +29,7 @@ import {
 } from "../generation/motion-transfer"
 import { createLocalId } from "../lib/utils"
 import { promptAutoSize } from "../prompt-autosize"
+import { isSubmitEnter } from "../lib/enter-submit"
 import { generateJobPath } from "../paths"
 import { useMediaHandoffPrefill } from "../media-handoff-prefill"
 import "./lip-sync-tool.css"
@@ -288,6 +289,12 @@ export default function LipSyncTool({ csrfToken }: { csrfToken: string }) {
                 placeholder={"可补充画面与人物描述；口型与身份由原视频自动保持\n\n例如：演播室采访场景，人物上半身特写，正面机位"}
                 autoSize={promptAutoSize(4)}
                 maxLength={1500}
+                onKeyDown={(event) => {
+                  // 回车开始生成；与「开始生成」按钮同一可用条件。
+                  if (!isSubmitEnter(event)) return
+                  event.preventDefault()
+                  if (ready) void submit()
+                }}
               />
             </div>
 

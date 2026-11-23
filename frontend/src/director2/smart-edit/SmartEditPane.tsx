@@ -40,6 +40,7 @@ import {
 import { useNavigate } from "react-router-dom"
 import { ApiRequestError } from "../../api"
 import { director2MenuEpisodeId, director2ProjectPath } from "../paths"
+import { directorCanvasPath, openDirectorCanvasWindow } from "../director-canvas-window"
 import { searchFilterOption } from "../../search-match"
 import { listEpisodes, type Director2Episode } from "../api"
 import {
@@ -53,7 +54,7 @@ import {
   saveEdit,
   uploadMedia,
   type ExportJob
-} from "./api"
+} from "../../editing/api"
 import {
   EFFECTS,
   RATIOS,
@@ -75,13 +76,13 @@ import {
   type EditClip,
   type EditDocument,
   type EditTrack
-} from "./model"
-import Preview from "./Preview"
-import Timeline from "./Timeline"
-import Inspector from "./Inspector"
+} from "../../editing/model"
+import Preview from "../../editing/Preview"
+import Timeline from "../../editing/Timeline"
+import Inspector from "../../editing/Inspector"
 import { useDirectorAssistant } from "../assistant/DirectorAssistant"
 import { canAdoptEditingResult, type EditorBridge } from "../assistant/editing-tools"
-import "./smart-edit.css"
+import "../../editing/editing.css"
 
 type Panel = "media" | "effects" | "text" | "settings" | "export"
 type Props = { csrfToken: string; projectId: string; episodeId: string | null }
@@ -822,7 +823,7 @@ function EditWorkspace({
             <Button type="text" className="se-project-menu" aria-label="切换工程模块" icon={<Scissors size={22} />}><ChevronDown size={10} /></Button>
           </Dropdown>
           <h2>智能剪辑</h2>
-          {sequence.startsWith("canvas-") && <Button type="text" onClick={() => { setPlaying(false); void saveLatest().then(() => navigate(director2ProjectPath(projectId, "assets") + "?view=canvas")).catch(() => message.error("请先保存剪辑修改")) }}>返回创作画布</Button>}
+          {sequence.startsWith("canvas-") && <Button type="text" onClick={() => { setPlaying(false); void saveLatest().then(() => { const path = directorCanvasPath(projectId); if (!openDirectorCanvasWindow(path, (url, target) => window.open(url, target))) navigate(path) }).catch(() => message.error("请先保存剪辑修改")) }}>返回创作画布</Button>}
           <Select
             aria-label="选择剪辑分集"
             showSearch

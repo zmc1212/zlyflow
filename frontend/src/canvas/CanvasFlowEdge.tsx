@@ -1,42 +1,59 @@
-import { BaseEdge, EdgeLabelRenderer, getBezierPath, useReactFlow, type EdgeProps } from "@xyflow/react"
+import {
+  BaseEdge, Position, getBezierPath, useStore, type ConnectionLineComponentProps, type EdgeProps, type EdgeTypes,
+} from "@xyflow/react"
+import type { CSSProperties } from "react"
 
-export default function CanvasFlowEdge({
-  id,
-  sourceX,
-  sourceY,
-  targetX,
-  targetY,
-  sourcePosition,
-  targetPosition,
-  target,
-  targetHandleId,
-  style,
-  markerEnd,
-  markerStart,
+const outlineOffset = 5
+const outlineWidth = 1
+
+export const canvasFlowStyle = {
+  "--canvas-selection-outline-offset": `${outlineOffset}px`,
+  "--canvas-selection-outline-width": `${outlineWidth}px`,
+} as CSSProperties
+
+function ConnectionHighlight({ path }: { path: string }) {
+  return <path d={path} pathLength={100} className="canvas-connection-highlight" aria-hidden="true" />
+}
+
+export function CanvasConnectionTrace({ path }: { path: string }) {
+  return <>
+    <path d={path} className="canvas-connection-line" />
+    <ConnectionHighlight path={path} />
+  </>
+}
+
+function CanvasFlowEdge({
+  id, source, target, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition,
+  style, markerStart, markerEnd, interactionWidth, pathOptions,
 }: EdgeProps) {
-  const { getNode } = useReactFlow()
-  const [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition })
-  const label = targetHandleId === "prompt" ? "提示词" : getNode(target)?.type === "generator" ? "参考图" : null
-  const stroke = typeof style?.stroke === "string" ? style.stroke : "var(--studio-primary)"
-  return (
-    <>
-      <BaseEdge
-        id={id}
-        path={path}
-        style={style}
-        markerEnd={markerEnd}
-        markerStart={markerStart}
-        interactionWidth={20}
-        className="canvas-flow-edge"
-      />
-      <path
-        d={path}
-        pathLength={100}
-        className="canvas-flow-edge-light"
-        style={{ stroke, color: stroke }}
-        aria-hidden="true"
-      />
-      {label ? <EdgeLabelRenderer><span className="canvas-edge-label" style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}>{label}</span></EdgeLabelRenderer> : null}
-    </>
-  )
+  const related = useStore((state) => Boolean(state.nodeLookup.get(source)?.selected || state.nodeLookup.get(target)?.selected))
+  const [path] = getBezierPath({
+    sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition,
+    curvature: pathOptions?.curvature,
+  })
+
+  return <>
+    <BaseEdge
+      id={id}
+      path={path}
+      style={style}
+      markerStart={markerStart}
+      markerEnd={markerEnd}
+      interactionWidth={interactionWidth}
+      className={related ? "canvas-edge-related" : undefined}
+    />
+    {related ? <ConnectionHighlight path={path} /> : null}
+  </>
+}
+
+export const canvasEdgeTypes = { canvasFlow: CanvasFlowEdge } satisfies EdgeTypes
+
+export function CanvasConnectionLine({ fromNode, fromX, fromY, toX, toY, fromPosition, toPosition }: ConnectionLineComponentProps) {
+  // Offset only the live preview. Saved and pending edges use the handle at the card edge.
+  const offset = fromNode.selected ? outlineOffset + outlineWidth / 2 : 0
+  const sourceX = fromX + (fromPosition === Position.Right ? offset : fromPosition === Position.Left ? -offset : 0)
+  const sourceY = fromY + (fromPosition === Position.Bottom ? offset : fromPosition === Position.Top ? -offset : 0)
+  const [path] = getBezierPath({ sourceX, sourceY, targetX: toX, targetY: toY, sourcePosition: fromPosition, targetPosition: toPosition })
+
+  return <CanvasConnectionTrace path={path} />
 }

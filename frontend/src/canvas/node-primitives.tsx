@@ -1,6 +1,4 @@
-import {
-  Handle, NodeToolbar, Position, useNodeConnections, useReactFlow,
-} from "@xyflow/react"
+import { Handle, NodeToolbar, Position, useStore } from "@xyflow/react"
 import { Button, Dropdown, Tooltip } from "antd"
 import { Copy, Download, Plus, Settings, Sparkles, Trash2 } from "lucide-react"
 import { createContext, useContext, type ComponentProps } from "react"
@@ -9,6 +7,7 @@ import {
   generatorResultFromNodeData,
   type CanvasGeneratorLive,
   type CanvasGeneratorPromptState,
+  type CanvasReferenceKind,
   type CanvasWorkflowMode,
 } from "./canvas-generation"
 
@@ -17,21 +16,27 @@ import {
  *
  * 这里放的是「通用节点」在两个画布入口都要用、且彼此无差别的部分：
  * - 三个节点上下文（动作 / 生成器 / 媒体预览）与它们的类型
- * - `ConnectedHandle`：按上游节点类型着色的端口
+ * - `CanvasPort`：两个画布使用的连线端口
  * - `NodeFloatingToolbar`：选中后的节点悬浮工具条
  * - 节点缩放手柄的类名常量
  *
- * 无限画布 `CanvasNodes.tsx` 与导演台资产画布后续都从本文件取用，
- * 避免同一套交互在两处各写一份。
+ * 节点操作由各画布的上下文提供。
  */
 
-/** 按上游节点类型给端口着色的 Handle。 */
-export function ConnectedHandle(props: ComponentProps<typeof Handle>) {
-  const connections = useNodeConnections({ handleType: props.type, handleId: props.id ?? undefined })
-  const { getNode } = useReactFlow<CanvasNode>()
-  const sourceType = props.type === "target" && connections[0] ? getNode(connections[0].source)?.type : null
-  const color = sourceType === "generator" ? "var(--studio-primary)" : sourceType === "text" ? "var(--canvas-text-tone)" : sourceType === "video" ? "var(--canvas-video-tone)" : sourceType === "image" ? "var(--canvas-image-tone)" : undefined
-  return <Handle {...props} style={{ ...props.style, ...(color ? { color } : {}) }} className={`${props.className ?? ""}${connections.length ? " is-connected" : ""}`} />
+export function CanvasPort({ type, ...props }: Omit<ComponentProps<typeof Handle>, "position" | "className" | "children">) {
+  return (
+    <Handle {...props} type={type} position={type === "target" ? Position.Left : Position.Right} className="canvas-port">
+      <span className="canvas-port-icon" aria-hidden="true"><Plus size={13} /></span>
+    </Handle>
+  )
+}
+
+export function canvasPortGeometry(port: HTMLElement) {
+  const anchor = port.getBoundingClientRect()
+  return {
+    anchor: { x: anchor.left, y: anchor.top },
+    control: port.querySelector(".canvas-port-icon")?.getBoundingClientRect() ?? anchor,
+  }
 }
 
 export type CanvasMediaPreview = {
@@ -52,7 +57,8 @@ export type CanvasGeneratorContextValue = {
   liveFor: (jobId?: string | null) => CanvasGeneratorLive | null
   referenceCountFor: (nodeId: string) => number
   referencesFor: (nodeId: string) => CanvasNode[]
-  chooseReference: (nodeId: string, sourceId?: string) => void
+  chooseReference: (nodeId: string, kind: CanvasReferenceKind, sourceId?: string) => void
+  chooseReferenceSource: (nodeId: string, kind: CanvasReferenceKind, sourceId: string | null, method: "upload" | "library" | "canvas") => void
   removeReference: (nodeId: string, sourceId: string) => void
   moveReference: (nodeId: string, sourceId: string, direction: -1 | 1) => void
   promptInfoFor: (nodeId: string) => CanvasGeneratorPromptState
@@ -74,6 +80,7 @@ export const CanvasGeneratorContext = createContext<CanvasGeneratorContextValue>
   referenceCountFor: () => 0,
   referencesFor: () => [],
   chooseReference: () => undefined,
+  chooseReferenceSource: () => undefined,
   removeReference: () => undefined,
   moveReference: () => undefined,
   promptInfoFor: () => ({ text: "", connectedTextNodes: 0, emptyTextNodes: 0, fromTextNodes: false }),
@@ -93,7 +100,10 @@ export type CanvasNodeActions = {
   downloadNode: (nodeId: string) => void
   updateCover: (nodeId: string, patch: CanvasCoverPatch) => void
   chooseMedia: (nodeId: string, kind: "image" | "video") => void
+  openConnectMenu: (nodeId: string, handle: HTMLElement, direction: "in" | "out") => void
   saveCanvas: () => void
+  /** 提交音频节点的 TTS 配音 / 音乐生成任务（由编辑器统一带 CSRF 与轮询）。 */
+  generateAudio: (nodeId: string) => void
 }
 
 export const CanvasNodeActionsContext = createContext<CanvasNodeActions>({
@@ -104,7 +114,9 @@ export const CanvasNodeActionsContext = createContext<CanvasNodeActions>({
   downloadNode: () => undefined,
   updateCover: () => undefined,
   chooseMedia: () => undefined,
+  openConnectMenu: () => undefined,
   saveCanvas: () => undefined,
+  generateAudio: () => undefined,
 })
 
 export function canvasBranchMenu(onPick: (direction: CanvasBranchDirection) => void) {
@@ -129,12 +141,13 @@ export function NodeFloatingToolbar({ id, type, data, selected }: {
   const result = generatorResultFromNodeData(data)
   const mediaUrl = type === "image" || type === "video" ? data.url : result?.url
   const canBranch = type === "text" || type === "image" || type === "generator"
+  const zoom = useStore((state) => selected ? state.transform[2] : 1)
 
   return (
     <NodeToolbar
       isVisible={selected}
       position={Position.Top}
-      offset={8}
+      offset={type === "unknown" ? 8 : 8 + Math.ceil(33 * zoom)}
       className={`canvas-node-toolbar nodrag nopan${type === "generator" ? " is-generator" : ""}`}
     >
       {canBranch ? (

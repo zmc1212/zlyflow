@@ -51,7 +51,9 @@ export default function Timeline({
   onReorder,
   onPack,
   onDrag,
-  onDropAsset
+  onDropAsset,
+  extraToolbar,
+  strips
 }: {
   doc: EditDocument
   thumbnails: Record<string, string>
@@ -70,6 +72,10 @@ export default function Timeline({
   onPack: () => void
   onDrag: (id: string, kind: Drag["kind"], delta: number, snap: boolean) => void
   onDropAsset: (id: string, time: number, track?: EditTrack) => void
+  /** 宿主扩展工具（如多轨编辑器的「添加字幕」），渲染在编辑工具之后。 */
+  extraToolbar?: React.ReactNode
+  /** 素材 id → 胶片带长条图（即梦式多帧背景，取不到时回落单帧缩略图）。 */
+  strips?: Record<string, string>
 }) {
   const [zoom, setZoom] = useState(39),
     [snap, setSnap] = useState(true),
@@ -184,6 +190,7 @@ export default function Timeline({
               />
             </Tooltip>
           ))}
+          {extraToolbar}
         </div>
         <div className="se-timeline-zoom">
           <Tooltip title="拖动时吸附片段边缘">
@@ -327,7 +334,9 @@ export default function Timeline({
                           : 0)) *
                       zoom
                   )
+                  const strip = asset && strips?.[asset.id]
                   const thumb =
+                    strip ||
                     asset?.thumbnail ||
                     (asset && thumbnails[asset.id]) ||
                     (asset?.kind === "image" ? asset.url : null)
@@ -359,7 +368,8 @@ export default function Timeline({
                         <div
                           className="se-clip-filmstrip"
                           style={{
-                            backgroundImage: `url(${JSON.stringify(thumb)})`
+                            backgroundImage: `url(${JSON.stringify(thumb)})`,
+                            ...(strip ? { backgroundSize: "auto 100%", backgroundRepeat: "repeat-x" } : {})
                           }}
                         />
                       )}

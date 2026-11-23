@@ -77,8 +77,11 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(standard.max_references, 10)
         properties = standard.option_schema["properties"]
         self.assertEqual(properties["count"]["ui_group"], "primary")
+        self.assertEqual(properties["count"]["unit"], "张")
         self.assertEqual(properties["aspect_ratio"]["ui_companions"], ["resolution", "count"])
         vip_properties = workflow_for(JobMode.GRS_GPT_IMAGE_2_VIP).option_schema["properties"]
+        self.assertEqual(vip_properties["aspect_ratio"]["label"], "画面比例")
+        self.assertIn({"value": "CUSTOM", "label": "自定义"}, vip_properties["resolution"]["ui_options"])
         self.assertEqual(vip_properties["aspect_ratio"]["ui_companions"], ["resolution", "count", "custom_width", "custom_height"])
         self.assertEqual(properties["provider_model"]["ui_group"], "internal")
         self.assertEqual(properties["provider_model"]["default"], "gpt-image-2")
@@ -903,6 +906,9 @@ class JobCloudDeletionTests(unittest.TestCase):
             workspace_dir=self.root, data_dir_override=str(self.root / "data"),
             resource_provider="browser-stream", secure_cookies=False,
         )))
+        # lifespan 会在临时 workspace 上重建全部 app.state（含积分服务），
+        # 必须快照恢复，否则泄漏的临时库会让后续模块的请求打不开数据库。
+        self.stack.enter_context(isolated_lifespan_state(main_module.app))
         self.stack.enter_context(patch.object(main_module, "JobWorker", WorkerStub))
         self.stack.enter_context(patch(
             "backend.app.db._pymysql_connect", side_effect=AssertionError("测试不得连接 MySQL"),

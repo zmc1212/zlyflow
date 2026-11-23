@@ -94,6 +94,32 @@ export type SaveDraftResult = {
   updated_at: string
 }
 
+export type CanvasProjectCreditGroup = {
+  type: string
+  label: string
+  task_count: number
+  credits: number
+  ratio: number
+}
+
+export type CanvasProjectCreditStats = {
+  total_credits: number
+  task_count: number
+  groups: CanvasProjectCreditGroup[]
+}
+
+/** 画布「项目信息」积分消耗：按节点引用的任务聚合净消耗（预扣-退款）。 */
+export function fetchCanvasProjectCreditStats(
+  csrfToken: string,
+  projectId: string,
+  jobIds: string[],
+): Promise<CanvasProjectCreditStats> {
+  return requestJson<CanvasProjectCreditStats>(
+    `/api/canvas/projects/${encodeURIComponent(projectId)}/credit-stats`,
+    jsonMutation(csrfToken, { job_ids: jobIds }),
+  )
+}
+
 export function saveCanvasDraft(
   csrfToken: string,
   projectId: string,
@@ -117,3 +143,22 @@ export function restoreCanvasVersion(csrfToken: string, projectId: string, versi
     jsonMutation(csrfToken),
   )
 }
+
+export type CanvasMediaUpload = {
+  url: string
+  kind: "image" | "video"
+  label: string
+  bytes: number
+}
+
+/** 把本地图片或视频存到工作台，返回可直接写入画布节点的站内地址。 */
+export function uploadCanvasMedia(csrfToken: string, file: File): Promise<CanvasMediaUpload> {
+  const form = new FormData()
+  form.append("file", file)
+  return requestJson<CanvasMediaUpload>("/api/canvas/media", {
+    method: "POST",
+    headers: { "X-CSRF-Token": csrfToken },
+    body: form,
+  })
+}
+

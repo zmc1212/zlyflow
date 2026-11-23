@@ -77,6 +77,7 @@ import "./production-assets.css"
 import { creativeStyleText } from "../creative-presets"
 import { assetCreativeSettings, compileAssetCreativePrompt } from "../asset-canvas-creative"
 import AssetCreationCanvas, { AssetCanvasCreateModal, type AssetCanvasActions } from "./AssetCreationCanvas"
+import { directorCanvasPath, openDirectorCanvasWindow } from "../director-canvas-window"
 import { appendCanvasReference, assetCanvasJobNode, assetNodeId, assetSlotPrompt, buildAssetCanvas, canvasIdentities, patchAssetSlotPrompt, readAssetCanvasLayout, targetKey, type AssetCanvasTarget } from "../asset-canvas-model"
 import AssetCanvasVoiceModal from "./assets/AssetCanvasVoiceModal"
 
@@ -87,6 +88,10 @@ interface AssetsLibraryPaneProps {
   onChanged?: () => void
   onBack?: () => void
   onContinue?: () => void | Promise<void>
+  /** 独立窗口直接以画布视图进入，不依赖 `?view=canvas`。 */
+  initialCanvasView?: boolean
+  /** 独立窗口里点「列表」：先保存再离开窗口，由调用方决定关窗还是回到资产列表。 */
+  onShowList?: () => void
 }
 
 export type AssetsLibraryPaneHandle = {
@@ -104,12 +109,12 @@ const AUTO_SAVE_STATUS_TEXT: Record<AutoSaveState, string> = {
 }
 
 const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneProps>(function AssetsLibraryPane(
-  { csrfToken, projectId, projectName, onChanged, onBack, onContinue },
+  { csrfToken, projectId, projectName, onChanged, onBack, onContinue, initialCanvasView = false, onShowList },
   ref,
 ) {
   const { openMediaPreview } = useMediaPreview()
   const [searchParams, setSearchParams] = useSearchParams()
-  const [detailOpen, setDetailOpen] = useState(!!searchParams.get("asset") || searchParams.get("view") === "canvas")
+  const [detailOpen, setDetailOpen] = useState(initialCanvasView || !!searchParams.get("asset") || searchParams.get("view") === "canvas")
   const [canvasWorking, setCanvasWorking] = useState<string | null>(null)
   const canvasWorkingRef = useRef<string | null>(null)
   const [canvasRecoveredWork, setCanvasRecoveredWork] = useState<string | null>(null)
@@ -1228,25 +1233,40 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
   const requestedAsset = searchParams.get("asset")
   const requestedView = searchParams.get("view")
   useEffect(() => {
-    if (!requestedAsset) { setDetailOpen(requestedView === "canvas"); return }
+    if (!requestedAsset) { setDetailOpen(initialCanvasView || requestedView === "canvas"); return }
     const found = assets.find(asset => asset.id === requestedAsset)
     if (found && selectedAssetRef.current?.id !== found.id) { setTab(found.kind); selectAsset(found) }
     if (found) setDetailOpen(true)
     // A URL addresses the same asset ID as the existing detail editor.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [requestedAsset, requestedView, assets])
+  }, [requestedAsset, requestedView, assets, initialCanvasView])
 
   function openAsset(asset: Director2Asset) {
     if (selectedAssetRef.current?.id !== asset.id) selectAsset(asset)
     setDetailOpen(true)
     setSearchParams(current => { const next = new URLSearchParams(current); next.set("asset", asset.id); next.set("view", "canvas"); return next }, { replace: detailOpen })
   }
-  async function closeAsset() {
+  // 列表里的「画布」开关：优先在独立窗口打开资产画布；弹窗被拦截时退回当前窗口的内嵌画布。
+  function openCanvasView() {
+    const path = directorCanvasPath(projectId, { assetId: selectedAsset?.id, nodeId: searchParams.get("node") })
+    if (openDirectorCanvasWindow(path, (url, target) => window.open(url, target))) return
+    if (selectedAsset) { openAsset(selectedAsset); return }
+    setDetailOpen(true)
+    setSearchParams(current => { const next = new URLSearchParams(current); next.set("view", "canvas"); return next })
+  }
+  // 资产列表里点具体资产：同样直接在新窗口的画布中定位该资产；被拦截时才当前窗口打开。
+  function openAssetInCanvasWindow(asset: Director2Asset) {
+    const path = directorCanvasPath(projectId, { assetId: asset.id, nodeId: searchParams.get("node") })
+    if (openDirectorCanvasWindow(path, (url, target) => window.open(url, target))) return
+    openAsset(asset)
+  }
+  async function closeAsset(): Promise<boolean> {
     await flushAutoSave()
-    if (autoSaveStateRef.current === "error") { message.error("资产修改尚未保存，请重试保存后再返回"); return }
+    if (autoSaveStateRef.current === "error") { message.error("资产修改尚未保存，请重试保存后再返回"); return false }
     setDetailOpen(false)
     setSearchParams(current => { const next = new URLSearchParams(current); next.delete("asset"); next.delete("view"); next.delete("node"); return next })
     onChanged?.()
+    return true
   }
 
   function canvasAsset(id: string) {
@@ -1332,7 +1352,12 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
   // 导致画布 buildAssetCanvas/effect 重建空转，干扰 xyflow 测量与草稿自动保存。
   const canvasAssets = useMemo(() => assets.map(asset => selectedAsset?.id === asset.id ? selectedAsset : asset), [assets, selectedAsset])
   const canvasActions: AssetCanvasActions = {
-    select: id => openAsset(canvasAsset(id)), showList: closeAsset,
+    select: id => openAsset(canvasAsset(id)),
+    showList: () => {
+      // 独立窗口里「列表」需要先落盘，再由宿主关窗或跳回资产列表页。
+      if (!onShowList) { void closeAsset(); return }
+      void closeAsset().then(closed => { if (closed) onShowList() })
+    },
     create: (kind, position) => { canvasCreateOrigin.current = position ? { ...position } : null; setTab(kind); openCreateModal() },
     addLook: id => { openAsset(canvasAsset(id)); openAddIdentityModal() },
     saveDefinition: async (id, name, role, description) => { patchCanvasAsset(id, { name, role, description }, { canvas_definition: description, description }); await saveCanvasChanges() },
@@ -1434,7 +1459,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
         </div>
 
         <div className="header-actions">
-          <Segmented aria-label="资产视图" value="list" disabled={!!batchProgress} options={[{ value: "list", label: "列表" }, { value: "canvas", label: "画布" }]} onChange={value => { if (value === "canvas") { if (selectedAsset) openAsset(selectedAsset); else { setDetailOpen(true); setSearchParams(current => { const next = new URLSearchParams(current); next.set("view", "canvas"); return next }) } } }}/>
+          <Segmented aria-label="资产视图" value="list" disabled={!!batchProgress} options={[{ value: "list", label: "列表" }, { value: "canvas", label: "画布" }]} onChange={value => { if (value === "canvas") openCanvasView() }}/>
           {detailOpen && <Button icon={<ArrowLeft size={14}/>} onClick={closeAsset}>返回资产列表</Button>}
           <Button type="primary" className="primary-btn" icon={<Plus size={16} />} disabled={!!batchProgress} onClick={openCreateModal}>
             新增{kindLabel(currentTab)}
@@ -1506,7 +1531,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
               const content = <>{image ? <img src={image} alt={`${asset.name}参考图`} loading="lazy" onError={event => { event.currentTarget.style.visibility = "hidden" }}/>: <Icon size={28}/>}{busy && <span className="production-asset-working"><Spin size="small"/>正在生成</span>}{!selectionMode && <span className="production-asset-hover">上传或生成</span>}</>
               const caption = <><h3 title={asset.name}>{asset.name}</h3><p className={busy ? "" : failed ? "is-missing" : readiness.ready === readiness.total ? "is-ready" : "is-missing"}>{busy ? "图片生成中…" : failed ? "生成未完成，可重试" : readiness.label}</p></>
               return <article className={`production-asset-card${selected ? " is-selected" : ""}`} key={asset.id}>
-                {selectionMode ? <Checkbox className="production-asset-choice" aria-label={`选择${asset.name}`} checked={selected} disabled={!!batchProgress} onChange={event => setSelectedAssetIds(ids => event.target.checked ? [...ids.filter(id => id !== asset.id), asset.id] : ids.filter(id => id !== asset.id))}><div className="production-asset-image">{content}</div>{caption}</Checkbox> : <><Button type="text" className="production-asset-image" aria-label={`在画布中编辑${asset.name}`} onClick={() => openAsset(asset)}>{content}</Button>{caption}</>}
+                {selectionMode ? <Checkbox className="production-asset-choice" aria-label={`选择${asset.name}`} checked={selected} disabled={!!batchProgress} onChange={event => setSelectedAssetIds(ids => event.target.checked ? [...ids.filter(id => id !== asset.id), asset.id] : ids.filter(id => id !== asset.id))}><div className="production-asset-image">{content}</div>{caption}</Checkbox> : <><Button type="text" className="production-asset-image" aria-label={`在画布中编辑${asset.name}`} onClick={() => openAssetInCanvasWindow(asset)}>{content}</Button>{caption}</>}
               </article>
             })}
             {!filteredAssets.length && <p className="production-assets-empty">{searchKeyword ? "没有找到匹配的资产" : `暂无${kindLabel(currentTab)}，可以新建或从剧本中拆解`}</p>}
@@ -1542,7 +1567,7 @@ const AssetsLibraryPane = forwardRef<AssetsLibraryPaneHandle, AssetsLibraryPaneP
                     key={ast.id}
                     className={`asset-list-item${selectedAsset && selectedAsset.id === ast.id ? " active" : ""}`}
                     aria-pressed={selectedAsset?.id === ast.id}
-                    onClick={() => openAsset(ast)}
+                    onClick={() => openAssetInCanvasWindow(ast)}
                   >
                     {/* 缩略图或单字头像 */}
                     <div className={`item-avatar ${ast.kind}`} style={getAssetGradient(ast.name)}>

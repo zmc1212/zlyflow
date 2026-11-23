@@ -11,6 +11,7 @@ export const PATHS = {
   mcpAuthorize: "/mcp/authorize",
   generateImage: "/generate/image",
   generateVideo: "/generate/video",
+  pricing: "/pricing",
   tools: "/tools",
   inspiration: "/inspiration",
   music: "/music",
@@ -41,6 +42,7 @@ export const PATHS = {
   assets: "/assets",
   admin: "/admin",
   adminAccounts: "/admin/accounts",
+  adminEnterprises: "/admin/enterprises",
   adminProviders: "/admin/providers",
   adminLlm: "/admin/llm",
   adminVlm: "/admin/vlm",
@@ -58,6 +60,7 @@ export const ROUTE_PATTERNS = {
   directorBatch: "/director/batch/:projectId",
   directorReplication: "/director/replication/:projectId",
   directorProject: "/director/projects/:projectId",
+  directorAssetCanvas: "/director/projects/:projectId/assets/canvas",
   directorProjectMenu: "/director/projects/:projectId/:menu",
   directorProjectEpisode: "/director/projects/:projectId/workshop/:episodeId",
   directorProjectEdit: "/director/projects/:projectId/edit/:episodeId",
@@ -73,7 +76,7 @@ export const ROUTE_PATTERNS = {
   adminTab: "/admin/:tab",
 } as const
 
-export const ADMIN_TABS = ["accounts", "providers", "llm", "vlm", "tts", "storage", "mail"] as const
+export const ADMIN_TABS = ["accounts", "enterprises", "credits", "providers", "llm", "vlm", "tts", "storage", "mail"] as const
 export type AdminTab = (typeof ADMIN_TABS)[number]
 export const SUPER_ADMIN_ONLY_TABS: readonly AdminTab[] = ["providers", "llm", "vlm", "tts", "storage", "mail"]
 
@@ -85,6 +88,7 @@ export const STUDIO_ROUTE_PATHS = [
   ROUTE_PATTERNS.generateImageJob,
   PATHS.generateVideo,
   ROUTE_PATTERNS.generateVideoJob,
+  PATHS.pricing,
   PATHS.tools,
   PATHS.inspiration,
   PATHS.music,
@@ -137,7 +141,7 @@ export type LoginRedirectState = {
   from?: Pick<Location, "pathname" | "search" | "hash">
 }
 
-export type StudioWorkspace = "generate" | "inspiration" | "music" | "tools" | "director" | "canvas" | "assets"
+export type StudioWorkspace = "generate" | "inspiration" | "music" | "tools" | "director" | "canvas" | "assets" | "pricing"
 export type GenerateMediaType = "image" | "video"
 
 const DIRECTOR_LEGACY_STUDIO_SEGMENTS = new Set(["batch", "replication"])
@@ -161,6 +165,7 @@ export function parseMusicPath(pathname: string): { chatId?: string } {
 
 export function studioWorkspaceFromPath(pathname: string): StudioWorkspace {
   if (pathname === PATHS.assets) return "assets"
+  if (pathname === PATHS.pricing) return "pricing"
   if (pathname === PATHS.inspiration) return "inspiration"
   if (pathname === PATHS.music || pathname.startsWith(`${PATHS.music}/`)) return "music"
   if (pathname === PATHS.tools || pathname.startsWith(`${PATHS.tools}/`)) return "tools"
@@ -225,7 +230,7 @@ export function adminTabPath(tab: AdminTab) {
 }
 
 export function isAdminTab(value: string | undefined): value is AdminTab {
-  return value === "accounts" || value === "providers" || value === "llm" || value === "vlm" || value === "tts" || value === "storage" || value === "mail"
+  return value === "accounts" || value === "enterprises" || value === "credits" || value === "providers" || value === "llm" || value === "vlm" || value === "tts" || value === "storage" || value === "mail"
 }
 
 export function isAdminPath(pathname: string) {
@@ -234,7 +239,7 @@ export function isAdminPath(pathname: string) {
 
 export function canAccessAdminTab(role: UserRole, tab: string) {
   if (role === "employee") return false
-  if (tab === "accounts") return true
+  if (tab === "accounts" || tab === "credits" || tab === "enterprises") return true
   return role === "super_admin" && isAdminTab(tab)
 }
 
@@ -245,6 +250,7 @@ export function isAuthScreenPath(pathname: string) {
 export function isGuestStudioPath(pathname: string) {
   return pathname === PATHS.home || pathname === PATHS.login
     || pathname === PATHS.generateImage || pathname === PATHS.generateVideo
+    || pathname === PATHS.pricing
 }
 
 function isSafeInternalPath(pathname: string) {

@@ -25,6 +25,7 @@ import {
 import { generateJobPath } from "../paths"
 import { createLocalId } from "../lib/utils"
 import { promptAutoSize } from "../prompt-autosize"
+import { isSubmitEnter } from "../lib/enter-submit"
 import { restoreReferenceFiles, roundReferenceSources, type ReferenceSource } from "../reference-assets"
 import "./motion-transfer-tool.css"
 import "./keyframe-narrative-tool.css"
@@ -394,6 +395,12 @@ export default function KeyframeNarrativeTool({ csrfToken }: { csrfToken: string
                 placeholder="描述关键帧之间的叙事与过渡，例如：清晨的薄雾中，小船缓缓驶过湖面，最终停在山脚下的渡口，运镜平缓，电影感打光。"
                 autoSize={promptAutoSize(4)}
                 maxLength={1500}
+                onKeyDown={(event) => {
+                  // 回车开始生成；与「开始生成」按钮同一可用条件。
+                  if (!isSubmitEnter(event)) return
+                  event.preventDefault()
+                  if (ready) void submit()
+                }}
               />
             </div>
 

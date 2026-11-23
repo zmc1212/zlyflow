@@ -147,6 +147,7 @@ docs/导演台设计图/
 !docs/design-ref-director/home-workspace-20261025/
 submit_*.py
 backend/tests/test_*.py
+!backend/tests/test_canvas_media_upload.py
 !backend/tests/test_llm_request_policy.py
 !backend/tests/test_asset_manifest.py
 !backend/tests/test_asset_canvas_upload.py
@@ -197,6 +198,7 @@ backend/tests/test_*.py
 !backend/tests/test_media_studio_schema.py
 !backend/tests/test_zhipu_provider.py
 !backend/tests/test_internai_provider.py
+!backend/tests/test_canvas_assistant.py
 !backend/tests/test_llm_endpoint_credentials.py
 !backend/tests/test_accounts.py
 !backend/tests/test_llm_capabilities.py
@@ -204,6 +206,13 @@ backend/tests/test_*.py
 !backend/tests/test_qiniu_upload.py
 !backend/tests/test_guest_catalog.py
 !backend/tests/test_job_lease.py
+!backend/tests/test_credit.py
+!backend/tests/test_cloud_shot_jobs.py
+!backend/tests/test_profile_avatar.py
+!backend/tests/test_ai_studio.py
+!backend/tests/test_library_query.py
+!backend/tests/test_read_caches.py
+!backend/tests/test_enterprises.py
 scripts/action_previs_worker/vendor/
 !docs/design-ref-director/navigation-brand-20261031/
 !docs/design-ref-director/navigation-brand-20261101/
@@ -232,6 +241,7 @@ docs/design-ref-director/live-flow-20261103/workshop-queued.png
 docs/design-ref-director/jimeng-asset-canvas-20261105/*
 !docs/design-ref-director/jimeng-asset-canvas-20261105/DESIGN.md
 !docs/design-ref-director/jimeng-asset-canvas-20261105/implementation-20261105/
+!docs/design-ref-director/jimeng-asset-canvas-20261105/implementation-20261119/
 
 # ==========================================
 # 5. CI/CD 运行时产物(服务器侧生成,严禁提交)

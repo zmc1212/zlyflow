@@ -1,5 +1,26 @@
 # ZLY AI Video Studio API 文档
 
+## 2026-11-21 无限画布智能助手
+
+- 前缀 `/api/canvas-assistant`，全部需登录（查询端点 `current_user`，写操作 `mutating_user` + CSRF）。会话与画布绑定，按账号隔离；会话创建/发消息时会校验画布归属（画布不存在或非本人返回 `400`）。
+- `GET /catalog`：`{enabled, models[{id,label,capabilities}], available, unavailable_reason}`。模型清单来自管理端「助手可用模型」。
+- `GET /sessions`、`POST /sessions`（`{canvas_id, title?, selections{model_id, web_search}}` → 201）、`GET /sessions/{sid}`（session/messages/proposals/run）、`PATCH /sessions/{sid}`（改标题/模型，带 `version` 乐观锁，冲突 `409`）。
+- `POST /sessions/{sid}/messages`（202）：`{text?, client_message_id(8-96 幂等键), question_id?, answer_values?, skip?, context{selection_ids, viewport_node_ids}}`。返回 run 记录，执行在后台线程。会话已有活动 run 返回 `409`。
+- `GET /runs/{rid}`、`POST /runs/{rid}/cancel`、`POST /runs/{rid}/retry`（`{client_message_id}`）。
+- `GET /runs/{rid}/events?since=`：SSE（`text/snapshot/status/done/terminal`，支持 `Last-Event-ID` 断线续传，事件持久化于 `canvas_assistant_events`）。
+- `POST /proposals/{pid}/apply-result`：前端应用方案后上报 `{result: applied|partial|failed|dismissed, detail}`；重复上报 `400`。
+- 工具集（服务端执行）：`canvas_read`（画布快照：概览+选中/视口聚焦+连线）、`workflow_catalog`（image/video 工作流与 `ui_group ∈ primary/advanced` 参数）、`library_search`（作品库检索）、`job_status`（画布任务状态）、`propose_canvas_ops`（落库待确认方案，校验工作流/参数/连线类型/ref 引用，非法返回工具错误）。后端不提供直写画布草稿的端点。
+- 计费：每轮成功 `credits.consume_call("llm","assistant_chat")`；提交生成任务走既有 `POST /api/jobs` 计费链路，无双重扣费。
+- 兼容性：纯新增模块；表 `canvas_assistant_records` / `canvas_assistant_events`（`sql/032_canvas_assistant.sql`，repository 自建表兜底）。实现与回滚见 `docs/ARCHITECTURE.md` 同日章节。
+
+## 2026-11-20 积分用量与毛利报表
+
+- `GET /api/admin/credits/usage-report`：管理员（`admin_user`）。Query：`start` / `end`（`YYYY-MM-DD`，北京时间自然日且包含当日；缺省最近 30 天，跨度最多 366 天）、`group_by`（`price_key` / `model` / `user` / `enterprise` / `day`，默认 `price_key`）、`scope`（`user` / `enterprise` / `all`，默认 `all`）。日期非法或开始晚于结束返回 `422`。
+- 响应：`start`、`end`、`group_by`、`scope`、`refunds_grouped`、`generated_at`、`totals`、`rows[]`。每个汇总对象字段：`key`、`label`、`calls`、`credits`、`revenue_cny`、`cost_cny`、`costed_calls`、`uncosted_calls`、`actual_cost_calls`、`estimated_cost_calls`、`token_calls`、`tokens`、`refunds`、`refunded_credits`、`net_credits`、`net_revenue_cny`、`margin_cny`、`margin_rate`、`coverage`。`coverage = 收入 / 已记录成本`，无成本时为 `null`；`margin_rate` 在净收入为 0 时为 `null`。
+- 口径：扣费积分取流水 `abs(delta)`，收入 = 积分 / 100；成本只取流水 `meta.cost_cny`，没有成本的调用计入 `uncosted_calls`；退款始终计入 `totals`，但只有 `group_by=price_key` 时设置 `refunds_grouped=true` 并归入对应价格条目。
+- 数据源：`credit_transactions` 与 `enterprise_credit_transactions` 的 `consume/refund` 流水，`UNION ALL` 后按时间排序；只读，不写库、不改扣费。
+- 兼容性：纯新增管理端只读端点与页面；CSV 由前端导出（BOM + 合计行），无数据库迁移。实现与回滚见 `docs/ARCHITECTURE.md` 同日章节。
+
 ## 2026-11-12 剧本工作台聚合视图（只读派生）
 
 - `GET /api/projects/{project_id}/workbench`：登录用户（owner 校验同项目详情中间件）。Query `episode_id` 可选，缺省取第一集；项目不存在或无分集返回 404（「项目不存在」/「该项目还没有分集，请先在剧本阶段完成拆解」）。响应：`project{id,name,cover_url}`、`episode{id,number,title,status,script_text,summary,episode_video_url,episode_video_job_id}`、`assets[]`（仅本集引用到的：`id/kind/name/image_url/ready/ready_label/looks_total/looks_ready/ref_beats`，就绪口径与前端 `assetReadiness` 一致）、`beats[]`（`id/sequence/kind/heading/title/text/speaker/dialogue/character_ids/scene_id/prop_ids/has_prompt/has_video/video_url/video_duration/task_status/awaiting_refine`；`task_status` 从最近 40 条 `video_generation` 任务的 `render_plan.chunks` 提取，已成片一律 `succeeded`）、`edges[]`（`asset→beat` reference / `beat→beat` sequence / `beat→episode-video` output）、`progress{stages{script,assets,prompts,shots{done,total,ratio,status}},overall_pct,...}`、`next_action{kind,label,beat_id?,target}`。**只读端点，不写库**；beats 兜底沿用 `GET /episodes/{id}` 的既有行为。
@@ -389,6 +410,8 @@ MCP 服务地址为 `<对外 origin>/api/mcp`，使用无状态 Streamable HTTP�
 | `POST` | `/api/auth/logout` | 注销当前会话。 |
 | `POST` | `/api/auth/password` | 修改当前密码；初始密码用户必须先调用。 |
 | `PATCH` | `/api/auth/profile` | 修改当前账号的显示姓名；登录账号与会话不变。 |
+| `POST` | `/api/auth/avatar` | 上传或更换账号头像。Multipart 字段为 `file`，成功后返回新的 `user.avatar_url`。 |
+| `GET` | `/api/auth/avatar/{version}` | 校验当前账号的头像版本并跳转到临时签名地址。 |
 | `GET/POST` | `/api/admin/users` | 管理员读取或创建员工账号。 |
 | `PATCH` | `/api/admin/users/{user_id}` | 调整姓名、角色或启停账号；角色与启停仍按管理范围限制。 |
 | `POST` | `/api/admin/users/{user_id}/reset-password` | 重置初始密码并撤销该用户会话。 |
@@ -592,6 +615,103 @@ MCP 服务地址为 `<对外 origin>/api/mcp`，使用无状态 Streamable HTTP�
 每个 mode 还包含 `catalog_group`、`catalog_group_label`、`catalog_group_order`。视频工作流分组为 `lightx2v`（LightX2V）、`dual_accel`（八步双加速）、`official_h3`（官方 MiniMax H3）、`custom`（自定义 T8）。前端按下拉分组展示，不硬编码组名。
 
 生图条目（`media_type=image` 且 `id` 以 `grs-` 开头）另含 `is_default`：列表顺序完全等于管理员在「GRS 图片供应商」目录里的排序，`is_default=true` 的那一项才是创作页预选与导演台自动出图使用的模型，消费方不得把首位当默认。同批条目还含 `credit_cost`（GRS 平台标价的单次消耗积分，整数；未取到价格时为 `null`），只用于展示，不属于 `POST /api/jobs` 的提交参数。
+
+云端视频条目（`pricing_kind=per_second`）含 `billing` 对象，用于解释「原生价 → 平台积分」的归一化关系：
+
+```json
+{
+  "scope": "cloud_video",
+  "pricing_kind": "per_second",
+  "unit_credits": 0,
+  "unit_by_variant": {"768p": 7},
+  "resolved_unit_by_variant": {"480p": 5, "768p": 7, "1080p": 15},
+  "native_unit": "rmb_per_second",
+  "native_variant_prices": {"480p": 0.05, "768p": 0.07, "1080p": 0.15},
+  "credits_per_native_unit": 100,
+  "provider_coefficient": 1.0,
+  "price_source": "native",
+  "summary": "5-15 积分/秒",
+  "enabled": true
+}
+```
+
+- `resolved_unit_by_variant` / `unit_by_variant` 是实际扣费口径（平台积分），提交预估与扣费以它为准。
+- 平台单价 = `ceil(原生价 × credits_per_native_unit × provider_coefficient)`；`price_source=manual` 时改用价格表里的 `unit_by_variant`，原生价仅展示。
+- `summary` 供模型下拉直接展示（如 `5-15 积分/秒`）；分辨率/模型选项的 `ui_options[].label` 已由后端追加积分标注（如 `768P · 高清 · 26-50 积分/秒`），前端不得自行按参数名硬编码价格。
+- 创作控件的可选显示元数据：`ui_control="visual-settings"` 表示比例图形选择，`ui_companions` 声明同一面板内的关联参数；`ui_options[].short_label` / `hint` 提供紧凑标签和说明，完整 `label` 保留。`ui_summary="value"` 表示工具栏摘要直接显示原参数值（例如 `768P`），选项本体仍显示完整标签和积分标注。这些字段仅描述界面，提交 `options` 时仍使用原始 value，不提交显示标签或 UI 元数据。
+- `billing` 只用于展示与预估，不属于 `POST /api/jobs` 的提交参数；游客读取 `/api/modes` 也会返回该对象。
+- `input_image_price` / `input_image_free_quota`：按模型档位的输入图片原生单价与每任务免费张数（MiniMax 官方 H3/Highspeed ¥0.20/张、Lite ¥0.13/张，H3-Max 暂按 H3 同价；GRS 官方未公布图片价，配置为 0，前 5 张免费）。
+- `POST /api/credits/estimate` 请求可带 `reference_count`（本次提交的输入图片张数）；响应新增 `input_image_credits` / `input_image_count` / `input_image_unit_credits`，`credits` 已含输入图片费。多镜批量按每个任务分别享受免费额度。
+
+### `GET /api/pricing`
+
+公开价格页数据，无需登录。档位结构来自工作流注册表，单价来自积分价格表；当前返回四张厂商卡：GRS 三条产线（MiniMax-H3 / Agnes 2.5 / Wan 3.0）与 MiniMax 官方。
+
+```json
+{
+  "credits_per_yuan": 100,
+  "billing_policy": {
+    "anchor": "100 积分 = 1 元",
+    "settlement": "提交预扣，任务失败自动全额退回",
+    "local": "本地生成工作流不计费"
+  },
+  "providers": [
+    {
+      "key": "grs",
+      "label": "GRS",
+      "subtitle": "性价比优先",
+      "available": true,
+      "workflow_ids": ["cloud-grs-h3-t2v", "cloud-grs-h3-r2v", "cloud-grs-h3-fl2v"],
+      "modes": ["文生视频", "参考图生视频", "首尾帧"],
+      "input_image_free_quota": 5,
+      "models": [
+        {
+          "key": "minimax-h3",
+          "label": "MiniMax-H3",
+          "tagline": "高性价比",
+          "input_image_credits": 0,
+          "resolutions": [
+            {"value": "480p", "credits_per_second": 5, "native_price_per_second": 0.05, "credits_5s": 25, "credits_10s": 50}
+          ]
+        }
+      ],
+      "notes": ["按秒计费，分辨率决定每秒积分。"]
+    }
+  ],
+  "image_generation": {
+    "pricing_kind": "per_item",
+    "models": [
+      {
+        "key": "grs-gpt-image-2.5",
+        "label": "GPT Image 2.5",
+        "description": "使用 GRS GPT Image 2.5 生成图片，支持 0-10 张有序参考图。",
+        "credits_per_image": 6,
+        "is_default": true
+      }
+    ]
+  },
+  "ai_calls": {
+    "items": [
+      {
+        "key": "llm:optimize_prompt",
+        "scope": "llm",
+        "kind": "optimize_prompt",
+        "label": "提示词优化",
+        "description": "提示词优化（每次）",
+        "unit_credits": 1,
+        "billing_mode": "per_call"
+      }
+    ]
+  }
+}
+```
+
+- `credits_per_second` / `credits_5s` / `credits_10s` 均为平台积分；`native_price_per_second` 为上游原生价（元/秒），仅展示。
+- `input_image_credits` 为超出每任务免费额度后的图片积分单价；0 表示该模型暂不额外收费。
+- `available` 跟随管理端云端视频供应商启用状态与 API Key 配置。
+- `image_generation.models`：图片服务目录中已启用的生图模型（与创作页生图下拉同源，顺序由管理端目录排序决定）。`credits_per_image` 取 `grs_image:global` 的实际生效平台积分（已含换算系数与按模型覆盖），与提交实扣一致；`is_default` 标记创作页预选模型，不代表列表首位。复合图片工作流（局部重绘 / 消除笔 / 扩图）不额外计费，因此不在此列出；0 积分表示当前配置为免费口径。
+- `ai_calls.items`：来自价格表的 `llm:*` / `vlm:*` 条目，按固定种类顺序返回。`billing_mode=per_call` 时 `unit_credits` 为按次单价；`billing_mode=per_token` 时为按典型用量估算的积分（管理与实际扣费仍按 token 结算）。`label` 取价格表说明中的功能名，`description` 保留完整说明。
+- 两个字段均为附加字段：未配置图片服务目录或价格条目缺失时返回空列表，旧客户端可忽略。
 
 ### `GET /api/modes/{mode_id}`
 
@@ -896,6 +1016,8 @@ POST /api/auth/setup
 登录和初始化响应包含 `user` 与 `csrf_token`，并通过 `Set-Cookie` 写入会话。非浏览器客户端必须同时维护 Cookie，并在 `POST/PATCH` 请求中发送 `X-CSRF-Token`。员工接口的任务列表、单任务、参考图、作品库和输出下载都会校验 `jobs.owner_user_id`；普通员工访问其他人的资源时按不存在处理。
 
 任何已登录账号都可调用 `PATCH /api/auth/profile`（body `{"display_name":"新姓名"}`）修改自己的显示姓名，响应与登录一致并回传最新 `user` 与 `csrf_token`。管理员和超级管理员也可通过 `PATCH /api/admin/users/{user_id}` 修改任意账号的姓名；角色与启停仍按原有管理范围限制（管理员只能调整员工）。姓名只影响展示，登录账号、密码和会话均不变。
+
+登录状态中的 `user.avatar_url` 在尚未上传时为 `null`。已登录且完成初始密码修改的用户可通过 `POST /api/auth/avatar` 上传 JPG、PNG 或 WebP（最大 5 MiB、2000 万像素），需要 `X-CSRF-Token`。请用返回的 `user.avatar_url` 显示头像，更换后使用新地址。
 
 `GET /api/admin/users` 每行额外返回 `login_blocked`（是否处于登录失败锁定）与 `login_blocked_seconds`（剩余锁定秒数），用于管理界面展示；这两个字段由进程内存计数实时计算，不落库。管理员可用 `POST /api/admin/users/{user_id}/unlock-login` 立即解除锁定（无请求体，写操作需 `X-CSRF-Token`），返回 `{"ok":true,"cleared":1,"username":"...","login_blocked_seconds":0}`；管理员只能解除员工账号，被锁定的客户端自身没有解除入口。
 

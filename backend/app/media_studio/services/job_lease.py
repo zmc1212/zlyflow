@@ -14,7 +14,7 @@ import threading
 import time
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 from ..db import execute_sql, now_str, query_all
 
@@ -31,12 +31,67 @@ _keeper_thread: threading.Thread | None = None
 _keeper_status: dict[str, tuple[str, ...]] = {}
 
 
+def _worker_host() -> str:
+    return (socket.gethostname() or "worker").split(".")[0]
+
+
 def worker_id() -> str:
     global _worker_id
     if not _worker_id:
-        host = (socket.gethostname() or "worker").split(".")[0]
-        _worker_id = f"{host}-{os.getpid()}-{uuid.uuid4().hex[:8]}"[:96]
+        _worker_id = f"{_worker_host()}-{os.getpid()}-{uuid.uuid4().hex[:8]}"[:96]
     return _worker_id
+
+
+def worker_owned_by_this_host(owner: str) -> bool:
+    """worker_id 形如 ``<host>-<pid>-<uuid8>``，用于识别同机旧进程留下的任务。"""
+    value = str(owner or "").strip()
+    return bool(value) and value.startswith(f"{_worker_host()}-")
+
+
+def worker_process_alive(owner: str) -> bool | None:
+    """判断认领实例的进程是否还活着；无法可靠判断时返回 None。"""
+    parts = str(owner or "").strip().rsplit("-", 2)
+    if len(parts) != 3:
+        return None
+    try:
+        pid = int(parts[1])
+    except ValueError:
+        return None
+    if pid <= 0:
+        return None
+    if os.name == "nt":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+            if not handle:
+                # ERROR_ACCESS_DENIED 说明进程存在但当前用户无权查询
+                return ctypes.get_last_error() == 5
+            try:
+                code = wintypes.DWORD()
+                if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                    return None
+                return code.value == 259  # STILL_ACTIVE
+            finally:
+                kernel32.CloseHandle(handle)
+        except Exception:
+            return None
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return None
+    return True
+
+
+def lease_stale_for(row: dict[str, Any], seconds: float = LEASE_STALE_AFTER_SECONDS) -> bool:
+    marker = _parse_time(row.get("lease_updated_at")) or _parse_time(row.get("updated_at"))
+    return marker is not None and marker < datetime.now() - timedelta(seconds=seconds)
 
 
 def _parse_time(value: Any) -> datetime | None:
@@ -112,8 +167,17 @@ def orphaned_jobs(job_type: str, active_statuses: Sequence[str]) -> list[dict[st
     ) or []
 
 
-def converge_orphaned_jobs(job_type: str, active_statuses: Sequence[str]) -> int:
-    """只收敛认领进程已经停止心跳的行，返回收敛条数。"""
+def converge_orphaned_jobs(
+    job_type: str,
+    active_statuses: Sequence[str],
+    *,
+    reclaim: Callable[[dict[str, Any]], bool] | None = None,
+) -> int:
+    """只收敛认领进程已经停止心跳的行，返回收敛条数。
+
+    ``reclaim`` 在判定失败前调用：返回 True 表示该行已被接管（如云端任务恢复轮询），
+    不再按中断收敛。
+    """
     now = datetime.now()
     converged = 0
     for row in orphaned_jobs(job_type, active_statuses):
@@ -139,6 +203,8 @@ def converge_orphaned_jobs(job_type: str, active_statuses: Sequence[str]) -> int
             marker = updated or lease
             deadline = now - timedelta(seconds=UNOWNED_GRACE_AFTER_SECONDS)
         if marker is None or marker >= deadline:
+            continue
+        if callable(reclaim) and reclaim(row):
             continue
         timestamp = now_str()
         try:

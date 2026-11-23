@@ -24,7 +24,7 @@ from .director_replication import (
     save_replication_depth,
 )
 from .director_stream import DirectorOperationEventBus, terminal_event_for_status
-from .llm_client import LlmError, LlmTemporaryError
+from .llm_client import LlmError, LlmTemporaryError, LlmUsageCollector
 from .llm_minimax_skills import STAGE_CLARIFY_AGENT_IDS
 from .storage import JobStore
 
@@ -69,12 +69,14 @@ class DirectorOperationService:
         worker: Any,
         resource_storage: Any | None,
         vlm_provider: Any | None = None,
+        credits: Any | None = None,
     ) -> None:
         self.store = store
         self.llm_provider = llm_provider
         self.vlm_provider = vlm_provider
         self.worker = worker
         self.resource_storage = resource_storage
+        self.credits = credits
         self.events = DirectorOperationEventBus()
         self._agent_snapshots: dict[str, dict[str, tuple[str, str]]] = {}
         self._tasks: set[asyncio.Task[None]] = set()
@@ -241,13 +243,22 @@ class DirectorOperationService:
         def stream_event(event: dict[str, Any]) -> None:
             self._emit(operation_id, event)
 
-        questions = await asyncio.to_thread(
-            self.llm_provider.run_director_clarify,
-            goal,
-            recipe=recipe,
-            agent=agent or None,
-            on_stream=stream_event,
-        )
+        questions = None
+        with LlmUsageCollector() as collector:
+            questions = await asyncio.to_thread(
+                self.llm_provider.run_director_clarify,
+                goal,
+                recipe=recipe,
+                agent=agent or None,
+                on_stream=stream_event,
+            )
+        if self.credits is not None:
+            self.credits.consume_call(
+                operation["owner_user_id"], "llm", "director_clarify",
+                ref_type="director_operation", ref_id=operation_id,
+                usage=collector.usage(),
+                model=self.store.get_llm_settings().get("model"),
+            )
         return {"questions": questions}
 
     async def _run_plan(self, operation: dict[str, Any]) -> dict[str, Any]:
@@ -312,18 +323,20 @@ class DirectorOperationService:
         def stream_event(event: dict[str, Any]) -> None:
             self._emit(operation_id, event)
 
-        updated = await asyncio.to_thread(
-            self.llm_provider.run_director_recipe,
-            recipe,
-            goal=goal,
-            art_style_id=art_style_id,
-            agents=agents,
-            skip_research=request.get("skip_research"),
-            on_progress=persist,
-            on_stream=stream_event,
-            clarifications=request.get("clarifications"),
-            resume=bool(request.get("resume")),
-        )
+        updated = None
+        with LlmUsageCollector() as collector:
+            updated = await asyncio.to_thread(
+                self.llm_provider.run_director_recipe,
+                recipe,
+                goal=goal,
+                art_style_id=art_style_id,
+                agents=agents,
+                skip_research=request.get("skip_research"),
+                on_progress=persist,
+                on_stream=stream_event,
+                clarifications=request.get("clarifications"),
+                resume=bool(request.get("resume")),
+            )
         # 级联重置只在目标环节确实成功后执行：失败或取消时保留下游产物，避免无谓破坏。
         reset_following = bool(request.get("reset_following")) and agents is not None and len(agents) == 1
         reset_applied = False
@@ -349,6 +362,14 @@ class DirectorOperationService:
             and item.get("id") in selected_agents
             and item.get("status") == "failed"
         ]
+        # 积分按次计费：写稿流水线按整个操作成功结算（内部多步 LLM 不重复计费）。
+        if self.credits is not None:
+            self.credits.consume_call(
+                operation["owner_user_id"], "llm", "director_plan",
+                ref_type="director_operation", ref_id=operation_id,
+                usage=collector.usage(),
+                model=self.store.get_llm_settings().get("model"),
+            )
         return {
             "project_revision": saved["revision"],
             "content_revision": saved["content_revision"],
@@ -413,6 +434,7 @@ class DirectorOperationService:
             ),
             on_progress=persist,
             on_message=persist_message,
+            billing=self.credits.billing_callback(operation["owner_user_id"]) if self.credits is not None else None,
         )
         saved = persist_recipe_execution(
             self.store, record["id"], recipe, scope="render", shot_ids=shot_ids,

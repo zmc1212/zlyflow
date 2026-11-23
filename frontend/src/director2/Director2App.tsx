@@ -9,23 +9,15 @@ import FeaturedWorkPage from "./FeaturedWorkPage"
 import FeaturedProcessPage from "./FeaturedProcessPage"
 import ScriptDiagnosisPage from "./script-diagnosis/ScriptDiagnosisPage"
 import DirectorAssistantProvider from "./assistant/DirectorAssistant"
+import { director2FlowTheme } from "./director2-theme"
 import { parseDirector2Path, director2HomePath } from "./paths"
 import "./director2.css"
 import "./director-surfaces.css"
 import { useStudioTheme } from "../ThemeProvider"
 
-const director2AntdTheme = {
-  token: {
-    borderRadius: 6,
-    controlHeight: 32,
-    fontSize: 14,
-    fontFamily: '"Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif',
-  },
-}
-
 export default function Director2App({ csrfToken, isAdmin = false, onExitDirector }: { csrfToken: string; isAdmin?: boolean; onExitDirector?: () => void }) {
   const { mode } = useStudioTheme()
-  const flowTheme = { ...director2AntdTheme, token: { ...director2AntdTheme.token, colorPrimary: mode === "dark" ? "#8bf0d6" : "#087f68" }, components: { Button: { primaryColor: mode === "dark" ? "#10251e" : "#ffffff" } } }
+  const flowTheme = director2FlowTheme(mode)
   const location = useLocation()
   const route = useMemo(() => parseDirector2Path(location.pathname), [location.pathname])
   const leftoverRecipe = useMemo(() => {

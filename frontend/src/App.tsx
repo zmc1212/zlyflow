@@ -14,6 +14,8 @@ import { apiErrorMessage, jsonMutation, notifyUnauthorized, requestJson, User } 
 import { PROMPT_INPUT_MAX_ROWS } from "./prompt-autosize"
 import { generateJobPath, isDirectorLegacyStudioPath, isGuestStudioPath, musicChatPath, parseGeneratePath, parseMusicPath, PATHS, studioWorkspaceFromPath, type GenerateMediaType } from "./paths"
 import { musicReadOnlyScope } from "./music/music-library"
+import { CreditDrawer } from "./credits/CreditDrawer"
+import { formatCredits, type CreditAccount, type CreditEstimate, type WorkflowBilling } from "./credits/credits"
 import { elapsedCaption, executionCaption, isLiveStatus, jobElapsedMs, useNow } from "./job-elapsed"
 import type { ImageResult } from "./media/ImageStudioModule"
 import { mediaActions, type MediaActionHost, type MediaActionItem } from "./media/media-actions"
@@ -30,6 +32,7 @@ import type { JianyingMediaItem } from "./media/jianying-draft-builder"
 import AddToCanvasModal, { type CanvasInsertAsset } from "./canvas/AddToCanvasModal"
 import { formatRefineDuration, refineForceWarning, refinePlan } from "./director2/director2-video-settings"
 import { createLocalId } from "./lib/utils"
+import { isSubmitEnter } from "./lib/enter-submit"
 import { restoreReferenceFiles, roundReferenceSources, type ReferenceSource } from "./reference-assets"
 import { fetchHandoffFile, type MediaHandoffSource, type MediaKind } from "./media-handoff"
 import { FACE_RESTORE_WORKFLOW } from "./generation/face-restore"
@@ -70,6 +73,7 @@ const ToolsWorkspace = lazy(() => import("./tools/ToolsWorkspace"))
 const InspirationWorkspace = lazy(() => import("./inspiration/InspirationWorkspace"))
 const MusicWorkspace = lazy(() => import("./music/MusicWorkspace"))
 const MusicChatRail = lazy(() => import("./music/MusicChatRail"))
+const PricingPage = lazy(() => import("./pricing/PricingPage"))
 
 type Status = "queued" | "running" | "awaiting_refine" | "succeeded" | "failed" | "interrupted" | "cancelled" | "partial"
 type Output = {
@@ -98,6 +102,7 @@ type GenerationItem = {
   outputs: Output[]; error?: string | null
   created_at?: string; updated_at?: string; finished_at?: string | null
   elapsed_ms?: number | null; execution_elapsed_ms?: number | null
+  credits_billed?: number | null; credits_settled?: boolean
 }
 type JobRound = {
   id: string; sequence: number; mode: string; media_type: "image" | "video"; status: Status; stage: string
@@ -126,6 +131,7 @@ type Workflow = {
   is_default?: boolean
   credit_cost?: number | null
   billing_notice?: string | null
+  billing?: WorkflowBilling | null
 }
 type OptionDefinition = {
   label: string; type: "string" | "number" | "integer" | "boolean"; default: string | number | boolean
@@ -913,6 +919,13 @@ export default function App({
   })
   const grsBalanceUnavailable = Boolean(grsBalanceQuery.error || (grsBalanceQuery.data?.refresh_error && grsBalanceQuery.data.credits === null))
   const grsBalanceStale = Boolean(grsBalanceQuery.data?.refresh_error)
+  const [creditDrawerOpen, setCreditDrawerOpen] = useState(false)
+  const creditAccountQuery = useQuery({
+    queryKey: ["credits-me"],
+    queryFn: () => api<CreditAccount>("/api/credits/me"),
+    enabled: Boolean(user) && workspaceView === "generate",
+    staleTime: 1000 * 15,
+  })
   const [selectedSkillId, setSelectedSkillId] = useState<string>("general")
   const [optimizeUndo, setOptimizeUndo] = useState<{ before: string; after: string } | null>(null)
   const [optimizedPrompt, setOptimizedPrompt] = useState<OptimizedPrompt | null>(null)
@@ -1190,6 +1203,27 @@ export default function App({
     return () => observer.disconnect()
   }, [assetSection, hasMoreAssetEntries, loadedAssetEntries.length])
   const optionDefinitions = useMemo(() => workflowOptionDefinitions(workflow), [workflow])
+  // 提交前积分预估：options 变化后防抖查询，精确数值以提交实扣为准。
+  const [debouncedEstimateKey, setDebouncedEstimateKey] = useState("")
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedEstimateKey(JSON.stringify(serializeOptionValues(optionDefinitions, optionValues))), 450)
+    return () => clearTimeout(timer)
+  }, [optionDefinitions, optionValues])
+  const creditEstimateQuery = useQuery({
+    queryKey: ["credits-estimate", workflowId, debouncedEstimateKey, references.length],
+    queryFn: () => requestJson<CreditEstimate>("/api/credits/estimate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode: workflowId,
+        options: JSON.parse(debouncedEstimateKey || "{}"),
+        reference_count: references.length,
+      }),
+    }),
+    enabled: Boolean(user) && Boolean(workflow?.billing?.enabled) && Boolean(debouncedEstimateKey),
+    staleTime: 1000 * 10,
+  })
+  const creditEstimateInsufficient = Boolean(creditEstimateQuery.data && !creditEstimateQuery.data.sufficient)
   const primaryOptionDefinitions = useMemo(
     () => {
       const embeddedOptionNames = new Set(
@@ -1391,10 +1425,11 @@ export default function App({
       navigate(generateJobPath(job.media_type, job.id))
       setIsSelectedPromptExpanded(false)
       queryClient.invalidateQueries({ queryKey: ["jobs", user?.id] })
+      void queryClient.invalidateQueries({ queryKey: ["credits-me"] })
       setHistoryOpen(false)
       if (workflow?.billing_notice) {
         messageApi.info({
-          content: "任务已提交。若本次生成成功，将计入超算互联网该模型当日额度；免费额度用完后按平台价格计费，请以超算互联网控制台为准。",
+          content: `任务已提交。${workflow.billing_notice}`,
           duration: 6,
         })
       }
@@ -2478,11 +2513,13 @@ export default function App({
         compact={false}
         user={user}
         onRequestLogin={() => onRequestLogin()}
-        provider={workspaceView === "music" ? "音乐服务" : headerUsesGrs ? "图片服务" : "视频服务"}
-        providerStatus={workspaceView === "music"
-          ? musicStatusQuery.isPending ? "checking" : !musicStatusQuery.isError && musicStatusQuery.data?.configured ? "online" : "offline"
-          : healthQuery.isPending ? "checking" : (headerUsesGrs ? healthQuery.data?.grs?.available : healthQuery.data?.comfy?.reachable) ? "online" : "offline"}
-        providerStatusLabel={workspaceView === "music" ? musicStatusQuery.isPending ? "检查中" : musicStatusQuery.isError ? "状态未知" : musicStatusQuery.data?.configured ? "已配置" : "未配置" : undefined}
+        provider={workspaceView === "music" ? "音乐服务" : workspaceView === "pricing" ? "价格说明" : headerUsesGrs ? "图片服务" : "视频服务"}
+        providerStatus={workspaceView === "pricing"
+          ? "online"
+          : workspaceView === "music"
+            ? musicStatusQuery.isPending ? "checking" : !musicStatusQuery.isError && musicStatusQuery.data?.configured ? "online" : "offline"
+            : healthQuery.isPending ? "checking" : (headerUsesGrs ? healthQuery.data?.grs?.available : healthQuery.data?.comfy?.reachable) ? "online" : "offline"}
+        providerStatusLabel={workspaceView === "pricing" ? "价格公开" : workspaceView === "music" ? musicStatusQuery.isPending ? "检查中" : musicStatusQuery.isError ? "状态未知" : musicStatusQuery.data?.configured ? "已配置" : "未配置" : undefined}
         providerMessage={workspaceView !== "music" && headerUsesGrs ? healthQuery.data?.grs?.message : undefined}
         onOpenMcp={() => navigate(PATHS.mcp)}
         onOpenAdmin={onOpenAdmin}
@@ -2499,6 +2536,7 @@ export default function App({
           <NavLink onClick={(event) => guardGuestNavigation(event, lastDirectorPathRef.current)} to={lastDirectorPathRef.current} className={() => workspaceView === "director" ? "is-active" : ""}><Clapperboard size={16} />导演台</NavLink>
           <NavLink onClick={(event) => guardGuestNavigation(event, PATHS.canvas)} to={PATHS.canvas} className={() => workspaceView === "canvas" ? "is-active" : ""}><Frame size={16} />画布</NavLink>
           <NavLink onClick={(event) => guardGuestNavigation(event, PATHS.tools)} to={PATHS.tools} className={() => workspaceView === "tools" ? "is-active" : ""}><LayoutGrid size={16} />工具</NavLink>
+          <NavLink to={PATHS.pricing} className={() => workspaceView === "pricing" ? "is-active" : ""}><Coins size={16} />价格</NavLink>
           <NavLink onClick={(event) => guardGuestNavigation(event, PATHS.assets)} to={PATHS.assets} end className={() => workspaceView === "assets" ? "is-active" : ""}><FolderOpen size={16} />资产</NavLink>
         </nav>
         <aside className="studio-icon-rail fixed bottom-0 left-0 top-14 z-20 hidden w-[76px] flex-col items-center border-r border-black/[0.05] bg-white pt-5 xl:flex">
@@ -2509,6 +2547,7 @@ export default function App({
             <NavLink onClick={(event) => guardGuestNavigation(event, lastDirectorPathRef.current)} to={lastDirectorPathRef.current} title="导演台" aria-label="导演台" className={() => `studio-global-nav-item ${workspaceView === "director" ? "studio-global-nav-item-active" : ""}`}><StudioNavigationSymbol name="director" className="studio-global-nav-symbol" /><span>导演台</span></NavLink>
           <NavLink onClick={(event) => guardGuestNavigation(event, PATHS.canvas)} to={PATHS.canvas} title="无限画布" aria-label="画布" className={() => `studio-global-nav-item ${workspaceView === "canvas" ? "studio-global-nav-item-active" : ""}`}><StudioNavigationSymbol name="canvas" className="studio-global-nav-symbol" /><span>画布</span></NavLink>
           <NavLink onClick={(event) => guardGuestNavigation(event, PATHS.tools)} to={PATHS.tools} title="AI 工具" aria-label="工具" className={() => `studio-global-nav-item ${workspaceView === "tools" ? "studio-global-nav-item-active" : ""}`}><StudioNavigationSymbol name="tools" className="studio-global-nav-symbol" /><span>工具</span></NavLink>
+          <NavLink to={PATHS.pricing} title="价格" aria-label="价格" className={() => `studio-global-nav-item ${workspaceView === "pricing" ? "studio-global-nav-item-active" : ""}`}><StudioNavigationSymbol name="pricing" className="studio-global-nav-symbol" /><span>价格</span></NavLink>
           <NavLink onClick={(event) => guardGuestNavigation(event, PATHS.assets)} to={PATHS.assets} end title="资产" aria-label="资产" className={() => `studio-global-nav-item ${workspaceView === "assets" ? "studio-global-nav-item-active" : ""}`}><StudioNavigationSymbol name="assets" className="studio-global-nav-symbol" /><span>资产</span></NavLink>
           </div>
           {workspaceView === "generate" && taskRailCollapsed ? <Tooltip title="展开任务栏" placement="right"><button type="button" title="展开任务栏" aria-label="展开任务栏" onClick={() => setTaskRailCollapsed(false)} className="studio-task-rail-reopen"><PanelLeftOpen size={17} /></button></Tooltip> : null}
@@ -2558,7 +2597,7 @@ export default function App({
           ? "director2-workspace-main relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-0"
           : workspaceView === "canvas"
           ? "canvas-workspace-main relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden p-0"
-          : `relative mx-auto min-h-[calc(100vh-56px)] w-full min-w-0 ${workspaceView === "tools" && location.pathname === PATHS.tools ? "max-w-[1680px]" : "max-w-[1180px]"} px-4 pb-10 pt-[112px] sm:px-8 lg:pt-12 ${workspaceView === "assets" ? "studio-asset-main" : ""} ${workspaceView === "inspiration" ? "studio-inspiration-main" : ""} ${workspaceView === "tools" ? "studio-tools-main" : ""} ${workspaceView === "music" ? `studio-music-main ${parseMusicPath(location.pathname).chatId && !musicReadOnly ? "studio-music-chat-open" : "studio-music-home"}` : ""} ${workspaceView === "generate" ? "studio-generate-main" : ""} ${workspaceView === "generate" && !selectedJob ? "studio-generate-empty" : ""} ${isGenerationHome ? "studio-generation-home" : ""}`
+          : `relative mx-auto min-h-[calc(100vh-56px)] w-full min-w-0 ${workspaceView === "tools" && location.pathname === PATHS.tools ? "max-w-[1680px]" : "max-w-[1180px]"} px-4 pb-10 pt-[112px] sm:px-8 lg:pt-12 ${workspaceView === "assets" ? "studio-asset-main" : ""} ${workspaceView === "pricing" ? "studio-pricing-main" : ""} ${workspaceView === "inspiration" ? "studio-inspiration-main" : ""} ${workspaceView === "tools" ? "studio-tools-main" : ""} ${workspaceView === "music" ? `studio-music-main ${parseMusicPath(location.pathname).chatId && !musicReadOnly ? "studio-music-chat-open" : "studio-music-home"}` : ""} ${workspaceView === "generate" ? "studio-generate-main" : ""} ${workspaceView === "generate" && !selectedJob ? "studio-generate-empty" : ""} ${isGenerationHome ? "studio-generation-home" : ""}`
         }>
           {directorLegacyStudio ? (
             <Suspense fallback={<div className="py-24 text-center text-sm text-[#6b7280]"><LoaderCircle className="mx-auto mb-3 animate-spin text-[#7047f6]" size={24} />正在加载 AI 导演台...</div>}>
@@ -2583,6 +2622,10 @@ export default function App({
           ) : workspaceView === "tools" ? (
             <Suspense fallback={<div className="py-24 text-center text-sm text-[#6b7280]"><LoaderCircle className="mx-auto mb-3 animate-spin text-[#7047f6]" size={24} />正在加载 AI 工具...</div>}>
               <ToolsWorkspace csrfToken={csrfToken} onSendToComposer={sendPromptToComposer} />
+            </Suspense>
+          ) : workspaceView === "pricing" ? (
+            <Suspense fallback={<div className="py-24 text-center text-sm text-[#6b7280]"><LoaderCircle className="mx-auto mb-3 animate-spin text-[#7047f6]" size={24} />正在加载价格页...</div>}>
+              <PricingPage />
             </Suspense>
           ) : workspaceView === "music" ? (
             <Suspense fallback={<div className="py-24 text-center text-sm text-[#6b7280]"><LoaderCircle className="mx-auto mb-3 animate-spin text-[#7047f6]" size={24} />正在加载音乐工作台...</div>}>
@@ -3002,6 +3045,17 @@ export default function App({
                   {mediaType === "image" && roundResults.length > 0 ? <span className="studio-image-round-delivery">
                     <Check size={13} />{roundResults.every((result) => !result.output.delivery_status || result.output.delivery_status === "cloud") ? "已存入云端" : `已生成 ${roundResults.length} 张图片`}
                   </span> : null}
+                  {(() => {
+                    const roundCredits = round.generation_items.reduce((sum, item) => sum + (item.credits_billed || 0), 0)
+                    if (!roundCredits) return null
+                    const refundedCount = round.generation_items.filter((item) => item.credits_settled && item.credits_billed).length
+                    return (
+                      <span className="studio-round-credits flex shrink-0 items-center gap-1 text-xs text-[#8a8a94]" title="本条任务实际扣减积分；失败项已自动退回">
+                        <Coins size={13} aria-hidden />
+                        {formatCredits(roundCredits)} 积分{refundedCount > 0 ? ` · 已退回 ${refundedCount} 项` : ""}
+                      </span>
+                    )
+                  })()}
                 </div>
               </article>
             })}
@@ -3028,6 +3082,10 @@ export default function App({
             <span className="studio-composer-beam" aria-hidden="true"><span className="studio-composer-beam-glow" /></span>
             {user && <div className="studio-composer-service-meta absolute -top-8 right-7 flex max-w-[calc(100%-56px)] items-center gap-1.5 text-sm text-[#babac3]">
               <span className="studio-ai-badge grid size-5 shrink-0 place-items-center rounded-full bg-[#7046df] text-[10px] font-semibold text-white">AI</span>
+              <button type="button" onClick={() => setCreditDrawerOpen(true)} aria-label="查看我的积分明细" className={`flex min-w-0 items-center gap-1 rounded-md border border-white/[0.1] bg-white/[0.045] px-2 py-0.5 text-xs transition-colors hover:border-white/[0.2] ${creditEstimateInsufficient ? "text-amber-200" : "text-[#d8d8df]"}`}>
+                {creditAccountQuery.isFetching ? <LoaderCircle className="shrink-0 animate-spin text-[#b6a4ff]" size={13} /> : <Coins className="shrink-0 text-[#b6a4ff]" size={13} />}
+                <span className="whitespace-nowrap">积分 {formatCredits(creditAccountQuery.data?.balance)}</span>
+              </button>
               {mediaType === "image" ? <>
                 <span className="whitespace-nowrap">图片服务云端生图</span>
                 <Tooltip title={grsBalanceUnavailable ? "余额暂不可用，请稍后重试。" : grsBalanceStale ? "上游余额刷新暂不可用，当前显示上一次查询结果。" : grsBalanceQuery.data?.queried_at ? `最近查询：${formatTime(grsBalanceQuery.data.queried_at)}` : "正在查询上游余额。"}>
@@ -3195,7 +3253,7 @@ export default function App({
                     appendFiles(files)
                   }}
                   onKeyDown={(event) => {
-                    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                    if (isSubmitEnter(event)) {
                       event.preventDefault()
                       if (canSubmit || !user) void submitTask()
                       else if (submitBlockReason) messageApi.warning({ content: submitBlockReason, key: "studio-submit-blocked" })
@@ -3264,7 +3322,24 @@ export default function App({
                 />)}
               </div>
               <div className="studio-composer-actions">
-                {mediaType === "image" && typeof workflow?.credit_cost === "number" ? (
+                {user && workflow?.billing?.enabled ? (
+                  <Tooltip title={
+                    creditEstimateQuery.data
+                      ? `${creditEstimateQuery.data.breakdown || "以提交时实扣为准"}${creditEstimateQuery.data.sufficient ? ` · 余额 ${formatCredits(creditEstimateQuery.data.balance)} 积分` : ` · 余额不足（当前 ${formatCredits(creditEstimateQuery.data.balance)} 积分），请联系管理员充值`}`
+                      : "按当前参数预估本次积分消耗"
+                  }>
+                    <span aria-label="本次预计消耗积分" className={`studio-submit-cost flex shrink-0 items-center gap-1 text-xs ${creditEstimateInsufficient ? "studio-submit-cost-warning" : ""}`}>
+                      <Coins size={13} aria-hidden />
+                      {creditEstimateQuery.isLoading
+                        ? "预估中…"
+                        : creditEstimateQuery.data && creditEstimateQuery.data.credits > 0
+                          ? `本次 ${formatCredits(creditEstimateQuery.data.credits)} 积分`
+                          : creditEstimateQuery.data && creditEstimateQuery.data.sufficient === false
+                            ? "积分不足"
+                            : "免费"}
+                    </span>
+                  </Tooltip>
+                ) : mediaType === "image" && typeof workflow?.credit_cost === "number" ? (
                   <Tooltip title={`图片服务平台标价：本模型每张消耗 ${workflow.credit_cost} 积分，实际扣费以上游结算为准。`}>
                     <span aria-label="本次生图消耗积分" className="studio-submit-cost flex shrink-0 items-center gap-1 text-xs">
                       <Coins size={13} aria-hidden />
@@ -3272,7 +3347,7 @@ export default function App({
                     </span>
                   </Tooltip>
                 ) : null}
-                <Tooltip title={!workflow?.available ? workflow?.unavailable_reason || "当前工作流暂不可用" : submitDisabled && submitBlockReason ? submitBlockReason : `${submitActionLabel} · Ctrl / ⌘ + Enter`}>
+                <Tooltip title={!workflow?.available ? workflow?.unavailable_reason || "当前工作流暂不可用" : submitDisabled && submitBlockReason ? submitBlockReason : `${submitActionLabel} · Enter，Shift + Enter 换行`}>
                   {/* 包一层 span：禁用态的 button 不触发鼠标事件，否则说明禁用原因的 tooltip 无法弹出。 */}
                   <span className="studio-generate-submit-wrap">
                     <Button htmlType="submit" type="primary" disabled={submitDisabled} aria-label={submitDisabled && submitBlockReason ? `${submitActionLabel}（${submitBlockReason}）` : submitActionLabel} aria-busy={createMutation.isPending || autoOptimizing} className="studio-generate-submit">{(createMutation.isPending || autoOptimizing) ? <LoaderCircle className="animate-spin" size={18} /> : <ArrowUp size={20} />}</Button>
@@ -3281,7 +3356,7 @@ export default function App({
               </div>
             </div>
             {refineHint ? (
-              <p className="mt-3 text-xs leading-5 text-[#b9b6c9]">
+              <p className="studio-composer-hint">
                 二采输出 {refineHint.resolutionLabel || `${refineHint.effectiveMegapixels.toFixed(1)} MP`}
                 （{refineHint.effectiveMegapixels.toFixed(1)} MP）
                 {refineHint.estimatedSeconds
@@ -3294,10 +3369,11 @@ export default function App({
                     : ""}
               </p>
             ) : null}
-            {optionError && <p className="mt-3 text-xs text-amber-200">{optionError}</p>}
-            {workflow?.billing_notice ? <p role="note" className="mt-3 flex items-start gap-2 rounded-lg border border-amber-300/20 bg-amber-300/[0.06] px-3 py-2 text-xs leading-5 text-amber-200"><Coins size={14} className="mt-0.5 shrink-0" aria-hidden />{workflow.billing_notice}</p> : null}
-            {!workflow?.available && workflow?.unavailable_reason ? <p className="mt-3 rounded-lg border border-amber-300/20 bg-amber-300/[0.06] px-3 py-2 text-xs leading-5 text-amber-200">{workflow.unavailable_reason}</p> : null}
-            {mediaType === "video" && workflow?.reference_mode === "collection" && references.length > 3 && <p className="mt-3 text-xs text-amber-200">较多参考图会显著增加显存和耗时，建议先使用 1K 预览。</p>}
+            {optionError && <p className="studio-composer-inline-warning">{optionError}</p>}
+            {user && creditEstimateInsufficient && creditEstimateQuery.data ? <p role="alert" className="studio-composer-alert"><Coins size={14} aria-hidden />积分不足：本次需要 {formatCredits(creditEstimateQuery.data.credits)} 积分，当前余额 {formatCredits(creditEstimateQuery.data.balance)} 积分，请联系管理员充值。</p> : null}
+            {workflow?.billing_notice ? <p role="note" className="studio-composer-note"><Coins size={14} aria-hidden />{workflow.billing_notice}</p> : null}
+            {!workflow?.available && workflow?.unavailable_reason ? <p className="studio-composer-alert">{workflow.unavailable_reason}</p> : null}
+            {mediaType === "video" && workflow?.reference_mode === "collection" && references.length > 3 && <p className="studio-composer-inline-warning">较多参考图会显著增加显存和耗时，建议先使用 1K 预览。</p>}
             {createMutation.isError && <p className="mt-3 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-200">{createMutation.error.message}</p>}
           </form>}
 
@@ -3386,6 +3462,7 @@ export default function App({
           </Modal>
 
         </main>
+        <CreditDrawer open={creditDrawerOpen} onClose={() => setCreditDrawerOpen(false)} />
         <aside className="fixed bottom-0 right-0 top-14 z-20 hidden w-14 flex-col items-center border-l border-white/[0.06] bg-[#111218] pt-4 xl:hidden"><button type="button" onClick={() => setHistoryOpen(true)} title="任务记录" className="grid size-10 place-items-center rounded-lg bg-white/[0.06] text-[#c5c5ca] hover:bg-white/10 hover:text-white"><ListChecks size={19} /></button><History className="mt-6 text-[#d7d7dc]" size={16} /><span className="mt-2 text-sm leading-5 text-white [writing-mode:vertical-rl]">任务记录</span><span className="mt-3 size-2 rounded-full bg-[#7047ff]" /></aside>
       </div>
       {previewMedia && <MediaPreviewModal

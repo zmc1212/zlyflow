@@ -1,0 +1,85 @@
+.canvas-editor-workspace .canvas-editor-controls .canvas-account-trigger.ant-btn {
+  height: 40px;
+  flex: none;
+  gap: 7px;
+  padding: 0 8px 0 10px;
+  border: 1px solid var(--canvas-ui-border);
+  border-radius: 12px;
+  background: var(--studio-surface);
+  color: var(--studio-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.canvas-editor-workspace .canvas-editor-controls .canvas-account-trigger.ant-btn:hover,
+.canvas-editor-workspace .canvas-editor-controls .canvas-account-trigger.ant-btn[aria-expanded="true"] {
+  border-color: var(--studio-border-strong);
+  background: var(--studio-surface-raised);
+  color: var(--studio-text);
+}
+
+.canvas-account-points {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding-inline-end: 7px;
+  border-inline-end: 1px solid var(--studio-border);
+  font-variant-numeric: tabular-nums;
+}
+
+.canvas-account-points svg { color: var(--studio-accent-text); }
+.canvas-editor-controls .canvas-account-trigger .canvas-account-chevron { width: 13px; height: 13px; color: var(--studio-text-muted); }
+
+.canvas-account-trigger .ant-avatar, .canvas-account-identity .ant-avatar {
+  flex: none;
+  background: var(--studio-primary-soft);
+  color: var(--studio-accent-text);
+  font-weight: 600;
+}
+
+.canvas-account-dropdown .canvas-account-popup.ant-dropdown-menu {
+  width: 264px;
+  padding: 6px;
+  border: 1px solid var(--studio-border);
+  border-radius: 14px;
+  background: var(--studio-surface);
+  color: var(--studio-text);
+  box-shadow: var(--studio-shadow);
+}
+
+.canvas-account-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px 12px;
+}
+
+.canvas-account-name { display: grid; min-width: 0; gap: 2px; }
+.canvas-account-name > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.canvas-account-name strong { font-size: 14px; font-weight: 600; }
+.canvas-account-name span { color: var(--studio-text-muted); font-size: 12px; }
+
+.canvas-account-popup .ant-dropdown-menu-item-group-title { padding: 0; color: var(--studio-text); }
+.canvas-account-popup .ant-dropdown-menu-item-group-list { margin: 0; padding: 0; }
+.canvas-account-popup .ant-dropdown-menu-item { min-height: 36px; padding-inline: 8px; }
+.canvas-account-popup .canvas-account-wallet {
+  margin-bottom: 5px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  background: var(--studio-surface-raised);
+}
+
+.canvas-account-popup .canvas-account-wallet.ant-dropdown-menu-item-active {
+  background: color-mix(in srgb, var(--studio-surface-raised), var(--studio-text) 6%);
+}
+
+.canvas-account-wallet-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.canvas-account-wallet-balance { display: grid; color: var(--studio-text-muted); font-size: 12px; }
+.canvas-account-wallet-balance strong { color: var(--studio-text); font-size: 18px; font-weight: 600; line-height: 24px; font-variant-numeric: tabular-nums; }
+.canvas-account-wallet-link { display: inline-flex; align-items: center; gap: 2px; color: var(--studio-accent-text); font-size: 12px; white-space: nowrap; }

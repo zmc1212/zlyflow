@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import math
 import shutil
 import threading
 import uuid
 from copy import deepcopy
 from collections.abc import Callable
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -23,7 +25,7 @@ from .grs_catalog import (
 from .cloud_video.base import cloud_video_provider_defaults
 from .config import settings
 from .db import Database, DbConnection, IntegrityError, Row, open_database
-from .models import JobMode, JobStatus
+from .models import MAX_CREDIT_AMOUNT, JobMode, JobStatus
 
 
 def now() -> str:
@@ -51,6 +53,16 @@ ACTIVE_STATUSES = {
     JobStatus.RUNNING.value,
 }
 
+RETRYABLE_GENERATION_STATUSES = {JobStatus.FAILED.value, JobStatus.INTERRUPTED.value, JobStatus.CANCELLED.value}
+
+
+@dataclass(frozen=True)
+class JobCreditQuote:
+    total: int
+    per_item: int
+    price_key: str | None
+    reason: str | None
+
 # GPT Image 2.5 系列（默认启用并作为默认生图模型，见 GRS_GPT_IMAGE_25_MIGRATION）。
 GPT_IMAGE_25_PROVIDER_MODELS = ("gpt-image-2.5", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst")
 GPT_IMAGE_25_DEFAULT_PROVIDER_MODEL = "gpt-image-2.5"
@@ -62,6 +74,41 @@ class DirectorProjectConflictError(RuntimeError):
     def __init__(self, current_project: dict[str, Any]) -> None:
         super().__init__("导演工程已在其他窗口更新")
         self.current_project = current_project
+
+
+class CreditInsufficientError(ValueError):
+    """积分余额不足；调用方负责映射为 HTTP 402 并提示管理员充值。"""
+
+    def __init__(self, balance: int, required: int) -> None:
+        super().__init__(f"积分不足：本次需要 {required} 积分，当前余额 {balance} 积分，请联系管理员充值")
+        self.balance = balance
+        self.required = required
+
+
+class EnterpriseMemberQuotaExceededError(CreditInsufficientError):
+    """企业成员额度不足；继承余额不足异常以复用既有 HTTP 402 处理路径。"""
+
+    def __init__(self, *, limit: int, used: int, required: int, period: str) -> None:
+        self.limit = int(limit)
+        self.used = int(used)
+        self.required = int(required)
+        self.period = period
+        # 余额语义映射为「剩余可用额度」，便于上层按余额不足展示。
+        self.balance = max(0, self.limit - self.used)
+        label = {"monthly": "本月", "total": "累计"}.get(period, "")
+        ValueError.__init__(
+            self,
+            f"{label}企业分配额度不足：上限 {self.limit} 积分，已用 {self.used} 积分，"
+            f"本次需要 {self.required} 积分，请联系企业管理员调整额度",
+        )
+
+
+class CreditWalletConflictError(ValueError):
+    """The wallet or an adjustment changed since the admin opened it."""
+
+
+class CreditPriceConflictError(ValueError):
+    """The published price has changed since the admin started editing."""
 
 
 def elapsed_ms_between(created_at: str | None, finished_at: str | None) -> int | None:
@@ -148,6 +195,12 @@ class JobStore:
                     "TINYINT(1) NOT NULL DEFAULT 0",
                 )
                 self._ensure_column(connection, "music_jobs", "chat_id", "VARCHAR(64) NULL")
+                self._ensure_column(connection, "generation_items", "credits_billed", "INTEGER NULL")
+                self._ensure_column(connection, "generation_items", "credits_settled", "INTEGER NOT NULL DEFAULT 0")
+                self._ensure_column(connection, "generation_items", "credits_wallet_enterprise_id", "VARCHAR(64) NULL")
+                self._ensure_column(connection, "credit_transactions", "meta_json", "LONGTEXT NULL")
+                self._ensure_column(connection, "enterprise_credit_transactions", "meta_json", "LONGTEXT NULL")
+                self._ensure_column(connection, "enterprises", "parent_id", "VARCHAR(64) NULL")
                 self._seed_runtime_defaults(connection, migrate_legacy=False)
                 return
             connection.execute(
@@ -593,12 +646,109 @@ class JobStore:
                     ON ai_showcase_items(status, category, sort_order);
                 CREATE INDEX IF NOT EXISTS idx_showcase_source_job
                     ON ai_showcase_items(source_job_id);
+
+                CREATE TABLE IF NOT EXISTS credit_accounts (
+                    user_id TEXT PRIMARY KEY,
+                    balance INTEGER NOT NULL DEFAULT 0,
+                    total_recharged INTEGER NOT NULL DEFAULT 0,
+                    total_consumed INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS credit_transactions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    delta INTEGER NOT NULL,
+                    type TEXT NOT NULL,
+                    reason TEXT,
+                    price_key TEXT,
+                    ref_type TEXT,
+                    ref_id TEXT,
+                    balance_after INTEGER NOT NULL,
+                    actor_user_id TEXT,
+                    meta_json TEXT,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_credit_tx_user_created ON credit_transactions(user_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_credit_tx_ref ON credit_transactions(ref_type, ref_id);
+
+                CREATE TABLE IF NOT EXISTS credit_price_rules (
+                    rule_key TEXT PRIMARY KEY,
+                    scope TEXT NOT NULL,
+                    pricing_kind TEXT NOT NULL,
+                    unit_credits INTEGER NOT NULL DEFAULT 0,
+                    unit_by_variant TEXT,
+                    extra_config TEXT,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    note TEXT,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS enterprises (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    code TEXT,
+                    parent_id TEXT,
+                    contact_name TEXT,
+                    contact_phone TEXT,
+                    notes TEXT,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_by TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(code)
+                );
+
+                CREATE TABLE IF NOT EXISTS enterprise_credit_accounts (
+                    enterprise_id TEXT PRIMARY KEY,
+                    balance INTEGER NOT NULL DEFAULT 0,
+                    total_recharged INTEGER NOT NULL DEFAULT 0,
+                    total_consumed INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS enterprise_credit_transactions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    enterprise_id TEXT NOT NULL,
+                    user_id TEXT,
+                    delta INTEGER NOT NULL,
+                    type TEXT NOT NULL,
+                    reason TEXT,
+                    price_key TEXT,
+                    ref_type TEXT,
+                    ref_id TEXT,
+                    balance_after INTEGER NOT NULL,
+                    actor_user_id TEXT,
+                    meta_json TEXT,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_ent_credit_tx_created ON enterprise_credit_transactions(enterprise_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_ent_credit_tx_user ON enterprise_credit_transactions(enterprise_id, user_id);
+
+                CREATE TABLE IF NOT EXISTS enterprise_model_policies (
+                    enterprise_id TEXT NOT NULL,
+                    model_kind TEXT NOT NULL,
+                    mode TEXT NOT NULL DEFAULT 'all',
+                    models_json TEXT,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (enterprise_id, model_kind)
+                );
+
+                CREATE TABLE IF NOT EXISTS enterprise_member_quotas (
+                    enterprise_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    period TEXT NOT NULL DEFAULT 'none',
+                    credit_limit INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (enterprise_id, user_id)
+                );
                 """
             )
             self._ensure_column(connection, "canvas_projects", "tags_json", "TEXT NOT NULL DEFAULT '[]'")
             self._ensure_column(connection, "canvas_projects", "is_favorite", "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(connection, "canvas_projects", "deleted_at", "TEXT")
             self._ensure_column(connection, "canvas_projects", "preview_json", "TEXT")
+            self._ensure_column(connection, "enterprises", "parent_id", "TEXT")
             self._ensure_column(connection, "canvas_projects", "linked_director_project_id", "TEXT")
             self._ensure_unique_index(
                 connection, "canvas_projects", "uk_canvas_projects_linked", "owner_user_id, linked_director_project_id",
@@ -607,6 +757,11 @@ class JobStore:
             self._ensure_column(connection, "director_projects", "content_revision", "INTEGER NOT NULL DEFAULT 1")
             self._ensure_column(connection, "generation_items", "cancel_requested", "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(connection, "generation_items", "refine_state_json", "TEXT")
+            self._ensure_column(connection, "generation_items", "credits_billed", "INTEGER")
+            self._ensure_column(connection, "generation_items", "credits_settled", "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(connection, "generation_items", "credits_wallet_enterprise_id", "TEXT")
+            self._ensure_column(connection, "credit_transactions", "meta_json", "TEXT")
+            self._ensure_column(connection, "enterprise_credit_transactions", "meta_json", "TEXT")
             self._ensure_column(connection, "job_rounds", "display_prompt", "TEXT")
             for table in ("jobs", "job_rounds", "generation_items"):
                 self._ensure_column(connection, table, "finished_at", "TEXT")
@@ -696,6 +851,295 @@ class JobStore:
             (self.DIRECTOR_OPERATIONS_MIGRATION, now()),
         )
         self._ensure_grs_image_models(connection)
+        self._seed_credit_price_rules(connection)
+
+    def _seed_credit_price_rules(self, connection: DbConnection) -> None:
+        """积分价格表种子：对标 2026 市场价初始化，管理端可随时覆盖（INSERT OR IGNORE 不覆盖已改动行）。"""
+        timestamp = now()
+
+        def native_config(native_prices: dict[str, float]) -> dict[str, Any]:
+            """上游原生价 + 换算系数；平台价 = ceil(原生价 × 100 × 系数)。"""
+            return {
+                "native_unit": "rmb_per_second",
+                "native_variant_prices": dict(native_prices),
+                "credits_per_native_unit": 100,
+                "provider_coefficient": 1.0,
+                "price_source": "native",
+            }
+
+        grs_native = native_config({"480p": 0.05, "768p": 0.07, "1080p": 0.15})
+        # GRS 官方模型列表只公布按秒价，未公布输入图片价：显式配成 0（免费），
+        # 管理端可在「换算」里改成实际单价后自动计入预扣。
+        grs_native["input_image_price"] = {"minimax-h3": 0.0}
+        grs_native["input_image_free_quota"] = 5
+        grs_note = (
+            "GRS 成本直换（上游 ¥0.05/0.07/0.15 每秒 × 100）；"
+            "输入图片暂按免费（官方未公布图片价，管理端可改）；"
+            "加差价直接改供应商系数或分档单价"
+        )
+        grs_agnes_native = native_config({"720p": 0.10, "1080p": 0.17, "2k": 0.23})
+        grs_agnes_native["input_image_price"] = {"agnes-video-2.5": 0.0}
+        grs_agnes_native["input_image_free_quota"] = 5
+        grs_agnes_note = (
+            "GRS Agnes 2.5 成本直换（上游 ¥0.10/0.17/0.23 每秒 = 2000/3400/4600 积分 ÷ 20000 积分每元）；"
+            "参考图前 5 张免费（官方未公布图片价，管理端可改）；加差价直接改供应商系数或分档单价"
+        )
+        grs_wan_native = native_config({"480p": 0.135, "720p": 0.27, "1080p": 0.54})
+        grs_wan_native["input_image_price"] = {"wan-3.0": 0.0}
+        grs_wan_native["input_image_free_quota"] = 5
+        grs_wan_note = (
+            "GRS Wan 3.0 成本直换（上游 ¥0.135/0.27/0.54 每秒 = 2700/5400/10800 积分 ÷ 20000 积分每元）；"
+            "参考图前 5 张免费（官方未公布图片价，管理端可改）；加差价直接改供应商系数或分档单价"
+        )
+        cloud_rules = [
+            ("cloud-kling-t2v", {"std": 40, "pro": 80}, None, None),
+            ("cloud-kling-i2v", {"std": 40, "pro": 80}, None, None),
+            ("cloud-seedance-t2v", {"480p": 20, "720p": 50, "1080p": 90}, None, None),
+            ("cloud-seedance-i2v", {"480p": 20, "720p": 50, "1080p": 90}, None, None),
+            ("cloud-hailuo-t2v", {"768P": 40, "1080P": 80}, None, None),
+            ("cloud-hailuo-i2v", {"768P": 40, "1080P": 80}, None, None),
+            ("cloud-scnet-h3-t2v", {"768P": 50, "2K": 100}, None, None),
+            ("cloud-scnet-h3-i2v", {"768P": 50, "2K": 100}, None, None),
+            ("cloud-scnet-seedance-t2v", {"480p": 20, "720p": 60, "1080p": 100}, None, None),
+            ("cloud-scnet-seedance-i2v", {"480p": 20, "720p": 60, "1080p": 100}, None, None),
+            ("cloud-scnet-happyhorse-t2v", {"720p": 40, "1080p": 80}, None, None),
+            (
+                "cloud-grs-h3-t2v",
+                {"480p": 5, "768p": 7, "1080p": 15},
+                grs_note,
+                grs_native,
+            ),
+            (
+                "cloud-grs-h3-r2v",
+                {"480p": 5, "768p": 7, "1080p": 15},
+                grs_note,
+                grs_native,
+            ),
+            (
+                "cloud-grs-h3-fl2v",
+                {"480p": 5, "768p": 7, "1080p": 15},
+                grs_note,
+                grs_native,
+            ),
+            *(
+                (
+                    f"cloud-grs-agnes-{kind}",
+                    {"720p": 10, "1080p": 17, "2k": 23},
+                    grs_agnes_note,
+                    grs_agnes_native,
+                )
+                for kind in ("t2v", "i2v", "fl2v", "r2v")
+            ),
+            *(
+                (
+                    f"cloud-grs-wan-{kind}",
+                    {"480p": 14, "720p": 27, "1080p": 54},
+                    grs_wan_note,
+                    grs_wan_native,
+                )
+                for kind in ("t2v", "i2v", "fl2v", "r2v")
+            ),
+        ]
+        # MiniMax 官方平台（platform.minimax.cn）：积分按「模型档位:分辨率」分档，官方成本直换。
+        minimax_variants = {
+            "MiniMax-H3-Lite:480P": 16,
+            "MiniMax-H3-Lite:768P": 26,
+            "MiniMax-H3-Highspeed:480P": 26,
+            "MiniMax-H3-Highspeed:768P": 40,
+            "MiniMax-H3:768P": 50,
+            "MiniMax-H3:2K": 80,
+            "MiniMax-H3-Max:480P": 33,
+            "MiniMax-H3-Max:768P": 50,
+        }
+        minimax_native = native_config({
+            "MiniMax-H3-Lite:480P": 0.16,
+            "MiniMax-H3-Lite:768P": 0.26,
+            "MiniMax-H3-Highspeed:480P": 0.26,
+            "MiniMax-H3-Highspeed:768P": 0.40,
+            "MiniMax-H3:768P": 0.50,
+            "MiniMax-H3:2K": 0.80,
+            "MiniMax-H3-Max:480P": 0.33,
+            "MiniMax-H3-Max:768P": 0.50,
+        })
+        minimax_native["input_image_price"] = {
+            "MiniMax-H3": 0.20,
+            "MiniMax-H3-Highspeed": 0.20,
+            "MiniMax-H3-Lite": 0.13,
+            # 官方截图未单列 H3-Max，按 H3 同价兜底，后续可单独调整。
+            "MiniMax-H3-Max": 0.20,
+        }
+        minimax_native["input_image_free_quota"] = 5
+        minimax_note = (
+            "MiniMax 官方成本直换（100 积分 = 1 元：Lite ¥0.16/¥0.26、Highspeed ¥0.26/¥0.40、"
+            "H3 ¥0.50/2K ¥0.80、H3-Max ¥0.33/¥0.50 每秒）；H3 旗舰档仅 768P/2K；"
+            "参考图每任务前 5 张免费，超出后 H3/Highspeed ¥0.20/张、Lite ¥0.13/张（已计入预扣，H3-Max 暂按 H3 同价）；"
+            "加差价直接改供应商系数或分档单价"
+        )
+        cloud_rules.extend(
+            (f"cloud-minimax-h3-{kind}", dict(minimax_variants), minimax_note, minimax_native)
+            for kind in ("t2v", "i2v", "fl2v", "r2v")
+        )
+        for workflow_id, variants, note, extra in cloud_rules:
+            connection.execute(
+                """INSERT OR IGNORE INTO credit_price_rules
+                (rule_key, scope, pricing_kind, unit_credits, unit_by_variant, extra_config, enabled, note, updated_at)
+                VALUES (?, 'cloud_video', 'per_second', 0, ?, ?, 1, ?, ?)""",
+                (
+                    f"cloud:{workflow_id}",
+                    json.dumps(variants, ensure_ascii=False),
+                    json.dumps(extra, ensure_ascii=False) if extra else None,
+                    note or "云端视频按秒计费（分档单价）",
+                    timestamp,
+                ),
+            )
+        # 旧库回填：已有条目没有 extra_config 时补原生价，但不动管理端已填写的平台单价。
+        self._backfill_native_price_config(
+            connection,
+            {
+                **{f"cloud:cloud-grs-h3-{kind}": grs_native for kind in ("t2v", "r2v", "fl2v")},
+                **{
+                    f"cloud:cloud-grs-agnes-{kind}": grs_agnes_native
+                    for kind in ("t2v", "i2v", "fl2v", "r2v")
+                },
+                **{
+                    f"cloud:cloud-grs-wan-{kind}": grs_wan_native
+                    for kind in ("t2v", "i2v", "fl2v", "r2v")
+                },
+                **{
+                    f"cloud:cloud-minimax-h3-{kind}": minimax_native
+                    for kind in ("t2v", "i2v", "fl2v", "r2v")
+                },
+            },
+        )
+        connection.execute(
+            """INSERT OR IGNORE INTO credit_price_rules
+            (rule_key, scope, pricing_kind, unit_credits, unit_by_variant, extra_config, enabled, note, updated_at)
+            VALUES ('grs_image:global', 'grs_image', 'per_item', 0, NULL,
+                    ?, 1, '每张 = 上游 credit_cost × 换算系数；model_overrides 可按模型覆盖绝对单价', ?)""",
+            (json.dumps({"grs_credits_to_platform": 2.0, "model_overrides": {}}, ensure_ascii=False), timestamp),
+        )
+        def call_reference(input_tokens: int, output_tokens: int, cached_tokens: int = 0) -> dict[str, Any]:
+            """LLM/VLM 成本参考的初始口径：DeepSeek-V4-Flash 公开价 + 典型长度。
+
+            单价来自上游公开价（输入 ¥1 / 缓存命中 ¥0.02 / 输出 ¥4 每百万 tokens），
+            tokens 是典型调用长度估算，管理端应按实际模型与真实用量校准。
+            """
+            return {
+                "billing_mode": "per_call",
+                "billing_margin": 1.0,
+                "min_credits": 1,
+                "cost_reference": {
+                    "input_per_mtok": 1.0,
+                    "cached_input_per_mtok": 0.02,
+                    "output_per_mtok": 4.0,
+                    "assumed_input_tokens": max(0, input_tokens),
+                    "assumed_cached_tokens": max(0, min(cached_tokens, input_tokens)),
+                    "assumed_output_tokens": max(0, output_tokens),
+                    "provider_coefficient": 1.0,
+                    "estimated": True,
+                    "model_prices": {},
+                    "off_peak": {
+                        "enabled": False,
+                        "discount": 0.5,
+                        "timezone": "Asia/Shanghai",
+                        "windows": [{"start": "00:30", "end": "08:30"}],
+                    },
+                    "reference_note": (
+                        "初始参考：按 DeepSeek-V4-Flash 公开价（输入 ¥1 / 缓存 ¥0.02 / 输出 ¥4 每百万 tokens）"
+                        "与典型调用长度估算；请按实际模型与用量校准"
+                    ),
+                },
+            }
+
+        llm_rules = [
+            ("llm:optimize_prompt", 1, "提示词优化（每次）", call_reference(1500, 600)),
+            ("llm:split_script", 3, "剧本拆解（每次）", call_reference(8000, 3000)),
+            ("llm:repair_continuity", 2, "连贯性修复（每次）", call_reference(6000, 2000)),
+            ("llm:director_plan", 30, "导演台写稿流水线（每次完整方案，含多 Agent 步骤）", call_reference(120000, 30000)),
+            ("llm:director_clarify", 1, "导演台创作确认（每次）", call_reference(2000, 400)),
+            ("llm:assistant_chat", 1, "导演助手对话（每轮）", call_reference(6000, 800)),
+            ("llm:music_chat", 1, "音乐对话（每轮）", call_reference(2000, 500)),
+        ]
+        for rule_key, unit, note, cost_config in llm_rules:
+            connection.execute(
+                """INSERT OR IGNORE INTO credit_price_rules
+                (rule_key, scope, pricing_kind, unit_credits, unit_by_variant, extra_config, enabled, note, updated_at)
+                VALUES (?, 'llm', 'per_call', ?, NULL, ?, 1, ?, ?)""",
+                (rule_key, unit, json.dumps(cost_config, ensure_ascii=False), note, timestamp),
+            )
+        vlm_rules = [
+            ("vlm:analyze_subject", 2, "主体分析（每次）", call_reference(2000, 300)),
+            ("vlm:reverse_prompt", 2, "反推提示词（每次）", call_reference(2000, 300)),
+        ]
+        for rule_key, unit, note, cost_config in vlm_rules:
+            connection.execute(
+                """INSERT OR IGNORE INTO credit_price_rules
+                (rule_key, scope, pricing_kind, unit_credits, unit_by_variant, extra_config, enabled, note, updated_at)
+                VALUES (?, 'vlm', 'per_call', ?, NULL, ?, 1, ?, ?)""",
+                (rule_key, unit, json.dumps(cost_config, ensure_ascii=False), note, timestamp),
+            )
+        # 旧库回填：只补 extra_config 为空的按次条目，绝不覆盖管理端已保存的成本参考。
+        self._backfill_call_cost_reference(
+            connection,
+            {
+                rule_key: cost_config
+                for rule_key, _unit, _note, cost_config in [*llm_rules, *vlm_rules]
+            },
+        )
+
+    @staticmethod
+    def _backfill_call_cost_reference(
+        connection: DbConnection, defaults: dict[str, dict[str, Any]],
+    ) -> None:
+        """旧库补 LLM/VLM 成本参考；仅处理 extra_config 为空的历史行。
+
+        管理端一旦保存过 extra_config（含清空成本参考），这里不再覆盖。
+        不改 updated_at，避免打断管理端未发布的改价草稿。
+        """
+        for rule_key, config in defaults.items():
+            row = connection.execute(
+                "SELECT extra_config, pricing_kind FROM credit_price_rules WHERE rule_key = ?",
+                (rule_key,),
+            ).fetchone()
+            if row is None or row["extra_config"] or row["pricing_kind"] != "per_call":
+                continue
+            connection.execute(
+                "UPDATE credit_price_rules SET extra_config = ? WHERE rule_key = ?",
+                (json.dumps(config, ensure_ascii=False), rule_key),
+            )
+
+    @staticmethod
+    def _backfill_native_price_config(
+        connection: DbConnection, defaults: dict[str, dict[str, Any]],
+    ) -> None:
+        """旧库补原生价配置：只处理 extra_config 为空的行，绝不覆盖管理端已保存的换算设置。
+
+        已有平台单价与「原生价 × 100 × 1.0」一致时标记 native（默认成本直换）；
+        不一致时标记 manual，保留运营当前单价，运营可在管理端手动切回原生价换算。
+        """
+        for rule_key, config in defaults.items():
+            row = connection.execute(
+                "SELECT extra_config, unit_by_variant FROM credit_price_rules WHERE rule_key = ?",
+                (rule_key,),
+            ).fetchone()
+            if row is None or row["extra_config"]:
+                continue
+            try:
+                stored = json.loads(row["unit_by_variant"]) if row["unit_by_variant"] else {}
+            except (TypeError, ValueError):
+                stored = {}
+            per_unit = float(config.get("credits_per_native_unit") or 0)
+            coefficient = float(config.get("provider_coefficient") or 1.0)
+            computed = {
+                variant: max(0, math.ceil(round(float(price) * per_unit * coefficient, 6)))
+                for variant, price in (config.get("native_variant_prices") or {}).items()
+            }
+            merged = dict(config)
+            merged["price_source"] = "native" if stored == computed else "manual"
+            connection.execute(
+                "UPDATE credit_price_rules SET extra_config = ?, updated_at = ? WHERE rule_key = ?",
+                (json.dumps(merged, ensure_ascii=False), now(), rule_key),
+            )
 
     def _ensure_job_list_indexes(self, connection: DbConnection) -> None:
         self._db.ensure_index(connection, "jobs", "idx_jobs_pinned_created", "pinned, created_at")
@@ -904,6 +1348,8 @@ class JobStore:
         title: str | None = None,
         source: dict[str, Any] | None = None,
         display_prompt: str | None = None,
+        credits_per_item: int | None = None,
+        credit_quote: JobCreditQuote | None = None,
     ) -> dict:
         mode_value = self._mode_value(mode)
         media_type = self._media_for_mode(mode_value)
@@ -931,6 +1377,8 @@ class JobStore:
             self._insert_round(
                 connection, round_id, job_id, 1, mode_value, media_type, prompt, negative_prompt,
                 image_size, references, options or {}, submitted_options, display_prompt,
+                credits_per_item=credits_per_item,
+                credit_quote=credit_quote, owner_user_id=owner_user_id,
             )
         self._bump_content_epoch()
         return self.get(job_id)
@@ -940,6 +1388,8 @@ class JobStore:
         mode: JobMode | str, media_type: str, prompt: str, negative_prompt: str,
         image_size: str | None, references: list[str], options: dict,
         submitted_options: dict | None, display_prompt: str | None = None,
+        credits_per_item: int | None = None,
+        credit_quote: JobCreditQuote | None = None, owner_user_id: str | None = None,
     ) -> None:
         timestamp = now()
         mode_value = self._mode_value(mode)
@@ -958,18 +1408,34 @@ class JobStore:
         )
         count = int(options.get("count", 1)) if media_type == "image" else 1
         executor = self._executor_for_mode(mode_value)
+        wallet_enterprise_id = None
+        if owner_user_id and credit_quote:
+            account = self._deduct_credits(
+                connection, owner_user_id, credit_quote.total, price_key=credit_quote.price_key,
+                reason=credit_quote.reason, ref_type="job", ref_id=job_id,
+            )
+            credits_per_item = credit_quote.per_item
+            wallet_enterprise_id = account.get("enterprise_id", "")
         for index in range(1, count + 1):
             connection.execute(
                 """INSERT INTO generation_items
-                (id, round_id, item_index, executor, status, stage, progress, outputs_json, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, 0, '[]', ?, ?)""",
-                (str(uuid.uuid4()), round_id, index, executor, JobStatus.QUEUED.value, "等待排队", timestamp, timestamp),
+                (id, round_id, item_index, executor, status, stage, progress, outputs_json,
+                 credits_billed, credits_wallet_enterprise_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, 0, '[]', ?, ?, ?, ?)""",
+                (
+                    str(uuid.uuid4()), round_id, index, executor, JobStatus.QUEUED.value, "等待排队",
+                    credits_per_item if credits_per_item is not None and credits_per_item > 0 else None,
+                    wallet_enterprise_id,
+                    timestamp, timestamp,
+                ),
             )
 
     def create_round(
         self, job_id: str, *, prompt: str, negative_prompt: str = "", image_size: str | None = None,
         references: list[str] | None = None, options: dict | None = None,
         submitted_options: dict | None = None, display_prompt: str | None = None,
+        credits_per_item: int | None = None,
+        credit_quote: JobCreditQuote | None = None,
     ) -> dict:
         job = self.get(job_id, include_references=True)
         if job.get("legacy_read_only"):
@@ -984,6 +1450,8 @@ class JobStore:
                 self._insert_round(
                     connection, round_id, job_id, sequence, mode, job["media_type"], prompt,
                     negative_prompt, image_size, refs, effective_options, submitted_options, display_prompt,
+                    credits_per_item=credits_per_item,
+                    credit_quote=credit_quote, owner_user_id=job.get("owner_user_id"),
                 )
             except IntegrityError as error:
                 # UNIQUE(job_id, sequence): a concurrent request created the
@@ -1021,9 +1489,17 @@ class JobStore:
         incoming_status = status.value if isinstance(status, JobStatus) else status
         updates: dict[str, Any] = {"updated_at": now()}
         with self.connection() as connection:
+            refund_terminal = incoming_status in {JobStatus.FAILED.value, JobStatus.CANCELLED.value}
+            if refund_terminal:
+                connection.execute("BEGIN IMMEDIATE")
+                connection.execute("SELECT id FROM generation_items WHERE id = ?", (generation_item_id,), for_update=True).fetchone()
             row = connection.execute(
-                """SELECT r.job_id, i.round_id, i.status, i.cancel_requested, i.finished_at
-                FROM generation_items i JOIN job_rounds r ON r.id = i.round_id WHERE i.id = ?""",
+                """SELECT r.job_id, i.round_id, i.status, i.cancel_requested, i.finished_at,
+                i.credits_billed, i.credits_settled, i.credits_wallet_enterprise_id, j.owner_user_id
+                FROM generation_items i
+                JOIN job_rounds r ON r.id = i.round_id
+                JOIN jobs j ON j.id = r.job_id
+                WHERE i.id = ?""",
                 (generation_item_id,),
             ).fetchone()
             if row is None:
@@ -1032,6 +1508,16 @@ class JobStore:
             allow_status = not cancelled or incoming_status in {
                 JobStatus.QUEUED.value, JobStatus.SUCCEEDED.value, JobStatus.CANCELLED.value,
             }
+            refund_credits = 0
+            if allow_status and refund_terminal:
+                # 积分退款钩子：预扣过的生成项到达失败/取消终态时全额退回（同事务，防并发重复退款）。
+                try:
+                    billed = int(row["credits_billed"] or 0)
+                except (TypeError, ValueError):
+                    billed = 0
+                if billed > 0 and not int(row["credits_settled"] or 0) and row["owner_user_id"]:
+                    refund_credits = billed
+                    updates["credits_settled"] = 1
             if allow_status:
                 if incoming_status is not None:
                     updates["status"] = incoming_status
@@ -1071,6 +1557,15 @@ class JobStore:
                 updates["refine_state_json"] = None
             assignment = ", ".join(f"{column} = ?" for column in updates)
             connection.execute(f"UPDATE generation_items SET {assignment} WHERE id = ?", (*updates.values(), generation_item_id))
+            if refund_credits:
+                wallet_enterprise_id = row["credits_wallet_enterprise_id"]
+                if wallet_enterprise_id is None:
+                    wallet_enterprise_id = self._legacy_job_credit_wallet(connection, row["owner_user_id"], row["job_id"])
+                self._route_credit_delta(
+                    connection, row["owner_user_id"], refund_credits, type="refund",
+                    reason="任务失败，积分退回", ref_type="generation_item", ref_id=generation_item_id,
+                    wallet_enterprise_id=wallet_enterprise_id,
+                )
             self._refresh_round(connection, row["round_id"])
             self._refresh_job(connection, row["job_id"])
         if outputs is not None:
@@ -1225,23 +1720,1198 @@ class JobStore:
         )
         return self.get(job_id)
 
-    def retry_failed_items(self, job_id: str, round_id: str | None = None) -> list[dict]:
+    def retry_failed_items(
+        self, job_id: str, round_id: str | None = None, *, credit_quote: JobCreditQuote | None = None,
+    ) -> list[dict]:
         job = self.get(job_id)
         if round_id is None:
-            target = job["rounds"][-1]
+            round_id = job["rounds"][-1]["id"]
+        if all(item["id"] != round_id for item in job["rounds"]):
+            raise KeyError(f"轮次不存在: {round_id}")
+        with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            items = connection.execute(
+                """SELECT id, status, credits_billed, credits_settled, credits_wallet_enterprise_id
+                FROM generation_items WHERE round_id = ? ORDER BY item_index""",
+                (round_id,), for_update=True,
+            ).fetchall()
+            retryable = [item for item in items if item["status"] in RETRYABLE_GENERATION_STATUSES]
+            if not retryable:
+                return []
+            needs_charge = {item["id"] for item in retryable if not item["credits_billed"] or item["credits_settled"]}
+            owner_user_id = job.get("owner_user_id")
+            per_item, wallet_enterprise_id = None, None
+            if credit_quote and owner_user_id and needs_charge:
+                per_item = credit_quote.per_item
+                account = self._deduct_credits(
+                    connection, owner_user_id, per_item * len(needs_charge),
+                    reason=f"重试 {len(needs_charge)} 项 × {per_item} 积分",
+                    price_key=credit_quote.price_key, ref_type="job", ref_id=job_id,
+                )
+                wallet_enterprise_id = account.get("enterprise_id", "")
+            timestamp = now()
+            for item in retryable:
+                rebill = item["id"] in needs_charge
+                connection.execute(
+                    """UPDATE generation_items SET status = ?, stage = ?, progress = 0, outputs_json = '[]', error = '',
+                    remote_status = '', cancel_requested = 0, comfy_prompt_id = NULL, comfy_client_id = NULL,
+                    comfy_phase = NULL, finished_at = NULL, execution_elapsed_ms = NULL, updated_at = ?,
+                    credits_billed = ?, credits_wallet_enterprise_id = ?, credits_settled = 0 WHERE id = ?""",
+                    (JobStatus.QUEUED.value, "等待重新提交", timestamp,
+                     per_item if rebill else item["credits_billed"],
+                     wallet_enterprise_id if rebill else item["credits_wallet_enterprise_id"], item["id"]),
+                )
+            self._refresh_round(connection, round_id)
+            self._refresh_job(connection, job_id)
+        self._bump_content_epoch()
+        return [self.get_generation(item["id"]) for item in retryable]
+
+    # ------------------------------------------------------------------
+    # 用户积分体系：账户 / 流水 / 价格表（锚定 100 积分 = 1 元，整数积分）
+    # ------------------------------------------------------------------
+
+    def _ensure_credit_account_row(self, connection: DbConnection, user_id: str) -> Row:
+        row = connection.execute("SELECT * FROM credit_accounts WHERE user_id = ?", (user_id,)).fetchone()
+        if row is None:
+            connection.execute(
+                """INSERT OR IGNORE INTO credit_accounts (user_id, balance, total_recharged, total_consumed, updated_at)
+                VALUES (?, 0, 0, 0, ?)""",
+                (user_id, now()),
+            )
+            row = connection.execute(
+                "SELECT * FROM credit_accounts WHERE user_id = ?", (user_id,), for_update=True,
+            ).fetchone()
+        if row is None:
+            raise ValueError("积分账户初始化失败")
+        return row
+
+    def get_or_create_credit_account(self, user_id: str) -> dict[str, Any]:
+        with self.connection() as connection:
+            return dict(self._ensure_credit_account_row(connection, user_id))
+
+    def _apply_credit_delta(
+        self, connection: DbConnection, user_id: str, delta: int, *, type: str,
+        reason: str | None = None, price_key: str | None = None, ref_type: str | None = None,
+        ref_id: str | None = None, actor_user_id: str | None = None,
+        meta: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """在给定连接（事务）内变更余额并落一条流水；调用方负责并发控制（deduct 走行锁）。"""
+        amount = abs(int(delta))
+        timestamp = now()
+        self._ensure_credit_account_row(connection, user_id)
+        if amount:
+            if type == "consume":
+                connection.execute(
+                    """UPDATE credit_accounts SET balance = balance - ?,
+                    total_consumed = total_consumed + ?, updated_at = ? WHERE user_id = ?""",
+                    (amount, amount, timestamp, user_id),
+                )
+            elif type == "refund":
+                # MySQL 无两参数 MAX 标量函数，用 CASE 保持双方言兼容。
+                connection.execute(
+                    """UPDATE credit_accounts SET balance = balance + ?,
+                    total_consumed = CASE WHEN total_consumed > ? THEN total_consumed - ? ELSE 0 END,
+                    updated_at = ? WHERE user_id = ?""",
+                    (amount, amount, amount, timestamp, user_id),
+                )
+            elif type == "admin_recharge":
+                connection.execute(
+                    """UPDATE credit_accounts SET balance = balance + ?,
+                    total_recharged = total_recharged + ?, updated_at = ? WHERE user_id = ?""",
+                    (amount, amount, timestamp, user_id),
+                )
+            else:  # admin_adjust 及未来扩展类型：仅变动余额，不动累计
+                connection.execute(
+                    "UPDATE credit_accounts SET balance = balance + ?, updated_at = ? WHERE user_id = ?",
+                    (int(delta), timestamp, user_id),
+                )
+        row = connection.execute(
+            "SELECT * FROM credit_accounts WHERE user_id = ?", (user_id,),
+        ).fetchone()
+        balance_after = int(row["balance"]) if row else 0
+        connection.execute(
+            """INSERT INTO credit_transactions
+            (user_id, delta, type, reason, price_key, ref_type, ref_id, balance_after, actor_user_id, meta_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                user_id, int(delta), type, reason, price_key, ref_type, ref_id,
+                balance_after, actor_user_id,
+                json.dumps(meta, ensure_ascii=False) if meta else None, timestamp,
+            ),
+        )
+        return dict(row) if row is not None else {"user_id": user_id, "balance": balance_after}
+
+    def _route_credit_delta(
+        self, connection: DbConnection, user_id: str, delta: int, *, type: str,
+        reason: str | None = None, price_key: str | None = None, ref_type: str | None = None,
+        ref_id: str | None = None, actor_user_id: str | None = None,
+        wallet_enterprise_id: str | None = None,
+        meta: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """退款可指定预扣钱包。空字符串表示个人钱包，None 按当前企业归属结算。"""
+        enterprise_id = wallet_enterprise_id
+        if enterprise_id is None:
+            enterprise_id = self.get_user_enterprise_id(user_id, connection=connection)
+        if enterprise_id:
+            if type == "consume":
+                self._assert_enterprise_member_quota(connection, enterprise_id, user_id, abs(int(delta)))
+            return self._apply_enterprise_credit_delta(
+                connection, enterprise_id, delta, type=type,
+                spender_user_id=user_id if type in {"consume", "refund"} else None,
+                reason=reason, price_key=price_key, ref_type=ref_type, ref_id=ref_id,
+                actor_user_id=actor_user_id, meta=meta,
+            )
+        return self._apply_credit_delta(
+            connection, user_id, delta, type=type, reason=reason, price_key=price_key,
+            ref_type=ref_type, ref_id=ref_id, actor_user_id=actor_user_id, meta=meta,
+        )
+
+    def get_user_enterprise_id(self, user_id: str | None, *, connection: DbConnection | None = None) -> str | None:
+        """用户当前绑定的企业 ID；无用户表（纯 JobStore 环境）或未绑定返回 None。
+
+        connection 传入时复用当前事务连接（嵌套事务内调用，避免二次开连接）。
+        """
+        if not user_id:
+            return None
+        if connection is not None:
+            return self._read_user_enterprise_id(connection, user_id)
+        with self.connection() as existing:
+            return self._read_user_enterprise_id(existing, user_id)
+
+    def _read_user_enterprise_id(self, connection: DbConnection, user_id: str, *, for_update: bool = False) -> str | None:
+        if not self._db.table_exists(connection, "users"):
+            return None
+        if "enterprise_id" not in self._db.column_names(connection, "users"):
+            return None
+        row = connection.execute(
+            "SELECT enterprise_id FROM users WHERE id = ?", (user_id,), for_update=for_update,
+        ).fetchone()
+        if row is None:
+            return None
+        return str(row["enterprise_id"]) if row["enterprise_id"] else None
+
+    def deduct_credits(
+        self, user_id: str, amount: int, *, price_key: str | None = None,
+        ref_type: str | None = None, ref_id: str | None = None, reason: str | None = None,
+    ) -> dict[str, Any]:
+        """在当前结算钱包预扣积分并写入流水。"""
+        with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            return self._deduct_credits(
+                connection, user_id, int(amount), reason=reason, price_key=price_key, ref_type=ref_type, ref_id=ref_id,
+            )
+
+    def _deduct_credits(
+        self, connection: DbConnection, user_id: str, amount: int, *, reason: str | None,
+        price_key: str | None, ref_type: str | None, ref_id: str | None,
+    ) -> dict[str, Any]:
+        enterprise_id = self.get_user_enterprise_id(user_id, connection=connection)
+        if enterprise_id:
+            row = connection.execute(
+                "SELECT balance FROM enterprise_credit_accounts WHERE enterprise_id = ?",
+                (enterprise_id,), for_update=True,
+            ).fetchone()
         else:
+            row = connection.execute(
+                "SELECT balance FROM credit_accounts WHERE user_id = ?", (user_id,), for_update=True,
+            ).fetchone()
+        balance = int(row["balance"]) if row else 0
+        if amount > 0 and balance < amount:
+            raise CreditInsufficientError(balance, amount)
+        return self._route_credit_delta(
+            connection, user_id, -amount, type="consume", reason=reason, price_key=price_key,
+            ref_type=ref_type, ref_id=ref_id, wallet_enterprise_id=enterprise_id or "",
+        )
+
+    @staticmethod
+    def _legacy_job_credit_wallet(connection: DbConnection, user_id: str, job_id: str) -> str | None:
+        """历史任务若只有一个记账钱包，使用原扣费流水识别。"""
+        wallets = connection.execute(
+            """SELECT '' AS wallet FROM credit_transactions
+                WHERE ref_type = 'job' AND ref_id = ? AND user_id = ? AND type = 'consume'
+            UNION SELECT enterprise_id AS wallet FROM enterprise_credit_transactions
+                WHERE ref_type = 'job' AND ref_id = ? AND user_id = ? AND type = 'consume'""",
+            (job_id, user_id, job_id, user_id),
+        ).fetchall()
+        return str(wallets[0]["wallet"]) if len(wallets) == 1 else None
+
+    def refund_credits(
+        self, user_id: str, amount: int, *, reason: str | None = None,
+        price_key: str | None = None, ref_type: str | None = None, ref_id: str | None = None,
+        wallet_enterprise_id: str | None = None, once: bool = False,
+    ) -> dict[str, Any]:
+        """为在工作台任务表以外保存的任务退款。"""
+        amount = int(amount)
+        if amount <= 0:
+            return self.billing_account_snapshot(user_id)
+        with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if wallet_enterprise_id is None and ref_type == "job" and ref_id:
+                wallet_enterprise_id = self._legacy_job_credit_wallet(connection, user_id, ref_id)
+            if wallet_enterprise_id is None:
+                wallet_enterprise_id = self.get_user_enterprise_id(user_id, connection=connection) or ""
+            if once and ref_id:
+                if wallet_enterprise_id:
+                    table, column, wallet_id = "enterprise_credit", "enterprise_id", wallet_enterprise_id
+                else:
+                    table, column, wallet_id = "credit", "user_id", user_id
+                account = connection.execute(
+                    f"SELECT * FROM {table}_accounts WHERE {column} = ?", (wallet_id,), for_update=True,
+                ).fetchone()
+                recorded = connection.execute(
+                    f"""SELECT id FROM {table}_transactions WHERE {column} = ? AND user_id = ?
+                    AND type = 'refund' AND ref_type = ? AND ref_id = ?""",
+                    (wallet_id, user_id, ref_type, ref_id), for_update=True,
+                ).fetchone()
+                if recorded and account:
+                    return dict(account)
+            return self._route_credit_delta(
+                connection, user_id, amount, type="refund", reason=reason, price_key=price_key,
+                ref_type=ref_type, ref_id=ref_id, wallet_enterprise_id=wallet_enterprise_id,
+            )
+
+    def billing_account_snapshot(self, user_id: str) -> dict[str, Any]:
+        """计费视角的账户快照：企业绑定用户返回企业钱包（带 scope/enterprise_id），否则个人钱包。"""
+        enterprise_id = self.get_user_enterprise_id(user_id)
+        if enterprise_id:
+            account = self.get_or_create_enterprise_credit_account(enterprise_id)
+            return {**account, "scope": "enterprise", "enterprise_id": enterprise_id}
+        account = self.get_or_create_credit_account(user_id)
+        return {**account, "scope": "user", "enterprise_id": None}
+
+    def canvas_project_credit_stats(self, owner_user_id: str, job_ids: list[str]) -> dict[str, Any]:
+        """画布「项目信息」积分消耗：按画布节点引用的任务聚合净消耗（预扣-退款）与任务数。
+
+        只统计有实际消耗的任务（全额退款的失败任务净额为 0，不计入）；个人与企业
+        钱包流水都纳入，跨钱包迁移的任务也能正确汇总。返回消耗按媒体类型分组的占比。
+        """
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for job_id in job_ids or []:
+            value = str(job_id or "").strip()
+            if value and value not in seen:
+                seen.add(value)
+                normalized.append(value)
+        if not normalized:
+            return {"total_credits": 0, "task_count": 0, "groups": []}
+        normalized = normalized[:500]
+        placeholders = ", ".join("?" for _ in normalized)
+        net_by_job: dict[str, int] = {}
+        with self.connection() as connection:
+            jobs = connection.execute(
+                f"""SELECT id, media_type FROM jobs
+                    WHERE owner_user_id = ? AND id IN ({placeholders})""",
+                (owner_user_id, *normalized),
+            ).fetchall()
+            if not jobs:
+                return {"total_credits": 0, "task_count": 0, "groups": []}
+            for table in ("credit_transactions", "enterprise_credit_transactions"):
+                rows = connection.execute(
+                    f"""SELECT ref_id,
+                            SUM(CASE WHEN type IN ('consume', 'refund') THEN -delta ELSE 0 END) AS net
+                        FROM {table}
+                        WHERE user_id = ? AND ref_type = 'job' AND ref_id IN ({placeholders})
+                        GROUP BY ref_id""",
+                    (owner_user_id, *normalized),
+                ).fetchall()
+                for row in rows:
+                    ref_id = str(row["ref_id"])
+                    net_by_job[ref_id] = net_by_job.get(ref_id, 0) + int(row["net"] or 0)
+        total_credits = 0
+        task_count = 0
+        per_type: dict[str, dict[str, int]] = {}
+        for job in jobs:
+            media_type = str(job["media_type"] or "video")
+            net = net_by_job.get(str(job["id"]), 0)
+            if net <= 0:
+                continue
+            total_credits += net
+            task_count += 1
+            bucket = per_type.setdefault(media_type, {"task_count": 0, "credits": 0})
+            bucket["task_count"] += 1
+            bucket["credits"] += net
+        labels = {"image": "图片生成", "video": "视频生成"}
+        groups = []
+        for media_type, bucket in sorted(per_type.items(), key=lambda item: -item[1]["credits"]):
+            groups.append({
+                "type": media_type,
+                "label": labels.get(media_type, "其他生成"),
+                "task_count": bucket["task_count"],
+                "credits": bucket["credits"],
+                "ratio": round(bucket["credits"] / total_credits, 4) if total_credits else 0.0,
+            })
+        return {"total_credits": total_credits, "task_count": task_count, "groups": groups}
+
+    def adjust_credit(
+        self, user_id: str, delta: int, *, type: str, reason: str | None = None,
+        price_key: str | None = None, ref_type: str | None = None, ref_id: str | None = None,
+        actor_user_id: str | None = None, meta: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """按次结算沿用用户的当前计费钱包，消费流水记录实际使用人。"""
+        with self.connection() as connection:
+            if self._db.dialect == "sqlite" and int(delta) < 0:
+                # 与任务预扣一致：SQLite 先取写锁，避免额度检查与扣减之间的并发窗口。
+                connection.execute("BEGIN IMMEDIATE")
+            return self._route_credit_delta(
+                connection, user_id, int(delta), type=type, reason=reason, price_key=price_key,
+                ref_type=ref_type, ref_id=ref_id, actor_user_id=actor_user_id, meta=meta,
+            )
+
+    def adjust_personal_credit(
+        self, user_id: str, delta: int, *, reason: str,
+        actor_user_id: str | None = None, request_id: str | None = None,
+    ) -> dict[str, Any]:
+        with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if self._read_user_enterprise_id(connection, user_id, for_update=True):
+                raise CreditWalletConflictError("该账号由企业钱包结算，请选择对应的企业钱包调整积分")
+            return self._record_admin_credit_change(
+                connection, user_id, delta, reason=reason,
+                actor_user_id=actor_user_id, request_id=request_id, enterprise=False,
+            )
+
+    def _record_admin_credit_change(
+        self, connection: DbConnection, wallet_id: str, delta: int, *,
+        reason: str, actor_user_id: str | None, request_id: str | None, enterprise: bool,
+        type: str | None = None,
+    ) -> dict[str, Any]:
+        if not delta:
+            raise ValueError("调整积分数不能为 0")
+        if enterprise:
+            self._ensure_enterprise_credit_account_row(connection, wallet_id)
+            table_prefix, wallet_column = "enterprise_credit", "enterprise_id"
+            apply_delta = self._apply_enterprise_credit_delta
+        else:
+            self._ensure_credit_account_row(connection, wallet_id)
+            table_prefix, wallet_column = "credit", "user_id"
+            apply_delta = self._apply_credit_delta
+        account = connection.execute(
+            f"SELECT * FROM {table_prefix}_accounts WHERE {wallet_column} = ?", (wallet_id,), for_update=True,
+        ).fetchone()
+        if request_id:
+            existing = connection.execute(
+                f"""SELECT delta, reason FROM {table_prefix}_transactions WHERE {wallet_column} = ?
+                AND ref_type = 'admin_credit_change' AND ref_id = ?""",
+                (wallet_id, request_id), for_update=True,
+            ).fetchone()
+            if existing:
+                if int(existing["delta"]) != delta or existing["reason"] != reason:
+                    raise CreditWalletConflictError("该操作标识已用于另一笔积分调整")
+                return {**dict(account), "replayed": True}
+        if delta < 0 and int(account["balance"]) + delta < 0:
+            raise ValueError("扣减积分不能超过当前余额")
+        if delta > 0 and max(int(account["balance"]), int(account["total_recharged"])) + delta > MAX_CREDIT_AMOUNT:
+            raise ValueError("调整后积分超出账户可记录范围")
+        return apply_delta(
+            connection, wallet_id, delta, type=type or ("admin_recharge" if delta > 0 else "admin_adjust"),
+            reason=reason, actor_user_id=actor_user_id,
+            ref_type="admin_credit_change" if request_id else None, ref_id=request_id,
+        )
+
+    # ---------------- 企业管理：主档 / 钱包 / 流水 / 成员用量 / 模型策略 ----------------
+
+    @staticmethod
+    def _normalize_enterprise_status(status: Any) -> str:
+        value = str(status or "active").strip().lower()
+        return value if value in {"active", "disabled"} else "active"
+
+    def list_enterprises(self, query: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
+        with self.connection() as connection:
+            has_users = self._db.table_exists(connection, "users")
+            member_count = (
+                "(SELECT COUNT(*) FROM users u WHERE u.enterprise_id = e.id)" if has_users else "0"
+            )
+            sql = f"""SELECT e.id, e.name, e.code, e.parent_id, e.contact_name, e.contact_phone, e.notes,
+                e.status, e.created_by, e.created_at, e.updated_at,
+                {member_count} AS member_count,
+                COALESCE(w.balance, 0) AS balance,
+                COALESCE(w.total_recharged, 0) AS total_recharged,
+                COALESCE(w.total_consumed, 0) AS total_consumed
+                FROM enterprises e
+                LEFT JOIN enterprise_credit_accounts w ON w.enterprise_id = e.id"""
+            params: list[Any] = []
+            if query:
+                sql += " WHERE e.name LIKE ? OR e.code LIKE ?"
+                params.extend([f"%{query}%", f"%{query}%"])
+            sql += " ORDER BY e.created_at DESC LIMIT ?"
+            params.append(max(1, min(int(limit), 500)))
+            rows = connection.execute(sql, tuple(params)).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_enterprise(self, enterprise_id: str) -> dict[str, Any]:
+        with self.connection() as connection:
+            has_users = self._db.table_exists(connection, "users")
+            member_count = (
+                "(SELECT COUNT(*) FROM users u WHERE u.enterprise_id = e.id)" if has_users else "0"
+            )
+            row = connection.execute(
+                f"""SELECT e.id, e.name, e.code, e.parent_id, e.contact_name, e.contact_phone, e.notes,
+                e.status, e.created_by, e.created_at, e.updated_at,
+                {member_count} AS member_count,
+                COALESCE(w.balance, 0) AS balance,
+                COALESCE(w.total_recharged, 0) AS total_recharged,
+                COALESCE(w.total_consumed, 0) AS total_consumed
+                FROM enterprises e
+                LEFT JOIN enterprise_credit_accounts w ON w.enterprise_id = e.id
+                WHERE e.id = ?""",
+                (enterprise_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(enterprise_id)
+        return dict(row)
+
+    def create_enterprise(
+        self, name: str, *, code: str | None = None, contact_name: str | None = None,
+        contact_phone: str | None = None, notes: str | None = None,
+        status: str = "active", created_by: str | None = None,
+        parent_id: str | None = None,
+    ) -> dict[str, Any]:
+        name = (name or "").strip()
+        if not name:
+            raise ValueError("企业名称不能为空")
+        code = (code or "").strip() or None
+        parent_id = (parent_id or "").strip() or None
+        contact_name = (contact_name or "").strip() or None
+        contact_phone = (contact_phone or "").strip() or None
+        notes = (notes or "").strip() or None
+        enterprise_id = f"ent-{uuid.uuid4().hex[:12]}"
+        timestamp = now()
+        try:
+            with self.connection() as connection:
+                if code:
+                    taken = connection.execute(
+                        "SELECT 1 FROM enterprises WHERE code = ?", (code,),
+                    ).fetchone()
+                    if taken:
+                        raise ValueError("该企业编码已被使用")
+                if parent_id:
+                    parent = connection.execute(
+                        "SELECT id FROM enterprises WHERE id = ?", (parent_id,),
+                    ).fetchone()
+                    if parent is None:
+                        raise ValueError("上级企业不存在")
+                connection.execute(
+                    """INSERT INTO enterprises
+                    (id, name, code, parent_id, contact_name, contact_phone, notes, status, created_by, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        enterprise_id, name, code, parent_id, contact_name, contact_phone, notes,
+                        self._normalize_enterprise_status(status), created_by, timestamp, timestamp,
+                    ),
+                )
+        except IntegrityError as error:
+            raise ValueError("该企业编码已被使用") from error
+        return self.get_enterprise(enterprise_id)
+
+    def update_enterprise(
+        self, enterprise_id: str, *, name: str | None = None, code: str | None = None,
+        update_code: bool = False, contact_name: str | None = None, update_contact_name: bool = False,
+        contact_phone: str | None = None, update_contact_phone: bool = False,
+        notes: str | None = None, update_notes: bool = False,
+        status: str | None = None,
+        parent_id: str | None = None, update_parent_id: bool = False,
+    ) -> dict[str, Any]:
+        updates: dict[str, Any] = {"updated_at": now()}
+        if name is not None:
+            name = name.strip()
+            if not name:
+                raise ValueError("企业名称不能为空")
+            updates["name"] = name
+        if update_code:
+            updates["code"] = (code or "").strip() or None
+        if update_contact_name:
+            updates["contact_name"] = (contact_name or "").strip() or None
+        if update_contact_phone:
+            updates["contact_phone"] = (contact_phone or "").strip() or None
+        if update_notes:
+            updates["notes"] = (notes or "").strip() or None
+        if status is not None:
+            updates["status"] = self._normalize_enterprise_status(status)
+        try:
+            with self.connection() as connection:
+                if update_parent_id:
+                    updates["parent_id"] = self._resolve_enterprise_parent(
+                        connection, enterprise_id, parent_id,
+                    )
+                if "code" in updates and updates["code"]:
+                    taken = connection.execute(
+                        "SELECT 1 FROM enterprises WHERE code = ? AND id != ?",
+                        (updates["code"], enterprise_id),
+                    ).fetchone()
+                    if taken:
+                        raise ValueError("该企业编码已被使用")
+                assignment = ", ".join(f"{column} = ?" for column in updates)
+                cursor = connection.execute(
+                    f"UPDATE enterprises SET {assignment} WHERE id = ?",
+                    (*updates.values(), enterprise_id),
+                )
+                if not cursor.rowcount:
+                    raise KeyError(enterprise_id)
+        except IntegrityError as error:
+            raise ValueError("该企业编码已被使用") from error
+        return self.get_enterprise(enterprise_id)
+
+    @staticmethod
+    def _resolve_enterprise_parent(
+        connection: DbConnection, enterprise_id: str, parent_id: str | None,
+    ) -> str | None:
+        """校验并归一化上级企业：不得指向自己、不得形成循环、上级必存在。"""
+        normalized = (parent_id or "").strip() or None
+        if not normalized:
+            return None
+        if normalized == enterprise_id:
+            raise ValueError("不能把企业设置为自己的上级")
+        seen: set[str] = {enterprise_id}
+        cursor: str | None = normalized
+        while cursor:
+            if cursor in seen:
+                raise ValueError("不能形成企业层级循环")
+            seen.add(cursor)
+            row = connection.execute(
+                "SELECT parent_id FROM enterprises WHERE id = ?", (cursor,),
+            ).fetchone()
+            if row is None:
+                raise ValueError("上级企业不存在")
+            cursor = str(row["parent_id"]) if row["parent_id"] else None
+        return normalized
+
+    def delete_enterprise(self, enterprise_id: str) -> None:
+        """删除企业主档：仅限无成员且无钱包流水（含余额）的企业，防止误删结算数据。"""
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT id FROM enterprises WHERE id = ?", (enterprise_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(enterprise_id)
+            if self._db.table_exists(connection, "users"):
+                members = connection.execute(
+                    "SELECT COUNT(*) AS total FROM users WHERE enterprise_id = ?", (enterprise_id,),
+                ).fetchone()
+                if members and int(members["total"]) > 0:
+                    raise ValueError("企业下仍有成员账号，请先移出全部成员再删除")
+            children = connection.execute(
+                "SELECT COUNT(*) AS total FROM enterprises WHERE parent_id = ?", (enterprise_id,),
+            ).fetchone()
+            if children and int(children["total"]) > 0:
+                raise ValueError("企业下仍有下级企业，请先调整或删除下级企业")
+            wallet = connection.execute(
+                "SELECT balance FROM enterprise_credit_accounts WHERE enterprise_id = ?", (enterprise_id,),
+            ).fetchone()
+            if wallet and int(wallet["balance"] or 0) != 0:
+                raise ValueError("企业钱包余额不为 0，仅允许停用（保留流水对账）")
+            transactions = connection.execute(
+                "SELECT COUNT(*) AS total FROM enterprise_credit_transactions WHERE enterprise_id = ?",
+                (enterprise_id,),
+            ).fetchone()
+            if transactions and int(transactions["total"]) > 0:
+                raise ValueError("企业存在积分流水，仅允许停用（保留流水对账）")
+            connection.execute(
+                "DELETE FROM enterprise_model_policies WHERE enterprise_id = ?", (enterprise_id,),
+            )
+            connection.execute(
+                "DELETE FROM enterprise_member_quotas WHERE enterprise_id = ?", (enterprise_id,),
+            )
+            connection.execute(
+                "DELETE FROM enterprise_credit_accounts WHERE enterprise_id = ?", (enterprise_id,),
+            )
+            connection.execute(
+                "DELETE FROM enterprises WHERE id = ?", (enterprise_id,),
+            )
+
+    # ---------------- 企业成员额度 ----------------
+
+    @staticmethod
+    def _normalize_quota_period(period: Any) -> str:
+        value = str(period or "none").strip().lower()
+        if value not in {"none", "monthly", "total"}:
+            raise ValueError(f"未知的额度周期：{value or '(空)'}")
+        return value
+
+    @staticmethod
+    def _quota_month_start_iso() -> str:
+        """北京时间自然月起点，转成与流水 created_at 相同的 UTC ISO 格式。"""
+        local_now = datetime.now(timezone(timedelta(hours=8)))
+        start = local_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        return start.astimezone(timezone.utc).isoformat()
+
+    @staticmethod
+    def _member_net_consumed(
+        connection: DbConnection, enterprise_id: str, user_id: str, *,
+        month_start: str | None = None,
+    ) -> int:
+        sql = """SELECT COALESCE(SUM(CASE WHEN type = 'consume' THEN -delta
+                    WHEN type = 'refund' THEN -delta ELSE 0 END), 0) AS net
+            FROM enterprise_credit_transactions
+            WHERE enterprise_id = ? AND user_id = ? AND type IN ('consume', 'refund')"""
+        params: list[Any] = [enterprise_id, user_id]
+        if month_start:
+            sql += " AND created_at >= ?"
+            params.append(month_start)
+        row = connection.execute(sql, tuple(params)).fetchone()
+        return max(0, int(row["net"])) if row else 0
+
+    def get_enterprise_member_quota(self, enterprise_id: str, user_id: str) -> dict[str, Any]:
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM enterprise_member_quotas WHERE enterprise_id = ? AND user_id = ?",
+                (enterprise_id, user_id),
+            ).fetchone()
+        if row is None:
+            return {
+                "enterprise_id": enterprise_id, "user_id": user_id,
+                "period": "none", "credit_limit": 0, "updated_at": None,
+            }
+        return dict(row)
+
+    def list_enterprise_member_quotas(self, enterprise_id: str) -> dict[str, dict[str, Any]]:
+        with self.connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM enterprise_member_quotas WHERE enterprise_id = ?", (enterprise_id,),
+            ).fetchall()
+        return {str(row["user_id"]): dict(row) for row in rows}
+
+    def set_enterprise_member_quota(
+        self, enterprise_id: str, user_id: str, *, period: str, credit_limit: int,
+    ) -> dict[str, Any]:
+        normalized = self._normalize_quota_period(period)
+        limit = int(credit_limit or 0)
+        if normalized == "none":
+            limit = 0
+        elif limit <= 0:
+            raise ValueError("额度上限必须大于 0")
+        if limit > MAX_CREDIT_AMOUNT:
+            raise ValueError("额度上限超出账户可记录范围")
+        timestamp = now()
+        with self.connection() as connection:
+            existing = connection.execute(
+                "SELECT 1 FROM enterprise_member_quotas WHERE enterprise_id = ? AND user_id = ?",
+                (enterprise_id, user_id),
+            ).fetchone()
+            if existing:
+                connection.execute(
+                    """UPDATE enterprise_member_quotas SET period = ?, credit_limit = ?, updated_at = ?
+                    WHERE enterprise_id = ? AND user_id = ?""",
+                    (normalized, limit, timestamp, enterprise_id, user_id),
+                )
+            else:
+                connection.execute(
+                    """INSERT INTO enterprise_member_quotas
+                    (enterprise_id, user_id, period, credit_limit, updated_at)
+                    VALUES (?, ?, ?, ?, ?)""",
+                    (enterprise_id, user_id, normalized, limit, timestamp),
+                )
+        return self.get_enterprise_member_quota(enterprise_id, user_id)
+
+    def delete_enterprise_member_quota(self, enterprise_id: str, user_id: str) -> None:
+        with self.connection() as connection:
+            connection.execute(
+                "DELETE FROM enterprise_member_quotas WHERE enterprise_id = ? AND user_id = ?",
+                (enterprise_id, user_id),
+            )
+
+    def enterprise_member_consumed_in_month(self, enterprise_id: str) -> dict[str, int]:
+        """按成员聚合北京时间当前自然月的净消耗（consume - refund）。"""
+        month_start = self._quota_month_start_iso()
+        with self.connection() as connection:
+            rows = connection.execute(
+                """SELECT user_id,
+                COALESCE(SUM(CASE WHEN type = 'consume' THEN -delta
+                    WHEN type = 'refund' THEN -delta ELSE 0 END), 0) AS net
+                FROM enterprise_credit_transactions
+                WHERE enterprise_id = ? AND user_id IS NOT NULL
+                  AND type IN ('consume', 'refund') AND created_at >= ?
+                GROUP BY user_id""",
+                (enterprise_id, month_start),
+            ).fetchall()
+        return {str(row["user_id"]): max(0, int(row["net"])) for row in rows}
+
+    def _assert_enterprise_member_quota(
+        self, connection: DbConnection, enterprise_id: str, user_id: str, amount: int, *,
+        lock: bool = True,
+    ) -> None:
+        amount = int(amount)
+        if amount <= 0:
+            return
+        row = connection.execute(
+            "SELECT period, credit_limit FROM enterprise_member_quotas WHERE enterprise_id = ? AND user_id = ?",
+            (enterprise_id, user_id),
+        ).fetchone()
+        if row is None:
+            return
+        period = self._normalize_quota_period(row["period"])
+        limit = int(row["credit_limit"] or 0)
+        if period not in {"monthly", "total"} or limit <= 0:
+            return
+        if lock:
+            # 与企业钱包余额共用行锁，串行化同一企业的并发放扣。
+            connection.execute(
+                "SELECT balance FROM enterprise_credit_accounts WHERE enterprise_id = ?",
+                (enterprise_id,), for_update=True,
+            )
+        used = self._member_net_consumed(
+            connection, enterprise_id, user_id,
+            month_start=self._quota_month_start_iso() if period == "monthly" else None,
+        )
+        if used + amount > limit:
+            raise EnterpriseMemberQuotaExceededError(
+                limit=limit, used=used, required=amount, period=period,
+            )
+
+    def check_member_quota(self, user_id: str, amount: int) -> None:
+        """LLM/VLM 调用前的额度预检；未绑定企业或未配置额度时直接放行。"""
+        enterprise_id = self.get_user_enterprise_id(user_id)
+        if not enterprise_id:
+            return
+        with self.connection() as connection:
+            self._assert_enterprise_member_quota(
+                connection, enterprise_id, user_id, amount, lock=False,
+            )
+
+    def list_enterprise_members(self, enterprise_id: str) -> list[dict[str, Any]]:
+        with self.connection() as connection:
+            if not self._db.table_exists(connection, "users"):
+                return []
+            columns = self._db.column_names(connection, "users")
+            if "enterprise_id" not in columns:
+                return []
+            rows = connection.execute(
+                """SELECT id, username, display_name, role, is_active, email, created_at, last_login_at
+                FROM users WHERE enterprise_id = ? ORDER BY created_at ASC""",
+                (enterprise_id,),
+            ).fetchall()
+        members = []
+        for row in rows:
+            member = dict(row)
+            member["is_active"] = bool(member.get("is_active"))
+            members.append(member)
+        return members
+
+    def _ensure_enterprise_credit_account_row(
+        self, connection: DbConnection, enterprise_id: str,
+    ) -> Row | dict[str, Any]:
+        row = connection.execute(
+            "SELECT * FROM enterprise_credit_accounts WHERE enterprise_id = ?", (enterprise_id,),
+        ).fetchone()
+        if row is None:
+            connection.execute(
+                """INSERT OR IGNORE INTO enterprise_credit_accounts
+                (enterprise_id, balance, total_recharged, total_consumed, updated_at)
+                VALUES (?, 0, 0, 0, ?)""",
+                (enterprise_id, now()),
+            )
+            row = connection.execute(
+                "SELECT * FROM enterprise_credit_accounts WHERE enterprise_id = ?", (enterprise_id,),
+                for_update=True,
+            ).fetchone()
+        return row
+
+    def get_or_create_enterprise_credit_account(self, enterprise_id: str) -> dict[str, Any]:
+        with self.connection() as connection:
+            row = self._ensure_enterprise_credit_account_row(connection, enterprise_id)
+        return dict(row)
+
+    def _apply_enterprise_credit_delta(
+        self, connection: DbConnection, enterprise_id: str, delta: int, *, type: str,
+        spender_user_id: str | None = None, reason: str | None = None,
+        price_key: str | None = None, ref_type: str | None = None, ref_id: str | None = None,
+        actor_user_id: str | None = None, meta: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """在给定连接（事务）内变更企业钱包余额并落一条流水；语义与 _apply_credit_delta 一致。
+
+        spender_user_id 记录消费/退款的实际使用人（成员用量统计依据）；
+        充值/管理调整为 NULL（或操作人，由调用方传 actor_user_id）。
+        """
+        amount = abs(int(delta))
+        timestamp = now()
+        self._ensure_enterprise_credit_account_row(connection, enterprise_id)
+        if amount:
+            if type == "consume":
+                connection.execute(
+                    """UPDATE enterprise_credit_accounts SET balance = balance - ?,
+                    total_consumed = total_consumed + ?, updated_at = ? WHERE enterprise_id = ?""",
+                    (amount, amount, timestamp, enterprise_id),
+                )
+            elif type == "refund":
+                connection.execute(
+                    """UPDATE enterprise_credit_accounts SET balance = balance + ?,
+                    total_consumed = CASE WHEN total_consumed > ? THEN total_consumed - ? ELSE 0 END,
+                    updated_at = ? WHERE enterprise_id = ?""",
+                    (amount, amount, amount, timestamp, enterprise_id),
+                )
+            elif type == "admin_recharge":
+                connection.execute(
+                    """UPDATE enterprise_credit_accounts SET balance = balance + ?,
+                    total_recharged = total_recharged + ?, updated_at = ? WHERE enterprise_id = ?""",
+                    (amount, amount, timestamp, enterprise_id),
+                )
+            else:  # admin_adjust 及未来扩展类型：仅变动余额，不动累计
+                connection.execute(
+                    "UPDATE enterprise_credit_accounts SET balance = balance + ?, updated_at = ? WHERE enterprise_id = ?",
+                    (int(delta), timestamp, enterprise_id),
+                )
+        row = connection.execute(
+            "SELECT * FROM enterprise_credit_accounts WHERE enterprise_id = ?", (enterprise_id,),
+        ).fetchone()
+        balance_after = int(row["balance"]) if row else 0
+        connection.execute(
+            """INSERT INTO enterprise_credit_transactions
+            (enterprise_id, user_id, delta, type, reason, price_key, ref_type, ref_id,
+             balance_after, actor_user_id, meta_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                enterprise_id, spender_user_id, int(delta), type, reason, price_key,
+                ref_type, ref_id, balance_after, actor_user_id,
+                json.dumps(meta, ensure_ascii=False) if meta else None, timestamp,
+            ),
+        )
+        return dict(row) if row is not None else {"enterprise_id": enterprise_id, "balance": balance_after}
+
+    def adjust_enterprise_credit(
+        self, enterprise_id: str, delta: int, *,
+        reason: str, actor_user_id: str | None = None, request_id: str | None = None, type: str | None = None,
+    ) -> dict[str, Any]:
+        """企业钱包充值/调整入口（正负均可），type 为 admin_recharge / admin_adjust。"""
+        with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            return self._record_admin_credit_change(
+                connection, enterprise_id, delta, reason=reason,
+                actor_user_id=actor_user_id, request_id=request_id, enterprise=True, type=type,
+            )
+
+    def list_enterprise_credit_transactions(
+        self, enterprise_id: str, *, user_id: str | None = None, type: str | None = None,
+        limit: int = 100, offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        with self.connection() as connection:
+            has_users = self._db.table_exists(connection, "users")
+            sql = "SELECT t.*, " + ("u.username, u.display_name" if has_users else "NULL AS username, NULL AS display_name")
+            if has_users:
+                sql += " FROM enterprise_credit_transactions t LEFT JOIN users u ON u.id = t.user_id"
+            else:
+                sql += " FROM enterprise_credit_transactions t"
+            conditions = ["t.enterprise_id = ?"]
+            params: list[Any] = [enterprise_id]
+            if user_id:
+                conditions.append("t.user_id = ?")
+                params.append(user_id)
+            if type:
+                conditions.append("t.type = ?")
+                params.append(type)
+            sql += " WHERE " + " AND ".join(conditions)
+            sql += " ORDER BY t.created_at DESC, t.id DESC LIMIT ? OFFSET ?"
+            params.extend([max(1, min(int(limit), 200)), max(0, int(offset))])
+            rows = connection.execute(sql, tuple(params)).fetchall()
+        return self._decode_credit_transaction_rows(rows)
+
+    @staticmethod
+    def _decode_credit_transaction_rows(rows: list[Row]) -> list[dict[str, Any]]:
+        """流水附带的用量/成本明细存 JSON；读接口统一展开为 meta 对象。"""
+        decoded: list[dict[str, Any]] = []
+        for row in rows:
+            data = dict(row)
+            raw = data.pop("meta_json", None)
+            if raw:
+                try:
+                    data["meta"] = json.loads(raw)
+                except (TypeError, ValueError):
+                    data["meta"] = None
+            else:
+                data["meta"] = None
+            decoded.append(data)
+        return decoded
+        """企业下每个成员的积分用量统计：总消耗（含退款回冲口径见 refunded / net_consumed）。"""
+        with self.connection() as connection:
+            has_users = self._db.table_exists(connection, "users")
+            if not has_users:
+                return []
+            rows = connection.execute(
+                """SELECT t.user_id, u.username, u.display_name, u.role, u.is_active,
+                COALESCE(SUM(CASE WHEN t.type = 'consume' THEN -t.delta ELSE 0 END), 0) AS gross_consumed,
+                COALESCE(SUM(CASE WHEN t.type = 'refund' THEN t.delta ELSE 0 END), 0) AS refunded,
+                COUNT(t.id) AS tx_count,
+                MAX(t.created_at) AS last_active_at
+                FROM enterprise_credit_transactions t
+                LEFT JOIN users u ON u.id = t.user_id
+                WHERE t.enterprise_id = ? AND t.user_id IS NOT NULL
+                GROUP BY t.user_id, u.username, u.display_name, u.role, u.is_active""",
+                (enterprise_id,),
+            ).fetchall()
+        usage = []
+        for row in rows:
+            item = dict(row)
+            item["is_active"] = bool(item.get("is_active"))
+            item["net_consumed"] = int(item["gross_consumed"]) - int(item["refunded"])
+            usage.append(item)
+        usage.sort(key=lambda entry: (-int(entry["net_consumed"]), str(entry["user_id"])))
+        return usage
+
+    def enterprise_usage_by_price_key(self, enterprise_id: str) -> list[dict[str, Any]]:
+        """按计价条目（模型/能力）聚合企业净消耗，供企业用量看板使用。"""
+        with self.connection() as connection:
+            rows = connection.execute(
+                """SELECT t.price_key,
+                COALESCE(SUM(CASE WHEN t.type = 'consume' THEN -t.delta WHEN t.type = 'refund' THEN -t.delta ELSE 0 END), 0) AS net_consumed,
+                COUNT(t.id) AS tx_count
+                FROM enterprise_credit_transactions t
+                WHERE t.enterprise_id = ? AND t.price_key IS NOT NULL AND t.type IN ('consume', 'refund')
+                GROUP BY t.price_key""",
+                (enterprise_id,),
+            ).fetchall()
+        usage = [dict(row) for row in rows]
+        usage.sort(key=lambda entry: (-int(entry["net_consumed"]), str(entry["price_key"])))
+        return usage
+
+    def get_enterprise_model_policies(self, enterprise_id: str) -> dict[str, dict[str, Any]]:
+        """企业模型访问策略：{model_kind: {"mode": all|whitelist|none, "models": [...]}}；未配置类型不在结果中。"""
+        with self.connection() as connection:
+            rows = connection.execute(
+                "SELECT model_kind, mode, models_json FROM enterprise_model_policies WHERE enterprise_id = ?",
+                (enterprise_id,),
+            ).fetchall()
+        policies: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            raw = row["models_json"]
             try:
-                target = next(item for item in job["rounds"] if item["id"] == round_id)
-            except StopIteration as error:
-                raise KeyError(f"轮次不存在: {round_id}") from error
-        retried: list[dict] = []
-        for item in target["generation_items"]:
-            if item["status"] in {JobStatus.FAILED.value, JobStatus.INTERRUPTED.value, JobStatus.CANCELLED.value}:
-                retried.append(self.update_generation(
-                    item["id"], status=JobStatus.QUEUED, stage="等待重新提交", progress=0,
-                    outputs=[], error="", remote_status="", cancel_requested=False, clear_execution=True,
-                ))
-        return retried
+                models = json.loads(raw) if raw else []
+            except (TypeError, ValueError):
+                models = []
+            if not isinstance(models, list):
+                models = []
+            policies[str(row["model_kind"])] = {
+                "mode": str(row["mode"] or "all"),
+                "models": [str(item) for item in models],
+            }
+        return policies
+
+    def set_enterprise_model_policies(
+        self, enterprise_id: str, policies: list[dict[str, Any]],
+    ) -> dict[str, dict[str, Any]]:
+        """整表覆盖式保存企业模型策略；model_kind/mode 校验失败抛 ValueError。"""
+        from .enterprise_service import MODEL_KINDS, POLICY_MODES
+
+        normalized: dict[str, dict[str, Any]] = {}
+        for item in policies:
+            kind = str((item or {}).get("model_kind") or "").strip()
+            mode = str((item or {}).get("mode") or "").strip()
+            if kind not in MODEL_KINDS:
+                raise ValueError(f"未知的模型类型：{kind or '(空)'}")
+            if mode not in POLICY_MODES:
+                raise ValueError(f"未知的开放模式：{mode or '(空)'}")
+            models = (item or {}).get("models") or []
+            if not isinstance(models, list):
+                raise ValueError("模型清单必须为数组")
+            normalized[kind] = {
+                "mode": mode,
+                "models": sorted({str(key).strip() for key in models if str(key).strip()}),
+            }
+        timestamp = now()
+        with self.connection() as connection:
+            connection.execute(
+                "DELETE FROM enterprise_model_policies WHERE enterprise_id = ?", (enterprise_id,),
+            )
+            for kind, payload in normalized.items():
+                connection.execute(
+                    """INSERT INTO enterprise_model_policies
+                    (enterprise_id, model_kind, mode, models_json, updated_at)
+                    VALUES (?, ?, ?, ?, ?)""",
+                    (
+                        enterprise_id, kind, payload["mode"],
+                        json.dumps(payload["models"], ensure_ascii=False), timestamp,
+                    ),
+                )
+        return self.get_enterprise_model_policies(enterprise_id)
+
+    def list_credit_accounts(self, query: str | None = None, limit: int = 500, offset: int = 0) -> list[dict[str, Any]]:
+        with self.connection() as connection:
+            has_users = self._db.table_exists(connection, "users")
+            params: list[Any] = []
+            if has_users:
+                sql = """SELECT u.id AS user_id, u.username, u.display_name, u.role, u.is_active,
+                    CASE WHEN e.id IS NULL THEN COALESCE(a.balance, 0) ELSE COALESCE(w.balance, 0) END AS balance,
+                    CASE WHEN e.id IS NULL THEN COALESCE(a.total_recharged, 0) ELSE COALESCE(w.total_recharged, 0) END AS total_recharged,
+                    CASE WHEN e.id IS NULL THEN COALESCE(a.total_consumed, 0) ELSE COALESCE(w.total_consumed, 0) END AS total_consumed,
+                    COALESCE(CASE WHEN e.id IS NULL THEN a.updated_at ELSE w.updated_at END, u.created_at) AS updated_at,
+                    e.id AS enterprise_id, e.name AS enterprise_name, e.status AS enterprise_status, e.code AS enterprise_code
+                FROM users u
+                LEFT JOIN credit_accounts a ON a.user_id = u.id
+                LEFT JOIN enterprises e ON e.id = u.enterprise_id
+                LEFT JOIN enterprise_credit_accounts w ON w.enterprise_id = e.id"""
+                if query and (query := query.strip()):
+                    sql += " WHERE (u.username LIKE ? OR u.display_name LIKE ? OR e.name LIKE ? OR u.id = ?)"
+                    params.extend([f"%{query}%"] * 3 + [query])
+                sql += " ORDER BY u.username ASC, u.id ASC"
+            else:
+                sql = "SELECT * FROM credit_accounts ORDER BY user_id ASC"
+            sql += " LIMIT ? OFFSET ?"
+            params.extend([max(1, min(int(limit), 1000)), max(0, int(offset))])
+            rows = connection.execute(sql, tuple(params)).fetchall()
+        accounts = [dict(row) for row in rows]
+        for account in accounts:
+            enterprise_id = account.pop("enterprise_id", None)
+            enterprise = {
+                "id": enterprise_id, "name": account.pop("enterprise_name", None),
+                "status": account.pop("enterprise_status", None), "code": account.pop("enterprise_code", None),
+            }
+            account.update(scope="enterprise" if enterprise_id else "user", enterprise=enterprise if enterprise_id else None)
+        return accounts
+
+    def list_credit_usage_transactions(
+        self, *, start_at: str, end_at: str, scope: str = "all",
+    ) -> list[dict[str, Any]]:
+        """消费与退款流水（含个人/企业钱包），供管理端用量毛利报表聚合。"""
+        if scope not in {"user", "enterprise", "all"}:
+            raise ValueError(f"未知的钱包范围：{scope}")
+        with self.connection() as connection:
+            has_users = self._db.table_exists(connection, "users")
+            user_fields = "u.username, u.display_name" if has_users else "NULL AS username, NULL AS display_name"
+            joins = " LEFT JOIN users u ON u.id = t.user_id" if has_users else ""
+            sources: list[str] = []
+            params: list[Any] = []
+            if scope in {"user", "all"}:
+                sources.append(
+                    "SELECT t.id, t.user_id, t.delta, t.type, t.price_key, t.ref_type, t.ref_id, "
+                    "t.meta_json, t.created_at, 'user' AS scope, NULL AS enterprise_id, "
+                    f"NULL AS enterprise_name, {user_fields} FROM credit_transactions t{joins} "
+                    "WHERE t.type IN ('consume', 'refund') AND t.created_at >= ? AND t.created_at < ?"
+                )
+                params.extend([start_at, end_at])
+            if scope in {"enterprise", "all"}:
+                sources.append(
+                    "SELECT t.id, t.user_id, t.delta, t.type, t.price_key, t.ref_type, t.ref_id, "
+                    "t.meta_json, t.created_at, 'enterprise' AS scope, t.enterprise_id, "
+                    f"e.name AS enterprise_name, {user_fields} FROM enterprise_credit_transactions t{joins} "
+                    "LEFT JOIN enterprises e ON e.id = t.enterprise_id "
+                    "WHERE t.type IN ('consume', 'refund') AND t.created_at >= ? AND t.created_at < ?"
+                )
+                params.extend([start_at, end_at])
+            sql = " UNION ALL ".join(sources) + " ORDER BY 9 ASC, 1 ASC"
+            rows = connection.execute(sql, tuple(params)).fetchall()
+        return self._decode_credit_transaction_rows(rows)
+
+    def list_credit_transactions(
+        self, *, user_id: str | None = None, type: str | None = None,
+        ref_type: str | None = None, ref_id: str | None = None,
+        limit: int = 50, offset: int = 0, scope: str = "user", query: str | None = None,
+        include_actor: bool = False,
+    ) -> list[dict[str, Any]]:
+        with self.connection() as connection:
+            has_users = self._db.table_exists(connection, "users")
+            conditions: list[str] = []
+            params: list[Any] = []
+            for column, value in (("user_id", user_id), ("type", type), ("ref_type", ref_type), ("ref_id", ref_id)):
+                if value:
+                    conditions.append(f"t.{column} = ?")
+                    params.append(value)
+            fields = """t.id AS id, t.user_id, t.delta, t.type, t.reason, t.price_key, t.ref_type, t.ref_id,
+                t.balance_after, t.actor_user_id, t.meta_json, t.created_at AS created_at"""
+            user_names = "u.username, u.display_name" if has_users else "NULL AS username, NULL AS display_name"
+            actor_name = "actor.username AS actor_username" if has_users and include_actor else "NULL AS actor_username"
+            joins = " LEFT JOIN users u ON u.id = t.user_id" if has_users else ""
+            if has_users and include_actor:
+                joins += " LEFT JOIN users actor ON actor.id = t.actor_user_id"
+            sources: list[str] = []
+            all_params: list[Any] = []
+            for ledger in ("user", "enterprise"):
+                if scope not in {ledger, "all"}:
+                    continue
+                enterprise = ledger == "enterprise"
+                table = "enterprise_credit_transactions" if enterprise else "credit_transactions"
+                wallet = "t.enterprise_id, e.name AS enterprise_name" if enterprise else "NULL AS enterprise_id, NULL AS enterprise_name"
+                sql = f"SELECT {fields}, {user_names}, {actor_name}, '{ledger}' AS scope, {wallet} FROM {table} t{joins}"
+                if enterprise:
+                    sql += " LEFT JOIN enterprises e ON e.id = t.enterprise_id"
+                filters = list(conditions)
+                all_params.extend(params)
+                if query and (keyword := query.strip()):
+                    search_fields = ["t.ref_id", "t.price_key"]
+                    if has_users:
+                        search_fields += ["u.username", "u.display_name"]
+                    if enterprise:
+                        search_fields.append("e.name")
+                    filters.append("(" + " OR ".join(f"{column} LIKE ?" for column in search_fields) + " OR t.user_id = ?)")
+                    all_params.extend([f"%{keyword}%"] * len(search_fields) + [keyword])
+                if filters:
+                    sql += " WHERE " + " AND ".join(filters)
+                sources.append(sql)
+            sql = " UNION ALL ".join(sources) + " ORDER BY created_at DESC, id DESC, scope ASC LIMIT ? OFFSET ?"
+            all_params.extend([max(1, min(int(limit), 200)), max(0, int(offset))])
+            rows = connection.execute(sql, tuple(all_params)).fetchall()
+        return self._decode_credit_transaction_rows(rows)
+
+    @staticmethod
+    def _decode_credit_price_rule(row: Row) -> dict[str, Any]:
+        data = dict(row)
+
+        def _loads(raw: Any) -> Any:
+            if not raw:
+                return None
+            try:
+                return json.loads(raw)
+            except (TypeError, ValueError):
+                return None
+
+        data["unit_by_variant"] = _loads(data.get("unit_by_variant"))
+        data["extra_config"] = _loads(data.get("extra_config"))
+        data["enabled"] = bool(data.get("enabled"))
+        return data
+
+    def list_credit_price_rules(self) -> list[dict[str, Any]]:
+        with self.connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM credit_price_rules ORDER BY scope ASC, rule_key ASC",
+            ).fetchall()
+        return [self._decode_credit_price_rule(row) for row in rows]
+
+    def get_credit_price_rule(self, rule_key: str) -> dict[str, Any] | None:
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM credit_price_rules WHERE rule_key = ?", (rule_key,),
+            ).fetchone()
+        return self._decode_credit_price_rule(row) if row else None
+
+    def update_credit_price_rules(self, rules: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """管理端覆盖价格：只接受白名单字段；rule_key 不存在的行报错。"""
+        allowed = {"unit_credits", "unit_by_variant", "extra_config", "enabled", "note"}
+        keys = sorted({rule["rule_key"] for rule in rules})
+        if len(keys) != len(rules):
+            raise ValueError("同一计价条目只能更新一次")
+        if not keys:
+            return self.list_credit_price_rules()
+        with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            placeholders = ", ".join("?" for _ in keys)
+            existing = {
+                row["rule_key"]: row["updated_at"] for row in connection.execute(
+                    f"SELECT rule_key, updated_at FROM credit_price_rules WHERE rule_key IN ({placeholders}) ORDER BY rule_key",
+                    tuple(keys), for_update=True,
+                ).fetchall()
+            }
+            unknown = [rule.get("rule_key") for rule in rules if rule.get("rule_key") not in existing]
+            if unknown:
+                raise ValueError(f"计价条目不存在: {unknown[0]}")
+            timestamp = now()
+            for rule in rules:
+                expected = rule.get("expected_updated_at")
+                if expected is not None and expected != existing[rule["rule_key"]]:
+                    raise CreditPriceConflictError(f"{rule['rule_key']} 的价格已被更新，请载入最新价格后重新修改")
+                updates: dict[str, Any] = {"updated_at": timestamp}
+                for field in allowed:
+                    if field not in rule or rule[field] is None:
+                        continue  # None = 局部更新时不改动该字段
+                    value = rule[field]
+                    if field in {"unit_by_variant", "extra_config"} and value is not None:
+                        value = json.dumps(value, ensure_ascii=False)
+                    elif field == "enabled":
+                        value = 1 if value else 0
+                    elif field == "unit_credits":
+                        value = max(0, int(value))
+                    updates[field] = value
+                assignment = ", ".join(f"{column} = ?" for column in updates)
+                connection.execute(
+                    f"UPDATE credit_price_rules SET {assignment} WHERE rule_key = ?",
+                    (*updates.values(), rule["rule_key"]),
+                )
+        return self.list_credit_price_rules()
 
     def claim_generation(self, generation_item_id: str, *, stage: str, progress: int) -> bool:
         """Atomically move one queued generation item to running.

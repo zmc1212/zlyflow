@@ -30,6 +30,8 @@ from backend.app.models import JobStatus
 from backend.app.storage import JobStore
 from backend.app.workflow_registry import (
     CLOUD_VIDEO_WORKFLOW_IDS,
+    apply_billing_option_hints,
+    billing_option_hints,
     clamp_cloud_video_options,
     cloud_model_for,
     cloud_provider_for,
@@ -91,8 +93,8 @@ class _FakeSession:
 
 
 class RegistryCloudVideoTests(unittest.TestCase):
-    def test_eleven_workflows_registered(self) -> None:
-        self.assertEqual(len(CLOUD_VIDEO_WORKFLOW_IDS), 11)
+    def test_cloud_workflows_registered(self) -> None:
+        self.assertEqual(len(CLOUD_VIDEO_WORKFLOW_IDS), 26)
         for workflow_id in CLOUD_VIDEO_WORKFLOW_IDS:
             definition = workflow_for(workflow_id)
             self.assertEqual(definition.executor, "cloud_video")
@@ -120,6 +122,14 @@ class RegistryCloudVideoTests(unittest.TestCase):
             self.assertIn("每天含 1 次免费生成额度", notice)
             self.assertIn("超算互联网控制台为准", notice)
         self.assertIsNone(workflow_for("cloud-kling-t2v").payload()["billing_notice"])
+
+    def test_billing_notice_stays_user_facing(self) -> None:
+        """计费提示渲染在创作页提交区，面向普通创作者：不得泄露管理端配置入口。"""
+        for workflow_id in CLOUD_VIDEO_WORKFLOW_IDS:
+            notice = workflow_for(workflow_id).payload()["billing_notice"] or ""
+            self.assertNotIn("管理端", notice, workflow_id)
+            self.assertNotIn("价格表", notice, workflow_id)
+            self.assertNotIn("积分设置", notice, workflow_id)
 
     def test_normalize_options_and_unknown_rejection(self) -> None:
         normalized = normalize_options(
@@ -177,6 +187,283 @@ class RegistryCloudVideoTests(unittest.TestCase):
         happyhorse = families["cloud_video:scnet-happyhorse"]
         self.assertIn("t2v", happyhorse["routes"])
         self.assertNotIn("i2v", happyhorse["routes"])
+        # GRS MiniMax-H3：T2V / R2V / FL2V 三路由齐备
+        grs_family = families["cloud_video:grs-h3"]
+        self.assertEqual(
+            grs_family["routes"],
+            {"t2v": "cloud-grs-h3-t2v", "i2v": "cloud-grs-h3-fl2v", "r2v": "cloud-grs-h3-r2v"},
+        )
+        # GRS Agnes 2.5：四模式齐备，i2v 定义在后赢得族内图生路由
+        agnes_family = families["cloud_video:grs-agnes"]
+        self.assertEqual(
+            agnes_family["routes"],
+            {"t2v": "cloud-grs-agnes-t2v", "i2v": "cloud-grs-agnes-i2v", "r2v": "cloud-grs-agnes-r2v"},
+        )
+        self.assertIn("Agnes", agnes_family["label"])
+        # GRS Wan 3.0：四模式齐备，i2v 同样定义在后
+        wan_family = families["cloud_video:grs-wan"]
+        self.assertEqual(
+            wan_family["routes"],
+            {"t2v": "cloud-grs-wan-t2v", "i2v": "cloud-grs-wan-i2v", "r2v": "cloud-grs-wan-r2v"},
+        )
+        self.assertIn("Wan", wan_family["label"])
+
+    def test_grs_h3_workflows_registered(self) -> None:
+        """GRS MiniMax-H3 三模式：槽位、计费提示与分辨率档位标注。"""
+        t2v = workflow_for("cloud-grs-h3-t2v")
+        self.assertEqual(t2v.cloud_provider, "grs")
+        self.assertEqual(t2v.cloud_model, "minimax-h3")
+        self.assertEqual(t2v.reference_mode, "none")
+        self.assertEqual((t2v.min_references, t2v.max_references), (0, 0))
+        r2v = workflow_for("cloud-grs-h3-r2v")
+        self.assertEqual(r2v.reference_mode, "collection")
+        self.assertEqual((r2v.min_references, r2v.max_references), (1, 9))
+        fl2v = workflow_for("cloud-grs-h3-fl2v")
+        self.assertEqual(fl2v.reference_mode, "keyframes")
+        self.assertEqual((fl2v.min_references, fl2v.max_references), (2, 2))
+        for workflow_id in ("cloud-grs-h3-t2v", "cloud-grs-h3-r2v", "cloud-grs-h3-fl2v"):
+            payload = workflow_for(workflow_id).payload()
+            self.assertIn("GRS 按秒计费", payload["billing_notice"])
+            self.assertIn("任务失败自动全额退回积分", payload["billing_notice"])
+            properties = workflow_for(workflow_id).option_schema["properties"]
+            self.assertEqual(properties["resolution"]["ui_group"], "primary")
+            self.assertEqual(properties["aspect_ratio"]["ui_group"], "primary")
+            self.assertEqual(properties["prompt_skill"]["ui_group"], "advanced")
+            # 单价由 /api/modes 的 billing 动态标注，注册表不再写死金额。
+            self.assertNotIn("ui_options", properties["resolution"])
+            hints = billing_option_hints(
+                workflow_for(workflow_id), {"480p": 5, "768p": 7, "1080p": 15},
+            )
+            self.assertEqual(hints["resolution"]["768p"], "7 积分/秒")
+
+    def test_grs_agnes_workflows_registered(self) -> None:
+        """GRS Agnes Video 2.5 四模式：槽位、参数层级与 4-12 秒约束。"""
+        t2v = workflow_for("cloud-grs-agnes-t2v")
+        self.assertEqual(t2v.cloud_provider, "grs")
+        self.assertEqual(t2v.cloud_model, "agnes-video-2.5")
+        self.assertEqual(t2v.cloud_family, "grs-agnes")
+        self.assertEqual(t2v.reference_mode, "none")
+        i2v = workflow_for("cloud-grs-agnes-i2v")
+        self.assertEqual(i2v.reference_mode, "keyframes")
+        self.assertEqual((i2v.min_references, i2v.max_references), (1, 1))
+        fl2v = workflow_for("cloud-grs-agnes-fl2v")
+        self.assertEqual((fl2v.min_references, fl2v.max_references), (2, 2))
+        r2v = workflow_for("cloud-grs-agnes-r2v")
+        self.assertEqual(r2v.reference_mode, "collection")
+        self.assertEqual((r2v.min_references, r2v.max_references), (1, 5))
+        for workflow_id in (
+            "cloud-grs-agnes-t2v", "cloud-grs-agnes-i2v", "cloud-grs-agnes-fl2v", "cloud-grs-agnes-r2v",
+        ):
+            payload = workflow_for(workflow_id).payload()
+            self.assertIn("GRS 按秒计费", payload["billing_notice"])
+            self.assertIn("4-12 秒", payload["billing_notice"])
+            properties = workflow_for(workflow_id).option_schema["properties"]
+            self.assertEqual(properties["resolution"]["ui_group"], "primary")
+            self.assertEqual(properties["aspect_ratio"]["ui_group"], "primary")
+            self.assertEqual(properties["duration"]["ui_group"], "primary")
+            self.assertEqual(properties["duration"]["minimum"], 4)
+            self.assertEqual(properties["duration"]["maximum"], 12)
+            self.assertEqual(properties["seed"]["ui_group"], "advanced")
+            self.assertNotIn("ui_options", properties["resolution"])
+            hints = billing_option_hints(
+                workflow_for(workflow_id), {"720p": 10, "1080p": 17, "2k": 23},
+            )
+            self.assertEqual(hints["resolution"]["2k"], "23 积分/秒")
+
+        normalized = normalize_options(
+            "cloud-grs-agnes-t2v", {"aspect_ratio": "9:16", "duration": 12, "resolution": "2k"},
+        )
+        self.assertEqual(normalized["duration"], 12)
+        self.assertEqual(normalized["resolution"], "2k")
+        self.assertEqual(normalized["aspect_ratio"], "9:16")
+        with self.assertRaises(ValueError):
+            normalize_options("cloud-grs-agnes-t2v", {"duration": 10, "resolution": "4k"})
+
+    def test_grs_wan_workflows_registered(self) -> None:
+        """GRS Wan 3.0 四模式：槽位、参数层级与 2-30 秒约束。"""
+        t2v = workflow_for("cloud-grs-wan-t2v")
+        self.assertEqual(t2v.cloud_provider, "grs")
+        self.assertEqual(t2v.cloud_model, "wan-3.0")
+        self.assertEqual(t2v.cloud_family, "grs-wan")
+        self.assertEqual(t2v.reference_mode, "none")
+        i2v = workflow_for("cloud-grs-wan-i2v")
+        self.assertEqual(i2v.reference_mode, "keyframes")
+        self.assertEqual((i2v.min_references, i2v.max_references), (1, 1))
+        fl2v = workflow_for("cloud-grs-wan-fl2v")
+        self.assertEqual((fl2v.min_references, fl2v.max_references), (2, 2))
+        r2v = workflow_for("cloud-grs-wan-r2v")
+        self.assertEqual(r2v.reference_mode, "collection")
+        self.assertEqual((r2v.min_references, r2v.max_references), (1, 10))
+        for workflow_id in (
+            "cloud-grs-wan-t2v", "cloud-grs-wan-i2v", "cloud-grs-wan-fl2v", "cloud-grs-wan-r2v",
+        ):
+            self.assertTrue(is_cloud_video_workflow(workflow_id))
+            payload = workflow_for(workflow_id).payload()
+            self.assertIn("GRS Wan 3.0 按秒计费", payload["billing_notice"])
+            self.assertIn("2-30 秒", payload["billing_notice"])
+            properties = workflow_for(workflow_id).option_schema["properties"]
+            self.assertEqual(properties["resolution"]["ui_group"], "primary")
+            self.assertEqual(properties["aspect_ratio"]["ui_group"], "primary")
+            self.assertEqual(properties["duration"]["ui_group"], "primary")
+            self.assertEqual(properties["duration"]["minimum"], 2)
+            self.assertEqual(properties["duration"]["maximum"], 30)
+            self.assertEqual(properties["seed"]["ui_group"], "advanced")
+            self.assertNotIn("ui_options", properties["resolution"])
+            self.assertNotIn("prompt_skill", properties)
+            hints = billing_option_hints(
+                workflow_for(workflow_id), {"480p": 14, "720p": 27, "1080p": 54},
+            )
+            self.assertEqual(hints["resolution"]["480p"], "14 积分/秒")
+            self.assertEqual(hints["resolution"]["1080p"], "54 积分/秒")
+
+        normalized = normalize_options(
+            "cloud-grs-wan-t2v", {"aspect_ratio": "21:9", "duration": 30, "resolution": "1080p"},
+        )
+        self.assertEqual(normalized["duration"], 30)
+        self.assertEqual(normalized["resolution"], "1080p")
+        self.assertEqual(normalized["aspect_ratio"], "21:9")
+        with self.assertRaises(ValueError):
+            normalize_options("cloud-grs-wan-t2v", {"duration": 31})
+        with self.assertRaises(ValueError):
+            normalize_options("cloud-grs-wan-t2v", {"duration": 1})
+        with self.assertRaises(ValueError):
+            normalize_options("cloud-grs-wan-t2v", {"duration": 5, "resolution": "768p"})
+
+    def test_cloud_pricing_providers_include_grs_wan(self) -> None:
+        from backend.app.workflow_registry import CLOUD_PRICING_PROVIDERS
+
+        spec = next(item for item in CLOUD_PRICING_PROVIDERS if item["key"] == "grs-wan")
+        self.assertEqual(spec["provider_key"], "grs")
+        self.assertEqual(spec["family"], "grs-wan")
+        self.assertEqual(spec["variant_by"], "resolution")
+        self.assertEqual(spec["models"][0]["key"], "wan-3.0")
+        self.assertEqual(tuple(spec["models"][0]["resolutions"]), ("480p", "720p", "1080p"))
+
+    def test_billing_option_hints_cover_cloud_variants(self) -> None:
+        """选项标注由价格表分档驱动：GRS 按分辨率精确价，MiniMax 按模型/分辨率给区间。"""
+        grs_hints = billing_option_hints(
+            workflow_for("cloud-grs-h3-t2v"), {"480p": 5, "768p": 7, "1080p": 15},
+        )
+        self.assertEqual(grs_hints["resolution"]["1080p"], "15 积分/秒")
+
+        minimax_hints = billing_option_hints(
+            workflow_for("cloud-minimax-h3-t2v"),
+            {
+                "MiniMax-H3-Lite:480P": 16,
+                "MiniMax-H3-Lite:768P": 26,
+                "MiniMax-H3:768P": 50,
+                "MiniMax-H3:2K": 80,
+            },
+        )
+        self.assertEqual(minimax_hints["model"]["MiniMax-H3-Lite"], "16-26 积分/秒")
+        self.assertEqual(minimax_hints["resolution"]["768P"], "26-50 积分/秒")
+        self.assertEqual(minimax_hints["resolution"]["2K"], "80 积分/秒")
+
+        kling_hints = billing_option_hints(workflow_for("cloud-kling-t2v"), {"std": 40, "pro": 80})
+        self.assertEqual(kling_hints["kling_mode"]["pro"], "80 积分/秒")
+
+    def test_apply_billing_option_hints_does_not_mutate_registry(self) -> None:
+        definition = workflow_for("cloud-grs-h3-t2v")
+        payload = definition.payload()
+        apply_billing_option_hints(payload, definition, {"480p": 5, "768p": 7, "1080p": 15})
+        options_parameter = next(item for item in payload["parameters"] if item["name"] == "options")
+        labels = {
+            item["value"]: item["label"]
+            for item in options_parameter["schema"]["properties"]["resolution"]["ui_options"]
+        }
+        self.assertEqual(labels["768p"], "768p · 7 积分/秒")
+        self.assertNotIn("ui_options", definition.option_schema["properties"]["resolution"])
+
+    def test_grs_h3_normalize_rejects_1080p_over_ten_seconds(self) -> None:
+        normalized = normalize_options(
+            "cloud-grs-h3-t2v", {"aspect_ratio": "portrait", "duration": 8, "resolution": "768p"},
+        )
+        self.assertEqual(normalized["duration"], 8)
+        self.assertEqual(normalized["resolution"], "768p")
+        self.assertFalse(normalized["prompt_skill"])
+        with self.assertRaisesRegex(ValueError, "1080p 分辨率最长支持 10 秒"):
+            normalize_options("cloud-grs-h3-t2v", {"duration": 12, "resolution": "1080p"})
+
+    def test_minimax_h3_workflows_registered(self) -> None:
+        """MiniMax 官方 H3 四模式：槽位、计费提示与参数层级。"""
+        t2v = workflow_for("cloud-minimax-h3-t2v")
+        self.assertEqual(t2v.cloud_provider, "minimax")
+        self.assertEqual(t2v.cloud_model, "MiniMax-H3-Lite")
+        self.assertEqual(t2v.cloud_family, "minimax-h3")
+        self.assertEqual(t2v.reference_mode, "none")
+        self.assertEqual((t2v.min_references, t2v.max_references), (0, 0))
+        i2v = workflow_for("cloud-minimax-h3-i2v")
+        self.assertEqual(i2v.reference_mode, "keyframes")
+        self.assertEqual((i2v.min_references, i2v.max_references), (1, 1))
+        fl2v = workflow_for("cloud-minimax-h3-fl2v")
+        self.assertEqual((fl2v.min_references, fl2v.max_references), (2, 2))
+        r2v = workflow_for("cloud-minimax-h3-r2v")
+        self.assertEqual(r2v.reference_mode, "collection")
+        self.assertEqual((r2v.min_references, r2v.max_references), (1, 9))
+        for workflow_id in (
+            "cloud-minimax-h3-t2v", "cloud-minimax-h3-i2v", "cloud-minimax-h3-fl2v", "cloud-minimax-h3-r2v",
+        ):
+            payload = workflow_for(workflow_id).payload()
+            self.assertIn("MiniMax 官方按秒计费", payload["billing_notice"])
+            self.assertIn("任务失败自动全额退回积分", payload["billing_notice"])
+            properties = workflow_for(workflow_id).option_schema["properties"]
+            self.assertEqual(properties["resolution"]["ui_group"], "primary")
+            self.assertEqual(properties["duration"]["ui_group"], "primary")
+            self.assertEqual(properties["model"]["ui_group"], "advanced")
+            self.assertTrue(properties["generate_audio"]["default"])
+        # t2v 必须显式画幅；r2v 官方要求显式具体比例（非旗舰档不支持 adaptive）；i2v/fl2v 恒随输入
+        self.assertIn("aspect_ratio", workflow_for("cloud-minimax-h3-t2v").option_schema["properties"])
+        self.assertIn("aspect_ratio", workflow_for("cloud-minimax-h3-r2v").option_schema["properties"])
+        for workflow_id in ("cloud-minimax-h3-i2v", "cloud-minimax-h3-fl2v"):
+            self.assertNotIn("aspect_ratio", workflow_for(workflow_id).option_schema["properties"])
+
+    def test_minimax_h3_r2v_defaults_explicit_ratio(self) -> None:
+        """r2v 未传画幅时按 schema 默认 16:9 归一，绝不落到官方不支持的 adaptive。"""
+        normalized = normalize_options("cloud-minimax-h3-r2v", {"duration": 12, "resolution": "768P"})
+        self.assertEqual(normalized["aspect_ratio"], "16:9")
+        self.assertEqual(normalized["duration"], 12)
+
+    def test_minimax_h3_normalize_rejects_cross_tier_violations(self) -> None:
+        normalized = normalize_options(
+            "cloud-minimax-h3-t2v", {"aspect_ratio": "9:16", "duration": 8, "resolution": "480P"},
+        )
+        self.assertEqual(normalized["duration"], 8)
+        self.assertEqual(normalized["resolution"], "480P")
+        self.assertEqual(normalized["model"], "MiniMax-H3-Lite")
+        self.assertTrue(normalized["generate_audio"])
+        with self.assertRaisesRegex(ValueError, "2K 分辨率仅 MiniMax-H3 旗舰档支持"):
+            normalize_options("cloud-minimax-h3-t2v", {"duration": 5, "resolution": "2K", "model": "MiniMax-H3-Lite"})
+        with self.assertRaisesRegex(ValueError, "480P 分辨率仅 Lite / Highspeed / H3-Max"):
+            normalize_options(
+                "cloud-minimax-h3-t2v", {"duration": 5, "resolution": "480P", "model": "MiniMax-H3"},
+            )
+        with self.assertRaisesRegex(ValueError, "H3-Max 档时长起步 5 秒"):
+            normalize_options(
+                "cloud-minimax-h3-t2v", {"duration": 4, "resolution": "480P", "model": "MiniMax-H3-Max"},
+            )
+
+    def test_minimax_h3_clamp_and_director_family(self) -> None:
+        clamped = clamp_cloud_video_options(
+            "cloud-minimax-h3-t2v",
+            {"aspect_ratio": "16:9", "quality": "1.0", "speed": "balanced", "duration": 8, "resolution": "2K"},
+        )
+        # 导演链路透传 quality 等参数被丢弃；2K + 默认 Lite 回落 768P
+        self.assertEqual(clamped["resolution"], "768P")
+        self.assertNotIn("quality", clamped)
+        clamped_h3_480 = clamp_cloud_video_options(
+            "cloud-minimax-h3-t2v",
+            {"aspect_ratio": "16:9", "duration": 8, "resolution": "480P", "model": "MiniMax-H3"},
+        )
+        # H3 旗舰档官方没有 480P 档价，导演链路回落 768P
+        self.assertEqual(clamped_h3_480["resolution"], "768P")
+        families = {item["id"]: item for item in director_workflow_families()}
+        minimax_family = families["cloud_video:minimax-h3"]
+        self.assertEqual(minimax_family["label"], "云端 · MiniMax 官方 H3")
+        # 族内图生路由取单首帧 i2v（导演链路只有首帧）；fl2v 成对校验仅生成页可选
+        self.assertEqual(
+            minimax_family["routes"],
+            {"t2v": "cloud-minimax-h3-t2v", "i2v": "cloud-minimax-h3-i2v", "r2v": "cloud-minimax-h3-r2v"},
+        )
 
 
 class CloudVideoStorageTests(unittest.TestCase):
@@ -460,6 +747,484 @@ class CloudVideoAdapterTests(unittest.TestCase):
             bad_client.test_connection()
 
     # ------------------------------------------------------------------
+    # GRS 视频（MiniMax-H3）
+    # ------------------------------------------------------------------
+
+    def test_grs_submit_t2v_and_poll(self) -> None:
+        session = _FakeSession({
+            ("post", "/v1/api/generate"): _FakeResponse({"id": "grs-1", "status": "running"}),
+            ("get", "/v1/api/result"): _FakeResponse({
+                "id": "grs-1", "status": "succeeded", "progress": 100,
+                "results": [{"url": "https://cdn/grs.mp4"}],
+            }),
+        })
+        client = build_adapter("grs", base_url=None, api_key="grs-key", session=session)
+        remote_id = client.submit(_submit_request(
+            model="minimax-h3",
+            options={"aspect_ratio": "portrait", "duration": 5, "resolution": "768p", "prompt_skill": True},
+        ))
+        self.assertEqual(remote_id, "grs-1")
+        method, url, kwargs = session.calls[0]
+        self.assertEqual(url, "https://grsai.dakka.com.cn/v1/api/generate")
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer grs-key")
+        body = kwargs["json"]
+        self.assertEqual(body["model"], "minimax-h3")
+        self.assertEqual(body["prompt"], "一只猫在雪地里奔跑")
+        self.assertEqual(body["aspectRatio"], "portrait")
+        self.assertEqual(body["resolution"], "768p")
+        self.assertEqual(body["duration"], 5)
+        self.assertEqual(body["replyType"], "async")
+        self.assertTrue(body["promptSkill"])
+        self.assertNotIn("images", body)
+        snapshot = client.poll(remote_id)
+        self.assertEqual(snapshot.status, "completed")
+        self.assertEqual(snapshot.video_urls, ["https://cdn/grs.mp4"])
+        method, url, kwargs = session.calls[1]
+        self.assertEqual(kwargs["params"], {"id": "grs-1"})
+
+    def test_grs_submit_defaults_prompt_skill_off_and_zero_seed_random(self) -> None:
+        session = _FakeSession({
+            ("post", "/v1/api/generate"): _FakeResponse({"id": "grs-2", "status": "running"}),
+        })
+        client = build_adapter("grs", base_url=None, api_key="grs-key", session=session)
+        client.submit(_submit_request(
+            model="minimax-h3",
+            options={"aspect_ratio": "landscape", "duration": "10", "resolution": "1080p", "seed": 0},
+        ))
+        body = session.calls[0][2]["json"]
+        self.assertFalse(body["promptSkill"])
+        self.assertNotIn("seed", body)
+        self.assertEqual(body["duration"], 10)
+
+    def test_grs_submit_maps_references_to_images(self) -> None:
+        session = _FakeSession({
+            ("post", "/v1/api/generate"): _FakeResponse({"id": "grs-3", "status": "running"}),
+        })
+        client = build_adapter("grs", base_url=None, api_key="grs-key", session=session)
+        refs = [
+            Path(self._tmp_image("grs-ref-1.png", "PNG")),
+            Path(self._tmp_image("grs-ref-2.png", "PNG")),
+        ]
+        client.submit(_submit_request(
+            model="minimax-h3", options={"duration": 5, "resolution": "480p"}, references=refs,
+        ))
+        body = session.calls[0][2]["json"]
+        self.assertEqual(len(body["images"]), 2)
+        self.assertTrue(body["images"][0].startswith("data:image/"))
+
+    def test_grs_submit_fl2v_requires_paired_frames(self) -> None:
+        client = build_adapter("grs", base_url=None, api_key="grs-key", session=_FakeSession({}))
+        first = Path(self._tmp_image("grs-first.png", "PNG"))
+        with self.assertRaisesRegex(CloudVideoError, "首尾帧必须成对"):
+            client.submit(_submit_request(
+                model="minimax-h3", first_frame=first, options={"duration": 5, "resolution": "480p"},
+            ))
+
+    def test_grs_submit_rejects_invalid_resolution_duration_and_reference_overflow(self) -> None:
+        client = build_adapter("grs", base_url=None, api_key="grs-key", session=_FakeSession({}))
+        with self.assertRaisesRegex(CloudVideoError, "分辨率"):
+            client.submit(_submit_request(model="minimax-h3", options={"duration": 5, "resolution": "4K"}))
+        with self.assertRaisesRegex(CloudVideoError, "1080p 分辨率最长"):
+            client.submit(_submit_request(model="minimax-h3", options={"duration": 12, "resolution": "1080p"}))
+        refs = [Path(self._tmp_image(f"grs-bulk-{index}.png", "PNG")) for index in range(10)]
+        with self.assertRaisesRegex(CloudVideoError, "参考图最多"):
+            client.submit(_submit_request(
+                model="minimax-h3", options={"duration": 5, "resolution": "480p"}, references=refs,
+            ))
+
+    def test_grs_poll_maps_violation_and_running(self) -> None:
+        session = _FakeSession({
+            ("get", "/v1/api/result"): _FakeResponse({
+                "id": "grs-4", "status": "violation", "error": "prompt violation",
+            }),
+        })
+        client = build_adapter("grs", base_url=None, api_key="grs-key", session=session)
+        snapshot = client.poll("grs-4")
+        self.assertEqual(snapshot.status, "failed")
+        self.assertIn("内容违规", snapshot.message or "")
+        running_session = _FakeSession({
+            ("get", "/v1/api/result"): _FakeResponse({"id": "grs-5", "status": "running", "progress": 42}),
+        })
+        running_client = build_adapter("grs", base_url=None, api_key="grs-key", session=running_session)
+        snapshot = running_client.poll("grs-5")
+        self.assertEqual(snapshot.status, "active")
+        self.assertEqual(snapshot.progress, 42)
+
+    def test_grs_submit_rejection_surfaces_error(self) -> None:
+        session = _FakeSession({
+            ("post", "/v1/api/generate"): _FakeResponse(
+                {"status": "failed", "error": "prompt contains banned content"}, status_code=400,
+            ),
+        })
+        client = build_adapter("grs", base_url=None, api_key="grs-key", session=session)
+        with self.assertRaisesRegex(CloudVideoError, "banned content"):
+            client.submit(_submit_request(
+                model="minimax-h3", options={"duration": 5, "resolution": "480p"},
+            ))
+
+    def test_grs_test_connection_and_balance(self) -> None:
+        session = _FakeSession({
+            ("post", "/client/openapi/getAPIKeyCredits"): _FakeResponse({
+                "code": 0, "data": {"credits": 1234.5},
+            }),
+        })
+        client = build_adapter("grs", base_url=None, api_key="grs-key", session=session)
+        self.assertEqual(client.balance(), 1234.5)
+        self.assertIn("1234.5", client.test_connection())
+        method, url, kwargs = session.calls[0]
+        self.assertEqual(kwargs["json"], {"apiKey": "grs-key"})
+
+    def test_grs_agnes_submit_t2v_body(self) -> None:
+        session = _FakeSession({
+            ("post", "/v1/api/generate"): _FakeResponse({"id": "agnes-1", "status": "running"}),
+        })
+        client = build_adapter("grs", base_url=None, api_key="grs-key", session=session)
+        remote_id = client.submit(_submit_request(
+            model="agnes-video-2.5",
+            options={"aspect_ratio": "9:16", "duration": 10, "resolution": "2k", "seed": 7},
+        ))
+        self.assertEqual(remote_id, "agnes-1")
+        body = session.calls[0][2]["json"]
+        self.assertEqual(body["model"], "agnes-video-2.5")
+        self.assertEqual(body["aspectRatio"], "9:16")
+        self.assertEqual(body["resolution"], "2k")
+        self.assertEqual(body["duration"], 10)
+        self.assertEqual(body["replyType"], "async")
+        self.assertEqual(body["seed"], 7)
+        # Agnes 不支持 H3 的 promptSkill 参数，不得下发
+        self.assertNotIn("promptSkill", body)
+        self.assertNotIn("images", body)
+        self.assertNotIn("firstFrame", body)
+
+    def test_grs_agnes_first_frame_and_paired_frames(self) -> None:
+        session = _FakeSession({
+            ("post", "/v1/api/generate"): _FakeResponse({"id": "agnes-2", "status": "running"}),
+        })
+        client = build_adapter("grs", base_url=None, api_key="grs-key", session=session)
+        first = Path(self._tmp_image("agnes-first.png", "PNG"))
+        client.submit(_submit_request(
+            model="agnes-video-2.5", first_frame=first,
+            options={"aspect_ratio": "9:16", "duration": 5, "resolution": "720p"},
+        ))
+        body = session.calls[0][2]["json"]
+        self.assertTrue(body["firstFrame"].startswith("data:image/"))
+        self.assertNotIn("lastFrame", body)
+
+        last = Path(self._tmp_image("agnes-last.png", "PNG"))
+        client.submit(_submit_request(
+            model="agnes-video-2.5", first_frame=first, last_frame=last,
+            options={"aspect_ratio": "9:16", "duration": 5, "resolution": "720p"},
+        ))
+        body = session.calls[1][2]["json"]
+        self.assertTrue(body["firstFrame"].startswith("data:image/"))
+        self.assertTrue(body["lastFrame"].startswith("data:image/"))
+
+    def test_grs_agnes_maps_references_to_images(self) -> None:
+        session = _FakeSession({
+            ("post", "/v1/api/generate"): _FakeResponse({"id": "agnes-3", "status": "running"}),
+        })
+        client = build_adapter("grs", base_url=None, api_key="grs-key", session=session)
+        refs = [Path(self._tmp_image(f"agnes-ref-{index}.png", "PNG")) for index in range(5)]
+        client.submit(_submit_request(
+            model="agnes-video-2.5", references=refs,
+            options={"aspect_ratio": "16:9", "duration": 5, "resolution": "1080p"},
+        ))
+        body = session.calls[0][2]["json"]
+        self.assertEqual(len(body["images"]), 5)
+        self.assertTrue(all(item.startswith("data:image/") for item in body["images"]))
+
+    def test_grs_agnes_validation_rejects_invalid_inputs(self) -> None:
+        client = build_adapter("grs", base_url=None, api_key="grs-key", session=_FakeSession({}))
+        with self.assertRaisesRegex(CloudVideoError, "时长必须是 4-12 秒"):
+            client.submit(_submit_request(
+                model="agnes-video-2.5", options={"duration": 3, "resolution": "720p"},
+            ))
+        with self.assertRaisesRegex(CloudVideoError, "分辨率"):
+            client.submit(_submit_request(
+                model="agnes-video-2.5", options={"duration": 5, "resolution": "480p"},
+            ))
+        with self.assertRaisesRegex(CloudVideoError, "画幅"):
+            client.submit(_submit_request(
+                model="agnes-video-2.5", options={"aspect_ratio": "landscape", "duration": 5, "resolution": "720p"},
+            ))
+        last = Path(self._tmp_image("agnes-last-only.png", "PNG"))
+        with self.assertRaisesRegex(CloudVideoError, "尾帧必须与首帧同时提供"):
+            client.submit(_submit_request(
+                model="agnes-video-2.5", last_frame=last,
+                options={"aspect_ratio": "9:16", "duration": 5, "resolution": "720p"},
+            ))
+        refs = [Path(self._tmp_image(f"agnes-bulk-{index}.png", "PNG")) for index in range(6)]
+        with self.assertRaisesRegex(CloudVideoError, "参考图最多 5 张"):
+            client.submit(_submit_request(
+                model="agnes-video-2.5", references=refs,
+                options={"aspect_ratio": "16:9", "duration": 5, "resolution": "720p"},
+            ))
+
+    def test_grs_wan_submit_t2v_body(self) -> None:
+        session = _FakeSession({
+            ("post", "/v1/api/generate"): _FakeResponse({"id": "wan-1", "status": "running"}),
+        })
+        client = build_adapter("grs", base_url=None, api_key="grs-key", session=session)
+        remote_id = client.submit(_submit_request(
+            model="wan-3.0",
+            options={"aspect_ratio": "21:9", "duration": 30, "resolution": "1080p", "seed": 11},
+        ))
+        self.assertEqual(remote_id, "wan-1")
+        body = session.calls[0][2]["json"]
+        self.assertEqual(body["model"], "wan-3.0")
+        self.assertEqual(body["aspectRatio"], "21:9")
+        self.assertEqual(body["resolution"], "1080p")
+        self.assertEqual(body["duration"], 30)
+        self.assertEqual(body["replyType"], "async")
+        self.assertEqual(body["seed"], 11)
+        # Wan 不支 H3 的 promptSkill 参数，不得下发
+        self.assertNotIn("promptSkill", body)
+        self.assertNotIn("images", body)
+        self.assertNotIn("firstFrame", body)
+
+    def test_grs_wan_first_and_last_frame_are_independent(self) -> None:
+        session = _FakeSession({
+            ("post", "/v1/api/generate"): _FakeResponse({"id": "wan-2", "status": "running"}),
+        })
+        client = build_adapter("grs", base_url=None, api_key="grs-key", session=session)
+        first = Path(self._tmp_image("wan-first.png", "PNG"))
+        last = Path(self._tmp_image("wan-last.png", "PNG"))
+        options = {"aspect_ratio": "9:16", "duration": 8, "resolution": "720p"}
+        client.submit(_submit_request(model="wan-3.0", first_frame=first, options=options))
+        body = session.calls[0][2]["json"]
+        self.assertTrue(body["firstFrame"].startswith("data:image/"))
+        self.assertNotIn("lastFrame", body)
+
+        client.submit(_submit_request(model="wan-3.0", last_frame=last, options=options))
+        body = session.calls[1][2]["json"]
+        self.assertTrue(body["lastFrame"].startswith("data:image/"))
+        self.assertNotIn("firstFrame", body)
+
+        client.submit(_submit_request(
+            model="wan-3.0", first_frame=first, last_frame=last, options=options,
+        ))
+        body = session.calls[2][2]["json"]
+        self.assertTrue(body["firstFrame"].startswith("data:image/"))
+        self.assertTrue(body["lastFrame"].startswith("data:image/"))
+
+    def test_grs_wan_maps_up_to_ten_references(self) -> None:
+        session = _FakeSession({
+            ("post", "/v1/api/generate"): _FakeResponse({"id": "wan-3", "status": "running"}),
+        })
+        client = build_adapter("grs", base_url=None, api_key="grs-key", session=session)
+        refs = [Path(self._tmp_image(f"wan-ref-{index}.png", "PNG")) for index in range(10)]
+        client.submit(_submit_request(
+            model="wan-3.0", references=refs,
+            options={"aspect_ratio": "16:9", "duration": 5, "resolution": "480p"},
+        ))
+        body = session.calls[0][2]["json"]
+        self.assertEqual(len(body["images"]), 10)
+        self.assertTrue(all(item.startswith("data:image/") for item in body["images"]))
+
+    def test_grs_wan_validation_rejects_invalid_inputs(self) -> None:
+        client = build_adapter("grs", base_url=None, api_key="grs-key", session=_FakeSession({}))
+        with self.assertRaisesRegex(CloudVideoError, "时长必须是 2-30 秒"):
+            client.submit(_submit_request(
+                model="wan-3.0", options={"duration": 1, "resolution": "720p"},
+            ))
+        with self.assertRaisesRegex(CloudVideoError, "时长必须是 2-30 秒"):
+            client.submit(_submit_request(
+                model="wan-3.0", options={"duration": 31, "resolution": "720p"},
+            ))
+        with self.assertRaisesRegex(CloudVideoError, "分辨率"):
+            client.submit(_submit_request(
+                model="wan-3.0", options={"duration": 5, "resolution": "768p"},
+            ))
+        with self.assertRaisesRegex(CloudVideoError, "画幅"):
+            client.submit(_submit_request(
+                model="wan-3.0", options={"aspect_ratio": "landscape", "duration": 5, "resolution": "720p"},
+            ))
+        refs = [Path(self._tmp_image(f"wan-bulk-{index}.png", "PNG")) for index in range(11)]
+        with self.assertRaisesRegex(CloudVideoError, "参考图最多 10 张"):
+            client.submit(_submit_request(
+                model="wan-3.0", references=refs,
+                options={"aspect_ratio": "16:9", "duration": 5, "resolution": "720p"},
+            ))
+        first = Path(self._tmp_image("wan-conflict.png", "PNG"))
+        with self.assertRaisesRegex(CloudVideoError, "首尾帧与参考图互斥"):
+            client.submit(_submit_request(
+                model="wan-3.0", first_frame=first, references=[first],
+                options={"aspect_ratio": "16:9", "duration": 5, "resolution": "720p"},
+            ))
+
+    # ------------------------------------------------------------------
+    # MiniMax 官方平台（H3 v2 API）
+    # ------------------------------------------------------------------
+
+    def test_minimax_submit_t2v_and_poll(self) -> None:
+        session = _FakeSession({
+            ("post", "/v2/video_generation"): _FakeResponse({"task_id": "mx2-1"}),
+            ("get", "/v2/query/video_generation/mx2-1"): _FakeResponse({
+                "task": {
+                    "id": "mx2-1", "model": "MiniMax-H3-Lite", "status": "succeeded",
+                    "content": {"url": "https://cdn.hailuoai.com/mx2.mp4"},
+                    "resolution": "480P", "duration": 5,
+                },
+            }),
+        })
+        client = build_adapter("minimax", base_url=None, api_key="mx-key", session=session)
+        remote_id = client.submit(_submit_request(
+            model="MiniMax-H3-Lite",
+            options={"aspect_ratio": "9:16", "duration": 5, "resolution": "480P", "generate_audio": True},
+        ))
+        self.assertEqual(remote_id, "mx2-1")
+        method, url, kwargs = session.calls[0]
+        self.assertEqual(url, "https://api.minimax.cn/v2/video_generation")
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer mx-key")
+        body = kwargs["json"]
+        self.assertEqual(body["model"], "MiniMax-H3-Lite")
+        self.assertEqual(body["content"][0], {"type": "text", "text": "一只猫在雪地里奔跑"})
+        self.assertEqual(len(body["content"]), 1)  # 文生视频无参考素材
+        self.assertEqual(body["resolution"], "480P")
+        self.assertEqual(body["duration"], 5)
+        self.assertEqual(body["ratio"], "9:16")  # 文生视频必须显式画幅
+        self.assertTrue(body["generate_audio"])
+        self.assertFalse(body["aigc_watermark"])
+        snapshot = client.poll(remote_id)
+        self.assertEqual(snapshot.status, "completed")
+        self.assertEqual(snapshot.video_urls, ["https://cdn.hailuoai.com/mx2.mp4"])
+        self.assertEqual(snapshot.remote_status, "succeeded")
+
+    def test_minimax_submit_i2v_and_fl2v_roles(self) -> None:
+        session = _FakeSession({
+            ("post", "/v2/video_generation"): _FakeResponse({"task_id": "mx2-2"}),
+        })
+        client = build_adapter("minimax", base_url=None, api_key="mx-key", session=session)
+        first = Path(self._tmp_image("mx-first.png", "PNG"))
+        client.submit(_submit_request(
+            model="MiniMax-H3-Lite", first_frame=first, options={"duration": 5, "resolution": "768P"},
+        ))
+        body = session.calls[0][2]["json"]
+        self.assertEqual([item["role"] for item in body["content"][1:]], ["first_frame"])
+        self.assertTrue(body["content"][1]["image_url"]["url"].startswith("data:image/jpeg;base64,"))
+        self.assertNotIn("ratio", body)  # 图生视频宽高比恒随输入，不下发
+        tail = Path(self._tmp_image("mx-tail.png", "PNG"))
+        client.submit(_submit_request(
+            model="MiniMax-H3", first_frame=first, last_frame=tail,
+            options={"duration": 5, "resolution": "2K"},
+        ))
+        body = session.calls[1][2]["json"]
+        self.assertEqual([item["role"] for item in body["content"][1:]], ["first_frame", "last_frame"])
+        self.assertEqual(body["resolution"], "2K")  # H3 旗舰档独享
+
+    def test_minimax_submit_maps_references(self) -> None:
+        session = _FakeSession({
+            ("post", "/v2/video_generation"): _FakeResponse({"task_id": "mx2-3"}),
+        })
+        client = build_adapter("minimax", base_url=None, api_key="mx-key", session=session)
+        refs = [
+            Path(self._tmp_image("mx-ref-1.png", "PNG")),
+            Path(self._tmp_image("mx-ref-2.png", "PNG")),
+        ]
+        client.submit(_submit_request(
+            model="MiniMax-H3-Lite",
+            options={"duration": 5, "resolution": "480P", "aspect_ratio": "16:9"},
+            references=refs,
+        ))
+        body = session.calls[0][2]["json"]
+        self.assertEqual([item["role"] for item in body["content"][1:]], ["reference_image", "reference_image"])
+        # 官方参考生必须显式 ratio：Lite/Highspeed/Max 档不接受 adaptive
+        self.assertEqual(body["ratio"], "16:9")
+        with self.assertRaisesRegex(CloudVideoError, "必须显式指定画幅"):
+            client.submit(_submit_request(
+                model="MiniMax-H3-Lite", options={"duration": 5, "resolution": "480P"}, references=refs,
+            ))
+
+    def test_minimax_submit_rejects_cross_tier_and_overflow(self) -> None:
+        client = build_adapter("minimax", base_url=None, api_key="mx-key", session=_FakeSession({}))
+        with self.assertRaisesRegex(CloudVideoError, "2K 分辨率仅"):
+            client.submit(_submit_request(
+                model="MiniMax-H3-Lite", options={"duration": 5, "resolution": "2K"},
+            ))
+        with self.assertRaisesRegex(CloudVideoError, "480P 仅 MiniMax-H3-Lite"):
+            client.submit(_submit_request(
+                model="MiniMax-H3", options={"duration": 5, "resolution": "480P"},
+            ))
+        with self.assertRaisesRegex(CloudVideoError, "时长必须是 5-15"):
+            client.submit(_submit_request(
+                model="MiniMax-H3-Max", options={"duration": 4, "resolution": "480P"},
+            ))
+        refs = [Path(self._tmp_image(f"mx-bulk-{index}.png", "PNG")) for index in range(10)]
+        with self.assertRaisesRegex(CloudVideoError, "参考图最多"):
+            client.submit(_submit_request(
+                model="MiniMax-H3-Lite", options={"duration": 5, "resolution": "480P"}, references=refs,
+            ))
+        tail_only = Path(self._tmp_image("mx-tail-only.png", "PNG"))
+        with self.assertRaisesRegex(CloudVideoError, "首尾帧必须成对提供"):
+            client.submit(_submit_request(
+                model="MiniMax-H3-Lite", last_frame=tail_only, options={"duration": 5, "resolution": "480P"},
+            ))
+
+    def test_minimax_poll_failed_cancelled_and_running(self) -> None:
+        session = _FakeSession({
+            ("get", "/v2/query/video_generation/mx2-4"): _FakeResponse({
+                "task": {
+                    "id": "mx2-4", "status": "failed",
+                    "error": {"code": "1026", "message": "video description contains sensitive content"},
+                },
+            }),
+        })
+        client = build_adapter("minimax", base_url=None, api_key="mx-key", session=session)
+        snapshot = client.poll("mx2-4")
+        self.assertEqual(snapshot.status, "failed")
+        self.assertEqual(snapshot.message, "video description contains sensitive content")
+        cancelled_session = _FakeSession({
+            ("get", "/v2/query/video_generation/mx2-5"): _FakeResponse(
+                {"task": {"id": "mx2-5", "status": "cancelled"}},
+            ),
+        })
+        cancelled_client = build_adapter("minimax", base_url=None, api_key="mx-key", session=cancelled_session)
+        snapshot = cancelled_client.poll("mx2-5")
+        self.assertEqual(snapshot.status, "failed")
+        self.assertEqual(snapshot.message, "官方任务失败")
+        running_session = _FakeSession({
+            ("get", "/v2/query/video_generation/mx2-6"): _FakeResponse(
+                {"task": {"id": "mx2-6", "status": "running"}},
+            ),
+        })
+        running_client = build_adapter("minimax", base_url=None, api_key="mx-key", session=running_session)
+        snapshot = running_client.poll("mx2-6")
+        self.assertEqual(snapshot.status, "active")
+        self.assertEqual(snapshot.progress, 12)
+
+    def test_minimax_submit_rejection_surfaces_error(self) -> None:
+        session = _FakeSession({
+            ("post", "/v2/video_generation"): _FakeResponse(
+                {"error": {"type": "invalid_request_error", "message": "prompt contains banned content", "http_code": 400}},
+                status_code=400,
+            ),
+        })
+        client = build_adapter("minimax", base_url=None, api_key="mx-key", session=session)
+        with self.assertRaisesRegex(CloudVideoError, "banned content"):
+            client.submit(_submit_request(
+                model="MiniMax-H3-Lite", options={"duration": 5, "resolution": "480P"},
+            ))
+
+    def test_minimax_test_connection_distinguishes_auth(self) -> None:
+        ok_session = _FakeSession({
+            ("get", "/v2/query/video_generation/zly-probe-nonexistent-task"): _FakeResponse(
+                {"error": {"type": "not_found", "message": "invalid task_id", "http_code": 404}},
+                status_code=404,
+            ),
+        })
+        client = build_adapter("minimax", base_url=None, api_key="mx-key", session=ok_session)
+        self.assertIn("鉴权通过", client.test_connection())
+        bad_session = _FakeSession({
+            ("get", "/v2/query/video_generation/zly-probe-nonexistent-task"): _FakeResponse(
+                {"error": {"type": "authentication_error", "message": "invalid api key", "http_code": 401}},
+                status_code=401,
+            ),
+        })
+        bad_client = build_adapter("minimax", base_url=None, api_key="bad", session=bad_session)
+        with self.assertRaisesRegex(CloudVideoError, "API Key 无效"):
+            bad_client.test_connection()
+
+    # ------------------------------------------------------------------
     # 状态归一与扣费警示
     # ------------------------------------------------------------------
 
@@ -496,13 +1261,13 @@ class CloudVideoAdapterTests(unittest.TestCase):
 
 def _submit_request(
     *, model: str = "kling-v1-6", first_frame: Path | None = None, last_frame: Path | None = None,
-    options: dict | None = None,
+    references: list[Path] | None = None, options: dict | None = None,
 ):
     from backend.app.cloud_video.base import CloudVideoSubmitRequest
 
     return CloudVideoSubmitRequest(
         model=model, prompt="一只猫在雪地里奔跑", negative_prompt="低画质",
-        first_frame=first_frame, last_frame=last_frame,
+        first_frame=first_frame, last_frame=last_frame, references=references,
         options=options or {"aspect_ratio": "16:9", "duration": "5"},
     )
 
@@ -548,7 +1313,7 @@ class CloudVideoServiceTests(unittest.TestCase):
         service = CloudVideoService.configure(self.store, self.key, None)
         configs = service.public_configs()
         self.assertEqual(
-            [item["provider_key"] for item in configs], ["kling", "jimeng", "hailuo", "scnet"],
+            [item["provider_key"] for item in configs], ["kling", "jimeng", "hailuo", "scnet", "grs", "minimax"],
         )
         for item in configs:
             self.assertIn("available", item)
@@ -660,19 +1425,38 @@ class WorkerCloudVideoTests(unittest.TestCase):
         self.assertEqual(item["status"], JobStatus.FAILED.value)
         self.assertIn("尚未在管理设置中启用", item["error"] or "")
 
-    def test_reference_paths_keyframes(self) -> None:
+    def test_reference_media_keyframes(self) -> None:
         upload_dir = Path(self.temp_dir.name) / "uploads"
         upload_dir.mkdir()
         first = upload_dir / "first.png"
         first.write_bytes(b"\x89PNG")
         definition = workflow_for("cloud-kling-i2v")
-        # settings 是冻结 dataclass，直接替换 worker 模块引用（_cloud_video_reference_paths 只读 uploads_dir）
+        # settings 是冻结 dataclass，直接替换 worker 模块引用（_cloud_video_reference_media 只读 uploads_dir）
         with patch.object(worker_module, "settings", SimpleNamespace(uploads_dir=upload_dir)):
-            first_frame, last_frame = JobWorker._cloud_video_reference_paths(
+            first_frame, last_frame, references = JobWorker._cloud_video_reference_media(
                 definition, {"references": [str(first)]},
             )
         self.assertEqual(first_frame, first.resolve())
         self.assertIsNone(last_frame)
+        self.assertEqual(references, [])
+
+    def test_reference_media_collection_passthrough(self) -> None:
+        """GRS R2V 等 collection 槽位：参考图整体透传给云端适配器的 references。"""
+        upload_dir = Path(self.temp_dir.name) / "uploads"
+        upload_dir.mkdir()
+        refs = []
+        for index in range(3):
+            path = upload_dir / f"ref{index}.png"
+            path.write_bytes(b"\x89PNG")
+            refs.append(path)
+        definition = workflow_for("cloud-grs-h3-r2v")
+        with patch.object(worker_module, "settings", SimpleNamespace(uploads_dir=upload_dir)):
+            first_frame, last_frame, references = JobWorker._cloud_video_reference_media(
+                definition, {"references": [str(path) for path in refs]},
+            )
+        self.assertIsNone(first_frame)
+        self.assertIsNone(last_frame)
+        self.assertEqual(references, [path.resolve() for path in refs])
 
 
 class CloudVideoDownloadTests(unittest.TestCase):

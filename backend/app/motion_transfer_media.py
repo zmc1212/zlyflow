@@ -8,16 +8,17 @@ from .director_export import find_ffmpeg
 from .video_analysis import VideoAnalysisError, probe_video
 
 
-def validate_motion_video(path: Path, duration: str) -> None:
+def validate_motion_video(path: Path, duration: float | str) -> None:
+    """校验动作参考视频时长能覆盖所选生成时长; duration 为数字秒数(兼容旧 "5s" 写法)。"""
     try:
         probe = probe_video(path)
     except (VideoAnalysisError, OSError, ValueError) as error:
         raise ValueError("动作参考视频无法读取，请使用包含视频画面的 MP4 / MOV / WebM 文件。") from error
-    required = float(duration.removesuffix("s"))
+    required = float(str(duration).removesuffix("s")) if isinstance(duration, str) else float(duration)
     # Allow container/timebase rounding, not a materially shorter motion sequence.
     if probe.duration + 0.1 < required:
         raise ValueError(
-            f"动作参考视频只有 {probe.duration:.1f} 秒，不能生成 {required:.0f} 秒动作；"
+            f"动作参考视频只有 {probe.duration:.1f} 秒，不能生成 {required:.1f} 秒动作；"
             "请选择更短的生成时长或上传更长的视频。"
         )
 

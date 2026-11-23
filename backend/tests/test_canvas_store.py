@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 
 from backend.app.canvas_store import (
@@ -474,3 +475,83 @@ class CanvasStoreTests(unittest.TestCase):
         validated = CanvasProjectResponse.model_validate(self.canvas.get_project(self.user_id, project["id"]))
         self.assertEqual(validated.linked_director_project_id, "proj-listed")
         self.assertEqual(validated.version, 1)
+
+
+class CanvasProjectCreditStatsTests(unittest.TestCase):
+    """画布「项目信息」积分消耗聚合：净消耗（预扣-退款）+ 媒体类型分组。"""
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.store = JobStore(Path(self.temp_dir.name) / "canvas-credits.db")
+        self.user_id = "user_canvas_credits"
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def _job(self, mode: str) -> dict:
+        return self.store.create(
+            f"job-{uuid.uuid4().hex[:12]}", mode, "测试提示词", "", None, [], owner_user_id=self.user_id,
+        )
+
+    def _consume(self, job_id: str, amount: int) -> None:
+        self.store.deduct_credits(
+            self.user_id, amount, ref_type="job", ref_id=job_id, reason="生成预扣",
+        )
+
+    def _refund(self, job_id: str, amount: int) -> None:
+        self.store.refund_credits(
+            self.user_id, amount, ref_type="job", ref_id=job_id, reason="失败退回",
+        )
+
+    def test_aggregates_net_consumption_by_media_type(self) -> None:
+        self.store.adjust_credit(self.user_id, 200, type="recharge", reason="测试充值")
+        video = self._job("fake-video-mode")
+        image = self._job("grs-fake-image")
+        self._consume(video["id"], 30)
+        self._consume(image["id"], 30)
+        self._refund(image["id"], 12)
+        stats = self.store.canvas_project_credit_stats(self.user_id, [video["id"], image["id"], "missing-job"])
+        self.assertEqual(stats["total_credits"], 48)
+        self.assertEqual(stats["task_count"], 2)
+        self.assertEqual(
+            [(group["type"], group["label"], group["task_count"], group["credits"]) for group in stats["groups"]],
+            [("video", "视频生成", 1, 30), ("image", "图片生成", 1, 18)],
+        )
+        self.assertEqual(stats["groups"][0]["ratio"], 0.625)
+        self.assertEqual(stats["groups"][1]["ratio"], 0.375)
+
+    def test_fully_refunded_jobs_and_foreign_jobs_are_excluded(self) -> None:
+        self.store.adjust_credit(self.user_id, 200, type="recharge", reason="测试充值")
+        refunded = self._job("fake-video-mode")
+        self._consume(refunded["id"], 20)
+        self._refund(refunded["id"], 20)
+        other = self.store.create(
+            f"job-{uuid.uuid4().hex[:12]}", "fake-video-mode", "他人任务", "", None, [], owner_user_id="user_other",
+        )
+        stats = self.store.canvas_project_credit_stats(self.user_id, [refunded["id"], other["id"]])
+        self.assertEqual(stats, {"total_credits": 0, "task_count": 0, "groups": []})
+
+    def test_empty_or_blank_job_ids_return_zeros(self) -> None:
+        self.assertEqual(
+            self.store.canvas_project_credit_stats(self.user_id, []),
+            {"total_credits": 0, "task_count": 0, "groups": []},
+        )
+        self.assertEqual(
+            self.store.canvas_project_credit_stats(self.user_id, ["", "  "]),
+            {"total_credits": 0, "task_count": 0, "groups": []},
+        )
+
+    def test_enterprise_wallet_transactions_are_included(self) -> None:
+        enterprise_job = self._job("fake-video-mode")
+        timestamp = "2026-11-22T00:00:00+00:00"
+        with self.store.connection() as connection:
+            connection.execute(
+                """INSERT INTO enterprise_credit_transactions
+                (enterprise_id, user_id, delta, type, reason, ref_type, ref_id, balance_after, created_at)
+                VALUES ('ent-demo', ?, -25, 'consume', '企业预扣', 'job', ?, 75, ?)""",
+                (self.user_id, enterprise_job["id"], timestamp),
+            )
+        stats = self.store.canvas_project_credit_stats(self.user_id, [enterprise_job["id"]])
+        self.assertEqual(stats["total_credits"], 25)
+        self.assertEqual(stats["task_count"], 1)
+        self.assertEqual(stats["groups"][0]["type"], "video")

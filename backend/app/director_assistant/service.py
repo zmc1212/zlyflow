@@ -84,9 +84,10 @@ class AssistantCancelled(Exception):
 
 
 class AssistantService:
-    def __init__(self, store: Any, llm_provider: Any, uploads_dir: Path, vlm_provider: Any = None):
+    def __init__(self, store: Any, llm_provider: Any, uploads_dir: Path, vlm_provider: Any = None, credits: Any = None):
         self.repo = AssistantRepository(store)
         self.llm = llm_provider
+        self.credits = credits
         self.resources = ResourceService(self.repo)
         self.knowledge = KnowledgeService(self.repo, uploads_dir)
         self.actions = ProjectActions(self.repo)
@@ -282,12 +283,40 @@ class AssistantService:
             raise AssistantCancelled()
 
     def _finish(self, owner: str, run_id: str, parts: list, status: str, *, question=None, error=None, usage=None, search=None):
+        # 计费口径：按轮扣积分，同时把本轮的 tokens、模型与上游成本写进流水和消息。
+        model_id = None
+        billing_meta = None
+        if self.credits is not None:
+            try:
+                model_id = (self.repo.get(owner, run_id, "run").get("selections") or {}).get("model_id")
+            except Exception:
+                model_id = None
+            try:
+                billing_meta = self.credits.call_usage_meta(
+                    "llm", "assistant_chat", usage=usage, model=model_id,
+                )
+            except Exception:
+                logger.warning("assistant usage preview failed for run %s", run_id, exc_info=True)
         if isinstance(usage, dict) and usage.get("total_tokens"):
-            parts.append({"type": "usage", "usage": usage})
+            detail = dict(usage)
+            if billing_meta:
+                for key in ("cost_cny", "cost_basis", "unit_credits"):
+                    if billing_meta.get(key) is not None:
+                        detail[key] = billing_meta[key]
+            parts.append({"type": "usage", "usage": detail})
         if status == "succeeded" and search:
             unique = list({item["url"]: item for item in search if item.get("url")}.values())[:8]
             if unique:
                 parts.append({"type": "web_search", "results": unique})
+        if status == "succeeded" and self.credits is not None:
+            # 积分按轮计费：对话成功完成后扣 llm:assistant_chat（失败/取消不计费）。
+            try:
+                self.credits.consume_call(
+                    owner, "llm", "assistant_chat", ref_type="assistant_run", ref_id=run_id,
+                    usage=usage, model=model_id,
+                )
+            except Exception:
+                logger.warning("assistant credit billing failed for run %s", run_id, exc_info=True)
         with self.repo.transaction() as conn:
             run = self.repo.get(owner, run_id, "run", conn=conn, lock=True)
             if run["status"] in TERMINAL:

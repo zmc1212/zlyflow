@@ -25,6 +25,7 @@ import {
 import { generateJobPath } from "../paths"
 import { createLocalId } from "../lib/utils"
 import { promptAutoSize } from "../prompt-autosize"
+import { isSubmitEnter } from "../lib/enter-submit"
 import MotionRefVideoReferences from "../generation/MotionRefVideoReferences"
 import MotionTransferReferences from "../generation/MotionTransferReferences"
 import AssetPickerModal from "./AssetPickerModal"
@@ -480,6 +481,12 @@ export default function MotionTransferTool({
                 : "可补充角色的外观、服装与表演特点；留空自动跟随原片动作与表情。"}
               autoSize={promptAutoSize(4)}
               maxLength={1500}
+              onKeyDown={(event) => {
+                // 回车开始生成；与「开始生成」按钮同一可用条件。
+                if (!isSubmitEnter(event)) return
+                event.preventDefault()
+                if (ready) void submit()
+              }}
             />
           </div>
 

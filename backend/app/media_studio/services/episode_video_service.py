@@ -21,7 +21,15 @@ from .comfy_service import ComfyService
 from .comfy_video_client import ComfyVideoClient
 from .episode_image_prompts import resolve_scene_asset, scene_master_url
 from .h3_prompt_builder import H3PromptBuilder
-from .job_lease import converge_orphaned_jobs, start_heartbeat, worker_id
+from .job_lease import (
+    converge_orphaned_jobs,
+    lease_stale_for,
+    orphaned_jobs,
+    start_heartbeat,
+    worker_id,
+    worker_owned_by_this_host,
+    worker_process_alive,
+)
 from .project_detail_service import ProjectDetailService
 from .qiniu_service import QiniuService
 from .timeline_rendering import (
@@ -32,18 +40,24 @@ from .timeline_rendering import (
     plan_timeline_chunks,
     uses_director_timeline,
 )
+from ...config import settings as workbench_settings
+from ...cloud_video_service import CloudVideoService
+from ...credit_service import CreditService
 from ...gpu_runtime import occupy_gpu
 from ...minimax_h3_refine_workflow import (
     build_refine_nodes,
     continuation_workflow,
     numeric_aspect_ratio,
 )
+from ...storage import JobStore
 from ...workflow_registry import (
     H3_STANDARD_OPTION_SCHEMA,
     H3_REFINE_OPTION_NAMES,
+    cloud_model_for,
     coerce_bool_option,
     h3_dimensions,
     is_avatar_workflow,
+    is_cloud_video_workflow,
     normalize_options,
     refine_upscale_method_value,
     workflow_for,
@@ -236,6 +250,11 @@ class EpisodeVideoService:
         "sampler": "res_multistep",
         "scheduler": "simple",
     }
+    # 云端视频（GRS / MiniMax 官方 / 超算 等）逐镜执行的统一约束：官方按秒计费，时长取整秒。
+    CLOUD_SHOT_MIN_SECONDS = 4
+    CLOUD_SHOT_MAX_SECONDS = 15
+    CLOUD_SHOT_MAX_REFERENCES = 9
+    CLOUD_SHOT_REFERENCE_TIMEOUT = (15.0, 90.0)
     JOB_CONTROL_KEYS = {
         "workflow", "workflow_id", "duration_per_beat", "render_pass", "render_scope",
         "render_mode", "beat_ids", "force", "prompt_mode",
@@ -1070,6 +1089,20 @@ class EpisodeVideoService:
         if render_scope == "episode":
             cls._apply_render_scope_settings(settings, render_scope)
 
+        if is_cloud_video_workflow(workflow_id):
+            # 云端视频按秒计费、一次出一支片，只做逐镜/选中镜头；整集直出仍由本地 H3 负责。
+            return cls._create_cloud_shot_job(
+                project_id,
+                episode_id,
+                workflow_id=workflow_id,
+                settings=settings,
+                options=options or {},
+                selected_ids=selected_ids,
+                render_scope=render_scope,
+                prompt_mode=prompt_mode,
+                model_name=model_name,
+            )
+
         llm = H3PromptBuilder.ensure_available()
         comfy_config = ComfyService.get_config()
         comfy = ComfyVideoClient(comfy_config.base_url)
@@ -1167,8 +1200,366 @@ class EpisodeVideoService:
         }
 
     @classmethod
-    def create_compose_job(
+    def _create_cloud_shot_job(
         cls,
+        project_id: str,
+        episode_id: str,
+        *,
+        workflow_id: str,
+        settings: dict[str, Any],
+        options: dict[str, Any],
+        selected_ids: list[str],
+        render_scope: str,
+        prompt_mode: str,
+        model_name: str,
+    ) -> dict[str, Any]:
+        """云端视频逐镜任务：一次任务只出选中镜头的成片，产物按镜回写 take。
+
+        与本地 H3 的差别只在执行器：这里预先校验参考图、把分镜时长取整夹到厂商允许区间，
+        并按「档位 × 分辨率 × 秒数」预扣积分；失败在 `_run_cloud_job` 内全额退回。
+        """
+        if render_scope not in {"shot", "selection"} or not selected_ids:
+            raise ValueError(
+                "云端视频模型按次计费、一次只出一支片，仅支持「生成本镜」或选中镜头批量生成；"
+                "整集直出请改用本地 H3 工作流。",
+            )
+        definition = workflow_for(workflow_id)
+        cls._assert_can_enqueue(
+            project_id,
+            episode_id,
+            render_scope,
+            beat_id=selected_ids[0] if len(selected_ids) == 1 else None,
+            beat_ids=selected_ids,
+        )
+        detail = ProjectDetailService.get_episode_detail(project_id, episode_id)
+        assets = ProjectDetailService.list_assets(project_id)
+        shots = cls._prepare_shots(detail, assets, beat_ids=selected_ids)
+
+        model = str(settings.get("model") or definition.cloud_model or "")
+        min_seconds = 5 if model == "MiniMax-H3-Max" else cls.CLOUD_SHOT_MIN_SECONDS
+        reference_limit = min(
+            int(definition.max_references or cls.CLOUD_SHOT_MAX_REFERENCES),
+            cls.CLOUD_SHOT_MAX_REFERENCES,
+        )
+        prepared: list[dict[str, Any]] = []
+        for shot in shots:
+            sequence = shot.get("sequence")
+            references = [
+                str(url).strip() for url in (shot.get("reference_urls") or [])
+                if str(url).strip().startswith(("http://", "https://"))
+            ]
+            if not references:
+                raise ValueError(
+                    f"镜 {sequence} 缺少可用的角色/场景参考图：云端参考生视频至少需要 1 张参考图。",
+                )
+            if len(references) > reference_limit:
+                # 官方单次最多 9 张参考图：按角色在前、场景在后的既有顺序截断，避免静默丢主体。
+                references = references[:reference_limit]
+            requested_seconds = float(shot.get("duration_sec") or 5)
+            duration = max(min_seconds, min(cls.CLOUD_SHOT_MAX_SECONDS, int(round(requested_seconds))))
+            prepared.append({
+                **shot,
+                "reference_urls": references,
+                "cloud_duration": duration,
+                "cloud_duration_requested": requested_seconds,
+            })
+
+        cloud_base_options = {
+            key: value for key, value in settings.items()
+            if key in {"model", "resolution", "aspect_ratio", "generate_audio"}
+            and value not in (None, "")
+        }
+        cloud_base_options.setdefault("model", model)
+        total_seconds = sum(int(shot["cloud_duration"]) for shot in prepared)
+
+        jid = f"job-{uuid.uuid4().hex[:12]}"
+        timestamp = now_str()
+        owner_row = query_one("SELECT owner_user_id FROM ai_projects WHERE id = %s", (project_id,)) or {}
+        owner_user_id = str(owner_row.get("owner_user_id") or "")
+        credits = CreditService(JobStore(workbench_settings.runtime_database()))
+        billed = credits.bill_job(
+            owner_user_id,
+            workflow_id,
+            {**cloud_base_options, "duration": total_seconds},
+            job_id=jid,
+            reference_counts=[len(shot.get("reference_urls") or []) for shot in prepared],
+        )
+
+        sequence_label = "、".join(str(shot.get("sequence") or "") for shot in prepared)
+        scope_label_text = (
+            f"Beat {prepared[0].get('sequence')}" if render_scope == "shot"
+            else f"选中 {len(prepared)} 镜（Beat {sequence_label}）"
+        )
+        payload = {
+            **settings,
+            **cloud_base_options,
+            "model": model_name,
+            "model_tier": model,
+            "target_type": "shot_video",
+            "render_scope": render_scope,
+            "render_mode": "shot",
+            "render_pass": str(options.get("render_pass") or "final"),
+            "prompt_mode": prompt_mode,
+            "workflow_id": workflow_id,
+            "cloud_provider": definition.cloud_provider or "",
+            "cloud_total_seconds": total_seconds,
+            "cloud_base_options": cloud_base_options,
+            "billing": {
+                "user_id": owner_user_id,
+                "credits": int(billed.get("total") or 0),
+                "wallet_enterprise_id": billed.get("wallet_enterprise_id"),
+                "price_key": billed.get("price_key"),
+            },
+            "project_id": project_id,
+            "episode_id": episode_id,
+            "beat_id": selected_ids[0] if selected_ids else "",
+            "beat_ids": selected_ids,
+            "episode_number": detail.get("number"),
+            "episode_title": detail.get("title") or "",
+            "shot_count": len(prepared),
+            "total_frames": sum(int(shot.get("frame_count") or 0) for shot in prepared),
+            "total_duration_seconds": float(total_seconds),
+            "source_shots": prepared,
+            "shots": [],
+            "render_plan": {"status": "queued", "chunks": [], "assembly": None},
+        }
+        try:
+            execute_sql(
+                """
+                INSERT INTO ai_project_jobs
+                (id, project_id, job_type, title, status, progress, result_url, payload_json,
+                 created_at, updated_at, worker_id, lease_updated_at, episode_id)
+                VALUES (%s, %s, 'video_generation', %s, 'queued', 0, NULL, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    jid,
+                    project_id,
+                    f"云端生成{scope_label_text}视频：第 {detail.get('number')} 集 {detail.get('title') or ''}",
+                    json.dumps(payload, ensure_ascii=False),
+                    timestamp,
+                    timestamp,
+                    worker_id(),
+                    timestamp,
+                    episode_id,
+                ),
+            )
+        except Exception:
+            cls._refund_cloud_job(payload["billing"], jid)
+            raise
+        cls._submit_job(jid)
+        return {
+            "job_id": jid,
+            "status": "queued",
+            "render_scope": render_scope,
+            "render_mode": "shot",
+            "shot_count": len(prepared),
+            "credits": int(billed.get("total") or 0),
+        }
+
+    @staticmethod
+    def _merge_resumed_cloud_shots(
+        shots: list[dict[str, Any]], stored: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """恢复任务：按 beat_id（缺失时按顺序）取回已提交镜头的远端 ID、成片与提示词。"""
+        by_beat = {
+            str(item.get("beat_id") or ""): item
+            for item in stored
+            if str(item.get("beat_id") or "").strip()
+        }
+        merged: list[dict[str, Any]] = []
+        for index, shot in enumerate(shots):
+            saved = by_beat.get(str(shot.get("beat_id") or "").strip())
+            if saved is None and index < len(stored):
+                saved = stored[index]
+            saved = saved or {}
+            item = {**shot, "prompt": str(saved.get("prompt") or "")}
+            for field in ("remote_task_id", "video_url"):
+                value = str(saved.get(field) or "").strip()
+                if value:
+                    item[field] = value
+            merged.append(item)
+        return merged
+
+    @classmethod
+    def _run_cloud_job(cls, job_id: str, payload: dict[str, Any]) -> None:
+        """云端逐镜执行：生成提示词 → 逐镜提交厂商 → 轮询 → 落七牛 → 回写镜头 take。"""
+        workflow_id = str(payload.get("workflow_id") or "")
+        definition = workflow_for(workflow_id)
+        provider_key = definition.cloud_provider or ""
+        billing = payload.get("billing") if isinstance(payload.get("billing"), dict) else {}
+        service: CloudVideoService | None = None
+        try:
+            service = CloudVideoService.instance()
+            available, reason = service.availability(provider_key)
+            if not available:
+                raise ValueError(reason or "云端视频服务不可用，请先在管理设置中启用并配置密钥")
+            if service.resource_storage is None:
+                raise ValueError("服务器未初始化资源存储，无法保存云端成片")
+
+            shots = [dict(shot) for shot in (payload.get("source_shots") or [])]
+            if not shots:
+                raise ValueError("任务里没有待生成的镜头")
+            stored_shots = [
+                dict(item) for item in (payload.get("shots") or []) if isinstance(item, dict)
+            ]
+            resuming = any(
+                str(item.get("remote_task_id") or "").strip()
+                or str(item.get("video_url") or "").strip()
+                for item in stored_shots
+            )
+            if resuming:
+                # 进程重启/实例接管：沿用任务里已提交的远端 ID 与提示词，绝不重复提交付费任务。
+                generated = cls._merge_resumed_cloud_shots(shots, stored_shots)
+                if any(not str(shot.get("prompt") or "").strip() for shot in generated):
+                    prompts = cls._prepare_job_prompts(job_id, payload)
+                    for shot, prompt in zip(generated, prompts):
+                        if not str(shot.get("prompt") or "").strip():
+                            shot["prompt"] = prompt
+            else:
+                prompts = cls._prepare_job_prompts(job_id, payload)
+                generated = [{**shot, "prompt": prompt} for shot, prompt in zip(shots, prompts)]
+            payload["shots"] = generated
+
+            base_options = dict(payload.get("cloud_base_options") or {})
+            total = max(1, len(generated))
+            with tempfile.TemporaryDirectory(prefix=f"zly-cloud-{job_id}-") as directory:
+                root = Path(directory)
+                for index, shot in enumerate(generated, start=1):
+                    remote_task_id = str(shot.get("remote_task_id") or "").strip()
+                    if str(shot.get("video_url") or "").strip():
+                        # 恢复任务时该镜已下载落库，只需保留结果继续回写。
+                        cls._set_state(job_id, payload, "running", 20 + int(index * 65 / total))
+                        continue
+                    if remote_task_id:
+                        payload["preparation"] = {
+                            "stage": "cloud_poll",
+                            "beat_id": shot.get("beat_id"),
+                            "message": f"正在恢复查询第 {shot.get('sequence')} 镜的云端结果（{index}/{total}）",
+                        }
+                        cls._set_state(job_id, payload, "running", 20 + int((index - 1) * 65 / total))
+                    else:
+                        cls._set_state(job_id, payload, "uploading", 20 + int((index - 1) * 65 / total))
+                        payload["preparation"] = {
+                            "stage": "cloud_submit",
+                            "beat_id": shot.get("beat_id"),
+                            "message": f"正在提交第 {shot.get('sequence')} 镜到云端（{index}/{total}）",
+                        }
+                        reference_paths = cls._download_cloud_references(shot, root, index)
+                        shot_options = {
+                            **base_options,
+                            "duration": int(shot.get("cloud_duration") or cls.CLOUD_SHOT_MIN_SECONDS),
+                        }
+                        remote_task_id = service.submit_generation(
+                            provider_key,
+                            model=cloud_model_for(workflow_id, shot_options) or definition.cloud_model or "",
+                            prompt=str(shot.get("prompt") or ""),
+                            references=reference_paths,
+                            options=shot_options,
+                            client_ref=f"{job_id}:{shot.get('beat_id') or index}",
+                        )
+                        shot["remote_task_id"] = remote_task_id
+                        payload["preparation"] = {
+                            "stage": "cloud_poll",
+                            "beat_id": shot.get("beat_id"),
+                            "message": f"云端已接单，正在生成第 {shot.get('sequence')} 镜（{index}/{total}）",
+                        }
+                        cls._set_state(job_id, payload, "running", 20 + int((index - 0.5) * 65 / total))
+
+                    def on_progress(snapshot: Any, *, _index: int = index) -> None:
+                        payload["remote_status"] = getattr(snapshot, "remote_status", "") or ""
+                        cls._set_state(job_id, payload, "running", 20 + int((_index - 0.5) * 65 / total))
+
+                    snapshot = service.wait_for_task(
+                        provider_key, remote_task_id, on_progress=on_progress,
+                    )
+                    # 只使用前端已认识的任务状态（preparing/uploading/running/completed），
+                    # 落盘与回写期间仍保持 running，避免任务中心出现未翻译的英文状态。
+                    cls._set_state(job_id, payload, "running", 20 + int(index * 65 / total))
+                    output = service.download_and_store(
+                        snapshot.video_urls,
+                        prefix=f"cloud_video/{provider_key}",
+                        filename=f"{provider_key}_{shot.get('beat_id') or index}_{remote_task_id}.mp4",
+                    )
+                    video_url = str(output.get("cloud_url") or "")
+                    if not video_url:
+                        raise ValueError("云端成片已下载，但资源存储未返回可播放地址")
+                    shot["video_url"] = video_url
+                    payload["shot_video_urls"] = [
+                        str(item.get("video_url") or "") for item in generated if item.get("video_url")
+                    ]
+
+            first_url = next((str(shot.get("video_url") or "") for shot in generated if shot.get("video_url")), "")
+            if not first_url:
+                raise ValueError("云端任务完成但没有可回写的成片地址")
+            cls._set_state(job_id, payload, "running", 90)
+            payload["render_plan"] = payload.get("render_plan") or {}
+            payload["render_plan"]["status"] = "succeeded"
+            payload["render_plan"]["mode"] = "cloud_shot"
+            payload["render_plan"]["total_duration"] = payload.get("total_duration_seconds")
+            payload["result_kind"] = "shot_video"
+            try:
+                cls._write_selected_beat_videos(payload, generated, first_url, job_id=job_id)
+            except Exception as beat_update_error:  # noqa: BLE001 — 回写失败不吞掉成片
+                payload["beat_update_warning"] = str(beat_update_error)
+            timestamp = now_str()
+            execute_sql(
+                """
+                UPDATE ai_project_jobs SET status = 'completed', progress = 100, result_url = %s,
+                  payload_json = %s, error_message = NULL, completed_at = %s, updated_at = %s
+                WHERE id = %s
+                """,
+                (first_url, json.dumps(payload, ensure_ascii=False), timestamp, timestamp, job_id),
+            )
+        except Exception as error:
+            cls._refund_cloud_job(billing, job_id)
+            payload["preparation"] = {"stage": "failed", "message": str(error)[:500]}
+            payload["render_plan"] = payload.get("render_plan") or {}
+            payload["render_plan"]["status"] = "failed"
+            timestamp = now_str()
+            execute_sql(
+                """
+                UPDATE ai_project_jobs SET status = 'failed', progress = 0, error_message = %s,
+                  payload_json = %s, updated_at = %s WHERE id = %s
+                """,
+                (str(error)[:4000], json.dumps(payload, ensure_ascii=False), timestamp, job_id),
+            )
+            raise
+
+    @classmethod
+    def _download_cloud_references(
+        cls, shot: dict[str, Any], root: Path, index: int,
+    ) -> list[Path]:
+        """把镜头参考图（角色造型 + 场景）落到临时目录：云端适配器按本地文件转 data URI 上传。"""
+        paths: list[Path] = []
+        for ref_index, url in enumerate(shot.get("reference_urls") or [], start=1):
+            suffix = PurePosixPath(urlparse(str(url)).path).suffix or ".png"
+            target = root / f"shot-{index}-picture-{ref_index}{suffix}"
+            response = requests.get(str(url), timeout=cls.CLOUD_SHOT_REFERENCE_TIMEOUT)
+            response.raise_for_status()
+            if not response.content:
+                raise ValueError(f"镜 {shot.get('sequence')} 的参考图 {ref_index} 下载为空")
+            target.write_bytes(response.content)
+            paths.append(target)
+        return paths
+
+    @staticmethod
+    def _refund_cloud_job(billing: dict[str, Any], job_id: str) -> None:
+        """云端逐镜任务失败：全额退回预扣积分（本地任务不计费，天然跳过）。"""
+        user_id = str(billing.get("user_id") or "").strip()
+        credits = int(billing.get("credits") or 0)
+        if not user_id or credits <= 0:
+            return
+        try:
+            CreditService(JobStore(workbench_settings.runtime_database())).refund_deduction(
+                user_id, credits, job_id=job_id, reason="云端视频任务失败，积分全额退回",
+                wallet_enterprise_id=billing.get("wallet_enterprise_id"), price_key=billing.get("price_key"),
+            )
+            billing["refunded"] = True
+        except Exception:  # noqa: BLE001 — 退款失败只记录，不掩盖原始失败原因
+            billing["refunded"] = False
+
+    @classmethod
+    def create_compose_job(        cls,
         project_id: str,
         episode_id: str,
         options: dict[str, Any] | None = None,
@@ -1841,6 +2232,7 @@ class EpisodeVideoService:
             "shots", "llm_attempts", "prompt_generation_progress", "timeline", "workflow_request",
             "prompt_id", "client_id", "queue_number", "node_errors", "comfy_output",
             "director_report", "storage_warning", "failure_stage", "comfy_submission_count",
+            "cloud_resume",
         ):
             payload.pop(key, None)
         payload["shots"] = []
@@ -1950,8 +2342,90 @@ class EpisodeVideoService:
 
     @classmethod
     def recover_orphaned_jobs(cls) -> None:
-        """只收敛认领进程已经停止心跳的出片任务；别的实例正在渲染的行留给它自己续租。"""
-        converge_orphaned_jobs("video_generation", _HEARTBEATED_VIDEO_STATUSES)
+        """可续跑的云端任务先接管续跑，其余只收敛认领进程已经停止心跳的出片任务。"""
+        cls._resume_orphaned_cloud_jobs()
+        converge_orphaned_jobs(
+            "video_generation", _HEARTBEATED_VIDEO_STATUSES, reclaim=cls._reclaim_stale_cloud_job,
+        )
+
+    @classmethod
+    def _resume_orphaned_cloud_jobs(cls) -> int:
+        """同机旧进程退出后立即接管云端任务：远端任务已提交，重跑会重复计费。"""
+        resumed = 0
+        for row in orphaned_jobs("video_generation", _HEARTBEATED_VIDEO_STATUSES):
+            owner = str(row.get("worker_id") or "").strip()
+            if not owner or owner == worker_id() or not worker_owned_by_this_host(owner):
+                continue
+            alive = worker_process_alive(owner)
+            if alive is True and not lease_stale_for(row, 60):
+                # PID 可能被系统复用；心跳仍新鲜才说明原实例确实还在跑。
+                continue
+            if alive is None and not lease_stale_for(row, 60):
+                continue
+            if cls._claim_cloud_job_for_resume(row):
+                resumed += 1
+        return resumed
+
+    @classmethod
+    def _reclaim_stale_cloud_job(cls, row: dict[str, Any]) -> bool:
+        owner = str(row.get("worker_id") or "").strip()
+        if owner and owner == worker_id():
+            return False
+        return cls._claim_cloud_job_for_resume(row)
+
+    @staticmethod
+    def _cloud_payload_resumable(payload: dict[str, Any]) -> bool:
+        if not is_cloud_video_workflow(str(payload.get("workflow_id") or "")):
+            return False
+        if str(payload.get("render_scope") or "") not in _SHOT_TAKE_SCOPES:
+            return False
+        shots = payload.get("shots")
+        if not isinstance(shots, list):
+            return False
+        return any(
+            isinstance(shot, dict)
+            and (str(shot.get("remote_task_id") or "").strip() or str(shot.get("video_url") or "").strip())
+            for shot in shots
+        )
+
+    @classmethod
+    def _claim_cloud_job_for_resume(cls, row: dict[str, Any]) -> bool:
+        """原子接管孤儿任务并重新入队；只接管已持久化远端 ID/成片的云端任务。"""
+        payload = cls._job_payload(row)
+        if not cls._cloud_payload_resumable(payload):
+            return False
+        owner = str(row.get("worker_id") or "").strip()
+        timestamp = now_str()
+        payload["cloud_resume"] = {
+            "requested_at": timestamp,
+            "previous_worker_id": owner,
+        }
+        payload["runtime_stage"] = "queued"
+        payload["preparation"] = {
+            "stage": "cloud_poll",
+            "message": "检测到云端任务已提交，正在恢复查询远端结果",
+        }
+        updated = execute_sql(
+            """
+            UPDATE ai_project_jobs SET status = 'queued', progress = 0, error_message = NULL,
+              completed_at = NULL, payload_json = %s, updated_at = %s,
+              worker_id = %s, lease_updated_at = %s
+            WHERE id = %s AND status = %s AND worker_id = %s
+            """,
+            (
+                json.dumps(payload, ensure_ascii=False),
+                timestamp,
+                worker_id(),
+                timestamp,
+                row["id"],
+                row["status"],
+                owner,
+            ),
+        )
+        if not updated:
+            return False
+        cls._submit_job(str(row["id"]))
+        return True
 
     @classmethod
     def _prepare_shots(
@@ -2325,6 +2799,10 @@ class EpisodeVideoService:
                 return
             cls._set_state(job_id, payload, "preparing", 10)
             requested_workflow = payload.get("workflow_id") or cls.DEFAULTS["workflow"]
+            if is_cloud_video_workflow(requested_workflow):
+                # 云端视频走厂商异步 API（提交 → 轮询 → 落七牛），不占用本地 GPU 与 ComfyUI 队列。
+                cls._run_cloud_job(job_id, payload)
+                return
             try:
                 definition = workflow_for(requested_workflow)
             except KeyError:

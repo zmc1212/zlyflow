@@ -65,6 +65,15 @@ class ProjectService:
 
     @classmethod
     def allows_user(cls, project_id: str, owner_user_id: str) -> bool:
+        # 无限画布「时间线」节点把剪辑工程挂在 `canvas:<画布id>` scope 下，
+        # ProjectAccessMiddleware 按画布归属放行（canvas_projects 与 ai_projects 同库）。
+        if str(project_id).startswith("canvas:"):
+            canvas_id = str(project_id)[len("canvas:"):]
+            row = query_one(
+                "SELECT owner_user_id FROM canvas_projects WHERE id = %s AND deleted_at IS NULL",
+                (canvas_id,),
+            )
+            return bool(row) and str(row.get("owner_user_id") or "") == str(owner_user_id)
         row = query_one("SELECT owner_user_id FROM ai_projects WHERE id = %s", (project_id,))
         if not row:
             return False
@@ -211,5 +220,8 @@ class ProjectService:
 
     @classmethod
     def delete_project(cls, project_id: str) -> bool:
+        # 画布时间线工程与旧外键级联：删除工程时显式清理剪辑文档，
+        # 使 fk_smart_edit_project 的 ON DELETE CASCADE 语义不再依赖外键本身。
+        execute_sql("DELETE FROM ai_smart_edit_documents WHERE project_id = %s", (project_id,))
         affected = execute_sql("DELETE FROM ai_projects WHERE id = %s", (project_id,))
         return affected > 0

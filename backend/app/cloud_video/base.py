@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import base64
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -25,6 +26,8 @@ CLOUD_VIDEO_BILLING_CAUTION = "云端视频模型按次计费，为避免重复�
 # 各厂商上传参考图/下载成片的最大字节数
 CLOUD_VIDEO_MAX_IMAGE_BYTES = 50 * 1024 * 1024
 CLOUD_VIDEO_MAX_VIDEO_BYTES = 1024 * 1024 * 1024
+# 单份参考音频/视频随请求内联 base64 的上限（本地 50 MB 上传上限内，base64 后再涨约 1/3）
+CLOUD_VIDEO_MAX_REFERENCE_MEDIA_BYTES = 50 * 1024 * 1024
 
 
 class CloudVideoError(RuntimeError):
@@ -150,10 +153,30 @@ CLOUD_VIDEO_PROVIDERS: dict[str, CloudVideoProviderSpec] = {
                 "需账号已开通 MiniMax-H3 / Seedance / HappyHorse 视频模型"
             ),
         ),
+        CloudVideoProviderSpec(
+            key="grs",
+            label="GRS 视频（MiniMax-H3 / Agnes 2.5 / Wan 3.0）",
+            default_base_url="https://grsai.dakka.com.cn",
+            requires_secret=False,
+            api_key_label="GRS API Key",
+            base_url_hint=(
+                "国内节点 https://grsai.dakka.com.cn，国际节点 https://grsaiapi.com；"
+                "一个 API Key 同时驱动 MiniMax-H3、Agnes 2.5 与 Wan 3.0，可与生图共用"
+            ),
+            supports_balance=True,
+        ),
+        CloudVideoProviderSpec(
+            key="minimax",
+            label="MiniMax 官方（H3）",
+            default_base_url="https://api.minimax.cn",
+            requires_secret=False,
+            api_key_label="API Key",
+            base_url_hint="官方国内平台 https://api.minimax.cn；API Key 在控制台 platform.minimax.cn「接口密钥」创建，需开通 H3 视频模型按量购买",
+        ),
     )
 }
 
-CLOUD_VIDEO_PROVIDER_ORDER: tuple[str, ...] = ("kling", "jimeng", "hailuo", "scnet")
+CLOUD_VIDEO_PROVIDER_ORDER: tuple[str, ...] = ("kling", "jimeng", "hailuo", "scnet", "grs", "minimax")
 
 
 def cloud_video_provider_keys() -> tuple[str, ...]:
@@ -197,6 +220,34 @@ def image_data_uri(path: Path) -> str:
         raise CloudVideoError(str(error)) from error
 
 
+_REFERENCE_MEDIA_MIME_BY_SUFFIX = {
+    ".mp3": "audio/mpeg", ".wav": "audio/wav", ".m4a": "audio/mp4", ".aac": "audio/aac",
+    ".flac": "audio/flac", ".ogg": "audio/ogg", ".opus": "audio/ogg", ".wma": "audio/x-ms-wma",
+    ".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm",
+    ".mkv": "video/x-matroska",
+}
+
+
+def reference_media_data_uri(path: Path, kind: str) -> str:
+    """参考音频/视频 → data URI（base64）；只看文件后缀判定 MIME，不依赖系统探测工具。"""
+    source = Path(path)
+    suffix = source.suffix.lower()
+    mime = _REFERENCE_MEDIA_MIME_BY_SUFFIX.get(suffix)
+    if not mime or not mime.startswith(f"{kind}/"):
+        raise CloudVideoError(f"不支持的参考{'音频' if kind == 'audio' else '视频'}格式: {source.name}")
+    try:
+        content = source.read_bytes()
+    except OSError as error:
+        raise CloudVideoError(f"参考素材无法读取: {source.name}") from error
+    if not content:
+        raise CloudVideoError(f"参考素材为空文件: {source.name}")
+    if len(content) > CLOUD_VIDEO_MAX_REFERENCE_MEDIA_BYTES:
+        limit = CLOUD_VIDEO_MAX_REFERENCE_MEDIA_BYTES // (1024 * 1024)
+        raise CloudVideoError(f"单份参考素材不能超过 {limit} MB: {source.name}")
+    encoded = base64.b64encode(content).decode("ascii")
+    return f"data:{mime};base64,{encoded}"
+
+
 def normalize_video_urls(raw_urls: list[str]) -> list[str]:
     return [str(url) for url in dict.fromkeys(url for url in raw_urls if url)]
 
@@ -213,6 +264,8 @@ class CloudVideoSubmitRequest:
         first_frame: Path | None = None,
         last_frame: Path | None = None,
         references: list[Path] | None = None,
+        audio_references: list[Path] | None = None,
+        video_references: list[Path] | None = None,
         options: dict[str, Any] | None = None,
         client_ref: str | None = None,
     ) -> None:
@@ -222,6 +275,8 @@ class CloudVideoSubmitRequest:
         self.first_frame = first_frame
         self.last_frame = last_frame
         self.references = list(references or [])
+        self.audio_references = list(audio_references or [])
+        self.video_references = list(video_references or [])
         self.options = dict(options or {})
         self.client_ref = client_ref
 
@@ -253,6 +308,7 @@ def monotonic_deadline(timeout_seconds: float) -> float:
 __all__ = [
     "CLOUD_VIDEO_BILLING_CAUTION",
     "CLOUD_VIDEO_MAX_IMAGE_BYTES",
+    "CLOUD_VIDEO_MAX_REFERENCE_MEDIA_BYTES",
     "CLOUD_VIDEO_MAX_VIDEO_BYTES",
     "CLOUD_VIDEO_PROVIDER_ORDER",
     "CLOUD_VIDEO_PROVIDERS",
@@ -271,5 +327,6 @@ __all__ = [
     "monotonic_deadline",
     "normalize_cloud_task_status",
     "normalize_video_urls",
+    "reference_media_data_uri",
     "with_cloud_video_billing_caution",
 ]

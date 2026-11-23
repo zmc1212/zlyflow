@@ -8,6 +8,9 @@ export type User = {
   is_active: boolean
   must_change_password: boolean
   email?: string | null
+  avatar_url?: string | null
+  enterprise_id?: string | null
+  enterprise_name?: string | null
   created_at: string
   updated_at: string
   last_login_at?: string | null
@@ -124,6 +127,8 @@ export async function requestJson<T>(path: string, init?: RequestInit): Promise<
     const text = await response.text().catch(() => "")
     throw new ApiRequestError(response.status, text.trim() || `请求失败（HTTP ${response.status}）`)
   }
+  // 204 No Content（如企业删除）：无响应体，直接返回 undefined。
+  if (response.status === 204) return undefined as T
   if (!(response.headers.get("content-type") ?? "").includes("application/json")) {
     throw new Error("服务端返回了非 JSON 响应，请确认工作台后端已启动")
   }

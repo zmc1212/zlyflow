@@ -12,6 +12,7 @@ import SmartEditPane from "./smart-edit/SmartEditPane"
 import { director2ProjectPath, director2HomePath, director2MenuEpisodeId, type Director2Route } from "./paths"
 import { useDirectorAssistant } from "./assistant/DirectorAssistant"
 import { MediaPreviewProvider } from "./media-preview"
+import { leaveCanvasEditor } from "../canvas/canvas-window"
 import SkillPackPickerModal from "./SkillPackPickerModal"
 import { packIdFromSelectValue, projectBoundSkillPackId } from "./skill-pack"
 import { projectStageAccess, rememberProjectPosition, type ProjectMenu } from "./project-flow"
@@ -28,7 +29,7 @@ const STAGES = [
 
 const WorkbenchPane = lazy(() => import("./panes/WorkbenchPane"))
 
-export default function ProjectFlowShell({ csrfToken, route }: { csrfToken: string; route: Extract<Director2Route, { kind: "project" }> }) {
+export default function ProjectFlowShell({ csrfToken, route, canvasWindow = false }: { csrfToken: string; route: Extract<Director2Route, { kind: "project" }>; canvasWindow?: boolean }) {
   const navigate = useNavigate()
   const location = useLocation()
   const projectId = route.projectId
@@ -121,14 +122,14 @@ export default function ProjectFlowShell({ csrfToken, route }: { csrfToken: stri
     { type: "divider" as const },
     { key: "settings", label: "项目设置", icon: <Settings2 size={15}/>, onClick: () => setSettingsOpen(true) },
   ]
-  return <MediaPreviewProvider><div className={`project-detail-layout project-flow-layout${activeMenu === "workshop" ? " is-workshop-focus" : ""}${activeMenu === "edit" ? " has-smart-edit" : ""}`}>
+  return <MediaPreviewProvider><div className={`project-detail-layout project-flow-layout${canvasWindow ? " is-canvas-window" : ""}${activeMenu === "workshop" ? " is-workshop-focus" : ""}${activeMenu === "edit" ? " has-smart-edit" : ""}`}>
     <aside className="project-stage-rail" aria-label="项目阶段导航"><Tooltip title="返回我的短剧" placement="right"><Button type="text" aria-label="返回我的短剧" icon={<ArrowLeft size={19}/>} onClick={() => navigate(director2HomePath())}/></Tooltip><nav aria-label="创作阶段">{STAGES.map(({ key, label, Icon }) => <Tooltip key={key} placement="right" title={flow.data && !access[key] ? key === "assets" ? "先准备剧本正文" : "先拆解制作资产，也可在资产库继续" : label}><span><Button type="text" aria-label={label} aria-current={activeMenu === key ? "step" : undefined} className={activeMenu === key ? "is-selected" : ""} disabled={!!flow.data && !access[key]} onClick={() => navigateMenu(key)}><Icon size={19}/><span>{label}</span></Button></span></Tooltip>)}</nav><Dropdown trigger={["click"]} menu={{ items: tools }}><Button type="text" className="project-stage-tools" aria-label="任务与项目工具" icon={<Settings2 size={19}/>}/></Dropdown></aside>
     <div className="project-flow-body">
       {activeMenu !== "workshop" && <header className="project-flow-header"><div><span className="project-flow-name" title={project?.name}>{project?.name || "正在加载短剧…"}</span><Button type="text" size="small" aria-label="编辑基本信息" icon={<Pencil size={13}/>} disabled={!project} onClick={editProjectInfo}/></div><div><Dropdown trigger={["click"]} menu={{ items: tools }}><Button type="text" aria-label="项目更多操作" icon={<MoreHorizontal size={17}/>} /></Dropdown><Button type={assistant.open ? "default" : "text"} icon={<Sparkles size={14}/>} aria-pressed={assistant.open} onClick={() => assistant.setOpen(!assistant.open)}>智能助手</Button></div></header>}
       {flow.error && <Alert type="error" showIcon title="阶段状态加载失败" action={<Button size="small" onClick={() => void flow.refetch()}>重试</Button>}/>}
       <section className={`project-content-pane${activeMenu === "content" ? " is-script-workspace" : ""}${isWorkshopDetail ? " is-workshop-detail" : ""}${activeMenu === "workshop" && !isWorkshopDetail ? " is-workshop-overview" : ""}${activeMenu === "workbench" ? " is-workbench" : ""}${activeMenu === "edit" ? " is-smart-edit" : ""}`}>
         {activeMenu === "content" && <ScriptWorkspace csrfToken={csrfToken} projectId={projectId} onChanged={changed}/>}
-        {activeMenu === "assets" && <AssetsLibraryPane ref={assetsPaneRef} csrfToken={csrfToken} projectId={projectId} projectName={project?.name} onChanged={changed} onBack={() => navigateMenu("content")} onContinue={continueToWorkshop}/>}
+        {activeMenu === "assets" && <AssetsLibraryPane ref={assetsPaneRef} csrfToken={csrfToken} projectId={projectId} projectName={project?.name} onChanged={changed} onBack={() => navigateMenu("content")} onContinue={continueToWorkshop} initialCanvasView={canvasWindow} onShowList={canvasWindow ? () => leaveCanvasEditor(window, () => navigate(director2ProjectPath(projectId, "assets"))) : undefined}/>}
         {activeMenu === "workshop" && <div className="d2-workshop-host"><EpisodeWorkshopPane ref={workshopPaneRef} csrfToken={csrfToken} projectId={projectId} episodeId={route.episodeId} onDetailModeChange={setInWorkshopDetail} projectName={project?.name} projectControls={<><Button block type="text" icon={<Pencil size={14}/>} onClick={editProjectInfo}>编辑基本信息</Button><Button block type="text" icon={<Settings2 size={14}/>} onClick={() => setSettingsOpen(true)}>制作配方与设置</Button><Button block type="text" onClick={() => navigateMenu("jobs")}>全部任务</Button></>}/></div>}
         {activeMenu === "workbench" && <Suspense fallback={<div className="wb-pane"><div className="wb-loading"><Skeleton active paragraph={{ rows: 5 }}/></div></div>}><WorkbenchPane csrfToken={csrfToken} projectId={projectId} episodeId={route.episodeId}/></Suspense>}
         {activeMenu === "jobs" && <JobsCenterPane csrfToken={csrfToken} projectId={projectId}/>}

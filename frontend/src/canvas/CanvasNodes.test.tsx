@@ -2,17 +2,19 @@ import type { NodeProps } from "@xyflow/react"
 import type { ReactNode } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
-import { CanvasGeneratorContext, GeneratorCanvasNode, VideoCanvasNode, type CanvasGeneratorContextValue } from "./CanvasNodes"
+import { CanvasGeneratorComposer } from "./CanvasGeneratorComposer"
+import { CanvasGeneratorContext, CanvasNodeActionsContext, GeneratorCanvasNode, TextCanvasNode, VideoCanvasNode, type CanvasGeneratorContextValue } from "./CanvasNodes"
 import type { CanvasGeneratorLive, CanvasWorkflowMode } from "./canvas-generation"
-import { createGeneratorNode, createVideoNode, type CanvasNode } from "./canvas-model"
+import { createGeneratorNode, createTextNode, createVideoNode, type CanvasNode } from "./canvas-model"
 
 vi.mock("@xyflow/react", () => ({
   Position: { Left: "left", Right: "right", Top: "top", Bottom: "bottom" },
   NodeResizer: () => null,
   NodeToolbar: ({ children, isVisible }: { children: ReactNode; isVisible?: boolean }) => isVisible === false ? null : <div>{children}</div>,
   Handle: ({ id }: { id: string }) => <span data-port={id} />,
-  useNodeConnections: () => [],
-  useReactFlow: () => ({ updateNodeData: vi.fn(), getNode: vi.fn(), getViewport: () => ({ x: 0, y: 0, zoom: 1 }), setViewport: vi.fn() }),
+  useStore: () => 1,
+  useUpdateNodeInternals: () => vi.fn(),
+  useReactFlow: () => ({ updateNodeData: vi.fn(), getNode: vi.fn(), setNodes: vi.fn(), getViewport: () => ({ x: 0, y: 0, zoom: 1 }), setViewport: vi.fn() }),
 }))
 
 const mode: CanvasWorkflowMode = {
@@ -27,27 +29,46 @@ const mode: CanvasWorkflowMode = {
 function context(live: CanvasGeneratorLive | null = null): CanvasGeneratorContextValue {
   return {
     modes: [mode], modesLoading: false, modeFor: () => mode, workflowName: () => mode.name, liveFor: () => live,
-    referenceCountFor: () => 0, referencesFor: () => [], chooseReference: vi.fn(), moveReference: vi.fn(), removeReference: vi.fn(),
+    referenceCountFor: () => 0, referencesFor: () => [], chooseReference: vi.fn(), chooseReferenceSource: vi.fn(), moveReference: vi.fn(), removeReference: vi.fn(),
     promptInfoFor: () => ({ text: "保留这句提示词", connectedTextNodes: 0, emptyTextNodes: 0, fromTextNodes: false }),
     issueFor: () => null, disconnectInput: vi.fn(), submit: vi.fn(), cancel: vi.fn(), refine: vi.fn(), insertResult: vi.fn(), submitting: () => false,
   }
 }
 
+function generatorNode(live: CanvasGeneratorLive | null) {
+  const node = createGeneratorNode({ x: 0, y: 0 }, { workflowId: mode.id, prompt: "保留这句提示词" })
+  node.data.jobId = live?.jobId
+  return node
+}
+
 function renderGenerator(selected: boolean, live: CanvasGeneratorLive | null = null) {
-  const node = createGeneratorNode({ x: 0, y: 0 })
-  const props = { ...node, selected, isConnectable: true, positionAbsoluteX: node.position.x, positionAbsoluteY: node.position.y, data: { ...node.data, workflowId: mode.id, jobId: live?.jobId, prompt: "保留这句提示词" } } as NodeProps<CanvasNode>
+  const node = generatorNode(live)
+  const props = { ...node, selected, isConnectable: true, positionAbsoluteX: node.position.x, positionAbsoluteY: node.position.y } as NodeProps<CanvasNode>
   return renderToStaticMarkup(<CanvasGeneratorContext.Provider value={context(live)}><GeneratorCanvasNode {...props} /></CanvasGeneratorContext.Provider>)
 }
 
+function renderComposer(live: CanvasGeneratorLive | null = null) {
+  const { id, data } = generatorNode(live)
+  return renderToStaticMarkup(<CanvasNodeActionsContext.Consumer>{(actions) => <CanvasGeneratorComposer id={id} data={data} generator={context(live)} actions={actions} />}</CanvasNodeActionsContext.Consumer>)
+}
+
 describe("canvas node creation surfaces", () => {
-  it("keeps the composer out of unselected media cards", () => {
-    expect(renderGenerator(false)).not.toContain('aria-label="节点生成区"')
-    expect(renderGenerator(false)).not.toContain("textarea")
-    expect(renderGenerator(true)).toContain('aria-label="节点生成区"')
+  it("mounts an input port for media linked to a text node", () => {
+    const node = createTextNode({ x: 0, y: 0 }, "")
+    const props = { ...node, selected: false, isConnectable: true, positionAbsoluteX: 0, positionAbsoluteY: 0 } as NodeProps<CanvasNode>
+    expect(renderToStaticMarkup(<TextCanvasNode {...props} />).match(/data-port="[^"]+"/g)).toEqual(['data-port="in"', 'data-port="out"'])
+  })
+
+  it("renders one input and one output and keeps the composer out of the card", () => {
+    for (const selected of [false, true]) {
+      const html = renderGenerator(selected)
+      expect(html.match(/data-port="[^"]+"/g)).toEqual(['data-port="in"', 'data-port="out"'])
+      expect(html).not.toContain("textarea")
+    }
   })
 
   it("renders first-frame requirements from the workflow without internal controls", () => {
-    const html = renderGenerator(true)
+    const html = renderComposer()
     expect(html).toContain("添加首帧（必填）")
     expect(html).toContain("添加尾帧（可选）")
     expect(html).not.toContain("添加参考图 3")
@@ -57,19 +78,27 @@ describe("canvas node creation surfaces", () => {
   })
 
   it("offers both refinement decisions instead of stopping an awaiting-preview task", () => {
-    const html = renderGenerator(true, { jobId: "preview", status: "awaiting_refine", result: { url: "/preview.mp4", kind: "video" }, updatedAt: 0 })
+    const html = renderComposer({ jobId: "preview", status: "awaiting_refine", result: { url: "/preview.mp4", kind: "video" }, updatedAt: 0 })
     expect(html).toContain("确认二采")
     expect(html).toContain("保留一采")
     expect(html).not.toContain("停止生成")
   })
 
   it("preserves prompt text for retry and does not fabricate progress", () => {
-    const failed = renderGenerator(true, { jobId: "failed", status: "failed", error: "服务暂不可用", updatedAt: 0 })
+    const failed = renderComposer({ jobId: "failed", status: "failed", error: "服务暂不可用", updatedAt: 0 })
     expect(failed).toContain("保留这句提示词")
     expect(failed).toContain("重试")
-    const pending = renderGenerator(true, { jobId: "queued", status: "queued", updatedAt: 0 })
-    expect(pending).toContain("停止生成")
-    expect(pending).not.toContain('aria-valuenow="0"')
+    const pending = { jobId: "queued", status: "queued", updatedAt: 0 } as const
+    expect(renderComposer(pending)).toContain("停止生成")
+    expect(renderGenerator(true, pending)).not.toContain('aria-valuenow="0"')
+  })
+
+  it("shows the interruption reason on the video card", () => {
+    const html = renderGenerator(false, { jobId: "interrupted", status: "interrupted", error: "视频服务当前不可用，任务尚未提交。", updatedAt: 0 })
+    expect(html).toContain("已中断")
+    expect(html).toContain("视频服务当前不可用，任务尚未提交。")
+    expect(html).toContain("查看错误详情")
+    expect(html).not.toContain("选中节点，开始创作")
   })
 
   it("represents exactly two successes and two failed items from a real partial snapshot", () => {

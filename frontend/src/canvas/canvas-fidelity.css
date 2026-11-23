@@ -1,15 +1,16 @@
-/* WorkRally-inspired canvas. Visual baseline: docs/design-ref-canvas/workrally-redesign-20261102/. */
+/* Standalone canvas layout and controls. Shared surfaces are in canvas-node-shared.css. */
 :root:has(.studio-canvas-shell) {
   --canvas-stage: #f8f9fa;
   --canvas-ink: #171a1f;
   --canvas-secondary: #596273;
   --canvas-soft: #f1f3f5;
-  --canvas-grid-dot: #d9dee7;
   --canvas-ui-border: #dde2e8;
   --canvas-text-tone: #7c6ab8;
   --canvas-image-tone: #8b79cb;
   --canvas-video-tone: #7c6ab8;
   --canvas-node-shadow: 0 2px 8px rgb(26 35 54 / 4%);
+}
+:root:has(.studio-canvas-shell:not(.studio-canvas-window)) {
   --studio-primary: #6e56cf;
   --studio-primary-hover: #8068df;
   --studio-accent-text: #6950c6;
@@ -20,12 +21,13 @@
   --canvas-ink: #f3f5f7;
   --canvas-secondary: #a9b1bf;
   --canvas-soft: #1e2229;
-  --canvas-grid-dot: #2b303b;
   --canvas-ui-border: #303641;
   --canvas-text-tone: #a99bd8;
   --canvas-image-tone: #a99bd8;
   --canvas-video-tone: #a99bd8;
   --canvas-node-shadow: 0 2px 10px rgb(0 0 0 / 12%);
+}
+:root[data-theme="dark"]:has(.studio-canvas-shell:not(.studio-canvas-window)) {
   --studio-primary: #7867ed;
   --studio-primary-hover: #8a7bf4;
   --studio-accent-text: #c3b8ff;
@@ -35,10 +37,14 @@
 .studio-canvas-shell .studio-workspace.studio-canvas-view { height: calc(100vh - 76px); max-height: calc(100vh - 76px); margin-top: 76px; }
 .studio-canvas-shell .studio-canvas-view > main.canvas-workspace-main { height: calc(100vh - 76px) !important; max-height: calc(100vh - 76px) !important; }
 .canvas-editor-workspace { position: relative; background: var(--canvas-stage); color: var(--canvas-ink); }
-.canvas-stage { background: var(--canvas-stage); }
-.canvas-editor-header { position: absolute; inset: 16px 16px auto; z-index: 12; height: 38px; min-height: 0; gap: 20px; padding: 0; border: 0; background: transparent; pointer-events: none; }
-.canvas-editor-project, .canvas-editor-controls { display: flex; min-width: 0; align-items: center; gap: 3px; pointer-events: auto; }
-/* 顶栏外观（高度/底色/内边距/胶囊）由共享层 canvas-chrome-shared.css 统一；此处不再加胶囊。 */
+/* 顶栏改成即梦式悬浮按钮组：不再有整块横条，标题组与操作组各自浮在画布上。 */
+.canvas-editor-workspace .canvas-editor-header.canvas-chrome-bar { position: absolute; inset: 12px 14px auto; z-index: 12; height: 40px; min-height: 0; padding: 0; gap: 12px; border: 0; border-radius: 0; background: transparent; box-shadow: none; pointer-events: none; }
+.canvas-editor-workspace .canvas-editor-project, .canvas-editor-workspace .canvas-editor-controls { display: flex; min-width: 0; align-items: center; gap: 8px; pointer-events: auto; }
+.canvas-editor-workspace .canvas-editor-project, .canvas-editor-workspace .canvas-editor-actions { height: 40px; border: 1px solid var(--canvas-ui-border); border-radius: 12px; background: color-mix(in srgb, var(--studio-surface) 86%, transparent); box-shadow: 0 10px 26px rgb(9 13 20 / 12%), 0 1px 2px rgb(9 13 20 / 6%); backdrop-filter: blur(14px) saturate(150%); }
+.canvas-editor-workspace .canvas-editor-project { padding: 4px 10px 4px 4px; gap: 2px; }
+.canvas-editor-workspace .canvas-editor-actions { padding: 4px; gap: 2px; }
+.canvas-editor-workspace .canvas-editor-controls .canvas-header-export.ant-btn { height: 40px; margin-left: 0; padding: 0 16px; border-radius: 12px; border-color: color-mix(in srgb, var(--studio-primary) 32%, var(--canvas-ui-border)); background: color-mix(in srgb, var(--studio-primary-soft) 90%, transparent); box-shadow: 0 10px 26px rgb(9 13 20 / 12%), 0 1px 2px rgb(9 13 20 / 6%); backdrop-filter: blur(14px) saturate(150%); }
+/* 无限画布顶栏已改为即梦式悬浮胶囊；资产画布仍用共享层的整条顶栏外观，互不影响。 */
 .canvas-editor-header .ant-btn { height: 32px; font-size: 12px; }
 .canvas-editor-breadcrumb { width: auto; padding: 0 4px; gap: 8px; color: var(--canvas-secondary); font-size: 12px; white-space: nowrap; }
 .canvas-title-input.ant-input { flex: 0 1 auto; min-width: 56px; max-width: 240px; padding: 2px 4px; font-size: 13px; font-weight: 600; color: var(--canvas-ink); }
@@ -51,16 +57,84 @@
 .canvas-editor-controls .canvas-panel-toggle.is-active { color: var(--studio-accent-text); background: var(--studio-primary-soft); }
 .canvas-header-export.ant-btn { margin-left: 4px; background: var(--studio-primary-soft); border-color: color-mix(in srgb, var(--studio-primary) 35%, var(--canvas-ui-border)); color: var(--canvas-ink); }
 .canvas-editor-workspace > .canvas-conflict-alert, .canvas-editor-workspace > .canvas-save-alert { z-index: 13; margin-top: 66px; }
-.canvas-rail { top: 50%; left: 16px; transform: translateY(-50%); width: 46px; max-height: calc(100% - 190px); padding: 4px; gap: 1px; border-radius: 11px; border-color: var(--canvas-ui-border); background: var(--studio-surface); box-shadow: var(--canvas-node-shadow); overflow-y: auto; scrollbar-width: none; }
-.canvas-rail .ant-btn { width: 36px; min-width: 36px; height: 34px; padding: 0; border: 0; color: var(--canvas-ink); background: transparent; }
+.canvas-rail,
+.canvas-bottombar {
+  position: absolute;
+  left: 16px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--studio-border);
+  border-radius: 12px;
+  background: var(--studio-surface);
+  box-shadow: var(--canvas-panel-shadow);
+}
+
+.canvas-rail {
+  top: 50%;
+  transform: translateY(-50%);
+  width: 46px;
+  flex-direction: column;
+  align-items: stretch;
+  max-height: calc(100% - 190px);
+  gap: 2px;
+  overflow: hidden auto;
+  padding: 4px;
+  scrollbar-width: none;
+  transition: width 140ms ease-out;
+}
+
+.canvas-rail:is(:hover, :has(:focus-visible)) { width: 126px; }
+
+.canvas-rail .ant-btn {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  flex-shrink: 0;
+  justify-content: flex-start;
+  gap: 14px;
+  overflow: hidden;
+  padding: 0 8px;
+  color: var(--studio-text);
+  font-size: 13px;
+}
+
+.canvas-rail .ant-btn-icon { display: inline-flex; flex-shrink: 0; }
 .canvas-rail .ant-btn svg { width: 18px; height: 18px; stroke-width: 1.65; }
-.canvas-rail .canvas-rail-add.ant-btn { width: 34px; height: 34px; margin: 2px 1px; border-radius: 7px; background: var(--studio-primary); color: #fff; }
-.canvas-rail-divider { margin: 4px 4px; flex-shrink: 0; }
-.canvas-rail .ant-btn.is-active { color: var(--studio-accent-text); background: var(--studio-primary-soft); }
-.canvas-bottombar { left: 16px; bottom: 16px; height: 38px; gap: 1px; padding: 3px 5px; border-radius: 9px; border-color: var(--canvas-ui-border); background: var(--studio-surface); box-shadow: var(--canvas-node-shadow); }
-.canvas-bottombar .ant-btn { width: 29px; height: 30px; padding: 0; }
+.canvas-rail-label { visibility: hidden; white-space: nowrap; }
+.canvas-rail:is(:hover, :has(:focus-visible)) .canvas-rail-label { visibility: visible; }
+
+.canvas-rail .ant-btn:hover,
+.canvas-rail .ant-btn:focus-visible,
+.canvas-bottombar .ant-btn:not(:disabled):hover {
+  color: var(--studio-text);
+  background: var(--studio-hover);
+}
+
+.canvas-bottombar {
+  bottom: 16px;
+  gap: 1px;
+  padding: 3px 5px;
+}
+
+.canvas-bottombar .ant-btn {
+  width: 29px;
+  height: 30px;
+  flex-shrink: 0;
+  padding: 0;
+  color: var(--studio-text-secondary);
+}
+
+.canvas-bottombar .ant-btn[aria-pressed="true"] {
+  color: var(--studio-accent-text);
+  background: var(--studio-primary-soft);
+}
+
+.canvas-bottombar .ant-btn:disabled { color: var(--studio-text-subtle); opacity: .46; }
+.canvas-bottombar-divider { width: 1px; height: 18px; flex-shrink: 0; margin: 0 4px; background: var(--studio-border); }
+.canvas-bottombar .canvas-zoom-value.ant-btn { width: 64px; gap: 6px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.canvas-bottombar .canvas-viewpoints-trigger.ant-btn { width: auto; gap: 6px; padding: 0 8px; font-size: 12px; }
 .canvas-stage .react-flow__minimap.canvas-minimap { left: 3px; bottom: -9px; border-radius: 9px; box-shadow: var(--canvas-node-shadow); }
-.canvas-stage-hint { right: auto; left: 50%; bottom: 22px; transform: translateX(-50%); font-size: 11px; color: var(--canvas-secondary); opacity: .75; pointer-events: none; }
 .canvas-side-panel { position: absolute; top: 70px; bottom: 16px; right: 16px; z-index: 14; width: 330px; margin: 0; border: 1px solid var(--canvas-ui-border); border-radius: 12px; background: var(--studio-surface); box-shadow: 0 8px 30px rgb(0 0 0 / 10%); }
 .canvas-side-panel-head { min-height: 48px; height: 48px; gap: 2px; padding: 0 10px; border-color: var(--canvas-ui-border); }
 .canvas-side-panel-head .ant-tabs { height: 46px; }
@@ -79,44 +153,39 @@
 .canvas-panel-intro h3 { font-size: 15px; }
 .canvas-panel-symbol { width: 36px; height: 36px; border-radius: 8px; }
 .canvas-layer-row { border-radius: 7px; }
-/* 外壳与选中态由共享层 canvas-node-shared.css 统一，此处只保留画布主题文字色。 */
-.canvas-node { color: var(--canvas-ink); }
-/* 选中态由共享层 canvas-node-shared.css 统一（各节点均带 canvas-node 类）。 */
-.canvas-node-title { height: var(--canvas-node-header-height); min-height: var(--canvas-node-header-height); padding: 0 10px; gap: 8px; color: var(--canvas-ink); }
-.canvas-node-title strong { font-size: 13px; line-height: 20px; font-weight: 600; }
-.canvas-node-title .canvas-node-more { margin-left: auto; }
-.canvas-node-type-icon { width: 21px; height: 21px; border-radius: 5px; color: var(--studio-accent-text); background: var(--studio-primary-soft); }
-.canvas-node-type-icon.is-image, .canvas-node-type-icon.is-video { color: var(--studio-accent-text); background: var(--studio-primary-soft); }
-.canvas-node-type-icon.is-text { color: var(--canvas-ink); background: var(--canvas-soft); }
-.canvas-node-type-icon svg { width: 14px; height: 14px; }
-.canvas-node-text { padding: 0 8px 8px; gap: 0; background: var(--studio-surface); }
-.canvas-node-text > .canvas-node-title { margin: 0 -8px; }
-.canvas-text-input.ant-input { flex: 1; width: 100%; min-height: 0; margin: 0; padding: 9px 10px; border: 1px solid var(--canvas-ui-border); border-radius: 6px; background: var(--canvas-stage); color: var(--canvas-ink); font-size: 14px; line-height: 1.7; resize: none; box-shadow: none; }
-.canvas-node-image, .canvas-node-video { display: flex; flex-direction: column; padding: 0 8px; overflow: visible; background: var(--studio-surface); }
-.canvas-node-image > .canvas-node-title, .canvas-node-video > .canvas-node-title { margin: 0 -8px; border: 0; background: transparent; }
-.canvas-media-body { flex: 1; min-height: 0; border-radius: 5px; border: 1px solid var(--canvas-ui-border); background: var(--canvas-soft); }
+.canvas-node-text { padding: 8px; }
+.canvas-text-input.ant-input { padding: 8px 10px; color: var(--studio-text); font-size: 14px; line-height: 1.7; }
+.canvas-node-image, .canvas-node-video { padding: 10px 8px 0; overflow: visible; }
 .canvas-media-body img, .canvas-media-body video { display: block; position: static; width: 100%; height: 100%; object-fit: cover; }
+/* 图片节点本身可接收悬浮与点击，否则真实鼠标只会命中外层容器，悬浮预览触发不了。 */
+.canvas-node-image .canvas-media-body img { pointer-events: auto; }
 .canvas-media-body video { background: #080a0d; object-fit: contain; }
 .canvas-image-placeholder { height: 100%; min-height: 0; padding: 10px; gap: 8px; background: transparent; color: var(--canvas-secondary); font-size: 13px; }
 .canvas-image-placeholder small { font-size: 11px; line-height: 1.5; }
 .canvas-media-caption { min-height: 28px; padding: 5px 2px; border: 0; background: transparent; color: var(--canvas-secondary); font-size: 11px; line-height: 18px; }
 .canvas-media-empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; padding: 8px 0; }
 .canvas-media-empty-actions .ant-btn { height: 27px; font-size: 11px; }
-.canvas-media-preview-button.ant-btn { position: absolute; top: 50%; left: 50%; z-index: 2; transform: translate(-50%, -25%); height: 30px; border-color: rgb(255 255 255 / 25%); background: rgb(12 15 22 / 85%); color: #fff; opacity: 0; pointer-events: none; }
+.canvas-media-preview-button.ant-btn { position: absolute; top: auto; right: 10px; bottom: 34px; left: auto; z-index: 2; transform: none; height: 30px; border-color: rgb(255 255 255 / 25%); background: rgb(12 15 22 / 85%); color: #fff; opacity: 0; pointer-events: none; }
 .canvas-node-image:hover .canvas-media-preview-button, .canvas-node-image:focus-within .canvas-media-preview-button { opacity: 1; pointer-events: auto; }
 .canvas-video-play.ant-btn, .canvas-node-video:has(.canvas-media-caption) .canvas-video-play.ant-btn, .canvas-generator-play.ant-btn { position: absolute; left: 50%; top: 50%; right: auto; bottom: auto; z-index: 2; transform: translate(-50%, -50%); display: flex; align-items: center; justify-content: center; width: 42px; height: 42px; min-width: 42px; padding: 0; border: 1px solid rgb(255 255 255 / 65%); border-radius: 50%; background: rgb(12 15 22 / 55%); color: #fff; }
 .canvas-generator-shell { position: relative; width: 100%; height: 100%; }
-.canvas-node-generator { display: flex; flex-direction: column; min-height: 0; padding: 0 8px; gap: 0; overflow: visible; }
-.canvas-node-generator > .canvas-node-title { margin: 0 -8px; padding: 0 10px; gap: 7px; border: 0; }
+.canvas-node-generator { min-height: 0; padding: 10px 8px 0; gap: 0; overflow: visible; }
 .canvas-generator-status { min-width: 0; margin-left: auto; padding: 3px 7px; gap: 4px; border-radius: 20px; font-size: 10px; line-height: 15px; font-weight: 400; white-space: nowrap; }
 .canvas-status-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
-.canvas-generator-media { position: relative; display: flex; flex: 1; min-height: 0; overflow: hidden; border: 1px solid var(--canvas-ui-border); border-radius: 5px; background: var(--canvas-soft); }
-.canvas-generator-media > img, .canvas-generator-media > video { display: block; width: 100%; height: 100%; object-fit: cover; }
+.canvas-generator-media { display: flex; flex: 1; min-height: 0; }
+.canvas-generator-media > img, .canvas-generator-media > video { display: block; width: 100%; height: 100%; object-fit: contain; }
 .canvas-generator-media > video { object-fit: contain; background: #080a0d; }
 .canvas-generator-empty { display: flex; flex: 1; min-height: 0; flex-direction: column; align-items: center; justify-content: center; gap: 11px; padding: 18px; text-align: center; color: var(--canvas-secondary); }
 .canvas-generator-empty strong { font-size: 13px; font-weight: 400; }
 .canvas-generator-empty small { font-size: 11px; line-height: 1.5; }
 .canvas-generator-empty.is-error > svg { color: var(--studio-warning); }
+.canvas-generator-empty-error {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
 .canvas-media-time { position: absolute; right: 8px; bottom: 8px; padding: 3px 6px; border-radius: 4px; background: rgb(0 0 0 / 75%); color: #fff; font-size: 11px; }
 .canvas-media-progress { position: absolute; right: 16px; bottom: 16px; left: 16px; padding: 8px 10px; border-radius: 6px; background: var(--studio-surface); color: var(--canvas-secondary); font-size: 11px; }
 .canvas-media-progress .canvas-generator-progress { margin-top: 8px; }
@@ -132,53 +201,120 @@
 .canvas-generator-result-actions { display: flex; flex-shrink: 0; margin-left: auto; }
 .canvas-generator-error-link { margin-left: auto; font-size: 11px; }
 .canvas-generator-refine-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 5px 0 8px; }
-.canvas-composer-anchor { width: min(400px, calc(100vw - 130px)); }
-.canvas-generator-composer { position: relative; width: 100%; max-height: 310px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; padding: 10px; border: 1px solid color-mix(in srgb, var(--studio-primary) 55%, var(--canvas-ui-border)); border-radius: 11px; background: var(--studio-surface); color: var(--canvas-ink); box-shadow: var(--canvas-node-shadow); scrollbar-width: thin; cursor: default; }
-.canvas-composer-references { display: flex; flex: 0 0 auto; align-items: flex-start; gap: 7px; overflow-x: auto; scrollbar-width: thin; }
-.canvas-composer-reference { position: relative; flex: 0 0 65px; width: 65px; }
-.canvas-composer-reference-preview.ant-btn { display: flex; position: relative; width: 65px; height: 54px; padding: 0; align-items: center; justify-content: center; overflow: hidden; border: 1px solid var(--canvas-ui-border); border-radius: 6px; background: var(--canvas-soft); color: var(--canvas-secondary); }
-.canvas-composer-reference-preview img { width: 100%; height: 100%; object-fit: cover; }
-.canvas-composer-reference-number { position: absolute; top: 2px; left: 3px; padding: 0 3px; border-radius: 3px; background: var(--studio-primary); color: #fff; font-size: 9px; line-height: 14px; }
-.canvas-composer-reference-label { position: absolute; right: 0; bottom: 0; left: 0; padding: 2px; background: rgb(0 0 0 / 70%); color: #fff; font-size: 9px; line-height: 13px; }
-.canvas-composer-reference-tools { display: flex; height: 18px; justify-content: center; }
-.canvas-composer-reference-tools .ant-btn { width: 19px; min-width: 19px; height: 18px; padding: 0; }
-.canvas-composer-prompt.ant-input { min-height: 50px; padding: 8px 9px; border-color: var(--canvas-ui-border); border-radius: 6px; background: var(--canvas-stage); color: var(--canvas-ink); font-size: 13px; line-height: 1.65; resize: none; }
+.canvas-generator-composer { max-height: min(350px, calc(100% - 146px)); display: flex; flex-direction: column; gap: 8px; overflow-y: auto; scrollbar-width: thin; }
+.canvas-composer-references { display: flex; flex: 0 0 auto; align-items: flex-start; gap: 10px; overflow-x: auto; scrollbar-width: thin; }
+.canvas-composer-reference { position: relative; flex: 0 0 auto; width: 64px; }
+.canvas-composer-reference-preview.ant-btn { display: flex; position: relative; width: 64px; height: 64px; padding: 0; align-items: center; justify-content: center; overflow: hidden; border: 0; border-radius: 12px; background: var(--studio-hover); color: var(--studio-text-secondary); }
+.canvas-composer-reference-preview.ant-btn:is(:hover, :focus, :focus-visible) { border: 0; background: var(--studio-hover); color: var(--studio-text-secondary); box-shadow: none; outline: none; }
+/* 即梦式空引用占位：上游节点尚未产出内容时整块置灰禁点（仍可右上角移除）。 */
+.canvas-composer-reference.is-empty .canvas-composer-reference-preview.ant-btn { opacity: 0.45; }
+.canvas-composer-reference.is-empty .canvas-composer-reference-preview.ant-btn:is(:hover, :focus, :focus-visible) { border: 0; background: var(--studio-hover); color: var(--studio-text-secondary); box-shadow: none; outline: none; }
+.canvas-composer-reference-preview img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center; }
+.canvas-composer-reference-number { position: absolute; top: 4px; left: 4px; padding: 0 4px; border-radius: 5px; background: rgb(0 0 0 / 55%); color: #fff; font-size: 10px; line-height: 16px; }
+.canvas-composer-reference-label { position: absolute; right: 0; bottom: 0; left: 0; overflow: hidden; padding: 2px; border-radius: 0 0 10px 10px; background: rgb(0 0 0 / 70%); color: #fff; font-size: 9px; line-height: 13px; white-space: nowrap; text-overflow: ellipsis; }
+.canvas-composer-reference-remove.ant-btn { position: absolute; top: 4px; right: 4px; z-index: 2; display: flex; width: 20px; min-width: 20px; height: 20px; padding: 0; align-items: center; justify-content: center; border: 0; border-radius: 50%; background: rgb(0 0 0 / 55%); color: #fff; box-shadow: none; }
+.canvas-composer-reference-remove.ant-btn:hover { background: rgb(0 0 0 / 72%); color: #fff; }
+/* 参考图预览按即梦做法：无边框、无说明文字，只在图片右下角悬浮替换入口。 */
+.canvas-popover.canvas-reference-preview .ant-popover-container { padding: 0; border: 0; background: transparent; box-shadow: none; }
+.canvas-reference-preview-card { position: relative; display: block; margin: 0; overflow: hidden; border-radius: 14px; box-shadow: 0 18px 44px rgb(9 13 20 / 26%); }
+.canvas-reference-preview-card img { display: block; width: auto; height: auto; max-width: min(360px, 48vw); max-height: min(480px, 66vh); object-fit: contain; background: var(--studio-field); }
+.canvas-reference-preview-actions { position: absolute; right: 10px; bottom: 10px; display: flex; align-items: center; gap: 8px; }
+.canvas-reference-preview-actions .canvas-reference-preview-replace.ant-btn { display: inline-flex; width: 30px; min-width: 30px; height: 30px; padding: 0; align-items: center; justify-content: center; border: 1px solid rgb(255 255 255 / 24%); border-radius: 50%; background: rgb(12 15 22 / 52%); color: #fff; box-shadow: 0 2px 8px rgb(0 0 0 / 24%); backdrop-filter: blur(10px); }
+.canvas-reference-preview-actions .canvas-reference-preview-replace.ant-btn:hover { border-color: rgb(255 255 255 / 34%); background: rgb(12 15 22 / 74%); color: #fff; }
+.canvas-reference-replace-menu .ant-dropdown-menu { min-width: 204px; padding: 8px; border: 1px solid var(--studio-border); border-radius: 14px; background: var(--studio-surface-raised); box-shadow: var(--canvas-panel-shadow); }
+.canvas-reference-replace-menu .ant-dropdown-menu-item-group-title { padding: 6px 10px 8px; color: var(--studio-text-secondary); font-size: 12px; line-height: 18px; }
+/* 输入框里的参考图插槽：点缩略图插入，悬浮插槽显示与参考图一致的大图预览。 */
+.canvas-composer-inline-references { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 6px; padding: 1px 0 3px; }
+.canvas-composer-inline-reference { display: inline-flex; max-width: min(240px, 60vw); height: 28px; padding: 0 9px; align-items: center; gap: 6px; border: 1px solid var(--studio-border); border-radius: 8px; background: var(--studio-surface-raised); color: var(--studio-text); box-shadow: 0 1px 2px rgb(9 13 20 / 8%); font: inherit; font-size: 12px; line-height: 1; cursor: pointer; }
+.canvas-composer-inline-reference:hover { border-color: color-mix(in srgb, var(--studio-text) 22%, var(--studio-border)); background: var(--studio-hover); }
+.canvas-composer-inline-reference:focus-visible { outline: 2px solid var(--studio-primary); outline-offset: 2px; }
+.canvas-composer-inline-reference span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.canvas-reference-replace-menu .ant-dropdown-menu-item { min-height: 38px; padding: 7px 10px; border-radius: 8px; color: var(--studio-text); font-size: 13px; }
+.canvas-reference-replace-menu .ant-dropdown-menu-item .anticon { color: var(--studio-text-secondary); font-size: 15px; }
+.canvas-image-hover .ant-popover-container { padding: 8px; border: 1px solid var(--studio-border); border-radius: 16px; background: var(--studio-surface-raised); box-shadow: var(--canvas-panel-shadow); }
+.canvas-image-hover-card { display: flex; margin: 0; flex-direction: column; gap: 6px; }
+.canvas-image-hover-card img { display: block; width: auto; height: auto; max-width: min(420px, 52vw); max-height: min(520px, 66vh); border-radius: 10px; object-fit: contain; background: var(--studio-field); }
+.canvas-image-hover-card figcaption { overflow: hidden; color: var(--studio-text-secondary); font-size: 12px; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
+.canvas-reference-pick-hint { position: absolute; top: 18px; left: 50%; z-index: 12; display: flex; align-items: center; gap: 8px; padding: 5px 8px 5px 12px; border: 1px solid var(--studio-border); border-radius: 999px; background: var(--studio-surface-raised); color: var(--studio-text); box-shadow: var(--canvas-panel-shadow); font-size: 12px; line-height: 18px; transform: translateX(-50%); pointer-events: none; }
+.canvas-reference-pick-hint .ant-btn { height: 24px; padding: 0 8px; font-size: 12px; pointer-events: auto; }
+.canvas-reference-picking .react-flow__pane, .canvas-reference-picking .react-flow__node-image { cursor: crosshair; }
+.canvas-reference-picking .react-flow__node-image .canvas-media-body { outline: 2px solid color-mix(in srgb, var(--studio-text) 22%, transparent); outline-offset: 2px; }
 .canvas-composer-text-source { display: flex; align-items: center; gap: 5px; color: var(--canvas-secondary); font-size: 10px; }
 .canvas-composer-text-source .ant-btn { height: 20px; margin-left: auto; font-size: 10px; }
 .canvas-composer-validation { font-size: 10px; line-height: 1.4; color: var(--studio-warning); }
-.canvas-composer-controls { display: flex; flex-wrap: nowrap; align-items: center; gap: 5px; }
-.canvas-composer-workflow { flex: 1 1 100px; min-width: 85px; max-width: 145px; font-size: 11px; }
-.canvas-composer-workflow .ant-select-content, .canvas-composer-workflow .ant-select-selection-item { font-size: 11px; }
-.canvas-composer-controls .ant-btn { height: 29px; padding: 0 7px; font-size: 11px; }
-.canvas-composer-parameters { display: flex; flex: 1 1 74px; min-width: 48px; max-width: 128px; align-items: center; gap: 5px; }
+.canvas-composer-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.canvas-composer-workflow { flex: 0 1 230px; min-width: 85px; height: 32px; font-size: 12px; }
+.canvas-composer-workflow .ant-select-content, .canvas-composer-workflow .ant-select-selection-item { font-size: 12px; }
+.canvas-composer-controls .ant-btn { height: 32px; padding: 0 9px; font-size: 12px; }
+.canvas-composer-parameters { display: flex; min-width: 48px; max-width: 230px; align-items: center; gap: 5px; }
 .canvas-composer-parameters > span:not(.ant-btn-icon) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.canvas-composer-controls .canvas-composer-more { width: 29px; min-width: 29px; padding: 0; }
+.canvas-composer-controls .canvas-composer-more { width: 32px; min-width: 32px; padding: 0; }
 .canvas-composer-submit { display: flex; margin-left: auto; gap: 5px; }
-.canvas-composer-controls:has(.canvas-composer-submit > .ant-btn:nth-child(2)) { flex-wrap: wrap; }
-.canvas-composer-controls:has(.canvas-composer-submit > .ant-btn:nth-child(2)) .canvas-composer-submit { flex-basis: 100%; justify-content: flex-end; }
 .canvas-composer-token.ant-btn { align-self: flex-start; height: 18px; padding: 0; font-size: 10px; color: var(--canvas-secondary); }
 .canvas-composer-option-fields { display: grid; width: 260px; max-height: 380px; gap: 14px; overflow-y: auto; padding: 5px 0; }
 .canvas-composer-option-fields .canvas-inspector-field-label { font-size: 12px; }
 .canvas-composer-option-fields .canvas-inspector-hint { font-size: 11px; }
 .canvas-composer-option-fields .canvas-inspector-field.is-inline { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; }
 .canvas-composer-option-fields .is-inline .canvas-inspector-hint { flex-basis: 100%; }
-.canvas-node-toolbar { height: 34px; width: auto; padding: 3px; gap: 1px; border-color: var(--canvas-ui-border); border-radius: 8px; box-shadow: var(--canvas-node-shadow); }
+
+/* 全部工作流共用创作参数：比例图形、分段与长标签选项使用同一中性选中态。 */
+.canvas-creative-panel.canvas-generator-composer { width: min(760px, calc(100% - 160px)); padding: 16px 20px 18px; }
+.canvas-generator-composer .canvas-composer-controls { gap: 6px; }
+.canvas-generator-composer .canvas-composer-workflow { flex: 0 1 220px; height: 32px; }
+.canvas-generator-composer .canvas-composer-workflow .ant-select-content { padding-inline: 0; font-size: 13px; font-weight: 500; }
+.canvas-generator-composer .canvas-composer-parameters.ant-btn { height: 32px; padding: 0 9px; border: 0; border-radius: 8px; background: var(--studio-hover); color: var(--studio-text); font-size: 13px; font-weight: 500; box-shadow: none; }
+.canvas-generator-composer .canvas-composer-parameters.ant-btn:hover { background: color-mix(in srgb, var(--studio-text) 10%, var(--studio-surface)); color: var(--studio-text); }
+.canvas-composer-controls .canvas-composer-reference-trigger.ant-btn { width: 32px; min-width: 32px; padding: 0; color: var(--studio-text); }
+/* 提示词输入区按参考稿融入面板：无边框、无焦点光环，仅保留光标与占位文本。 */
+.canvas-generator-composer .canvas-composer-prompt.ant-input { min-height: 72px; padding: 2px 0 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; outline: none; color: var(--studio-text); font-size: 14px; line-height: 22px; caret-color: var(--studio-text); resize: none; }
+.canvas-generator-composer .canvas-composer-prompt.ant-input:is(:hover, :focus, :focus-visible) { border: 0; border-radius: 0; background: transparent; box-shadow: none; outline: none; }
+.canvas-generator-composer .canvas-composer-prompt.ant-input::placeholder { color: var(--studio-text-muted); opacity: 1; }
+.canvas-generator-composer .canvas-composer-prompt.ant-input:disabled { background: transparent; color: var(--studio-text-muted); }
+/* 选中结果节点的参数回显栏：结构与生成 composer 一致，仅补一条上次参数标注。 */
+.canvas-result-composer .canvas-result-echo { display: flex; align-self: flex-end; align-items: center; gap: 4px; max-width: 100%; color: var(--canvas-secondary); font-size: 10px; line-height: 14px; }
+.canvas-result-composer .canvas-result-echo > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.canvas-workflow-settings { --canvas-setting-track: color-mix(in srgb, var(--studio-text) 6%, var(--studio-surface-raised)); --canvas-setting-selected: color-mix(in srgb, var(--studio-text) 14%, var(--studio-surface-raised)); }
+.canvas-workflow-settings .ant-popover-container { padding: 16px; border: 1px solid var(--studio-border); border-radius: 16px; background: var(--studio-surface-raised); color: var(--studio-text); box-shadow: var(--canvas-panel-shadow); }
+.canvas-workflow-option-fields { display: flex; flex-direction: column; gap: 16px; width: 434px; max-height: min(540px, calc(100vh - 180px)); overflow: auto; scrollbar-width: thin; scrollbar-color: var(--studio-border-strong) transparent; }
+.canvas-workflow-setting-field { min-width: 0; margin: 0; padding: 0; border: 0; }
+.canvas-workflow-setting-field > legend { float: none; width: 100%; margin: 0 0 8px; padding: 0; color: var(--studio-text-secondary); font-size: 12px; font-weight: 400; line-height: 18px; }
+.canvas-workflow-settings .canvas-setting-choices.ant-radio-group { display: grid; gap: 2px; padding: 3px; border-radius: 11px; background: var(--canvas-setting-track); }
+.canvas-workflow-settings .canvas-setting-choices .ant-radio-button-wrapper { display: flex; height: auto; min-height: 40px; min-width: 0; align-items: center; justify-content: center; padding: 8px 6px; border: 0; border-radius: 8px; background: transparent; color: var(--studio-text); font-size: 13px; line-height: 18px; white-space: normal; box-shadow: none; }
+.canvas-workflow-settings .canvas-setting-choices.is-ratio .ant-radio-button-wrapper { min-height: 54px; padding: 6px 4px; font-size: 12px; }
+.canvas-workflow-settings .canvas-setting-choices .ant-radio-button-wrapper::before { display: none; }
+.canvas-workflow-settings .canvas-setting-choices .ant-radio-button-wrapper:hover { background: var(--studio-hover); color: var(--studio-text); }
+.canvas-workflow-settings .canvas-setting-choices .ant-radio-button-wrapper-checked { background: var(--canvas-setting-selected); color: var(--studio-text); }
+.canvas-workflow-settings .canvas-setting-choices .ant-radio-button-wrapper-disabled { color: var(--studio-text-muted); cursor: not-allowed; }
+.canvas-setting-choice-label { display: flex; width: 100%; max-width: 100%; flex-direction: column; align-items: center; justify-content: center; gap: 5px; line-height: 18px; white-space: normal; overflow-wrap: anywhere; }
+.canvas-setting-choice-label > small { color: var(--studio-text-secondary); font-size: 11px; font-weight: 400; line-height: 16px; }
+.canvas-setting-ratio-symbol { display: grid; width: 20px; height: 18px; place-items: center; }
+.canvas-setting-ratio-outline { display: block; border: 1.5px solid currentColor; border-radius: 2px; }
+.canvas-workflow-settings .canvas-setting-segments.ant-segmented { padding: 2px; border-radius: 10px; background: var(--canvas-setting-track); color: var(--studio-text); }
+.canvas-workflow-settings .canvas-setting-segments .ant-segmented-item { flex: 1 1 0; min-width: 0; border-radius: 8px; color: var(--studio-text); }
+.canvas-workflow-settings .canvas-setting-segments .ant-segmented-item-label { display: flex; height: 100%; min-height: 36px; align-items: center; justify-content: center; padding: 8px; font-size: 13px; font-weight: 500; line-height: 18px; white-space: normal; text-overflow: clip; }
+.canvas-workflow-settings .canvas-setting-segments .ant-segmented-item-selected,
+.canvas-workflow-settings .canvas-setting-segments .ant-segmented-thumb { border-radius: 8px; background: var(--canvas-setting-selected); color: var(--studio-text); box-shadow: none; }
+.canvas-workflow-settings .canvas-setting-choices .ant-radio-button-wrapper:has(input:focus-visible),
+.canvas-workflow-settings .canvas-setting-segments .ant-segmented-item:has(input:focus-visible) { outline: 2px solid var(--studio-text-secondary); outline-offset: -2px; }
+.canvas-workflow-option-fields .canvas-inspector-field { margin: 0; }
+.canvas-workflow-option-fields .canvas-inspector-field-label { color: var(--studio-text-secondary); font-size: 12px; }
+.canvas-workflow-option-fields .canvas-inspector-field.is-inline { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.canvas-workflow-option-fields .is-inline > .canvas-inspector-field-label { margin: 0; }
+.canvas-workflow-option-fields .is-inline > .ant-switch { justify-self: end; width: 44px; min-width: 44px; }
+.canvas-workflow-option-fields .is-inline > .canvas-inspector-hint { grid-column: 1 / -1; }
+.canvas-setting-hint, .canvas-workflow-option-fields .canvas-inspector-hint { margin: 8px 0 0; color: var(--studio-text-secondary); font-size: 12px; font-weight: 400; line-height: 18px; white-space: normal; overflow-wrap: anywhere; }
+.canvas-workflow-settings .ant-popover-title { margin-bottom: 16px; color: var(--studio-text); font-size: 14px; }
+
+.canvas-node-toolbar { height: 38px; width: auto; padding: 4px; gap: 2px; border-radius: 12px; background: var(--studio-surface-raised); box-shadow: var(--canvas-panel-shadow); }
 .canvas-node-toolbar.is-generator { width: auto; }
 .canvas-node-toolbar .ant-btn { min-width: 28px; height: 27px; padding: 0 6px; font-size: 11px; }
-.canvas-node-toolbar .canvas-toolbar-branch { min-width: 86px; color: var(--studio-accent-text); background: var(--studio-primary-soft); }
+.canvas-node-toolbar .canvas-toolbar-branch { min-width: 86px; color: var(--studio-text-secondary); background: var(--studio-hover); }
 .canvas-toolbar-divider { width: 1px; height: 16px; background: var(--canvas-ui-border); }
-.canvas-handle { width: 9px; height: 9px; background: var(--studio-surface); border-width: 1.5px; }
-.canvas-prompt-handle { top: 30%; }
-.canvas-reference-handle { top: 68%; }
-.canvas-resize-handle { width: 5px; height: 5px; opacity: 1; border-radius: 1px; }
-.canvas-resize-line { opacity: .8; border-color: var(--studio-primary); }
 .canvas-node-artboard { padding: 0; border: 1px dashed var(--canvas-ui-border); border-radius: 6px; background: color-mix(in srgb, var(--studio-surface) 28%, transparent); box-shadow: none; }
 .canvas-node-artboard.is-selected { border: 1px dashed var(--studio-primary); box-shadow: 0 0 0 1px var(--studio-primary-soft); }
 .studio-canvas-shell .canvas-stage .canvas-node-artboard { background: transparent; }
 .canvas-artboard-title { position: absolute; top: -30px; left: 0; width: min(520px, 100%); padding: 2px 0; background: transparent; color: var(--canvas-secondary); }
 .canvas-artboard-title .ant-input { padding: 0; font-size: 13px; color: var(--canvas-secondary); }
-.canvas-flow-edge-light { filter: none; opacity: .42; }
-.canvas-edge-label { position: absolute; padding: 2px 7px; border: 1px solid var(--canvas-ui-border); border-radius: 12px; background: var(--studio-surface); color: var(--canvas-secondary); font-size: 10px; line-height: 16px; pointer-events: none; }
 .canvas-partial-results { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; min-height: 0; gap: 5px; padding: 5px; }
 .canvas-partial-result.ant-btn, .canvas-partial-result.is-failed { display: flex; position: relative; width: 100%; height: 100%; min-height: 0; padding: 0; overflow: hidden; border: 1px solid var(--canvas-ui-border); border-radius: 5px; background: var(--canvas-stage); }
 .canvas-partial-result.is-selected { border-color: var(--studio-primary); }
@@ -186,17 +322,12 @@
 .canvas-partial-result-status { position: absolute; right: 3px; bottom: 3px; padding: 1px 4px; border-radius: 3px; background: var(--studio-success-soft); color: var(--studio-success); font-size: 9px; }
 .canvas-partial-result.is-failed { flex-direction: column; align-items: center; justify-content: center; gap: 5px; color: var(--canvas-secondary); font-size: 11px; }
 .canvas-popup .ant-dropdown-menu { border-color: var(--canvas-ui-border); border-radius: 10px; }
-.canvas-add-menu { width: 246px; }
-.canvas-add-menu .ant-dropdown-menu-item { min-height: 46px; }
-.canvas-menu-label strong { font-size: 13px; }
-.canvas-menu-label small { font-size: 11px; }
 .canvas-popover .ant-popover-container { border-color: var(--canvas-ui-border); border-radius: 10px; }
 .canvas-asset-drawer .ant-drawer-body { display: flex; min-height: 0; flex-direction: column; overflow: hidden; }
 .canvas-asset-drawer .canvas-asset-toolbar, .canvas-asset-drawer .canvas-asset-pager { flex-shrink: 0; }
 .canvas-asset-drawer .canvas-asset-grid { min-height: 0; max-height: none; flex: 1 1 auto; align-content: start; overscroll-behavior: contain; }
 .canvas-asset-drawer .canvas-asset-loading { min-height: 0; flex: 1; }
 .canvas-media-dialog .canvas-preview-media { display: block; max-height: 72vh; margin: 0 auto; object-fit: contain; background: #080a0d; }
-@media (prefers-reduced-motion: reduce) { .canvas-node, .canvas-flow-edge-light { transition: none; animation: none; } }
 
 /* PNG export dialog */
 .canvas-export-dialog .ant-modal-body { display: flex; flex-direction: column; gap: 13px; }
@@ -213,3 +344,73 @@
 
 .canvas-image-preview-viewport { display: flex; height: 62vh; overflow: auto; background: #080a0d; border-radius: 8px; }
 .canvas-image-preview-viewport .canvas-preview-media { width: auto; height: auto; max-width: 100%; max-height: 62vh; margin: auto; flex-shrink: 0; }
+
+/* 生成进度弹层（页头「进度」按钮下方，对齐即梦的生成历史浮层；点外部由 Popover 自动收起） */
+.canvas-progress-popover .ant-popover-container { width: 316px; padding: 12px; }
+.canvas-progress-panel { display: flex; flex-direction: column; gap: 8px; }
+.canvas-progress-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.canvas-progress-heading { font-size: 13px; font-weight: 600; color: var(--canvas-ink); }
+.canvas-progress-head-meta { font-size: 11px; color: var(--canvas-secondary); }
+.canvas-progress-head-meta.is-live { color: var(--studio-primary); }
+.canvas-progress-tabs.ant-segmented { padding: 2px; border-radius: 7px; background: var(--canvas-soft); font-size: 11px; }
+.canvas-progress-tabs .ant-segmented-item-label { min-height: 20px; padding: 0 8px; font-size: 11px; line-height: 20px; }
+.canvas-progress-list { display: flex; max-height: 46vh; flex-direction: column; gap: 2px; overflow-y: auto; scrollbar-width: thin; }
+.canvas-progress-row { display: flex; width: 100%; gap: 8px; align-items: flex-start; padding: 6px; border: 0; border-radius: 8px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.canvas-progress-row:hover { background: var(--studio-hover, var(--canvas-soft)); }
+.canvas-progress-row:focus-visible { outline: 1px solid var(--studio-primary); outline-offset: 1px; }
+.canvas-progress-thumb { display: grid; flex: 0 0 auto; width: 34px; height: 34px; place-items: center; overflow: hidden; border: 1px solid var(--canvas-ui-border); border-radius: 6px; background: var(--canvas-soft); color: var(--canvas-secondary); }
+.canvas-progress-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.canvas-progress-body { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 3px; }
+.canvas-progress-line { display: flex; min-width: 0; align-items: baseline; gap: 8px; }
+.canvas-progress-line strong { overflow: hidden; font-size: 12px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.canvas-progress-line time { margin-left: auto; font-size: 10px; color: var(--canvas-secondary); font-variant-numeric: tabular-nums; }
+.canvas-progress-line.is-meta { font-size: 10px; color: var(--canvas-secondary); }
+.canvas-progress-line.is-meta > span:last-child { margin-left: auto; font-variant-numeric: tabular-nums; }
+.canvas-progress-state { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.canvas-progress-row.is-active .canvas-progress-state { color: var(--studio-primary); }
+.canvas-progress-row.is-success .canvas-progress-state { color: var(--studio-success); }
+.canvas-progress-row.is-error .canvas-progress-state { color: var(--studio-danger); }
+.canvas-progress-row.is-warning .canvas-progress-state { color: var(--studio-warning); }
+.canvas-progress-row .canvas-generator-progress { height: 3px; margin-top: 1px; }
+.canvas-progress-empty.ant-empty { margin: 12px 0 6px; }
+.canvas-progress-empty .ant-empty-description { font-size: 11px; color: var(--canvas-secondary); }
+.canvas-editor-controls .canvas-header-progress.is-active { color: var(--studio-accent-text); }
+.canvas-header-progress-badge .ant-badge-count { box-shadow: none; }
+
+/* 即梦式音频预览与独立创作栏，颜色跟随根主题。 */
+.canvas-node-audio { padding: 0; }
+.canvas-audio-preview { display: grid; width: 100%; height: 100%; place-items: center; }
+.canvas-audio-symbol { display: grid; place-items: center; color: var(--studio-text-muted); }
+.canvas-audio-preview.is-generating .canvas-audio-symbol { animation: canvas-audio-pulse 1.5s ease-in-out infinite; }
+.canvas-audio-status, .canvas-audio-error { position: absolute; right: 16px; bottom: 16px; left: 16px; display: flex; align-items: center; gap: 7px; color: var(--studio-text-secondary); font-size: 12px; }
+.canvas-audio-status > span:last-child:not(:nth-child(2)) { margin-left: auto; font-variant-numeric: tabular-nums; }
+.canvas-audio-error { justify-content: center; color: var(--studio-danger); }
+.canvas-audio-player { position: absolute; right: 12px; bottom: 12px; width: calc(100% - 24px); height: 34px; }
+.canvas-creative-panel.canvas-audio-composer { bottom: 80px; display: flex; flex-direction: column; width: min(680px, calc(100% - 160px)); min-height: 204px; padding: 16px; }
+.canvas-audio-composer .canvas-audio-input.ant-input { min-height: 0; padding: 0 28px 0 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--studio-text); font-size: 14px; line-height: 24px; caret-color: var(--studio-text); resize: none; }
+.canvas-audio-composer .canvas-audio-input.ant-input::placeholder { color: var(--studio-text-muted); }
+.canvas-audio-composer .canvas-audio-expand.ant-btn { position: absolute; top: 12px; right: 12px; z-index: 1; width: 24px; height: 24px; padding: 0; color: var(--studio-text-muted); }
+.canvas-audio-controls { display: flex; align-items: center; gap: 6px; margin-top: auto; padding-top: 16px; }
+.canvas-audio-mode.ant-btn { display: inline-flex; height: 32px; align-items: center; gap: 6px; padding: 0 8px; border: 0; border-radius: 8px; background: var(--studio-hover); color: var(--studio-text); font-size: 13px; font-weight: 500; }
+.canvas-audio-provider { overflow: hidden; max-width: 150px; padding: 0 4px; color: var(--studio-text-secondary); font-size: 13px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.canvas-audio-select { min-width: 90px; max-width: 190px; }
+.canvas-audio-select.ant-select { height: 32px; font-size: 13px; }
+.canvas-audio-submit-area { display: flex; flex: 1; align-items: center; justify-content: flex-end; gap: 10px; min-width: 74px; margin-left: 8px; }
+.canvas-audio-output-count { color: var(--studio-text-secondary); font-size: 12px; white-space: nowrap; }
+.canvas-audio-submit.ant-btn { display: grid; width: 34px; min-width: 34px; height: 34px; place-items: center; padding: 0; background: var(--studio-text); color: var(--studio-canvas); }
+.canvas-audio-submit.ant-btn:not(:disabled):hover { background: var(--studio-text-secondary); color: var(--studio-canvas); }
+.canvas-audio-submit.ant-btn:disabled { background: var(--studio-hover); color: var(--studio-text-muted); }
+.canvas-audio-mode-menu .ant-dropdown-menu { min-width: 200px; padding: 5px; border: 1px solid var(--studio-border); border-radius: 14px; background: var(--studio-surface-raised); box-shadow: var(--canvas-panel-shadow); }
+.canvas-audio-mode-menu .ant-dropdown-menu-item { min-height: 38px; padding: 8px 12px; border-radius: 8px; font-size: 14px; }
+.canvas-popup.canvas-audio-mode-menu .ant-dropdown-menu .ant-dropdown-menu-item-selected { background: var(--studio-hover); color: var(--studio-text); }
+.canvas-audio-mode-option { display: flex; align-items: center; justify-content: space-between; gap: 40px; }
+.canvas-audio-feedback { display: flex; align-items: center; gap: 7px; padding-top: 8px; color: var(--studio-text-secondary); font-size: 12px; line-height: 20px; }
+.canvas-audio-feedback > svg { flex: none; }
+.canvas-audio-feedback > span { min-width: 0; overflow-wrap: anywhere; }
+.canvas-audio-feedback .ant-btn { flex: none; padding: 0 4px; }
+@keyframes canvas-audio-spin { to { transform: rotate(360deg); } }
+@keyframes canvas-audio-pulse { 50% { opacity: .45; } }
+.canvas-spin { animation: canvas-audio-spin 1s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .canvas-audio-preview.is-generating .canvas-audio-symbol, .canvas-spin { animation: none; }
+}

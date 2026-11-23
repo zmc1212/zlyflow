@@ -18,6 +18,7 @@ import { generateJobPath } from "../paths"
 import { useMediaHandoffPrefill } from "../media-handoff-prefill"
 import { createLocalId } from "../lib/utils"
 import { promptAutoSize } from "../prompt-autosize"
+import { isSubmitEnter } from "../lib/enter-submit"
 import { restoreReferenceFiles, roundReferenceSources, type ReferenceSource } from "../reference-assets"
 import "./motion-transfer-tool.css"
 
@@ -315,6 +316,12 @@ export default function PartialRetakeTool({ csrfToken }: { csrfToken: string }) 
               placeholder="描述修复目标，例如：清除画面中的路人；把被遮挡的天空补完整；修复晃动的水印区域。"
               autoSize={promptAutoSize(4)}
               maxLength={1500}
+              onKeyDown={(event) => {
+                // 回车开始生成；与「开始生成」按钮同一可用条件。
+                if (!isSubmitEnter(event)) return
+                event.preventDefault()
+                if (ready) void submit()
+              }}
             />
           </div>
 

@@ -12,7 +12,7 @@ export function StudioBrandSymbol({ className, ...props }: SymbolProps) {
   </svg>
 }
 
-type NavigationSymbolProps = SymbolProps & { name: "generate" | "director" | "canvas" | "tools" | "assets" | "inspiration" | "music" }
+type NavigationSymbolProps = SymbolProps & { name: "generate" | "director" | "canvas" | "tools" | "assets" | "inspiration" | "music" | "pricing" }
 
 export function StudioNavigationSymbol({ name, className, ...props }: NavigationSymbolProps) {
   return <svg viewBox="0 0 24 24" width={22} height={22} fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false" className={className} {...props}>
@@ -58,6 +58,11 @@ export function StudioNavigationSymbol({ name, className, ...props }: Navigation
       <circle cx={6.4} cy={18.2} r={2.6} />
       <circle cx={15.8} cy={15.8} r={2.6} />
       <path d="m9.2 9.9 8.9-2.3" stroke="var(--studio-symbol-accent)" />
+    </>}
+    {name === "pricing" && <>
+      <rect x={3.5} y={3.5} width={17} height={17} rx={3.2} />
+      <circle cx={12} cy={12} r={4.2} />
+      <path d="M12 8.8v6.4M10.2 10.3h3.4M10.2 13.7h3.4" stroke="var(--studio-symbol-accent)" />
     </>}
   </svg>
 }

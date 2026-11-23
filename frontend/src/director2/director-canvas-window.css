@@ -1,0 +1,24 @@
+/* 导演台资产画布独立窗口：画布独占视口，项目阶段导航与项目条不参与渲染。 */
+.director-canvas-window {
+  width: 100vw;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--studio-canvas);
+}
+.director-canvas-window > .director2-app { height: 100%; }
+.director-canvas-window .director2-app > .app-main { min-height: 0; }
+.project-flow-layout.is-canvas-window .project-stage-rail { display: none; }
+.project-flow-layout.is-canvas-window .project-flow-header { display: none; }
+/* 旧的内嵌画布视图按 `:has(.is-asset-canvas)` 抬起高度；独立窗口不依赖这条，保持自己的 100%。 */
+.director-canvas-window .project-flow-layout,
+.director-canvas-window .project-flow-layout .project-flow-body,
+.director-canvas-window .project-flow-layout .project-content-pane { height: 100%; min-height: 0; }
+
+/* The standalone route mounts the canvas directly inside the project content pane. */
+.director-canvas-window .project-flow-layout.is-canvas-window > .project-flow-body > .project-content-pane {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0 !important;
+}

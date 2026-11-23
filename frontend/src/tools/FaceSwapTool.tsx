@@ -16,6 +16,7 @@ import {
 import { generateJobPath } from "../paths"
 import { createLocalId } from "../lib/utils"
 import { promptAutoSize } from "../prompt-autosize"
+import { isSubmitEnter } from "../lib/enter-submit"
 import MotionTransferReferences from "../generation/MotionTransferReferences"
 import AssetPickerModal from "./AssetPickerModal"
 import { restoreReferenceFiles, roundReferenceSources, type ReferenceSource } from "../reference-assets"
@@ -260,6 +261,12 @@ export default function FaceSwapTool({ csrfToken }: { csrfToken: string }) {
                 placeholder="可补充换脸要求，例如只换脸保留原片发型服装、锁定某个人物等；留空使用内置换脸指令。"
                 autoSize={promptAutoSize(4)}
                 maxLength={1500}
+                onKeyDown={(event) => {
+                  // 回车开始生成；与「开始生成」按钮同一可用条件。
+                  if (!isSubmitEnter(event)) return
+                  event.preventDefault()
+                  if (ready) void submit()
+                }}
               />
             </div>
 

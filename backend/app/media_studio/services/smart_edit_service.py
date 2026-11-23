@@ -45,16 +45,40 @@ def project_or_error(project_id: str):
     return project
 
 
+# 无限画布「时间线」节点把剪辑工程挂在画布域下：project_id 形如 `canvas:<画布id>`，
+# 与 ai_projects 工程共用同一张 ai_smart_edit_documents 表和同一条导出链路。
+CANVAS_SCOPE_PREFIX = "canvas:"
+
+
+def edit_scope_or_error(project_id: str, owner: str | None = None):
+    """剪辑工程的归属校验：普通工程走 ai_projects，`canvas:` 前缀走画布归属。"""
+    if not str(project_id).startswith(CANVAS_SCOPE_PREFIX):
+        return project_or_error(project_id)
+    canvas_id = str(project_id)[len(CANVAS_SCOPE_PREFIX):]
+    if not canvas_id or len(canvas_id) > 160:
+        raise ValueError("画布工程 ID 无效")
+    row = query_one("SELECT id, title, owner_user_id FROM canvas_projects WHERE id = %s AND deleted_at IS NULL", (canvas_id,))
+    if not row or (owner and str(row.get("owner_user_id") or "") != str(owner)):
+        raise ValueError("画布不存在")
+    return {"kind": "canvas", "id": canvas_id, "name": str(row.get("title") or "无限画布")}
+
+
+def _scope_name(scope) -> str:
+    if isinstance(scope, dict):
+        return str(scope.get("name") or "无限画布")
+    return str(getattr(scope, "name", "") or "剪辑")
+
+
 def read_document(project_id: str, owner: str, sequence: str) -> dict:
-    project = project_or_error(project_id)
+    scope = edit_scope_or_error(project_id, owner)
     row = query_one("SELECT * FROM ai_smart_edit_documents WHERE id = %s AND owner_user_id = %s", (document_id(project_id, owner, sequence), owner))
     if not row:
-        return {"revision": 0, "document": empty_document(f"{project.name} · 剪辑"), "updated_at": None, "draft_key": document_id(project_id, owner, sequence)}
+        return {"revision": 0, "document": empty_document(f"{_scope_name(scope)} · 时间线"), "updated_at": None, "draft_key": document_id(project_id, owner, sequence)}
     return {"revision": row["revision"], "document": json.loads(row["document_json"]), "updated_at": str(row["updated_at"]), "draft_key": document_id(project_id, owner, sequence)}
 
 
 def save_document(project_id: str, owner: str, sequence: str, revision: int, document: dict) -> dict:
-    project_or_error(project_id)
+    edit_scope_or_error(project_id, owner)
     if not sequence or len(sequence) > 160:
         raise ValueError("剪辑序列 ID 无效")
     doc = validate_document(document)
@@ -77,7 +101,10 @@ def save_document(project_id: str, owner: str, sequence: str, revision: int, doc
 
 
 def project_sources(project_id: str, sequence: str, owner: str | None = None) -> list[dict]:
-    project_or_error(project_id)
+    scope = edit_scope_or_error(project_id, owner)
+    if isinstance(scope, dict) and scope.get("kind") == "canvas":
+        # 画布时间线的素材由前端直接来自画布节点与「导入」，不存在工坊分镜/资产投影。
+        return []
     assets: list[dict] = []
     if sequence != "main":
         detail = ProjectDetailService.get_episode_detail(project_id, sequence)
@@ -201,7 +228,7 @@ def _export_filename(document: dict, jid: str) -> str:
 
 def create_export(project_id: str, owner: str, document: dict, quality: int,
                   output_dir: str | None = None, user: dict | None = None) -> dict:
-    project_or_error(project_id)
+    edit_scope_or_error(project_id, owner)
     doc = validate_document(document)
     if quality not in {720, 1080}:
         raise ValueError("请选择 720P 或 1080P")

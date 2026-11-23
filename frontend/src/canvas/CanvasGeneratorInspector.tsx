@@ -1,22 +1,27 @@
 import { useReactFlow } from "@xyflow/react"
 import { Alert, Button, Collapse, Dropdown, Input, InputNumber, Select, Switch, Tag, Typography } from "antd"
 import {
-  ChevronDown, ChevronLeft, ChevronRight, Image as ImageIcon, LoaderCircle, Play, Plus,
+  AudioLines, ChevronDown, ChevronLeft, ChevronRight, Image as ImageIcon, LoaderCircle, Play, Plus,
   Sparkles, Square, Type, Video,
 } from "lucide-react"
 import { useId, useMemo } from "react"
+import { isSubmitEnter } from "../lib/enter-submit"
 import { searchFilterOption } from "../search-match"
 import type { CanvasMediaPreview } from "./CanvasNodes"
+import { canvasReferenceSlots } from "./canvas-composer"
 import {
-  canvasImageReferenceUrl,
+  CANVAS_REFERENCE_LABELS,
   canvasJobStatusLabel,
   canvasJobStatusTone,
   canvasPictureToken,
+  canvasReferenceKind,
   canvasReferenceLabel,
+  canvasReferenceUrl,
   canvasResultHistory,
   canvasResultVersionIndex,
   canvasRunSnapshotForJob,
   canvasWorkflowChangePatch,
+  canvasWorkflowReferenceKinds,
   generatorOptionValues,
   generatorParameterFields,
   generatorPromptInfo,
@@ -38,10 +43,12 @@ import {
   type CanvasMediaKind,
   type CanvasNode,
 } from "./canvas-model"
+import { CanvasCreditEstimate } from "./CanvasCreditEstimate"
 import { CanvasRunTrace } from "./CanvasRunTrace"
+import { useCanvasTextDraft } from "./useCanvasTextDraft"
 
 export function CanvasGeneratorInspector({
-  node, modes, modesLoading, modesError, onReloadModes, references, promptNodes, live, submitting,
+  node, modes, modesLoading, modesError, onReloadModes, references, promptNodes, live, submitting, authenticated,
   onPreview, onSubmit, onCancel, onRefine, onInsertResult, onOpenJob,
 }: {
   node: CanvasNode
@@ -53,6 +60,8 @@ export function CanvasGeneratorInspector({
   promptNodes: CanvasNode[]
   live: CanvasGeneratorLive | null
   submitting: boolean
+  /** 游客不预估积分：/api/credits/estimate 需要登录态。 */
+  authenticated: boolean
   onPreview: (preview: CanvasMediaPreview) => void
   onSubmit: (nodeId: string) => void
   onCancel: (nodeId: string) => void
@@ -65,6 +74,8 @@ export function CanvasGeneratorInspector({
   const values = generatorOptionValues(workflow, node.data.optionValues)
   const fields = generatorParameterFields(workflow, values)
   const promptSource = resolveGeneratorPrompt(promptNodes, node.data.prompt ?? "")
+  const promptDraft = useCanvasTextDraft(node.data.prompt ?? "",
+    (value) => updateNodeData(node.id, { prompt: value }))
   const promptInfo = generatorPromptInfo(promptSource)
   const promptIssue = workflow ? generatorPromptIssue(promptSource.text, promptInfo) : null
   const referenceIssue = workflow ? generatorReferenceIssue(workflow, references) : null
@@ -78,11 +89,14 @@ export function CanvasGeneratorInspector({
   const error = live?.error || node.data.jobError
   const tone = canvasJobStatusTone(status)
   const locked = active || submitting
+  const pictures = references.filter((reference) => canvasReferenceKind(reference) === "image")
+  const mixed = references.length !== pictures.length || (workflow && canvasWorkflowReferenceKinds(workflow).some((kind) => kind !== "image"))
+  const referenceUnit = mixed ? "份参考素材" : "张参考图"
   const referenceRequirement = workflow
     ? (workflow.min_references ?? 0) === (workflow.max_references ?? 0)
-      ? `需要 ${workflow.max_references ?? 0} 张参考图`
-      : `支持 ${workflow.min_references ?? 0}-${workflow.max_references ?? 0} 张参考图`
-    : "选择工作流后显示参考图要求"
+      ? `需要 ${workflow.max_references ?? 0} ${referenceUnit}`
+      : `支持 ${workflow.min_references ?? 0}-${workflow.max_references ?? 0} ${referenceUnit}`
+    : "选择工作流后显示参考素材要求"
 
   const workflowGroups = useMemo(() => {
     const groups = new Map<string, { label: string; options: { value: string; label: string }[] }>()
@@ -97,7 +111,7 @@ export function CanvasGeneratorInspector({
 
   const changeWorkflow = (workflowId: string) => {
     const nextMode = modes.find((item) => item.id === workflowId) ?? null
-    updateNodeData(node.id, canvasWorkflowChangePatch(workflowId, nextMode))
+    updateNodeData(node.id, canvasWorkflowChangePatch(workflowId, nextMode, node.data))
   }
 
   const changeOption = (name: string, value: CanvasOptionValue) => {
@@ -106,7 +120,7 @@ export function CanvasGeneratorInspector({
 
   const insertPictureToken = (index: number) => {
     const token = canvasPictureToken(index)
-    const current = String(node.data.prompt ?? "").trimEnd()
+    const current = String(promptDraft.value).trimEnd()
     updateNodeData(node.id, { prompt: current ? `${current} ${token}` : token })
   }
 
@@ -180,21 +194,30 @@ export function CanvasGeneratorInspector({
                 id="canvas-generator-prompt"
                 name="canvas-generator-prompt"
                 aria-label="创作提示词"
-                value={node.data.prompt ?? ""}
+                value={promptDraft.value}
                 autoSize={{ minRows: 4, maxRows: 10 }}
                 maxLength={4000}
                 showCount
                 disabled={locked}
                 placeholder="描述画面、镜头、动作与氛围…"
-                onChange={(event) => updateNodeData(node.id, { prompt: event.target.value })}
+                onFocus={promptDraft.onFocus} onBlur={promptDraft.onBlur}
+                onCompositionStart={promptDraft.onCompositionStart}
+                onCompositionEnd={(event) => promptDraft.onCompositionEnd(event.currentTarget.value)}
+                onChange={(event) => promptDraft.onChange(event.target.value)}
+                onKeyDown={(event) => {
+                  // 回车直接提交生成；与「提交生成」按钮同一可用条件。
+                  if (!isSubmitEnter(event)) return
+                  event.preventDefault()
+                  if (!locked && !issue && workflow) onSubmit(node.id)
+                }}
               />
-              {references.length ? (
+              {pictures.length ? (
                 <Dropdown
                   classNames={{ root: "canvas-popup" }}
                   trigger={["click"]}
                   disabled={locked}
                   menu={{
-                    items: references.map((reference, index) => ({
+                    items: pictures.map((reference, index) => ({
                       key: String(index + 1),
                       label: `${canvasPictureToken(index + 1)} · ${canvasReferenceLabel(reference, index + 1)}`,
                     })),
@@ -258,45 +281,50 @@ export function CanvasGeneratorInspector({
       </section>
 
       <section className="canvas-inspector-section">
-        <h4 className="canvas-inspector-section-title">参考图</h4>
-        <p className="canvas-inspector-hint">{referenceRequirement}，当前已连接 {references.length} 张。</p>
+        <h4 className="canvas-inspector-section-title">{mixed ? "参考素材" : "参考图"}</h4>
+        <p className="canvas-inspector-hint">{referenceRequirement}，当前已连接 {references.length} {mixed ? "份" : "张"}。</p>
         {references.length ? (
           <div className="canvas-generator-ref-list">
-            {references.map((reference, index) => {
-              const url = canvasImageReferenceUrl(reference.data)
+            {canvasReferenceSlots(workflow, references).map(({ node: reference, index, kind }) => {
+              if (!reference) return null
+              const url = canvasReferenceUrl(reference, kind)
               const label = canvasReferenceLabel(reference, index + 1)
-              return (
+              const thumbnail = kind === "image" ? url : kind === "video" ? reference.data.cover : null
+              const details = <>
+                <span className="canvas-generator-ref-index">{index + 1}</span>
+                <span className="canvas-generator-ref-thumb">
+                  {thumbnail ? <img src={thumbnail} alt="" draggable={false} /> : kind === "video" ? <Video size={16} />
+                    : kind === "audio" ? <AudioLines size={16} /> : <ImageIcon size={16} />}
+                </span>
+                <span className="canvas-generator-ref-text">
+                  <strong>{label}</strong>
+                  <small>
+                    {url ? CANVAS_REFERENCE_LABELS[kind] : "节点内容为空"}
+                    {kind === "image" ? <> · <code className="canvas-picture-token">{canvasPictureToken(pictures.indexOf(reference) + 1)}</code></> : null}
+                  </small>
+                </span>
+              </>
+              return kind === "audio" ? <div key={reference.id} className="canvas-generator-ref is-static">{details}</div> : (
                 <button
                   type="button"
                   key={reference.id}
                   className="canvas-generator-ref"
-                  title={url ? "点击预览参考图" : "参考图没有可用地址"}
+                  title={url ? `点击预览${CANVAS_REFERENCE_LABELS[kind]}` : "节点内容为空"}
                   onClick={() => {
-                    if (url) onPreview({ url, label, kind: "image" })
+                    if (url) onPreview({ url, label, kind, poster: thumbnail || undefined })
                   }}
                 >
-                  <span className="canvas-generator-ref-index">{index + 1}</span>
-                  <span className="canvas-generator-ref-thumb">
-                    {url ? <img src={url} alt="" draggable={false} /> : <ImageIcon size={16} />}
-                  </span>
-                  <span className="canvas-generator-ref-text">
-                    <strong>{label}</strong>
-                    <small>
-                      {url ? "连线顺序即提交顺序" : "缺少可用图片地址"}
-                      {" · "}
-                      <code className="canvas-picture-token">{canvasPictureToken(index + 1)}</code>
-                    </small>
-                  </span>
+                  {details}
                 </button>
               )
             })}
           </div>
         ) : (
           <p className="canvas-inspector-hint">
-            将图片节点连到本节点左侧输入点作为参考图，将文字节点连入则作为提示词。多条连线按创建顺序编号，提交时保持该顺序。
+            从左侧端口拉线可添加当前工作流所需的参考素材。连入的文字节点会作为提示词。
           </p>
         )}
-        {references.length ? (
+        {pictures.length ? (
           <p className="canvas-inspector-hint">
             提示词中的 {canvasPictureToken(1)}、{canvasPictureToken(2)} 分别对应第 1、2 张参考图。
           </p>
@@ -352,6 +380,15 @@ export function CanvasGeneratorInspector({
             {status === "succeeded" || status === "partial" ? "重新生成" : "提交生成"}
           </Button>
           )}
+          {/* 积分预估跟随「生成/重新生成」按钮；二采确认与生成中不重复提示。 */}
+          {status !== "awaiting_refine" && !active ? (
+            <CanvasCreditEstimate
+              mode={workflow}
+              values={values}
+              referenceCount={references.length}
+              authenticated={authenticated}
+            />
+          ) : null}
           {active ? (
             <Button danger disabled={submitting} icon={<Square size={14} />} onClick={() => onCancel(node.id)}>
               停止生成

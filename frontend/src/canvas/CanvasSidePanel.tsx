@@ -54,6 +54,8 @@ export type CanvasSidePanelProps = {
   promptNodes: CanvasNode[]
   live: CanvasGeneratorLive | null
   submitting: boolean
+  /** 当前是否已登录：积分预估接口需要登录态，游客不展示。 */
+  authenticated: boolean
   onSubmit: (nodeId: string) => void
   onCancel: (nodeId: string) => void
   onRefine: (nodeId: string, action: "confirm" | "skip") => void
@@ -122,7 +124,7 @@ export const CanvasSidePanel = memo(function CanvasSidePanel(props: CanvasSidePa
 function NodeProperties(props: CanvasSidePanelProps & { node: CanvasNode }) {
   const {
     node, onPreview, onReplaceAsset, modes, modesLoading, modesError, onReloadModes,
-    references, promptNodes, live, submitting, onSubmit, onCancel, onInsertResult, onOpenJob,
+    references, promptNodes, live, submitting, authenticated, onSubmit, onCancel, onInsertResult, onOpenJob,
   } = props
   return (
     <div className="canvas-panel-node">
@@ -141,6 +143,7 @@ function NodeProperties(props: CanvasSidePanelProps & { node: CanvasNode }) {
           promptNodes={promptNodes}
           live={live}
           submitting={submitting}
+          authenticated={authenticated}
           onPreview={onPreview}
           onSubmit={onSubmit}
           onCancel={onCancel}

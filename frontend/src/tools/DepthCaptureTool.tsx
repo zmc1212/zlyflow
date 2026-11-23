@@ -17,6 +17,7 @@ import {
 import { generateJobPath } from "../paths"
 import { createLocalId } from "../lib/utils"
 import { promptAutoSize } from "../prompt-autosize"
+import { isSubmitEnter } from "../lib/enter-submit"
 import { restoreReferenceFiles, roundReferenceSources, type ReferenceSource } from "../reference-assets"
 import "./motion-transfer-tool.css"
 
@@ -281,6 +282,12 @@ export default function DepthCaptureTool({ csrfToken, workflowId = DEPTH_WORKFLO
               placeholder={text.placeholder}
               autoSize={promptAutoSize(4)}
               maxLength={workflowId === DEPTH_WORKFLOW ? 1500 : 8000}
+              onKeyDown={(event) => {
+                // 回车开始生成；与「开始生成」按钮同一可用条件。
+                if (!isSubmitEnter(event)) return
+                event.preventDefault()
+                if (ready) void submit()
+              }}
             />
           </div>
 

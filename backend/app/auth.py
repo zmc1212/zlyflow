@@ -26,12 +26,26 @@ class LastSuperAdminError(RuntimeError):
     """Raised when an update would leave the system without an active super admin."""
 
 
+class BatchUsernameConflictError(ValueError):
+    """批量创建时账号已存在；端点映射为 HTTP 409。"""
+
+    def __init__(self, usernames: list[str]) -> None:
+        self.usernames = list(usernames)
+        preview = "、".join(self.usernames[:20])
+        suffix = f" 等 {len(self.usernames)} 个" if len(self.usernames) > 20 else f"（共 {len(self.usernames)} 个）"
+        super().__init__(f"账号已存在：{preview}{suffix}，请调整前缀或起始序号")
+
+
 def now() -> datetime:
     return datetime.now(timezone.utc)
 
 
 def iso(value: datetime | None = None) -> str:
     return (value or now()).isoformat()
+
+
+def profile_avatar_version(key: str) -> str:
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
 
 
 def normalize_username(username: str) -> str:
@@ -136,6 +150,7 @@ class AuthStore:
                         is_active INTEGER NOT NULL DEFAULT 1,
                         must_change_password INTEGER NOT NULL DEFAULT 1,
                         email TEXT,
+                        avatar_key TEXT,
                         created_at TEXT NOT NULL,
                         updated_at TEXT NOT NULL,
                         last_login_at TEXT
@@ -172,11 +187,23 @@ class AuthStore:
             self._db.ensure_column(connection, "users", "email", "VARCHAR(255) NULL" if self._db.dialect == "mysql" else "TEXT")
             connection.execute("UPDATE users SET email = NULL WHERE email = ''")
             self._db.ensure_unique_index(connection, "users", "uk_users_email", "email")
+            self._db.ensure_column(
+                connection, "users", "avatar_key",
+                "VARCHAR(768) NULL" if self._db.dialect == "mysql" else "TEXT",
+            )
+            # 企业管理：users.enterprise_id 归属企业（NULL = 平台内部账号，不受企业策略与钱包约束）。
+            self._db.ensure_column(
+                connection, "users", "enterprise_id",
+                "VARCHAR(64) NULL" if self._db.dialect == "mysql" else "TEXT",
+            )
+            self._db.ensure_index(connection, "users", "idx_users_enterprise", "enterprise_id")
 
     @staticmethod
     def public_user(row: Row | dict) -> dict:
         data = dict(row)
         data.pop("password_hash", None)
+        avatar_key = data.pop("avatar_key", None)
+        data["avatar_url"] = f"/api/auth/avatar/{profile_avatar_version(avatar_key)}" if avatar_key else None
         data["is_active"] = bool(data["is_active"])
         data["must_change_password"] = bool(data["must_change_password"])
         return data
@@ -188,12 +215,14 @@ class AuthStore:
     def create_user(
         self, username: str, display_name: str, password: str, role: UserRole,
         *, must_change_password: bool = True, email: str | None = None,
+        enterprise_id: str | None = None,
     ) -> dict:
         username = normalize_username(username)
         display_name = display_name.strip()
         if not username or not display_name:
             raise ValueError("账号和姓名不能为空")
         normalized_email = validate_email(email) if email else None
+        normalized_enterprise_id = (enterprise_id or "").strip() or None
         user_id = secrets.token_urlsafe(12)
         timestamp = iso()
         try:
@@ -203,16 +232,79 @@ class AuthStore:
                 connection.execute(
                     """INSERT INTO users (
                         id, username, display_name, password_hash, role, is_active,
-                        must_change_password, email, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)""",
+                        must_change_password, email, enterprise_id, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)""",
                     (
                         user_id, username, display_name, hash_password(password), role.value,
-                        int(must_change_password), normalized_email, timestamp, timestamp,
+                        int(must_change_password), normalized_email, normalized_enterprise_id,
+                        timestamp, timestamp,
                     ),
                 )
         except IntegrityError as error:
             raise ValueError("该账号已存在") from error
         return self.get_user(user_id)
+
+    def create_users_bulk(
+        self, *, enterprise_id: str, username_prefix: str, start_index: int, count: int,
+        display_name_prefix: str, password: str,
+    ) -> list[dict]:
+        """批量创建员工账号：统一初始密码、连续序号，全有或全无。"""
+        prefix = normalize_username(username_prefix)
+        name_prefix = (display_name_prefix or "").strip()
+        normalized_enterprise_id = (enterprise_id or "").strip()
+        if not normalized_enterprise_id:
+            raise ValueError("请选择所属企业")
+        if not prefix or not re.fullmatch(r"[a-z0-9._-]+", prefix):
+            raise ValueError("账号前缀只能包含字母、数字、点、下划线或短横线")
+        if not name_prefix:
+            raise ValueError("姓名前缀不能为空")
+        start_index = int(start_index)
+        count = int(count)
+        if start_index < 1:
+            raise ValueError("起始序号必须大于 0")
+        if count < 1 or count > 200:
+            raise ValueError("单次最多创建 200 个账号")
+        validate_password(password)
+        indexes = list(range(start_index, start_index + count))
+        width = max(3, len(str(indexes[-1])))
+        usernames = [f"{prefix}{index:0{width}d}" for index in indexes]
+        display_names = [f"{name_prefix}{index:0{width}d}" for index in indexes]
+        if any(len(name) > 64 for name in usernames):
+            raise ValueError("生成的登录账号超过 64 个字符，请缩短前缀")
+        if any(len(name) > 80 for name in display_names):
+            raise ValueError("生成的姓名超过 80 个字符，请缩短姓名前缀")
+        # 统一密码只哈希一次：批量 100 个账号不必重复执行 scrypt。
+        password_hash = hash_password(password)
+        timestamp = iso()
+        user_ids = [secrets.token_urlsafe(12) for _ in indexes]
+        try:
+            with self.connection() as connection:
+                placeholders = ", ".join("?" for _ in usernames)
+                existing = connection.execute(
+                    f"SELECT username FROM users WHERE username IN ({placeholders})",
+                    tuple(usernames),
+                ).fetchall()
+                if existing:
+                    raise BatchUsernameConflictError([str(row["username"]) for row in existing])
+                for user_id, username, display_name in zip(user_ids, usernames, display_names):
+                    connection.execute(
+                        """INSERT INTO users (
+                            id, username, display_name, password_hash, role, is_active,
+                            must_change_password, email, enterprise_id, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, 1, 1, NULL, ?, ?, ?)""",
+                        (
+                            user_id, username, display_name, password_hash, UserRole.EMPLOYEE.value,
+                            normalized_enterprise_id, timestamp, timestamp,
+                        ),
+                    )
+                rows = connection.execute(
+                    f"SELECT * FROM users WHERE id IN ({', '.join('?' for _ in user_ids)})",
+                    tuple(user_ids),
+                ).fetchall()
+        except IntegrityError as error:
+            raise BatchUsernameConflictError(usernames) from error
+        by_id = {str(row["id"]): row for row in rows}
+        return [self.public_user(by_id[user_id]) for user_id in user_ids if user_id in by_id]
 
     @staticmethod
     def _email_taken(connection: DbConnection, email: str, *, exclude_user_id: str | None = None) -> bool:
@@ -240,6 +332,25 @@ class AuthStore:
         if row is None:
             raise KeyError(user_id)
         return self.public_user(row)
+
+    def get_avatar_key(self, user_id: str) -> str | None:
+        with self.connection() as connection:
+            row = connection.execute("SELECT avatar_key FROM users WHERE id = ?", (user_id,)).fetchone()
+        return row["avatar_key"] if row else None
+
+    def replace_avatar(self, user_id: str, key: str) -> tuple[dict, str | None]:
+        with self.connection() as connection:
+            if self._db.dialect == "sqlite":
+                connection.execute("BEGIN IMMEDIATE")
+            previous = connection.execute(
+                "SELECT avatar_key FROM users WHERE id = ? AND is_active = 1 AND must_change_password = 0",
+                (user_id,), for_update=True,
+            ).fetchone()
+            if previous is None:
+                raise KeyError(user_id)
+            connection.execute("UPDATE users SET avatar_key = ?, updated_at = ? WHERE id = ?", (key, iso(), user_id))
+            updated = connection.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        return self.public_user(updated), previous["avatar_key"]
 
     def list_users(self) -> list[dict]:
         with self.connection() as connection:
@@ -325,6 +436,7 @@ class AuthStore:
         self, user_id: str, *, display_name: str | None = None,
         role: UserRole | None = None, is_active: bool | None = None,
         email: str | None = None, update_email: bool = False,
+        enterprise_id: str | None = None, update_enterprise: bool = False,
     ) -> dict:
         updates: dict[str, object] = {"updated_at": iso()}
         if display_name is not None:
@@ -340,6 +452,8 @@ class AuthStore:
         if update_email:
             normalized_email = validate_email(email) if email else None
             updates["email"] = normalized_email
+        if update_enterprise:
+            updates["enterprise_id"] = (enterprise_id or "").strip() or None
         assignment = ", ".join(f"{column} = ?" for column in updates)
         with self.connection() as connection:
             # Check-then-act must share the write transaction: SQLite serializes

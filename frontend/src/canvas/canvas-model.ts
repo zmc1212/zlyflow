@@ -4,7 +4,7 @@ import { normalizeCanvasCover } from "./canvas-cover"
 export const CANVAS_SCHEMA_VERSION = 2
 export const LEGACY_CANVAS_SCHEMA_VERSION = 1
 export const UNKNOWN_NODE_TYPE = "unknown"
-export const CANVAS_NODE_TYPES = ["text", "image", "video", "artboard", "generator"] as const
+export const CANVAS_NODE_TYPES = ["text", "image", "video", "artboard", "generator", "audio", "timeline"] as const
 export type CanvasNodeType = (typeof CANVAS_NODE_TYPES)[number]
 
 const knownNodeTypes = new Set<string>(CANVAS_NODE_TYPES)
@@ -51,6 +51,11 @@ export type CanvasNodeData = {
   workflowId?: string
   prompt?: string
   optionValues?: Record<string, string | number | boolean>
+  /**
+   * 节点框当前体现的画幅（宽/高）。用于区分「比例参数刚改过」和「用户手动拉过尺寸」：
+   * 与参数比例不一致时才重新套框，手动缩放过的节点在重新加载后不会被强行纠正。
+   */
+  frameRatio?: number
   jobId?: string | null
   jobStatus?: string | null
   jobError?: string | null
@@ -70,6 +75,16 @@ export type CanvasNodeData = {
   pendingGeneratorId?: string
   /** 未注册节点类型在本地归一化前的原始 type，保存时还原。 */
   originalType?: string
+  /** 音频节点：tts=配置的语音合成，music=本地音乐生成服务。 */
+  audioMode?: "tts" | "music"
+  /** TTS 音色 id；留空用管理设置里的默认音色。 */
+  voice?: string
+  /** 音乐节点时长（秒）。 */
+  durationSeconds?: number
+  /** 音乐节点是否纯音乐。 */
+  instrumental?: boolean
+  /** 音频任务进度 0-100（后端未给时为 undefined）。 */
+  jobProgress?: number | null
 }
 
 export type CanvasCoverPatch = Pick<CanvasNodeData, "cover" | "coverSource" | "coverTime">
@@ -443,21 +458,35 @@ export const CANVAS_LIBRARY_NODE_SIZES: Record<CanvasMediaKind, { width: number;
   video: { width: 360, height: 220 },
 }
 
+export const CANVAS_TEXT_MAX_ROWS = 24
+// 节点标题在卡片上方 33px，排版时也要预留这部分空间。
+export const CANVAS_NODE_LAYOUT_GAP = 48
+
 const CANVAS_FALLBACK_NODE_SIZES: Record<string, { width: number; height: number }> = {
   text: { width: 260, height: 120 },
   image: CANVAS_LIBRARY_NODE_SIZES.image,
   video: CANVAS_LIBRARY_NODE_SIZES.video,
   artboard: { width: 720, height: 480 },
   generator: { width: 400, height: 290 },
+  audio: { width: 320, height: 320 },
+  timeline: { width: 880, height: 240 },
   unknown: { width: 260, height: 150 },
 }
 
 export function canvasNodeSize(node: CanvasNode): { width: number; height: number } {
   const fallback = CANVAS_FALLBACK_NODE_SIZES[node.type ?? "unknown"] ?? CANVAS_FALLBACK_NODE_SIZES.unknown
-  return {
-    width: nodeDimension(node, "width") || fallback.width,
-    height: nodeDimension(node, "height") || fallback.height,
+  const width = nodeDimension(node, "width") || fallback.width
+  const knownHeight = nodeDimension(node, "height")
+  let height = knownHeight || fallback.height
+  if (node.type === "text" && !knownHeight && node.data.text) {
+    // 未挂载的文字节点按正文折行估算，挂载后优先使用 React Flow 的实测尺寸。
+    const charsPerLine = Math.max(1, Math.floor((width - 36) / 16) - 2)
+    const lines = node.data.text.split(/\r?\n/).reduce(
+      (count, line) => count + Math.max(1, Math.ceil(line.length / charsPerLine)), 0,
+    )
+    height = Math.max(height, 32 + Math.min(CANVAS_TEXT_MAX_ROWS, lines + 1) * 24)
   }
+  return { width, height }
 }
 
 export function canvasNodeTypeLabel(type: string | null | undefined): string {
@@ -466,6 +495,8 @@ export function canvasNodeTypeLabel(type: string | null | undefined): string {
   if (type === "video") return "视频"
   if (type === "artboard") return "画板"
   if (type === "generator") return "生成"
+  if (type === "audio") return "音频"
+  if (type === "timeline") return "时间线"
   return "未识别"
 }
 
@@ -508,8 +539,8 @@ export function nextCanvasBranchSlot(
   direction: CanvasBranchDirection,
   nodes: CanvasNode[],
   margin = 24,
+  size = canvasNodeSize(source),
 ): { x: number; y: number } {
-  const size = canvasNodeSize(source)
   const others = nodes
     .filter((node) => node.id !== source.id)
     .map((node) => ({ ...node.position, ...canvasNodeSize(node) }))
@@ -517,7 +548,7 @@ export function nextCanvasBranchSlot(
     const position = canvasBranchPosition(source, direction, index)
     if (!canvasRectOverlaps(position, size, others, margin)) return position
   }
-  return canvasBranchPosition(source, direction, nodes.length)
+  return findCanvasFreePosition(canvasBranchPosition(source, direction), size, nodes, margin)
 }
 
 export function findCanvasFreePosition(
@@ -548,7 +579,10 @@ export function findCanvasFreePosition(
     }
     if (!canvasRectOverlaps(candidate, size, others, margin)) return candidate
   }
-  return { x: Math.round(desired.x), y: Math.round(desired.y) }
+  return {
+    x: Math.ceil(others.reduce((right, node) => Math.max(right, node.x + node.width + margin), desired.x)),
+    y: Math.round(desired.y),
+  }
 }
 
 function nodeBox(node: CanvasNode) {
@@ -602,6 +636,28 @@ export function distributeCanvasNodes(nodes: CanvasNode[], axis: CanvasDistribut
       ? { x: cursor, y: box.y }
       : { x: box.x, y: cursor }
     cursor += (horizontal ? box.width : box.height) + gap
+  }
+  return updates
+}
+
+export function separateCanvasOverlaps(nodes: CanvasNode[], selectedIds: ReadonlySet<string>): CanvasPositionUpdates {
+  // 画板和子节点可有意重合，排列只处理独立的内容节点。
+  const cards = nodes.filter((node) => node.type !== "artboard" && !node.parentId)
+  const boxFor = (node: CanvasNode) => ({ ...node.position, ...canvasNodeSize(node) })
+  const occupied = cards.filter((node) => !selectedIds.has(node.id)).map(boxFor)
+  const selected = cards.filter((node) => selectedIds.has(node.id))
+    .sort((a, b) => a.position.y - b.position.y || a.position.x - b.position.x)
+  const updates: CanvasPositionUpdates = {}
+  for (const node of selected) {
+    const box = boxFor(node)
+    const blockers = occupied.filter((other) => box.x < other.x + other.width && box.x + box.width > other.x)
+      .sort((a, b) => a.y - b.y)
+    for (const other of blockers) {
+      if (box.y + box.height + CANVAS_NODE_LAYOUT_GAP <= other.y) break
+      box.y = Math.max(box.y, other.y + other.height + CANVAS_NODE_LAYOUT_GAP)
+    }
+    if (box.y !== node.position.y) updates[node.id] = { x: box.x, y: box.y }
+    occupied.push(box)
   }
   return updates
 }
@@ -738,6 +794,29 @@ export function createVideoNode(position: { x: number; y: number }, url = "", la
   }
 }
 
+/**
+ * 音频节点：同时承载「音频生成（配置的 TTS）」与「音乐生成（本地音乐服务）」。
+ * 两种模式共用 text 作为提示词/说话内容，任务状态直接写在节点 data 上，进度面板直接读节点。
+ */
+export function createAudioNode(
+  position: { x: number; y: number },
+  options: { audioMode?: "tts" | "music"; prompt?: string } = {},
+): CanvasNode {
+  const size = CANVAS_FALLBACK_NODE_SIZES.audio
+  return {
+    id: nextNodeId("audio"),
+    type: "audio",
+    position,
+    data: {
+      audioMode: options.audioMode ?? "tts",
+      text: options.prompt ?? "",
+      durationSeconds: 60,
+      instrumental: true,
+    },
+    style: { ...size },
+  }
+}
+
 export function isSafeMediaUrl(value: string, kind: CanvasMediaKind = "image"): boolean {
   const trimmed = value.trim()
   if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith("/")) return true
@@ -833,6 +912,23 @@ export function createArtboardNode(position: { x: number; y: number }): CanvasNo
     data: { label: "画板" },
     style: { width: 720, height: 480 },
     zIndex: 0,
+  }
+}
+
+/**
+ * 时间线节点：迷你多轨时间线 + 全屏剪辑编辑器（即梦式）。
+ * 剪辑工程持久化在后端 `canvas:<画布id>` scope 下（序列 `tl-<节点id>`），不写入画布草稿。
+ */
+export function createTimelineNode(
+  position: { x: number; y: number },
+  name: string,
+): CanvasNode {
+  return {
+    id: nextNodeId("timeline"),
+    type: "timeline",
+    position,
+    data: { label: name },
+    style: { width: 880, height: 240 },
   }
 }
 

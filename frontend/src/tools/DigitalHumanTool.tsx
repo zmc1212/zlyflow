@@ -23,6 +23,7 @@ import {
 } from "../generation/motion-transfer"
 import { createLocalId } from "../lib/utils"
 import { promptAutoSize } from "../prompt-autosize"
+import { isSubmitEnter } from "../lib/enter-submit"
 import { generateJobPath } from "../paths"
 import AssetPickerModal from "./AssetPickerModal"
 import "./digital-human-tool.css"
@@ -283,6 +284,12 @@ export default function DigitalHumanTool({ csrfToken }: { csrfToken: string }) {
                 placeholder={"描述人物、场景和氛围；人物形象会与口播音频自动同步\n\n例如：一位友好的主持人面对镜头进行科普讲解，演播室背景，柔和灯光"}
                 autoSize={promptAutoSize(4)}
                 maxLength={1500}
+                onKeyDown={(event) => {
+                  // 回车开始生成；与「开始生成」按钮同一可用条件。
+                  if (!isSubmitEnter(event)) return
+                  event.preventDefault()
+                  if (ready) void submit()
+                }}
               />
             </div>
 

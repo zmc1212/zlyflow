@@ -28,6 +28,7 @@ from backend.app.media_studio.routers.smart_edit_router import register_smart_ed
 from backend.app.media_studio.services.smart_edit_document import empty_document, validate_document
 from backend.app.media_studio.services.smart_edit_service import document_id
 from backend.app.storage import JobStore
+from backend.tests.app_state_guard import isolated_lifespan_state
 
 
 def video(key, beat=None, duration=2.09):
@@ -552,7 +553,7 @@ class EditingAssistantTests(unittest.TestCase):
         self.subtitle_timeline()
         self.llm.chat_json.return_value = {"lines": ["香克斯，让我上船吧！"]}
         base = "/api/projects/p/smart-edit/main/actions"
-        with TestClient(app) as client:
+        with isolated_lifespan_state(app), TestClient(app) as client:
             plan = client.post(base + "/preview", json={"revision": 1, "operation": "subtitle_translate"}).json()
             client.post(base + "/" + plan["id"] + "/confirm")
             self.subtitle_timeline(2)
@@ -692,7 +693,7 @@ class EditingAssistantTests(unittest.TestCase):
         def mutation(): return {"id": "alice"}
         register_smart_edit_routes(app, current_user=current, mutating_user=mutation)
         base = "/api/projects/p/smart-edit/main/actions"
-        with TestClient(app) as client:
+        with isolated_lifespan_state(app), TestClient(app) as client:
             plan = client.post(base + "/preview", json={"revision": 1, "asset_ids": ["v2", "v1"]}).json()
             self.assertEqual([i["asset_id"] for i in plan["items"]], ["v2", "v1"])
             response = client.post(base + "/" + plan["id"] + "/reorder", json={"asset_ids": ["v1", "v2"]})
@@ -711,7 +712,7 @@ class EditingAssistantTests(unittest.TestCase):
         self.subtitle_timeline()
         self.llm.chat_json.return_value = {"lines": ["香克斯，让我上船吧！"]}
         base = "/api/projects/p/smart-edit/main/actions"
-        with TestClient(app) as client:
+        with isolated_lifespan_state(app), TestClient(app) as client:
             plan = client.post(base + "/preview", json={"revision": 1, "operation": "subtitle_translate"}).json()
             self.assertEqual((plan["operation"], plan["count"]), ("subtitle_translate", 1))
             confirmed = client.post(base + "/" + plan["id"] + "/confirm").json()
@@ -739,7 +740,7 @@ class EditingAssistantTests(unittest.TestCase):
         def mutation(): return {"id": "alice"}
         register_smart_edit_routes(app, current_user=current, mutating_user=mutation)
         base = "/api/projects/p/smart-edit/main/actions"
-        with TestClient(app) as client:
+        with isolated_lifespan_state(app), TestClient(app) as client:
             plan = client.post(base + "/preview", json={"revision": 1}).json()
             self.assertEqual(client.get(base + "/" + plan["id"]).status_code, 200)
             self.assertEqual(client.post(base + "/preview", json={"revision": 0}).status_code, 409)

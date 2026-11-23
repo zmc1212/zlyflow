@@ -52,9 +52,72 @@ _LLM_STREAM_STATUS: ContextVar[Callable[[dict[str, Any]], None] | None] = Contex
     "llm_stream_status",
     default=None,
 )
+_LLM_USAGE_SINK: ContextVar["LlmUsageTotals | None"] = ContextVar(
+    "llm_usage_sink",
+    default=None,
+)
 _THINK_OPEN = "<think>"
 _THINK_CLOSE = "</think>"
 _THINK_CLOSE_ALT = "/think"
+
+
+@dataclass
+class LlmUsageTotals:
+    """一次业务操作内所有大模型请求的用量合计（含内部多次请求）。"""
+
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    cached_tokens: int = 0
+    cache_creation_tokens: int = 0
+    requests: int = 0
+
+    def add(self, usage: dict[str, Any] | None) -> None:
+        if not usage:
+            return
+        self.prompt_tokens += int(usage.get("prompt_tokens") or 0)
+        self.completion_tokens += int(usage.get("completion_tokens") or 0)
+        self.total_tokens += int(usage.get("total_tokens") or 0)
+        self.cached_tokens += int(usage.get("cached_tokens") or 0)
+        self.cache_creation_tokens += int(usage.get("cache_creation_tokens") or 0)
+        self.requests += 1
+
+    def as_dict(self) -> dict[str, int] | None:
+        if not self.requests:
+            return None
+        return {
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.total_tokens or self.prompt_tokens + self.completion_tokens,
+            "cached_tokens": self.cached_tokens,
+            "cache_creation_tokens": self.cache_creation_tokens,
+            "requests": self.requests,
+        }
+
+
+class LlmUsageCollector:
+    """在当前任务上下文中累计大模型 usage；to_thread 会复制 context，累计对象可回读。"""
+
+    def __init__(self) -> None:
+        self.totals = LlmUsageTotals()
+        self._token = None
+
+    def __enter__(self) -> LlmUsageCollector:
+        self._token = _LLM_USAGE_SINK.set(self.totals)
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        if self._token is not None:
+            _LLM_USAGE_SINK.reset(self._token)
+
+    def usage(self) -> dict[str, int] | None:
+        return self.totals.as_dict()
+
+
+def record_llm_usage(usage: dict[str, Any] | None) -> None:
+    totals = _LLM_USAGE_SINK.get()
+    if totals is not None:
+        totals.add(usage)
 
 
 class LlmStreamHook:
@@ -1249,6 +1312,7 @@ class OpenAICompatibleClient:
 
         result.content = self._strip_thinking(result.content)
         result.mode = "native" if tools else "legacy"
+        record_llm_usage(result.usage)
         if not result.content and not result.tool_calls:
             raise LlmError("大模型返回的内容为空")
         return result

@@ -56,6 +56,44 @@ from backend.tests.app_state_guard import isolated_lifespan_state
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_creative_aspect_controls_are_consistent_across_workflows(self) -> None:
+        from backend.app.grs_catalog import builtin_catalog_records
+
+        definitions = [*WORKFLOWS, *(registry.image_workflow_from_catalog(item) for item in builtin_catalog_records())]
+        checked = 0
+        for definition in definitions:
+            parameters = definition.payload()["parameters"]
+            properties = next((item["schema"]["properties"] for item in parameters if item["name"] == "options"), {})
+            if definition.executor == "cloud_video" and "resolution" in properties:
+                with self.subTest(workflow=definition.id, field="resolution"):
+                    self.assertEqual(properties["resolution"].get("ui_summary"), "value")
+            for name in ("aspect_ratio", "target_aspect"):
+                field = properties.get(name)
+                if not field or field.get("ui_group") not in {"primary", "advanced"}:
+                    continue
+                with self.subTest(workflow=definition.id, field=name):
+                    self.assertEqual(field.get("ui_control"), "visual-settings")
+                    values = [item["value"] for item in field.get("ui_options", [])] or field.get("enum", [])
+                    self.assertIn(field["default"], values)
+                    for companion in field.get("ui_companions", []):
+                        self.assertIn(companion, properties)
+                        self.assertIn(properties[companion].get("ui_group"), {"primary", "advanced"})
+                    checked += 1
+        self.assertGreater(checked, 30)
+
+    def test_h3_image_creative_labels_preserve_generation_parameters(self) -> None:
+        for mode in ("minimax-h3-image-t2i", "minimax-h3-image-edit"):
+            with self.subTest(workflow=mode):
+                properties = workflow_for(mode).option_schema["properties"]
+                self.assertEqual(properties["aspect_ratio"]["ui_companions"], ["quality"])
+                choices = properties["quality"]["ui_options"]
+                self.assertEqual([item["value"] for item in choices], ["standard", "high", "ultra"])
+                self.assertEqual([item["short_label"] for item in choices], ["标准", "高清", "超清"])
+                options = normalize_options(mode, {"aspect_ratio": "9:16", "quality": "high", "prompt_expander": False})
+                self.assertEqual(options["aspect_ratio"], "9:16")
+                self.assertEqual(options["quality"], "high")
+                self.assertIs(options["prompt_expander"], False)
+
     def test_reference_tokens_are_resolved_before_generation(self) -> None:
         prompt = resolve_reference_prompt("让 @图2 站在 @图1 中，采用 @图3 色调", 3)
         self.assertNotIn("@图", prompt)
@@ -832,6 +870,21 @@ class ApiDocumentationTests(unittest.TestCase):
                     JobMode.CLOUD_SCNET_SEEDANCE_T2V.value,
                     JobMode.CLOUD_SCNET_SEEDANCE_I2V.value,
                     JobMode.CLOUD_SCNET_HAPPYHORSE_T2V.value,
+                    JobMode.CLOUD_GRS_H3_T2V.value,
+                    JobMode.CLOUD_GRS_H3_R2V.value,
+                    JobMode.CLOUD_GRS_H3_FL2V.value,
+                    JobMode.CLOUD_GRS_AGNES_T2V.value,
+                    JobMode.CLOUD_GRS_AGNES_I2V.value,
+                    JobMode.CLOUD_GRS_AGNES_FL2V.value,
+                    JobMode.CLOUD_GRS_AGNES_R2V.value,
+                    JobMode.CLOUD_GRS_WAN_T2V.value,
+                    JobMode.CLOUD_GRS_WAN_I2V.value,
+                    JobMode.CLOUD_GRS_WAN_FL2V.value,
+                    JobMode.CLOUD_GRS_WAN_R2V.value,
+                    JobMode.CLOUD_MINIMAX_H3_T2V.value,
+                    JobMode.CLOUD_MINIMAX_H3_I2V.value,
+                    JobMode.CLOUD_MINIMAX_H3_FL2V.value,
+                    JobMode.CLOUD_MINIMAX_H3_R2V.value,
                 }
                 for workflow in WORKFLOWS
             )

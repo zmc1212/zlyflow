@@ -1,5 +1,6 @@
 import { Button, Input, Modal, Segmented, message } from "antd"
 import { promptAutoSize } from "../prompt-autosize"
+import { isSubmitEnter } from "../lib/enter-submit"
 import { useEffect, useMemo, useRef, useState } from "react"
 import {
   OUTPAINT_MAX_SIDE,
@@ -255,6 +256,12 @@ export default function ImageOutpaintEditor({
           placeholder="描述想要扩图的内容，不填将基于原图生成"
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
+          onKeyDown={(event) => {
+            // 回车直接应用扩图；提交中不重复触发。
+            if (!isSubmitEnter(event)) return
+            event.preventDefault()
+            if (!submitting) apply()
+          }}
         />
 
         <div className="studio-outpaint-footer">

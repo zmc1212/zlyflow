@@ -235,12 +235,15 @@ class CloudVideoService:
     def submit_generation(
         self, provider_key: str, *, model: str, prompt: str, negative_prompt: str | None = None,
         first_frame: Path | None = None, last_frame: Path | None = None,
-        references: list[Path] | None = None, options: dict[str, Any] | None = None,
+        references: list[Path] | None = None, audio_references: list[Path] | None = None,
+        video_references: list[Path] | None = None,
+        options: dict[str, Any] | None = None,
         client_ref: str | None = None,
     ) -> str:
         request = CloudVideoSubmitRequest(
             model=model, prompt=prompt, negative_prompt=negative_prompt, first_frame=first_frame,
-            last_frame=last_frame, references=references, options=options, client_ref=client_ref,
+            last_frame=last_frame, references=references, audio_references=audio_references,
+            video_references=video_references, options=options, client_ref=client_ref,
         )
         return self.client(provider_key).submit(request)
 

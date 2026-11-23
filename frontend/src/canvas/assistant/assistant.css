@@ -1,0 +1,90 @@
+/* 画布智能助手：只写「画布宿主」特有的定位与差异样式。
+   对话工作区（assistant-feed / assistant-message / assistant-markdown / assistant-tool-trace /
+   assistant-question / assistant-composer* / assistant-deliverable / assistant-usage-line 等）
+   全部复用导演台同一份样式表：director2/assistant/assistant.css，
+   token 作用域（--director-* 成对亮暗值）已纳入 .canvas-assistant，单一事实来源。 */
+.canvas-assistant {
+  position: absolute; top: 12px; right: 12px; bottom: 12px; width: 424px; z-index: 40;
+  display: flex; flex-direction: column; min-height: 0;
+  border-radius: 14px; overflow: hidden;
+  background: var(--director-surface); color: var(--director-ink);
+  box-shadow: var(--director-shadow-raised);
+  visibility: hidden; opacity: 0; pointer-events: none;
+  transition: opacity .15s ease;
+}
+/* 面板不用位移入场动画：内嵌浏览器合成层节流会把动画停在第 0 帧。 */
+.canvas-assistant.is-open { visibility: visible; opacity: 1; pointer-events: auto; }
+
+.canvas-assistant-head {
+  display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+  border-bottom: 1px solid var(--director-line);
+  background: var(--director-surface);
+  flex-shrink: 0;
+}
+.canvas-assistant-head .assistant-title { color: var(--director-ink); }
+.canvas-assistant-head .ant-btn { color: var(--director-ink-2); font-size: 11.5px; }
+.canvas-assistant-head .ant-btn:hover { color: var(--director-ink) !important; background: var(--director-hover) !important; }
+
+/* 历史下拉内的双行条目 */
+.canvas-assistant-history-item-label { display: inline-flex; flex-direction: column; gap: 1px; min-width: 0; }
+.canvas-assistant-history-item-title { max-width: 260px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.canvas-assistant-history-item-label small { color: var(--director-ink-3, #9a9da3); font-size: 10px; }
+
+/* 方案卡：容器用 assistant-deliverable；chips 与 ops 清单是画布特有增量。 */
+.canvas-assistant-proposal { margin-top: 10px; }
+.canvas-assistant-proposal.is-settled { opacity: .82; }
+.canvas-assistant-proposal-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.canvas-assistant-chip {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px;
+  background: var(--director-field); color: var(--director-ink-2); font-size: 11px; font-variant-numeric: tabular-nums;
+}
+.canvas-assistant-chip.tone-orange { background: var(--director-orange-tint); color: var(--director-orange); }
+.canvas-assistant-status-tag.ant-tag { margin: 0; font-size: 10px; line-height: 17px; padding-inline: 7px; border: 0; }
+.canvas-assistant-status-tag.tone-green { color: var(--director-green); background: var(--director-green-tint); }
+.canvas-assistant-status-tag.tone-orange { color: var(--director-orange); background: var(--director-orange-tint); }
+.canvas-assistant-status-tag:not(.tone-green):not(.tone-orange) { background: var(--director-field); color: var(--director-ink-2); }
+.canvas-assistant-proposal-ops { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 0; padding: 0; list-style: none; }
+.canvas-assistant-proposal-op { display: flex; align-items: flex-start; gap: 8px; }
+.canvas-assistant-proposal-op-icon { display: grid; place-items: center; width: 22px; height: 22px; margin-top: 1px; border-radius: 7px; background: var(--director-accent-tint); color: var(--director-accent); flex-shrink: 0; }
+/* submit 行用独立 tone 类：全局裸 .tone-orange 是导演台海报 mockup 的装饰渐变，禁止复用其名。 */
+.canvas-assistant-proposal-op.tone-submit .canvas-assistant-proposal-op-icon { background: var(--director-orange-tint); color: var(--director-orange); }
+.canvas-assistant-proposal-op-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.canvas-assistant-proposal-op-label { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; font-size: 11.5px; line-height: 1.5; color: var(--director-ink-2); }
+.canvas-assistant-proposal-op-target { font-style: normal; font-size: 11.5px; font-weight: 600; color: var(--director-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.canvas-assistant-proposal-op-params { display: flex; flex-wrap: wrap; gap: 4px; }
+.canvas-assistant-proposal-op-params .canvas-assistant-chip { padding: 1px 7px; font-size: 10.5px; background: var(--director-field); color: var(--director-ink-2); }
+.canvas-assistant-proposal-op-params .canvas-assistant-chip.tone-connect { background: var(--director-accent-tint); color: var(--director-accent); }
+.canvas-assistant-proposal-op-prompt {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+  font-size: 11.5px; line-height: 1.6; color: var(--director-ink-3, var(--director-ink-2)); word-break: break-word;
+}
+.canvas-assistant-proposal-op-desc { font-size: 12px; color: var(--director-ink); word-break: break-word; }
+.canvas-assistant-proposal-failures { margin: 0; padding-left: 18px; font-size: 11.5px; line-height: 1.6; }
+.canvas-assistant-superseded-hint {
+  margin-top: 6px; padding: 5px 9px; border-radius: 8px; font-size: 11.5px; line-height: 1.55;
+  background: var(--director-orange-tint); color: var(--director-orange);
+}
+
+/* 选中节点时的快捷操作 chips（vibe 式一键发起） */
+.canvas-assistant-quick-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 2px 8px; }
+.canvas-assistant-quick-actions button {
+  padding: 4px 11px; border-radius: 999px; border: 1px solid var(--director-line-strong);
+  background: var(--director-surface); color: var(--director-ink-2); font-size: 11.5px; cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+.canvas-assistant-quick-actions button:hover:not(:disabled) { background: var(--director-hover); color: var(--director-ink); }
+.canvas-assistant-quick-actions button:disabled { opacity: .5; cursor: not-allowed; }
+
+/* composer 技能选择 Popover：列表复用导演台 ResourcePicker 组件与其全套
+   assistant-resource-picker-* 样式；画布无技能市场，隐藏组件底部的市场入口。 */
+.canvas-assistant-skill-picker { width: 380px; }
+.canvas-assistant-skill-picker .assistant-resource-picker { width: 100%; }
+.canvas-assistant-skill-picker .assistant-resource-picker-market { display: none; }
+
+/* composer 偏好 Popover 里的行 */
+.canvas-assistant-pref-row { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.canvas-assistant-pref-row > span { font-size: 12px; color: var(--director-ink-2); }
+.canvas-assistant-pref-row .ant-select { width: 100%; }
+
+/* header 入口按钮：与「属性」面板开关同一套 active 语义 */
+.canvas-assistant-toggle.is-active.ant-btn { background: var(--studio-primary-soft); color: var(--studio-accent-text); }

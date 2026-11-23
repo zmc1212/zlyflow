@@ -1,5 +1,431 @@
 # ZLY AI Video Studio 架构快照
 
+## 2026-11-23 智能剪辑抽象为画布「时间线 / 多轨编辑器」节点（即梦式）
+
+- 变更原因：把导演台整页「智能剪辑」（`/director/projects/:id/edit/:epId`）抽象为共享时间线编辑层，模仿即梦：无限画布出现「时间线」节点（迷你时间线 + 全屏编辑），导演台资产画布的「剪辑工程」节点升级为「多轨编辑器」节点，且全屏态自动把当前画布资产并入「全部资产」。
+- 后端（复用既有智能剪辑存储与导出链路，仅放宽 scope）：
+  - `media_studio/services/smart_edit_service.py`：新增 `edit_scope_or_error(project_id, owner)`——`canvas:<画布id>` 前缀按 `canvas_projects` 归属校验（同库），普通工程照走 `ai_projects`；`read_document/save_document/project_sources/create_export` 全部改走该入口，画布 scope 的 `project_sources` 返回 `[]`（素材由前端画布派生）。
+  - `media_studio/routers/smart_edit_router.py`：`import-local`/`upload` 的归属校验改为 `edit_scope_or_error`。
+  - `media_studio/services/project_service.py`：`ProjectAccessMiddleware.allows_user` 增加 `canvas:` 分支（`/api/projects/{id}/smart-edit/...` 在进入路由前会被按项目归属拦截，画布 scope 需按画布归属放行）。
+  - `canvas_store.py`：`_PREVIEW_NODE_TYPES` 与 `_PREVIEW_FALLBACK_SIZES` 增加 `timeline`（880×260），画布列表预览不再把时间线节点降级为 unknown。
+- 前端（新增共享模块 `frontend/src/editing/`，由 `director2/smart-edit/` 迁移 + 抽象）：
+  - 迁移：`model.ts / api.ts / Preview.tsx / Timeline.tsx / Inspector.tsx / smart-edit.css→editing.css / model.test.ts` 移入 `editing/`；`SmartEditPane.tsx` 留在 `director2/smart-edit/`，其与 `assistant/*`、`panes/AssetCreationCanvas.tsx` 的 import 全部改指 `editing/`。`Timeline` 新增 `extraToolbar` 插槽，`Inspector` 新增 `heading`（多轨态显示「片段设置」），`Preview` 在有时间线片段但播放头无画面时显示「当前时间点没有画面」。
+  - `use-edit-document.ts`：从 SmartEditPane 抽出的文档状态机（revision 乐观锁 + 409 冲突 + sessionStorage 草稿恢复 + 播放时钟 + 增删改/拆分/拖拽/探针/上传/导出轮询），迷你节点与全屏编辑器共用。
+  - `editing-shared.ts`：`editorSessionKey/acquireEditSession`（同一 scope+sequence 同时只允许一个写入者：全屏打开时迷你节点暂停自动保存，关闭后冲刷并重载）、`EditingNodeContext`（宿主装配 csrfToken/scope/sequence/画布素材池/全屏入口）、`mergeEditAssetPool`（按 url 去重）、`canvasTimelineAssets`（画布图片/视频/音频/生成结果节点 → EditAsset，时长未知给保守默认由预览探针纠正）、`ensureEditableAsset`（`/api/media/...` 站内地址先经 smart-edit upload 转入可持久化地址，工程校验只认 http(s)/本机引用）。
+  - `EditStudio.tsx`：全屏编辑器双变体——`timeline`（图2：左侧「已导入资产/画布资产」页签 + 类型筛选 + 上传/引用本机，中间预览，底部完整时间线）与 `multitrack`（图4：左侧「资产库」全部/分组/图片/视频/音频/已添加，中间预览，右侧「片段设置」，底部多轨时间线 + 「添加字幕」）。导出走既有 `exports/mp4` 任务（1080/720），header 显示进度与成片链接；比例/帧率/背景在「剪辑设置」Popover。
+  - `TimelineNodes.tsx`：迷你节点卡片 `TimelineNodeCard`——工具行（拆分/删除 + 多轨态撤销重做/智能字幕识别/音量滑条）、播放 + 时间码（画布 mm:ss，多轨 mm:ss:ff）、下载导出、全屏编辑；标尺刻度点击/拖动 seek，片段条可选中（空格播放、Delete 删片段在节点内拦截冒泡防误删画布节点）；播放时浮出小预览窗（画面 + 文字 + 声音同步）。`TimelineCanvasNode` 注册进 `canvas/node-registry.ts` 的 `baseNodeTypes`（`type: "timeline"`），导演台经 `buildNodeTypes` 域覆盖把 `editor` 节点替换为 `DirectorEditorNode`（`panes/AssetCanvasNodes.tsx`）。
+  - `canvas-model.ts`：`CANVAS_NODE_TYPES` + `timeline`、`createTimelineNode(position, name)`（默认 880×240，名称按画布内序号自动编「时间线 N」）、类型标签/回退尺寸。
+  - `CanvasEditor.tsx`：节点工具栏/双击新建清单/快捷入口增加「时间线」；`isValidConnection` 允许 image/video/audio/generator/text 连入时间线节点；提供 `EditingNodeContext`（scope=`canvas:<画布id>`、sequence=`tl-<节点id>`、素材池=画布媒体节点派生）；全屏 `EditStudio` 以 fixed overlay 渲染。
+  - `AssetCreationCanvas.tsx`：`editor` 节点域覆盖为多轨编辑器；`openEditorFullscreen` + 全屏 `EditStudio(variant=multitrack)`（sequence 沿用 `canvas-<节点id>`，历史剪辑工程无缝升级）；`editorPool` 自动收集导演资产形象/设定图（角色 identities、场景 master/reverse/pano、道具 reference/turnaround/detail）+ 画布媒体节点，全屏「全部资产」即见当前画布资产；上下文新增 `csrfToken/projectId/openEditorFullscreen/projectAssets`（asset-canvas-context.ts）。
+  - 样式：`editing/editing-overlays.css`（`.se-studio-*` 全屏层、`.se-node-*` 迷你节点，全部 `--studio-*` 语义 token + `[data-theme=dark]` 成对，双主题自适应；`.se-studio` 上重声明 `--se-*` 片段配色）。
+- 受影响文件：后端 `backend/app/media_studio/{services/smart_edit_service.py,services/project_service.py,routers/smart_edit_router.py}`、`backend/app/canvas_store.py`；前端 `frontend/src/editing/**`（新增）、`frontend/src/director2/smart-edit/SmartEditPane.tsx`、`frontend/src/director2/{assistant/*,panes/AssetCreationCanvas.tsx,panes/AssetCanvasNodes.tsx,panes/asset-canvas-context.ts}`、`frontend/src/canvas/{canvas-model.ts,node-registry.ts,CanvasEditor.tsx}`；测试 `backend/tests/test_smart_edit.py`（+2 项）、`frontend/src/editing/editing-shared.test.ts`（新增）。
+- 兼容性：剪辑文档仍在同一张 `ai_smart_edit_documents`（scope 仅是 project_id 字符串的新取值），导出仍走 `ai_project_jobs`（canvas scope 的导出任务不出现在导演台任务中心，只在全屏编辑器内轮询）；导演台旧「剪辑工程」节点的 `canvas-<nodeId>` 序列与历史文档原样保留，节点升级为多轨编辑器形态后行为一致；`ProjectAccessMiddleware` 放行仅限 `canvas:` 前缀且归属匹配。VLM/理解/转写/助手铺轨接口未放开 canvas scope（画布时间线暂不支持，按钮相应隐藏或禁用）。
+- 验证命令：`python -m pytest backend/tests/test_smart_edit.py backend/tests/test_canvas_store.py backend/tests/test_ai_studio.py -q`（24+28+62 项）；`pnpm --dir frontend build`（vitest 1108 项、tsc、vite 构建通过）；5173 桌面端实测：无限画布新建「时间线 1」→ 全屏编辑（已导入/画布资产页签）→ 关闭后节点保持；导演台资产画布新建「多轨编辑器」→ 全屏资产库自动出现弗利萨/克林等形象图与场景设定图 → 加入时间线 → 播放 5s 后画面切换 → 关闭后迷你节点同步两段片段；浅色/暗色截图自查通过。
+- 2026-11-23 修订一（保存 500 根因）：共享库 `ai_smart_edit_documents` 上存在仓库外手工加的外键 `fk_smart_edit_project`（project_id → ai_projects.id ON DELETE CASCADE），`canvas:` scope 的 INSERT 被 1452 拒绝（HTTP 500 裸文案「Internal Server Error」）。修复：`media_studio/db.py ensure_schema` 新增幂等步骤 `_relax_smart_edit_foreign_key`（查 information_schema 存在即 `DROP FOREIGN KEY`）；级联语义由 `ProjectService.delete_project` 显式补偿（先 `DELETE FROM ai_smart_edit_documents WHERE project_id` 再删工程行）。诊断行已清理，画布 scope 保存/读回/导出实测通过。
+- 2026-11-23 修订二（即梦式胶片带）：新增 `editing/filmstrip.ts`——对时间线用到的视频素材按 url 模块级缓存抽帧（10 帧正方形、跨时间均匀取样、近黑首帧自动后移重试一次、跨域污染回退无 CORS 一次再失败则交付空走纯色兜底），同一次抽帧产出 `frames`（迷你节点按宽平铺 `<img>`）与 `strip`（帧横向拼接长条，全屏时间线以 `repeat-x / auto 100%` 背景）。迷你片段左下角改显时长角标（即梦式），片段名移入 title；`EditStudio`/`TimelineNodeCard` 按片段素材触发抽帧并传 `strips` 给 `Timeline`（新增可选 prop，SmartEditPane 原单帧行为不变）。
+- 回滚方式：前端把 `node-registry.ts` 的 timeline 注册与 `AssetCreationCanvas` 的 editor 域覆盖移除即回到旧节点形态；后端把三处 `edit_scope_or_error` 调用还原为 `project_or_error`、`allows_user` 删除 canvas 分支即拒绝画布 scope；`canvas:` scope 的历史文档行保留无害。
+
+## 2026-11-22 无限画布「项目信息」弹窗（基础信息 + 积分消耗）
+
+- 变更原因：对齐即梦无限画布右上角「… → 项目信息」能力——画布缺少整体信息视图：所有者、创建/最新修改时间、节点分布统计，以及本画布累计积分消耗与按类型（图片/视频生成）的占比。
+- 后端：新增读接口 `POST /api/canvas/projects/{canvas_id}/credit-stats`（登录 + CSRF，body `{job_ids: []}`，去重后最多 500 个）。`JobStore.canvas_project_credit_stats(owner_user_id, job_ids)`（storage.py）：任务号先按 `owner_user_id` 过滤（jobs 表），再对 `credit_transactions` 与 `enterprise_credit_transactions` 双表聚合 `ref_type='job'` 的净消耗（`consume` 计负、`refund` 计正，净额 ≤0 的任务——含全额退款的失败任务——不计入），返回 `{total_credits, task_count, groups[{type,label,task_count,credits,ratio}]}`，groups 按消耗降序、ratio 保留 4 位。画布归属校验复用 `canvas_store.get_project`（404 同既有语义）；个人/企业钱包混用可正确汇总。请求模型 `CanvasProjectCreditStatsRequest`（models.py）；API 文案登记 api_documentation.py。画布节点分布不落库：由前端按当前节点实时计算。
+- 前端：新增 `frontend/src/canvas/CanvasProjectInfoModal.tsx`（antd Modal + Tabs，「基础信息」：所有者/创建时间/最新修改 + 节点分布卡片（全部节点/图片/视频/音频/文本/生成/画板/其他）；「积分消耗」：总消耗积分/任务数汇总卡 + 类型占比条形表 + 底部「查看积分明细」链接（关闭弹窗并经 `setAccountOverlay("credits")` 复用画布账户菜单的 CreditDrawer）。`collectCanvasJobIds` 从节点溯源收集任务号（`data.jobId/sourceJobId/sourceRun/lastRun/runHistory/resultHistory`），打开弹窗时以打开时刻的节点快照请求一次；`canvas-api.ts` 新增 `fetchCanvasProjectCreditStats`。入口：CanvasEditor 顶栏「更多画布操作」Dropdown 首项「项目信息」；弹窗打开时屏蔽画布快捷键（keydown 守卫加入 `projectInfoOpen`）。样式追加在 `canvas.css`（`.canvas-project-*`，全部走 `--studio-*` 语义变量，双主题自动适配）。
+- 受影响文件：`backend/app/{storage.py,models.py,main.py,api_documentation.py}`、`backend/tests/test_canvas_store.py`（+4 项）、`frontend/src/canvas/{CanvasProjectInfoModal.tsx,CanvasProjectInfoModal.test.tsx,canvas-api.ts,CanvasEditor.tsx,canvas.css}`、`docs/ARCHITECTURE.md`、`功能说明与扩展指南.md`。
+- 兼容性：纯加法——不改既有画布接口、任务协议与积分扣费/退款链路；无数据迁移。历史任务无需回填：画布节点自带 sourceRun/lastRun 溯源，打开即按引用任务聚合。未产生消耗（免费模型）与音频类任务（音乐/TTS 走独立计费链路，不落在 jobs 表）暂不进该统计，界面显示空态文案。
+- 验证命令：`python -m pytest backend/tests/test_canvas_store.py -q`（28 项）；`pnpm --dir frontend vitest run src/canvas`（278 项）；`npx --dir frontend tsc -b`；5173 桌面端打开真实画布 →「…」→ 项目信息，两页签截图自查（浅色/暗色）。
+- 回滚方式：移除该路由、storage 方法与前端弹窗/菜单项即可；无表结构与数据变更。
+
+## 2026-11-21 无限画布智能助手（Canvas Copilot）
+
+- 变更原因：无限画布此前只有节点级交互，用户需要自己想提示词、选工作流、逐个建节点连线。参照导演台 V2 助手骨架（agent 循环 + 提案确认 + SSE 事件持久化重放）与开源范式（tldraw Agent Starter Kit 的画布状态注入/动作卡片、ComfyUI-Copilot 的工作流目录暴露），在通用无限画布（`/canvas/:canvasId`）上线对话式智能助手。执行模型采用「提案-确认」：助手所有画布改动先落库为待确认方案卡，用户点「应用到画布」后由**前端**逐条执行。
+- 核心原则：**后端不改 canvas draft JSON**。提案只落库（`canvas_assistant_records.kind='proposal'`），应用全部由前端调用 CanvasEditor 既有可编程操作（`createTextNode/createGeneratorNode/findCanvasFreePosition/nextCanvasBranchSlot/canvasConnectEdge/submitGenerator/createLibraryNode`）完成，天然复用连线规则、参考槽位绑定、空位算法与 1.2s debounce 自动保存，避免与前端内存态/乐观锁/双开标签冲突；提交任务前前端按既有 `validateGeneratorInput` 二次把关（缺提示词/缺参考在方案卡失败项中回显）。
+- 后端（新增 `backend/app/canvas_assistant/`，镜像导演台骨架裁剪为画布域）：
+  - `protocol.py`：画布域系统提示词、`CanvasOp/OpsProposal/AssistantTurn` 契约、双协议工具定义（JSON envelope + 原生 function calling，按模型能力自动降级）。ops 原子操作：`create_text / create_generator（含 connect_from 一步连线）/ connect / update_generator / submit / insert_library_item`；ref 规则 `n1/n2…` 为提案内临时编号、其余为画布真实节点 ID；position 只用语义锚点（`new / right_of:ref / below:ref`），不让模型输出绝对坐标。
+  - `canvas_actions.py`：提案校验器（工作流存在性走 `workflow_registry.workflow_for`、option_values 仅放行 `ui_group ∈ primary/advanced` 参数并对 schema/枚举/min-max 校验、连线类型对齐 `canvas-connections.ts` 的 target←source 规则、ref 先定义后引用、素材只能作为生成器参考）。i2v 等 prompt 允许留空（前端文字节点入边 > 全局提示词 > 工作流默认值三级兜底）。
+  - `service.py`：agent 循环 ≤8 步，工具 `canvas_read`（概览 + 选中/视口聚焦层 + 边邻接，借鉴 tldraw 三级格式）/ `workflow_catalog`（仅 image/video 工作流与用户参数）/ `library_search` / `job_status`（从 draft 收集 jobId 批量查）/ `propose_canvas_ops`（落库提案）。流式复用 `director_stream._decode_partial_string`；计费 `credits.consume_call("llm","assistant_chat")` 按轮；含「说了不做」兜底——用户消息命中操作意图（`_ACTION_INTENT`，排除疑问句）且本轮未建提案时追加一次强制提醒再走一步。
+  - `repository.py` + `sql/032_canvas_assistant.sql`：`canvas_assistant_records`（单表多 kind JSON 聚合：session/message/run/proposal/tool_call）+ `canvas_assistant_events`（SSE 事件持久化，`since/Last-Event-ID` 重放）；repository 自建表（`CREATE TABLE IF NOT EXISTS`），迁移文件供 MySQL 部署执行。
+  - `routes.py`：`/api/canvas-assistant`（catalog/sessions/messages/runs+cancel+retry/events SSE/proposals apply-result）。前端应用提案后 `POST /proposals/{id}/apply-result` 上报 `applied/partial/failed/dismissed`。
+  - 装配：`main.py` lifespan 创建 `app.state.canvas_assistant`（注入 `filter_workflow_definitions` 企业过滤、GRS/云端可用性检查、作品库条目 provider）并 `recover()`。
+- 前端（新增 `frontend/src/canvas/assistant/`）：
+  - `CanvasAssistantPanel.tsx`：画布舞台右侧悬浮面板（header「助手」按钮开关，localStorage 持久化）。消息流 parts：markdown(react-markdown)/tool 轨迹/proposal 方案卡/question 问题卡/usage；EventSource 订阅 `runs/{rid}/events`（done/terminal 后全量对账，5s 轮询兜底）；会话按 `canvas-assistant-session:{canvasId}` 持久化，404/403 自愈回欢迎页；composer 随消息附 `context{selection_ids, viewport_node_ids}`（1.5s 轮询选中数显示上下文条）。
+  - `assistant-bridge.ts` 提供 `CanvasAssistantBridge`（applyProposal/getSelectionIds/getViewportNodeIds）。`applyAssistantProposalOps` 在同一批草稿中计算节点位置、连线和参数改动，提交到 React 编辑器后再执行生成操作与立即保存。空位计算使用本批已放置节点和最终画幅，文字节点未测量时按最大行数和折行估算占用。每个操作单独记录失败项。
+  - `proposal-card.tsx`：方案卡（操作分组 chips + 积分预估 + 逐 op 图标行 + 应用/忽略 + 失败清单）；`api.ts`：类型契约 + `mergeAssistantEvent`；问题卡复用导演台 `QuestionCard`。
+  - 视觉与交互（2026-11-21 二次修订）：画布面板**直接复用导演台同一份样式表**——`CanvasAssistantPanel` import `director2/assistant/assistant.css`（画布窗口路由不挂导演台组件，必须显式引入），token 作用域选择器（`--director-*` 成对亮暗值）纳入 `.canvas-assistant` 保持单一事实来源；DOM 逐类名对齐 `DirectorAssistant.tsx` 的 workspace：`assistant-workspace/assistant-feed/assistant-message(+is-user/assistant-speaker)/assistant-markdown/assistant-tool-trace/assistant-phase(Spin)/assistant-usage-line/assistant-welcome(+skills)/assistant-composer(+shell/body/toolbar/hint)`；composer 工具栏同款（模型 Popover、联网开关 `assistant-tool-selected`、圆钮 `assistant-send`、Enter/Shift+Enter）；选中节点复用 `assistant-selection-chips + assistant-skill-tag`（叉号可清除画布选中）；方案卡容器改用 `assistant-deliverable`（与产物卡/媒体审批卡同构）；问题卡直接获得导演台 `.assistant-question*` 全套样式（选择卡/输入卡同一交互）。`canvas/assistant/assistant.css` 只保留画布宿主差异（定位、header、ops 清单、历史下拉条目）。
+  - 接线：`CanvasEditor.tsx` header 加「助手」按钮（`canvas-assistant-toggle`），stage 内挂面板并构造 bridge（`clearSelection` 供选中 chip 叉号清除画布选中）。
+- vibe 场景加固（同日第三轮，用户要求穷举边界情况后落地）：
+  - **submit 失败感知**：`CanvasEditor.submitGenerator` 全路径返回 boolean（余额不足 402 / 缺提示词 / 缺参考图 / 工作流不可用均计失败），bridge 的 submit op `await` 判定，失败计入方案卡失败项并提示原因，不再出现"已应用但任务没提交"的误导。
+  - **应用后立即落盘**：`applyAssistantProposalOps` 结束时调用 `saveNow`（`saveDraft(true)` 立即保存），不再依赖 1.2s 防抖窗口。
+  - **看图边界声明**：系统提示词明确"你看不到图片/视频/音频的画面或声音内容"，分析画面细节时依据提示词与参数推断并如实说明，防止假装看过画面。
+  - **本轮重复提案去重**：同一轮第二次 `propose_canvas_ops` 返回错误让模型自纠（run 级 `_proposed_this_run` 标记）。
+  - **引用失效细化**：应用提案时引用的画布节点不在内存中，报"节点「x」不在当前画布上（可能已被删除或由其他窗口修改），请让助手重新读取画布后重试"。
+  - **大画布过滤读取**：`canvas_read` 支持 `filter{type, job_status(active|failed|succeeded), query}` 只过滤概览层（聚焦层始终完整返回），返回 `node_count`（总数）与 `listed_count`（列出数）。
+  - **选中快捷操作**：选中节点时 composer 上方出现「转成视频 / 以此生成变体 / 检查任务状态」一键 chips，点击即以对应提示词发起对话。
+- 模型偏好与创作流程封装（同日第四轮，用户要求"生成前应询问用什么模型并封装成 skill"）：
+  - **会话级工作流偏好**：`Selections` 增加 `image_workflow_id` / `video_workflow_id`（空=每次询问），`validate_selections` 校验工作流存在且媒体类型匹配；`skill_id` 为预留字段本轮仅透传（下轮接入导演台技能资源表）。
+  - **助手行为**：run 上下文注入 `workflow_preferences`（含工作流名）；提示词固化创作流程（生图：主题→模型偏好→画幅→方案；生视频：主题/参考图→模型偏好（注意参考图模式匹配）→时长→方案）——有偏好直接用不重复询问，无偏好先用问题卡让用户选模型（选项 value 逐字用工作流 ID）。
+  - **答案自动回写**：澄清问题卡的答案若为有效工作流 ID 或精确工作流名，按媒体类型写入会话偏好（`send` 事务内回写 `session.selections` 并带入本轮 run），同一会话后续不再问。
+  - **前端**：composer 工具栏新增「偏好」Popover（生图/生视频默认模型下拉，来自 modes 不硬编码；`allowClear`）；改动即 PATCH session（409 乐观锁重试一次）+ localStorage `canvas-assistant-prefs`（新画布默认继承上次偏好）。
+- 画布技能体系接入（同日第五轮，兑现 skill_id 预留）：
+  - **只读复用导演台技能库**：canvas 服务构造时实例化 `ResourceService(AssistantRepository(store))`（同一 store 的 `ai_assistant_records` 表，内置 6 技能自动播种，幂等）；画布侧只消费（选技能/读指令/读参考文件），技能的编辑/导入/市场仍在导演台管理。
+  - **会话绑定**：`validate_selections` 返回 `(selections, snapshot)` 元组；`skill_id` 校验为 `resource_version`（shared）且 `resource_type='skill'`，快照 `{name,category,instructions,references,version_id}` 独立存放于 `session.resource_snapshot`（与导演台同构，不混入 selections）。
+  - **run 注入**：上下文 `resources` 内联 instructions、references 只列文件名，全文经 `load_skill_reference` 工具按需读取（path 逐字校验，失败带可用文件清单）；发言人在前端显示技能名（`resource_names.skill`）。
+  - **前端**：composer 工具栏「技能」Popover **直接复用导演台 `ResourcePicker` 组件**（搜索/分类 tabs/封面行/来源标签全套 `assistant-resource-picker-*` 样式，catalog.skills 返回完整资源对象满足组件契约；画布无技能市场，CSS 隐藏组件底部市场入口）；选中技能以 `assistant-skill-tag` chip 展示（可叉除）；`changeSelection` 统一处理偏好与技能（skill 不写 localStorage——技能是会话级）。
+- 明确不做（本期）：导演台资产画布（domain 节点/linked canvas）、图片理解类工具（VLM 上游 404）、自动布局优化、后端直写 draft 端点、画布技能编辑器（编辑仍走导演台）。
+- 受影响文件：新增 `backend/app/canvas_assistant/{__init__,protocol,repository,canvas_actions,service,routes}.py`、`backend/tests/test_canvas_assistant.py`、`frontend/src/canvas/assistant/{api,assistant-bridge,proposal-card,CanvasAssistantPanel}.tsx/.ts/.css`；修改 `backend/app/main.py`、`frontend/src/canvas/CanvasEditor.tsx`、`sql/032_canvas_assistant.sql`、`.gitignore`（测试白名单）。
+- 兼容性：纯新增模块与画布内可选面板，旧画布草稿/工作流/任务链路零改动；未执行 `sql/032` 时 MySQL 缺表（repository 首次访问自建表兜底），不影响既有功能；画布助手入口默认关闭，点开才加载 catalog。
+- 验证命令：`python -m unittest backend.tests.test_canvas_assistant`（23 项）+ `python -m unittest backend.tests.test_director_assistant backend.tests.test_canvas_store backend.tests.test_canvas_linked_endpoint`（146 项回归）；`pnpm --dir frontend build`（vitest 1083 项、tsc、vite 构建通过）；5173 桌面端 E2E：登录 → 打开画布 → 助手面板发「生成赛博朋克城市夜景 16:9 并提交」→ 方案卡（chips/积分预估/操作行）→ 应用 → 画布出现 generator 节点并自动提交 → GPT Image 2.5 出图回填；选中图片节点发「转成 5 秒视频」→ H3 首尾帧提案 → 应用连参考 → 提交出 5 秒视频；暗色/浅色主题截图对比通过（面板 token 成对继承）。
+- 回滚方式：`main.py` 移除 `canvas_assistant` 装配与路由注册即整体下线（画布回到无助手状态）；前端删 `assistant/` 目录与 CanvasEditor 三处接线即无入口；`canvas_assistant_*` 两张表保留无害，`DROP TABLE` 可彻底清理。
+
+## 2026-11-20 云端视频新增 GRS Wan 3.0（四模式 × 分辨率计价）
+
+- 变更原因：GRS 账号新增 `wan-3.0`（阿里万相 3.0，支持 30 秒长镜头、音画同步、参考图与首尾帧），用户要求接入「grs 云端视频的 wan」。它与 H3 / Agnes 共用同一 Base URL 与 API Key，因此复用 `grs` 连接，按模型名分流，不新增供应商配置。
+- 上游协议：`POST /v1/api/generate`，`model=wan-3.0`，必填 `prompt/aspectRatio/resolution/duration/replyType=async`；`aspectRatio ∈ 16:9/9:16/21:9/4:3/1:1/3:4`；`resolution ∈ 480p/720p/1080p`；`duration 2-30` 秒；`images ≤10`；`firstFrame`/`lastFrame` 可单独或成对使用，且与 `images` 互斥；`audios`（≤5 段、每段 ≤15 秒）与 `videos`（≤5 段、总长 ≤15 秒）上游已开放，但工作台尚无对应上传链路，本期不提交。轮询沿用 `GET /v1/api/result?id=`。
+- 适配器（`backend/app/cloud_video/grs_video.py`）：按 model 前缀分流 `_submit_wan`，H3 / Agnes 分支行为不变；Wan 不下发 H3 专属 `promptSkill`，`seed=0` 表示随机不下发；三个分支共用 `_post_generate` 完成提交与 400 错误解析；分辨率/时长/画幅/参考图上限与首尾帧互斥在适配器与 `normalize_options` 双层校验。供应商 spec 标签更新为「GRS 视频（MiniMax-H3 / Agnes 2.5 / Wan 3.0）」。
+- 工作流注册：`cloud-grs-wan-t2v/i2v/fl2v/r2v`（`JobMode.CLOUD_GRS_WAN_*`，`cloud_family="grs-wan"`）；T2V none、I2V keyframes (1,1)、FL2V (2,2)、R2V collection (1,10)；`CLOUD_VIDEO_WORKFLOW_IDS` 由 22 条增至 26 条。导演台族 `cloud_video:grs-wan`（i2v 定义在后，赢得族内图生路由；fl2v 仅生成页可选）。参数层级：画幅（visual-settings）、时长滑杆（2-30）、分辨率（primary），随机种子（advanced）。
+- 积分计价：价格页新增 `grs-wan` 厂商卡（`provider_key="grs"` 复用可用性判断，`variant_by="resolution"`）；价格种子 `cloud:cloud-grs-wan-*` 原生价 `{"480p":0.135,"720p":0.27,"1080p":0.54}`（GRS 官网模型列表 2700/5400/10800 积分每秒 ÷ 20000 积分每元）→ 向上取整 14/27/54 积分每秒；输入图片沿用前 5 张免费、当前不额外收费。
+- 前端：`/api/pricing` 返回四张厂商卡；价格页新增 `grs-wan` 主题色与 `durationBounds("grs-wan") = 2-30`，厂商说明补充 Wan 3.0；管理设置云端视频卡片文案同步提到 Wan；生成页选项由注册表 / `/api/modes` 驱动，无硬编码。
+- 受影响文件：`backend/app/cloud_video/{grs_video,base}.py`、`backend/app/{models,workflow_registry,storage}.py`、`backend/tests/{test_cloud_video,test_credit,test_core}.py`、`frontend/src/pricing/{PricingPage.tsx,pricing-model.ts,pricing-model.test.ts}`、`frontend/src/admin/CloudVideoProviderSettings.tsx`、本文件、`docs/API.md`、`docs/导演台流程与界面结构.md`、`README.md`、`功能说明与扩展指南.md`。
+- 兼容性：GRS H3 / Agnes 与其余云端工作流行为不变；Wan 四模式需 `grs` 供应商已启用并配置 API Key；价格种子 `INSERT OR IGNORE` 不覆盖管理端改动；音频/视频参考与文档输入暂不暴露。
+- 验证命令：`python -X utf8 -m pytest backend/tests/test_cloud_video.py backend/tests/test_credit.py -q`（124 通过）；`python -X utf8 -m pytest backend/tests/test_core.py -q`（133 通过）；`pnpm --dir frontend build`（vitest、tsc 与 vite 构建通过）；5173 桌面端价格页核对 Wan 卡：厂商分段项「GRS · Wan 3.0」可切换，480p/720p/1080p = 14/27/54 积分每秒，官方价 ¥0.14/0.27/0.54，试算面板默认 5 秒与参考图 0 张。
+- 回滚方式：删除四条 `cloud-grs-wan-*` 工作流定义与 `grs-wan` 族标签/价格卡即从界面下架；适配器 `_submit_wan` 可一并还原，H3 / Agnes 不受影响。无数据库迁移，`cloud_video_provider_settings` 继续复用 `grs` 行。
+
+## 2026-11-20 云端视频新增 GRS Agnes Video 2.5（四模式 × 分辨率计价）
+
+- 变更原因：GRS 同一账号新增 Agnes Video 2.5（自带对白与音效、支持首尾帧和多图参考），需要作为 GRS 第二模型族接入，复用现有 `grs` 连接与 API Key，避免再配一套供应商。
+- 上游协议：`POST /v1/api/generate`，`model=agnes-video-2.5`，必填 `prompt/aspectRatio/resolution/duration/replyType=async`；`aspectRatio ∈ 16:9/9:16/21:9/4:3/1:1/3:4`；`resolution ∈ 720p/1080p/2k`；`duration 4-12` 秒；`images ≤5`、`firstFrame` 可单用、`lastFrame` 必须与 `firstFrame` 成对、首尾帧与 `images` 互斥；`audios/videos` 参考本期不开放。轮询沿用 `GET /v1/api/result?id=`。
+- 适配器（`backend/app/cloud_video/grs_video.py`）：按 model 前缀分流 `_submit_agnes`，H3 分支零改动；Agnes 不下发 H3 专属的 `promptSkill`，`seed=0` 表示随机不下发；分辨率/时长/画幅与首尾帧成对性在适配器与 `normalize_options` 双层校验。供应商 spec 标签与提示更新为「GRS 视频（MiniMax-H3 / Agnes 2.5）」，连接、余额与测试连接逻辑不变。
+- 工作流注册：`cloud-grs-agnes-t2v/i2v/fl2v/r2v`（`JobMode.CLOUD_GRS_AGNES_*`，`cloud_family="grs-agnes"`）；T2V 无参考、I2V keyframes (1,1)、FL2V (2,2)、R2V collection (1,5)；`CLOUD_VIDEO_WORKFLOW_IDS` 共 22 条。导演台族 `cloud_video:grs-agnes`（i2v 定义在后，赢得族内图生路由；fl2v 仅生成页可选）。参数层级：画幅（visual-settings）/时长滑杆（4-12）/分辨率（primary），随机种子（advanced）。
+- 积分计价：价格页新增 `grs-agnes` 厂商卡（`provider_key="grs"` 复用可用性判断，`variant_by="resolution"`），价格种子 `cloud:cloud-grs-agnes-*` 原生价 `{"720p":0.10,"1080p":0.17,"2k":0.23}`（GRS 官网模型列表 2000/3400/4600 积分 ÷ 20000 积分每元）→ 10/17/23 积分每秒；预扣与失败退款复用既有 `_estimate_cloud_video` 与终态退款钩子。
+- 前端：`/api/pricing` 返回三张厂商卡；价格页新增 `grs-agnes` 主题色与 `durationBounds("grs-agnes") = 4-12`；管理设置云端视频卡片文案补充 Agnes；生成页选项由注册表/`/api/modes` 驱动，无硬编码。
+- 受影响文件：`backend/app/cloud_video/{grs_video,base}.py`、`backend/app/{models,workflow_registry,storage,main}.py`、`backend/tests/{test_cloud_video,test_credit,test_core}.py`、`frontend/src/pricing/{PricingPage.tsx,pricing-model.ts,pricing-model.test.ts}`、`frontend/src/admin/CloudVideoProviderSettings.tsx`、本文件、`功能说明与扩展指南.md`、`README.md`、`docs/导演台流程与界面结构.md`。
+- 兼容性：GRS H3 与其余 18 条云端工作流行为不变（H3 提交分支未改）；Agnes 四模式需 `grs` 供应商已启用并配置 API Key；价格种子 `INSERT OR IGNORE` 不覆盖管理端改动；音频/视频参考暂不暴露。
+- 验证命令：`python -X utf8 -m pytest backend/tests/test_cloud_video.py backend/tests/test_credit.py -q`（118 通过）；`python -X utf8 -m pytest backend/tests/test_core.py -q`（133 通过）；`pnpm --dir frontend build`（前端全量测试、tsc 与 vite 构建通过）；5173 桌面端价格页核对 Agnes 三档 10/17/23 积分每秒、官方价 ¥0.10/0.17/0.23、时长滑杆 4-12 秒（`/api` 响应取自当前代码导出的快照，运行中的 7865 进程尚未重启）。
+- 回滚方式：`git revert` 本轮提交；`cloud_video_provider_settings` 无需恢复（复用 `grs` 行），价格种子行保留无害，也可在管理端停用对应工作流或删除四条价格规则。
+
+## 2026-11-20 取消 super_admin 积分豁免
+
+- 变更原因：用户要求取消超管豁免，让所有账号（含 super_admin）一律按价格表结算，避免管理账号真实调用不产生计费流水、报表毛利失真。
+- 当前基线：删除 `credit_service.is_credit_exempt` 与 `CreditService._is_exempt`；`quote_job` / `require_call_balance` / `consume_call` 不再按角色短路，导演台链路 owner_user_id 也直接按价预扣。同步删除仅服务豁免判断的 `JobStore.get_user_role()`。企业钱包路由、模型访问策略、预扣-退款流程均不变。
+- 受影响文件：`backend/app/credit_service.py`、`backend/app/storage.py`、`backend/tests/test_credit.py`、`sql/029_credit_system.sql`、`README.md`、`功能说明与扩展指南.md`、本文件。
+- 兼容性：无 API / 表结构 / 前端变更；超管此前被豁免的历史流水不受影响，新调用立即按价计费；本地 ComfyUI 仍恒 0 免费。
+- 验证：`python -m unittest backend.tests.test_credit` 通过（超管新增用例：`quote_job` 报价 200、`bill_job` 实扣 200、`consume_call` 扣 3，余额按价递减）。
+- 回滚：还原上述后端文件即恢复豁免；无数据回滚。
+
+## 2026-11-20 积分用量与毛利报表
+
+- 变更原因：P0/P1 已把 LLM/VLM 的真实 token 成本写入流水，但缺少面向运营的聚合视图，无法按模型/条目核对收入、成本与毛利。P2 新增只读报表，不改变计价与扣费。
+- 接口：`GET /api/admin/credits/usage-report`（`admin_user`）。参数 `start` / `end`（北京时间自然日，含当日；默认最近 30 天，最长 366 天）、`group_by`（`price_key|model|user|enterprise|day`）、`scope`（`user|enterprise|all`）。返回 `start/end/group_by/scope/totals/rows/refunds_grouped/generated_at`。
+- 数据读取：`JobStore.list_credit_usage_transactions` 用 `UNION ALL` 合并 `credit_transactions` 与 `enterprise_credit_transactions` 的 `consume/refund`，按 `created_at` 区间过滤并关联 `users` / `enterprises` 名称。`ORDER BY 9,1` 使用结果列位置，兼容 SQLite 与 MySQL 的复合查询限制。
+- 聚合：`backend/app/credit_report.py` 纯函数完成分组与指标。扣费积分取 `abs(delta)`，收入 = 积分/100；成本只累加 `meta.cost_cny`，无成本调用计入 `uncosted_calls`，避免把缺失数据当成 100% 毛利。`cost_basis` 与 `billing_basis` 分别统计真实/估算成本、按 token 结算次数；`tokens` 取 `total_tokens`，缺失时用输入+输出。
+- 退款：汇总始终包含退款笔数与积分；`refunds_grouped` 仅当 `group_by=price_key` 为 true，因为退款流水没有 `model` / token 明细，无法可靠归入模型/账号/日期。净收入 = 扣费收入 − 退款，毛利 = 净收入 − 已记录成本。
+- 前端：`CreditAdminSettings` 新增「用量毛利」分段；`CreditUsageReport.tsx` 提供日期、钱包、维度筛选，8 个汇总卡、明细表 + 合计行、未覆盖成本警示和 CSV 导出；`credit-report.ts` 负责金额/比例格式、CSV 转义与文件名。CSV 带 BOM 与合计行。
+- 受影响文件：新增 `backend/app/credit_report.py`、`frontend/src/admin/{CreditUsageReport.tsx,credit-report.ts,credit-report.test.ts}`；修改 `backend/app/{storage,models,main}.py`、`backend/tests/test_credit.py`、`frontend/src/admin/CreditAdminSettings.tsx`、`README.md`、`功能说明与扩展指南.md`、`docs/API.md`。
+- 兼容与边界：纯新增只读端点与页面，无数据库迁移、无扣费/退款逻辑变更；报表只反映查询时已落库的流水，软删除或历史缺失成本不会被推算。`cost_cny` 缺失的条目会提示覆盖不足，不自动用当前价格表回填。
+- 验证：`python -m unittest backend.tests.test_credit` 48 项通过；`npx tsc -b` 通过；`npx vitest run src/admin/credit-report.test.ts` 4 项通过。5178 桌面端以 `zlyadmin` 登录核对筛选、汇总卡、成本未覆盖警示、合计行与导出按钮，无页面异常。
+- 回滚：移除管理端「用量毛利」入口与 `/api/admin/credits/usage-report` 路由，删除新增三文件即可；无表结构或数据回滚。
+
+## 2026-11-20 LLM/VLM 按 token 结算与模型档位/错峰价
+
+- 变更原因：P0 的成本参考只用于核对，实际仍按次扣费，长上下文调用会偏离上游成本。P1 增加逐条可选的真实 token 结算，同时保留默认按次以兼容既有账单。
+- 计价模型：`extra_config.billing_mode`（`per_call` 默认 / `per_token`）、`billing_margin`、`min_credits`；`cost_reference.model_prices[model]` 可覆盖输入/缓存/输出单价，`cost_reference.off_peak` 含 `enabled`、`discount`、`timezone`、`windows[{start,end}]`（支持跨零点）。`CreditService.token_charge` 统一算积分：`ceil(成本 × 100 × margin × provider_coefficient)`，再以 `min_credits` 兜底；`billed_call_credits` 在缺 usage/成本参考时回退 `unit_credits`。
+- 用量采集：`llm_client.LlmUsageTotals` 与 `LlmUsageCollector` 通过 ContextVar 累计一次业务操作内的多次请求；`chat_completion_result` 返回前调用 `record_llm_usage`。`asyncio.to_thread` 复制上下文，累计对象可在原任务回读。已接入提示词优化、剧本拆解、连续性修复、VLM 主体/反推、导演台澄清/写稿、助手整轮和音乐对话非流式分支；流式音乐对话未采集时按次回退。
+- 流水：`call_usage_meta` 写入 `billing_mode`、`billing_basis`（`actual_tokens` / `per_call`）、`unit_credits`（实际扣减）、`provider_coefficient`、`model_tier`、`off_peak_applied`、`off_peak_multiplier`、`billing_margin`；成本与 tokens 字段沿用 P0。
+- 前端：`credit-price.ts` 的 `previewCallCost` 增加 `billingMode/billingMargin/minCredits` 选项并返回 `tokenCredits`；`CreditPricingSettings.tsx` 的成本弹窗新增结算方式、模型档位行、错峰开关与窗口，价格表行标签显示「按 token / 按次」和典型用量积分。
+- 兼容与边界：旧规则默认 `per_call`，升级后账单不变；`model_prices`、`off_peak`、`billing_*` 均为可选字段，无需数据库迁移。错峰时区通过 `zoneinfo` 解析，缺少 tzdata 时回退 UTC；无效窗口/折扣在模型校验阶段拒绝。
+- 受影响文件：`backend/app/credit_service.py`、`llm_client.py`、`main.py`、`director_operations.py`、`music_chat.py`、`models.py`、`storage.py`、`backend/tests/test_credit.py`、`frontend/src/admin/credit-price.ts`、`credit-price.test.ts`、`CreditPricingSettings.tsx`、`README.md`、`功能说明与扩展指南.md`。
+- 验证：`python -m unittest backend.tests.test_credit` 47 项通过；`npx tsc -b` 通过；`npx vitest run src/admin/credit-price.test.ts src/credits/credits.test.ts` 10 项通过。用例覆盖真实 usage、模型档位、错峰 5 折、最低积分、缺 usage 回退与 per_call 不变。
+- 回滚：管理端条目切回「按次」即可；代码层还原上述文件并重启后端，数据库无需回滚。
+
+## 2026-11-20 LLM/VLM 成本参考与按次流水用量
+
+- 变更原因：LLM/VLM 此前只有固定「积分/次」，没有与百炼/DeepSeek 按百万 tokens 的上游账单建立换算；用户看不到 token 与约合人民币，管理端也无法判断哪些条目在倒贴。本期先补成本口径与可核对明细，结算规则不变。
+- 当前基线：
+  - 价格表 `llm:*` / `vlm:*` 条目支持可选 `extra_config.cost_reference`：`input_per_mtok`、`cached_input_per_mtok`、`output_per_mtok`（元/百万 tokens），`assumed_input_tokens` / `assumed_cached_tokens` / `assumed_output_tokens`（典型单次用量），`provider_coefficient`、`estimated`、`reference_note`。
+  - `credit_service.compute_cost_preview()` 计算单次上游成本、当前扣费（积分 ÷ 100）、覆盖率（扣费 ÷ 成本）、建议积分（`ceil(成本 × 系数 × 100)`）与状态；`compute_call_cost()` 在有真实 usage 时按实际 tokens 重算（`cost_basis=actual`），否则按典型用量估算（`estimated`）。
+  - 管理端价格表每个 LLM/VLM 条目显示 `≈¥/次`、`成本/次`、`覆盖率` 与状态（低于成本 / 接近成本 / 有毛利 / 待校准），「成本参考」弹窗可编辑单价、典型 tokens 与加价系数并实时预览。成本参考只用于核对毛利，不参与实际结算。
+  - `credit_transactions.meta_json` 与 `enterprise_credit_transactions.meta_json` 记录 `model`、`prompt_tokens`、`completion_tokens`、`cached_tokens`、`cost_cny`、`cost_basis`、`unit_credits`。导演助手每轮已有真实 usage，按 actual 写入并在消息底栏追加 `≈¥` 与扣费积分；`optimize_prompt`、`split_script`、`repair_continuity`、`director_plan`、`director_clarify`、`music_chat` 与 VLM 暂未采集 usage，按成本参考的典型长度估算并标注「估算」。
+  - 初始参考口径：DeepSeek-V4-Flash 公开价（输入 ¥1 / 缓存 ¥0.02 / 输出 ¥4 每百万 tokens）加各操作典型长度；旧库 `initialize()` 只给 `extra_config` 为空的历史行回填，不覆盖管理端已保存的配置，也不改 `updated_at`。
+- API 与数据：
+  - `CreditPriceRuleResponse.cost_preview`（仅 llm/vlm 返回）；`CreditTransactionResponse.meta`、`EnterpriseCreditTransactionResponse.meta`。
+  - `JobStore._apply_credit_delta()`、`_route_credit_delta()`、`_apply_enterprise_credit_delta()`、`adjust_credit()` 增加可选 `meta`；`CreditService.consume_call(usage=..., model=...)` 与 `call_usage_meta()`。
+  - `sql/029_credit_system.sql`、`sql/030_enterprise_system.sql` 基线增加 `meta_json`；SQLite 与 MySQL 旧库由 `JobStore.initialize()` 的 `ensure_column` 幂等补列。
+- 受影响文件：`backend/app/{credit_service.py,storage.py,models.py,main.py,director_assistant/service.py}`、`backend/tests/test_credit.py`、`frontend/src/credits/{credits.ts,credits.test.ts,CreditDrawer.tsx}`、`frontend/src/admin/{CreditPricingSettings.tsx,CreditAdminSettings.tsx,credit-price.ts,credit-price.test.ts}`、`frontend/src/director2/assistant/{DirectorAssistant.tsx,api.ts}`、`sql/029_credit_system.sql`、`sql/030_enterprise_system.sql`、本文件、`功能说明与扩展指南.md`、`README.md`。
+- 兼容性：仍按次扣积分，价格、预估、退款与钱包路由不变；`meta` 可空，旧流水读取为 `null`。未配置成本参考的条目保持原行为，只显示「未设置成本参考」。
+- 验证：`python -m unittest backend.tests.test_credit -v`（42 项通过）；`pnpm --dir frontend exec tsc -b`；`pnpm --dir frontend exec vitest run src/admin/credit-price.test.ts src/credits/credits.test.ts`（9 项通过）。桌面端在 5178 登录 `zlyadmin` 检查管理端 LLM/VLM 价格表的 `≈¥/次`、成本/覆盖率/状态与「成本参考」弹窗（助手 ¥0.0092/1.087×/接近成本，导演台写稿 ¥0.24/1.25×/有毛利/建议 24 积分）；积分流水用量行用同结构数据走真实组件渲染核对（输入/输出 tokens + `≈¥`，估算带标注）。助手消息底栏的 `≈¥` 由后端 usage 字段测试覆盖，未额外发起真实对话。
+- 回滚：撤回本轮成本参考字段、`meta` 透传与两端展示即可；新增 `meta_json` 列可保留，旧代码忽略该列，不影响账务。
+
+## 2026-11-19：无限画布右键菜单对齐即梦与本地上传
+
+- 变更原因：原画布空白处右键菜单用大号图标卡片平铺 6 类节点，且「图片」「视频」分别进入地址弹窗和占位节点，与用户提供的即梦右键菜单不一致；用户要求改为「新建节点」子菜单，并把图片 / 视频占位入口合并成一个直接调用电脑文件选择器的「本地上传」。
+- 当前基线：
+  - 空白画布右键主菜单为「新建节点」「粘贴」「重做」「撤销」「全选」。重做 / 撤销按 `historyState.canRedo`、`canUndo` 禁用，粘贴按剪贴板数量禁用，全选按节点数量禁用；快捷键沿用 `Ctrl V`、`Ctrl Shift Z`、`Ctrl Z`、`Ctrl A`。
+  - 「新建节点」子菜单为单行轻量列表：文本、图片、视频、音频、画板、分隔线、从作品库插入、本地上传。图片 / 视频按媒体类型从可用工作流中挑选默认工作流并创建对应生成节点；新建时图片节点默认 9:16、视频节点默认 16:9，工作流没有该画幅时沿用注册表默认，云端 portrait / landscape 枚举会映射到对应画幅。原图片 / 视频占位入口合并为「本地上传」。左侧工具条、A / T / G / F 快捷键与端口连线菜单保持原行为。
+  - 本地上传使用隐藏 `<input type="file" accept="image/*,video/*">`。前端按 MIME 与扩展名（png / jpg / jpeg / webp / gif / bmp / avif / mp4 / mov / webm / mkv / m4v / avi）判定类型，上传成功后按后端返回的 `kind` 创建 `createImageNode` / `createVideoNode`，标签取文件名（去扩展名），位置沿用右键处的画布坐标。
+  - 子菜单样式由 `.canvas-context-submenu` 控制，主菜单与子菜单均为 32px 单行项、12px 字号，颜色继续使用 `--studio-*` 双主题变量；重做 / 撤销等禁用项由 Ant Design 处理。
+- API：
+  - 新增 `POST /api/canvas/media`（登录 + CSRF，`multipart/form-data` 字段 `file`）。校验后缀白名单后写入 `data/uploads/{user_id}/canvas-media/{32位hex}.{ext}`，图片上限 50 MB、视频上限 500 MB（`CANVAS_VIDEO_MAX_UPLOAD_BYTES`），返回 `{ url, kind, label, bytes }`，并写审计 `canvas_media_upload`。
+  - 新增 `GET /api/canvas/media/files/{name}`，仅允许当前用户目录 + `^[0-9a-f]{32}\.(png|jpe?g|webp|gif|bmp|avif|mp4|mov|webm|mkv|m4v|avi)$` 文件名，返回 `FileResponse` 与 `private, max-age=86400` 缓存。
+  - `frontend/src/canvas/canvas-api.ts` 新增 `uploadCanvasMedia(csrfToken, file)`；`CanvasEditor.tsx` 新增本地上传输入、`canvasLocalMediaKind()` 与节点创建逻辑。
+- 受影响文件：`backend/app/main.py`、`backend/tests/test_canvas_media_upload.py`（新增）、`frontend/src/canvas/{CanvasEditor.tsx,canvas-api.ts,canvas.css,canvas-fidelity.css}`、本文件、`功能说明与扩展指南.md`、`README.md`。
+- 兼容性：画布草稿中的节点结构、连线、工作流参数与既有图片 / 视频节点完全兼容；本地上传只在用户主动选择文件时新增节点，不影响旧草稿与作品库地址。新文件按用户目录隔离，其他账号和路径穿越请求均返回 404。
+- 验证命令：`pnpm --dir frontend exec tsc -b`；`pnpm --dir frontend test`（148 文件 / 1040 项通过）；`python -m pytest backend/tests/test_canvas_media_upload.py backend/tests/test_canvas_store.py backend/tests/test_canvas_linked_endpoint.py -q`（33 项通过）；真实登录后 `POST /api/canvas/media` 上传 PNG 返回 200 与站内 URL，`GET` 该 URL 返回 `image/png`。5173 桌面端实测右键主菜单、子菜单与「本地上传」文件选择器触发。
+- 回滚：撤回本节右键菜单结构、本地上传逻辑、两个画布媒体路由与样式增量即可；已上传文件留在 `data/uploads/{user}/canvas-media/`，删除目录可清理，不影响画布草稿。
+
+## 2026-11-19：企业批量开号与成员额度上限
+
+- 变更原因：企业入驻后需要一次为 100 人开号，并把企业积分「按需分配」到成员；此前只能逐个创建账号，成员消费只受企业总余额约束，无法按人限额。
+- 数据层：新增 `enterprise_member_quotas`（`enterprise_id + user_id` 主键，`period = none | monthly | total`，`credit_limit` 积分上限）。MySQL DDL 见 `sql/031_enterprise_member_quota.sql`，SQLite 由 `JobStore.initialize()` 幂等建表。用量不落冗余字段，按 `enterprise_credit_transactions` 的 `consume - refund` 实时聚合；月度按北京时间（UTC+8）自然月。
+- 批量开号：`AuthStore.create_users_bulk()` 在单事务内预检账号冲突、统一密码只哈希一次、逐条插入；账号名 = 前缀 + 至少 3 位补零序号，姓名 = 姓名前缀 + 同序号，角色固定员工，`must_change_password=1`。冲突整批失败并返回 409，最多 200 个/批。
+- API：新增 `POST /api/admin/users/batch` 与 `PUT /api/admin/enterprises/{enterprise_id}/members/{user_id}/quota`；`GET /api/admin/enterprises/{id}/members` 返回 `quota_period / quota_limit / quota_used / month_consumed`。批量开号审计 `batch_create_users`，额度调整审计 `set_enterprise_member_quota`。
+- 计费强制：`JobStore._route_credit_delta()` 在 `type=consume` 且企业钱包结算时调用 `_assert_enterprise_member_quota()`，与钱包余额共用企业钱包行锁；`CreditService.require_call_balance()` 增加成员额度预检。超额抛 `EnterpriseMemberQuotaExceededError`（继承 `CreditInsufficientError`），沿用既有 402 处理；退款不校验额度并自动回冲。
+- 生命周期：成员移出/改绑企业时删除原企业额度行；删除企业时一并清理额度行；未配置额度行默认不限制，兼容既有账号与企业钱包行为。
+- 前端：账号管理新增「批量新增」弹窗（企业、前缀、序号、数量、姓名前缀、统一密码、范围预览、复制、CSV 下载）；企业管理「成员与用量」新增「额度」列与额度弹窗（不限制 / 每月 / 累计）。
+- 兼容性：不修改 `users`、企业钱包、流水表和既有计费路由；未设置额度的企业成员行为零变化；CSV/复制仅在创建成功弹窗展示明文初始密码，不落库、不写日志。
+- 验证命令：`python -m unittest backend.tests.test_enterprises -q`（48 项通过）；`pnpm --dir frontend build`（147 个测试文件 / 1037 项通过）；5173 桌面端实测批量创建 3 个账号、结果视图、CSV 下载，以及员工001 设置「每月 100」后列表显示「每月 100 已用 0」。
+- 全量回归：`python -m unittest discover -s backend/tests -q` 共 2198 项，6 项既有且与本次无关的失败（OpenAPI 画布音频参数说明、导演任务流、企业策略全量顺序污染、访客目录、数据库迁移、媒体理解）。本次改动单独运行 48 项全通过。
+- 回滚方式：`git revert` 本轮提交；`DROP TABLE IF EXISTS enterprise_member_quotas` 可关闭额度能力；批量接口删除后账号结构不变。
+
+## 2026-11-19 所有画布工作流统一创作参数
+
+- 原因：画布参数曾按图片 / 视频类型及控件标记分支渲染，H3 图像等比例字段仍标成普通 Select，导致同类参数出现不同样式、长标签截断和开关拉伸。统一由注册表描述语义，由同一渲染器提供即梦式图形比例、分段选项及紧凑摘要。
+- 当前基线：`CanvasGeneratorComposer.tsx` 的所有图片 / 视频工作流共用一套参数渲染器，主参数和「更多设置」均直接使用 Ant Design Popover、Radio.Group / Radio.Button、Segmented 及既有数字输入 / Switch。底部面板宽 760px，模型选择无边框，摘要使用紧凑值，展开时箭头向上；图片工作流的 `@` 可打开参考图库。参数弹层内容宽 434px、外壳约 468px、16px 圆角；全部颜色使用 `--studio-*`，选中项为中性灰色。长选项在分段按钮或等宽多行按钮中完整换行，布尔项为左标签、右侧 44px 开关、下方说明，避免撑满整行。
+- 参数来源：`canvas-composer.ts` 对所有媒体类型依注册表 `ui_control="visual-settings"`、`ui_companion / ui_companions`、分组和可见条件组织参数，不按模型名或参数名硬编码。完整比例列表均可选择，较多时等宽分行；其他枚举与小范围数字步进值使用同一分段 / 多行选项样式。未限定范围的数值和自定义尺寸保留 Ant Design 数字输入，未声明和 internal 参数不显示，其他 advanced 参数继续位于「更多设置」。两种弹层互斥打开，Esc 均可收起。
+- 注册表：补齐 H3 图像、动作迁移、参考视频、关键帧、扩图及 GRS 云端视频的比例 `visual-settings` 标记；H3 图像将清晰度声明为比例的 companion，GRS / MiniMax 官方云端视频将分辨率声明为 companion。H3 图像清晰度提供 `ui_options[].short_label / hint`，保留原完整 label；云端分辨率声明 `ui_summary="value"`，工具栏只显示分辨率值，选项中仍完整显示后端价格标注。前端类型相应增加这两项元数据。实际 options 键值、默认值、校验、计费和数量上限不变，旧客户端可忽略新增显示元数据。
+- 兼容性：复用既有 `optionValues`、`ui_visible_when` 和参考图连线。面板开合仅为组件临时状态，参数修改即时写入原草稿，取消选择收起；无新 API 路径、数据库、队列、ComfyUI 节点或持久化状态协议。改动涉及上述前后端文件、`canvas-fidelity.css`、`canvas-composer.test.ts`、`CanvasGeneratorComposer.test.tsx`、`backend/tests/test_core.py` 及基线 / API 文档。
+- 验证命令：`pnpm --dir frontend build`；`python -X utf8 -m pytest backend/tests/test_core.py::WorkflowTests::test_creative_aspect_controls_are_consistent_across_workflows backend/tests/test_core.py::WorkflowTests::test_h3_image_creative_labels_preserve_generation_parameters backend/tests/test_h3_image_workflow.py backend/tests/test_cloud_video.py -q`。桌面自查使用 5173，覆盖 H3 图像文生图 / 编辑、本地 H3 Director 视频、MiniMax 官方云端视频，以及主参数 / 更多设置互斥、参数切换、紧凑摘要和 Esc 收起，不提交真实生成任务。
+- 验证结果：148 个前端测试文件 / 1040 项通过，TypeScript 与 Vite 构建通过；后端相关 83 项通过。注册表检查覆盖 58 条内置工作流与 16 个图片目录模型，53 个可见比例字段全部声明 `visual-settings`。界面使用浅暗双主题检查，同类选项无截断，开关实测宽约 44px。
+- 回滚：仅撤回本节通用参数渲染器、分组辅助函数、配套类型 / 样式 / 测试和注册表显示元数据增量，即可恢复之前的参数表单；已有草稿、计费和提交参数无需迁移。
+
+## 2026-11-19 无限画布积分与账号菜单
+
+- 独立编辑页直接渲染自己的顶栏。`router.tsx`、`CanvasEditorWindow.tsx` 和 `CanvasWorkspace.tsx` 把已登录账号传给 `CanvasEditor.tsx`，由 `CanvasAccountMenu.tsx` 和 `canvas-account.css` 提供右上角的积分与账号入口。复用 `/api/credits/me` 和 `CreditDrawer`，按 `scope` 显示个人或企业钱包。打开菜单、回到浏览器标签及画布生成提交或结算时刷新积分。`storage.py` 为合并后的积分流水显式声明排序列名，兼容 SQLite。账号弹层打开时停用画布编辑快捷键，退出登录前走现有的画布标题与草稿保存流程。
+- `RenameUserModal.tsx` 在编辑本人资料时提供上传入口，上传成功后更新共享登录状态。`StudioHeader.tsx` 和画布顶栏通过 `api.ts` 的 `User.avatar_url` 显示同一个头像。字段为空或图片加载失败时显示姓名首字。
+- `backend/app/main.py` 增加 `POST /api/auth/avatar`。它使用当前账号会话和 CSRF 校验，`profile_avatar.py` 校验实际图片格式、文件大小和像素数，再将图片居中裁为 256×256 WebP。二进制使用现有七牛云配置写入 `account-avatars` 对象前缀。`AuthStore` 在事务中替换 `users.avatar_key`，提交后清理旧对象。`GET /api/auth/avatar/{version}` 校验当前账号和头像版本后跳转到临时签名地址，`models.py` 的 `UserResponse` 仅公开同站 `avatar_url`。表单字段类型错误通过 FastAPI 编码器返回标准 422。
+- MySQL 基线在 `sql/001_init_mysql.sql` 中声明可空的 `avatar_key`，旧 MySQL 与 SQLite 由 `AuthStore.initialize()` 启动时补列。已有账号可直接打开画布并显示默认头像。上传使用工作台当前启用的七牛云存储。
+- 验证使用 `python -X utf8 -m pytest backend/tests/test_profile_avatar.py backend/tests/test_credit.py backend/tests/test_enterprises.py backend/tests/test_canvas_store.py -q` 和 `pnpm --dir frontend build`。5173 桌面端检查浅暗主题和真实余额及流水。使用临时账号连接真实七牛云，验证头像上传、更换、刷新回显、工作台顶栏和退出前存稿，验后清理测试头像。
+- 回滚时撤回本节的账号菜单、头像表单与 API 接线。可保留 `avatar_key` 列和已存头像对象，之后恢复功能时可继续读取。
+
+## 2026-11-19 积分管理与账务一致性
+
+- 账户列表此前依赖已有钱包记录，个人调整入口还可能把钱记到企业钱包后返回错误。`CreditAdminSettings.tsx` 按 `users` 分页查询账号及实际结算钱包，个人和企业管理共用 `CreditAdjustmentModal.tsx`。`main.py` 与 `storage.py` 校验目标、整数金额、原因与扣减后的余额。企业钱包使用现有企业调整接口，个人接口对企业成员返回 409。传入同一 `request_id` 重试同一笔调整时只入账一次，流水同时保存操作者和理由。
+- 管理员流水接口新增 `scope=all|user|enterprise` 与 `query`，默认仍查询个人账。`scope=all` 合并两个钱包表并按时间、流水 ID 与钱包类型稳定排序。账户和流水均沿用数组响应，通过 `limit` 与 `offset` 翻页。「我的积分」只返回当前账号产生的流水，包含其在企业账上的预扣和退款。
+- `CreditPricingSettings.tsx` 集中暂存价格及换算设置，每次提交携带规则的 `expected_updated_at`。`models.py` 校验积分单价、换算配置，`storage.py` 在一个事务内校验版本并发布整批规则。版本冲突返回 409，其他草稿可以继续保留。价格 JSON 字段沿用现有结构，GRS 生图编辑 `extra_config.grs_credits_to_platform`。
+- `credit_service.py` 提供报价，`storage.py` 将工作台任务创建、追加轮次、失败项重试与实际扣费放在同一事务中。该任务由任务所属账号结算。`generation_items.credits_wallet_enterprise_id` 随扣费记录企业 ID，空字符串代表个人钱包，`NULL` 是无快照的旧任务。`JobStore.initialize()` 自动补齐该列，MySQL 新库基线同步至 `sql/001_init_mysql.sql`。退款按生成项锁定并检查结算状态。旧任务能唯一匹配一个钱包时查原扣费流水，其他旧任务沿用现有归属回退。`director_jobs.py` 共用任务事务。独立的剧集云端任务在 `episode_video_service.py` 的 `billing` 中保存钱包快照，退款按任务 ID 去重。
+- 验证使用 `python -X utf8 -m pytest backend/tests/test_credit.py backend/tests/test_enterprises.py backend/tests/test_cloud_video.py backend/tests/test_cloud_shot_jobs.py backend/tests/test_core.py -q` 和 `pnpm --dir frontend build`。使用临时 SQLite 的综合回归有 261 项通过，画布音频文件接口缺少 OpenAPI 路径参数说明导致 1 项失败。前端 1038 项测试和构建通过。桌面端在 5173 核对浅暗主题、钱包显示、调整预览、价格草稿和流水筛选。
+- 回滚时只撤回本次积分页面、API 校验与账务逻辑。新增列、已入账的流水和已发布的价格可随原库保留，便于继续对账。旧版本调用接口时可省略新参数。
+
+## 2026-11-19 两套画布共用节点样式与引用连线
+
+- 独立画布和导演台资产画布曾分别定义节点端口、连线和创作面板。现在两边直接引用 `frontend/src/canvas/canvas-node-shared.css`，共用网格、节点外壳、顶部标题、媒体框、端口、连线、端口菜单和创作面板样式。内外圆角共同使用 `--canvas-card-radius`，当前为 10px。缩放的边线透明，圆形控制点在指到角部时显示，选中轮廓由共享节点外壳绘制。
+- `CanvasEditor.tsx`、`CanvasNodes.tsx`、`CanvasGeneratorComposer.tsx`、`canvas-connections.ts` 和 `node-primitives.tsx` 负责独立画布连线。文本、图片和图片生成结果分别按来源节点类型成为提示词或参考图。拖到空白处时，用 `/api/modes` 的可用状态、媒体类型和参考槽位筛选直接可选的下游节点。选择后创建一个待生成节点、写入引用边并打开底部创作面板。
+- 新连线使用 `out` 和 `in`。旧草稿中的 `prompt` 边在 React Flow 显示时挂到 `in`，保存继续使用原有边 ID 和字段。工作流参数、后端接口和草稿结构沿用现有协议。导演台的组件挂载和 CSS 去重位于 `frontend/src/director2/panes/AssetCreationCanvas.tsx`、`AssetCanvasNodes.tsx`、`asset-creation-canvas.css` 和 `asset-canvas-workspace.css`。
+- `frontend/src/director2/director-canvas-window.css` 用独立窗口已有类名限定无边距的纵向弹性容器，确保画布视口获得满高。
+- `CanvasPort` 把 React Flow 测量的锚点放在节点左右边沿，圆形加号由外侧的样式绘制。`CanvasEditor.tsx` 和 `AssetCreationCanvas.tsx` 的临时连线也以该锚点起笔。`CanvasGrid.tsx` 共用点阵间距和缩放规则，常规间距是 18 个画布单位，缩小到 40% 和 20% 以下时逐级放宽间距，点径固定为 1.25 个 CSS 像素。
+- 验证使用 `pnpm --dir frontend build`（1026 项前端测试通过）和 `python -X utf8 -m pytest backend/tests/test_canvas_store.py backend/tests/test_asset_canvas_upload.py backend/tests/test_canvas_character_design.py -q`（35 项通过）。5173 桌面实测两个画布的浅暗主题，以及独立画布拉线建节点、两类输入并存、旧连线恢复和角部缩放。后端全量 `python -X utf8 -m pytest backend/tests -q` 为 2171 项通过、1 项跳过，6 项失败分别涉及 OpenAPI、导演任务流、企业策略、访客目录、数据库迁移和媒体理解。
+- 连线和网格回归使用 `pnpm --dir frontend exec tsc -b`、`pnpm --dir frontend test`（1026 项通过）及 5173 桌面实测。两套主题下隐藏端口后，已连接的路径端点贴合节点边缘。点击和拖拽预览、缩放及网格开关均已检查。
+- 回滚时只撤回本节涉及的样式、独立画布接线、配套测试和文档。已有草稿仍可由原版本读取，提示词和参考图按来源节点类型解析。
+
+## 2026-11-19 无限画布视频、文字和音频端口推荐
+
+- 独立画布沿用图片端口的添加菜单。视频、文字和音频的右端口支持点按或拖到空白处打开菜单。文字推荐文字、图片和视频，视频可接文字，音频可接文字和音频。生成推荐从 `/api/modes` 的可用工作流和参考槽位取得选项。文字、生成节点和音频节点的左端口可从空白处创建上游节点。确认后把新节点和边一次写入画布历史。
+- 文字连入图片、视频或音频时，提示词、配音文案或音乐描述会随源文字更新。视频和音频连入生成节点时，参考素材按工作流槽位匹配。同类型素材以连线顺序为准。混合槽位按后端声明的顺序提交，缺少素材时在创作面板提示补齐。
+- `frontend/src/canvas/canvas-connections.ts` 筛选推荐，`canvas-generation.ts` 和 `canvas-composer.ts` 分配素材槽位，`CanvasEditor.tsx`、`CanvasNodes.tsx` 及创作面板负责交互。类型与顺序由现有节点和边推导，继续保存为 schemaVersion 2 的 `out` / `in` 连线，旧草稿可直接读取。5173 实测文字右端口的三项推荐均可自动创建节点、接线并在刷新后恢复。图片和视频创作面板会引用源文字。
+- `pnpm --dir frontend exec tsc -b` 通过，`pnpm --dir frontend test` 通过 1038 项。后端 `python -X utf8 -m pytest backend/tests/test_canvas_store.py backend/tests/test_asset_canvas_upload.py backend/tests/test_asset_canvas_linked_endpoint.py backend/tests/test_tts_provider.py -q` 通过 45 项。5173 浅暗主题实测拖线、自动接线、撤销和刷新恢复，并验证了视频接文字、音频接文字和音频接音频。回滚时撤回本节前端增量和文档即可，现有节点和边仍由相同的草稿结构读取。
+
+## 2026-11-19：云端视频价格页（GRS / MiniMax 官方，档位 × 分辨率公开标价）
+
+- 变更原因：云端视频价格此前只出现在工作流下拉与提交预估里，用户无法像各大平台一样在一个页面横向比较「哪个模型、哪个分辨率、多少积分」。本次新增公开价格页，并为后续接入更多供应商保留统一数据接口。
+- 当前基线：
+  - **公开接口** `GET /api/pricing`：无需登录。档位结构来自 `workflow_registry.CLOUD_PRICING_PROVIDERS`（只声明 provider/model/resolution 能力，不含金额），单价、原生价、输入图片费全部来自 `credit_price_rules` 的实际解析结果，管理端改价后刷新页面即生效。
+  - **当前开放范围**：仅 GRS 与 MiniMax 官方。GRS 一个模型三档（480p/768p/1080p）；MiniMax 官方四档模型（Lite / Highspeed / H3 / H3-Max），H3 仅 768P/2K，480P 仅 Lite/Highspeed/H3-Max。
+  - **页面**：`/pricing`，主导航新增「价格」入口（游客可访问）。页面含 hero、供应商切换、模型价格卡（分辨率 / 每秒积分 / 5 秒 / 10 秒 / 官方原生价）、输入图片费、计费规则与价格试算器。
+  - **试算口径**：`quotePricing()` = 时长 × 每秒积分 + max(0, 参考图数 - 免费额度) × 图片积分单价；时长受上游约束（GRS 1080p ≤10 秒，官方 H3-Max 起步 5 秒）。试算为前端即时预估，实际扣费仍以提交时 `/api/jobs` 预扣为准。
+  - **主题**：使用全局 `--studio-*` 语义变量与 Ant Design token；表格在浅/暗两套主题下均使用表面层级与边框，桌面端已实测。
+- 受影响文件：`backend/app/workflow_registry.py`（`CLOUD_PRICING_PROVIDERS`）、`backend/app/main.py`（`/api/pricing`、`_cloud_provider_availability` 抽取）、`backend/app/credit_service.py`（`native_price_to_credits` 统一换算）、`backend/tests/test_credit.py`、`frontend/src/pricing/{PricingPage.tsx,pricing-model.ts,pricing-model.test.ts}`、`frontend/src/paths.ts`、`frontend/src/App.tsx`、`frontend/src/components/StudioSymbols.tsx`、`frontend/src/components/StudioHeader.tsx`、`frontend/src/index.css`、本文件、`docs/API.md`、`README.md`、`功能说明与扩展指南.md`。
+- 兼容性：不改变既有工作流、计费与提交接口；`/pricing` 为新增公开路由，游客可见价格但不能提交计费任务；价格数据只读，改价仍走管理端价格表。
+- 验证命令：`python -X utf8 -m pytest backend/tests/test_credit.py -q`（33 项通过，含 `/api/pricing`）；`pnpm --dir frontend test`（142 文件 / 994 项通过）；`pnpm --dir frontend build`（通过）；5173 桌面端实测 GRS 5/7/15 积分/秒、MiniMax 四档与 H3 仅 768P/2K、试算 GRS 480p 5 秒 = 25 积分、Lite 768P + 7 张参考图 = 156 积分；浅色/暗色两套主题均无对比度问题。
+- 回滚方式：`git revert` 本轮提交；删除 `/pricing` 路由与导航入口即可下线页面，不影响既有工作流与计费。
+
+## 2026-11-19：无限画布新增音频节点（TTS 配音 + 本地音乐生成，接入生成进度）
+
+- 变更原因：用户要求按即梦的方式把「音频生成」与「音乐生成」接进画布：一个音频节点内可切换两种模式，音频走管理设置里已配置的 TTS，音乐走已配置的本地音乐生成服务；同时补齐进度面板的音频任务。
+- 当前基线：
+  - 通用节点注册表新增 `audio` 类型（`CANVAS_NODE_TYPES`、`baseNodeTypes.audio = AudioCanvasNode`、`CanvasPreviewThumbnail`），编辑器添加菜单新增「音频」（提示「配音或音乐生成」），`addCanvasNode` 支持 `audio`。2026-11-19 按即梦参考图优化后，新建节点默认 320×320；旧草稿中的显式尺寸保持。
+  - `canvas-model.ts` 新增 `createAudioNode()` 与节点字段：`audioMode`（tts / music）、`voice`、`durationSeconds`、`instrumental`、`jobProgress`；任务状态复用 `jobId / jobStatus / jobError / resultUrl`。
+  - 节点界面：`AudioCanvasNode` 只显示外置标题、居中音频 / 音乐图标、真实任务进度、失败状态及原生 `audio` 播放器。单选音频节点时，`CanvasEditor` 在 React Flow 视口外挂载 `CanvasAudioComposer`，与图片 / 视频创作栏互斥；取消选择即收起。新组件直接使用 Ant Design Input.TextArea、Dropdown、Select、Button、Tooltip，不增加本地 UI 控件封装。
+  - 音频创作栏：680px 宽、20px 圆角、默认最小高度 204px，距底部 80px，避让画布工具条。输入上方留白，模式 / 实际服务名称 / 音色或音乐时长横排置底，右侧为「1 段」和圆形上箭头按钮；不展示虚构的积分或模型选项。支持展开输入区、Ctrl/⌘ + Enter 提交及 Ctrl/⌘ + S 保存，普通 Enter 换行。TTS 最多 1200 字，音乐描述最多 1000 字；进行中禁用参数和重复提交，服务未配置或音色目录读取失败时提供提示，读取失败可重试。重新选择当前模式不清除结果；切到另一模式清空上一结果并保留输入。
+  - 新增 `frontend/src/canvas/canvas-audio.ts`：`fetchCanvasAudioOptions`、`submitCanvasTts`、`submitCanvasMusic`、`fetchCanvasMusicJob` 与模式标题、Provider、时长文案纯函数（含单测）。
+  - 后端新增三个画布接口：`GET /api/canvas/audio/options` 返回当前生效 TTS 的 provider / 默认音色 / 音色目录（`voices_for_provider`）与音乐服务是否可用；`POST /api/canvas/audio/tts`（登录 + CSRF）调用 `TtsProviderService.synthesize()` 同步合成，音频落盘 `data/uploads/{user}/canvas-audio/{32位hex}.{mp3|wav|ogg|m4a}`（按返回字节头识别后缀）并返回 `/api/canvas/audio/files/{name}`；`GET /api/canvas/audio/files/{name}` 仅允许当前用户目录 + 文件名白名单读取。音乐不新增后端接口，直接复用 `POST /api/music/vibe` 与 `GET /api/music/jobs/{job_id}`。
+  - 提交与轮询在编辑器统一实现（`generateAudio` 动作由创作栏调用）：TTS 同步写回 `resultUrl`；音乐提交后每 3 秒轮询，写回 `jobStatus / jobProgress / resultUrl / jobError`，终态自动停止。布局、展开状态与配置加载状态均为临时 UI 状态，不改变既有草稿字段、任务协议或 API；颜色继续使用 `--studio-*` 和根级 Ant Design 双主题。
+  - 进度面板：`canvasProgressEntries` 同时扫描 `audio` 节点，按 `kind="audio"` 进入「音频」页签；TTS 无任务号时用 `节点id:tts` 作为行标识，音乐使用真实 `jobId`；行内标题取 `音频生成 / 音乐生成` 或节点自定义标题。
+- 受影响文件：新增 `backend/app/models.py`（`CanvasTtsRequest`）、`frontend/src/canvas/{canvas-audio.ts,canvas-audio.test.ts}`；修改 `backend/app/main.py`、`frontend/src/canvas/{canvas-model.ts,CanvasNodes.tsx,node-registry.ts,node-registry.test.ts,node-primitives.tsx,CanvasEditor.tsx,canvas-progress.ts,canvas-progress.test.ts,CanvasPreviewThumbnail.tsx,canvas-fidelity.css}`、本文件、`功能说明与扩展指南.md`、`README.md`。
+- 兼容性：既有画布草稿无 `audio` 节点，行为零变化；新增节点类型属于扩展，未知类型仍归一为 `unknown`。TTS 音频按用户目录隔离并有文件名白名单校验；音乐任务仍走原音乐工作区同一张表与同一轮询接口，互不影响。
+- 验证：`pnpm exec tsc -b`、`pnpm exec vitest run src/canvas`（18 文件 / 224 项）、`pnpm --dir frontend build`、`python -m py_compile backend/app/main.py backend/app/models.py`。
+- 2026-11-19 样式优化涉及 `CanvasAudioComposer.tsx`（新增）、`CanvasNodes.tsx`、`CanvasEditor.tsx`、`canvas-model.ts`、`canvas-fidelity.css`。验证：`pnpm --dir frontend build`（147 文件 / 1026 项前端测试、TypeScript 与 Vite 构建通过）；`python -X utf8 -m pytest backend/tests/test_canvas_store.py backend/tests/test_tts_provider.py backend/tests/test_tts_mimo.py -q`（39 项通过）。5173 桌面浅暗主题实测模式切换、音色与时长选择、空输入禁用、展开 / 收起、取消选择收起面板和刷新恢复草稿；未提交真实合成任务。仅回退本轮音频创作栏挂载、节点预览与尺寸、音频样式并删除新组件，即可恢复卡内表单，无数据迁移。
+- 回滚：删除 `audio` 类型及相关分支（注册表、添加菜单、`createAudioNode`、`AudioCanvasNode`、进度扫描）与三个画布音频路由即可；旧草稿中的 `audio` 节点会作为 `unknown` 节点继续渲染，不丢失位置与提示词。
+
+## 2026-11-19：无限画布右上角生成进度面板（实时百分比 + 生成记录）
+
+- 变更原因：画布只有节点内部的状态徽标与进度条，任务多起来或在画布另一处时才看不到全局进度；即梦类画布在右上角常驻一个生成进度/历史浮层。本次补齐该入口，复用已有 2.5s 轮询的 `liveJobs`，不新增轮询与接口。
+- 当前基线：
+  - 新增 `frontend/src/canvas/canvas-progress.ts`：把生成节点与 `liveJobs` 合成为进度条目（进行中优先、同状态按 `updatedAt` 倒序、上限 24 条），提供页签统计（固定 全部/图片/视频/音频 四个类型槽位，文本有任务时才补上；未知类型值归到图片，不整行丢弃）、空页签提示（`暂无音频任务` 等）、状态文案（进行中优先显示后端 `stage`，部分完成补 `2/4`）、头部摘要（`2 个进行中 · 43%`）与 `HH:mm` 时间。
+  - 新增 `CanvasGenerationProgressPanel.tsx`：弹层内容（标题 + 状态摘要、`Segmented` 类型筛选、任务行）。行内展示缩略图/类型图标（图片 / 视频 / 音频 / 文本）、节点标题、时间、状态与实时百分比，进行中复用 `.canvas-generator-progress` 进度条（后端未给百分比时跑不确定动画）。类型页签固定列出图片/视频/音频（对齐即梦，无任务时显示空状态提示）；当前画布只产生图片、视频任务，音频页签待音频生成能力接入后自动有内容。
+  - `CanvasEditor.tsx`：页头「进度」按钮外包 `Popover`（`trigger="click"`、`placement="bottomRight"`、`arrow={false}`），弹层紧贴按钮下方展开；点击空白处或再次点按钮由 antd 自动收起；点击任务行选中并聚焦节点、展开属性面板后立即关闭弹层。`Badge` 显示进行中数量。
+  - 弹层不参与画布布局、不在右下角常驻，也不遮挡属性面板；开关状态仅存于本次页面会话，不写画布 JSON，不影响任务轮询。
+- 受影响文件：新增 `frontend/src/canvas/canvas-progress.ts`、`frontend/src/canvas/canvas-progress.test.ts`、`frontend/src/canvas/CanvasGenerationProgressPanel.tsx`；修改 `frontend/src/canvas/CanvasEditor.tsx`、`frontend/src/canvas/canvas-fidelity.css`、本文件、`功能说明与扩展指南.md`、`README.md`。
+- 兼容性：无接口、数据、路由变更；画布 JSON 不变；面板隐藏时节点内进度与轮询行为不变。
+- 验证命令：`pnpm exec tsc -b`（通过）；`pnpm exec vitest run src/canvas`（16 文件 / 208 项通过，含新增 9 项进度聚合用例）；`pnpm --dir frontend build`（通过）。桌面端自查：点页头「进度」按钮，弹层出现在按钮正下方；点画布空白处或再点按钮应收起；提交生成后弹层内百分比随 2.5s 轮询更新；切图片/视频页签计数正确；点任务行跳到对应节点并关闭弹层。
+- 回滚方式：`git revert` 本轮提交；删除面板不影响任何任务状态与画布数据。
+
+## 2026-11-19：无限画布画幅框跟随生成比例（改 9:16 立即变竖框）
+
+- 变更原因：无限画布上生成节点的「画面比例」只写入 `optionValues`，节点几何尺寸始终是创建时的 `400×290`，只有用户手动拖 NodeResizer 或生成返回后才变。用户选 9:16 后节点仍是横框（参数文案已显示 9:16），属于「参数与预览框两套事实」的设计缺陷；即梦等画布是改比例即变框。
+- 当前基线：
+  - 新增 `frontend/src/canvas/canvas-frame.ts`：`parseCanvasFrameRatio()`（`9:16` / `9：16` / `16:9 (Widescreen)` / `landscape|portrait|竖屏` 等写法统一解析，`auto` 与脏数据返回 `null` 表示不改框）、`generatorFrameRatio(mode, values)`（按注册表 `aspect_ratio` / `ratio` 定义取值）、`canvasFrameSize()`（宽度基本不变、高度按比例增长；媒体区左右内缩 18px；内容区最高 720px，超出改按高度反推宽度；宽度夹在 240–560）。
+  - 生成节点（`CanvasNodes.tsx` `GeneratorCanvasNode`）用 `useEffect` 监听比例值：与 `data.frameRatio` 不一致时，按「节点高 − 媒体区高」量出的固定 chrome 重算尺寸，写回 `style.width/height` 并 `updateNodeInternals` 触发连线/端口重排；换框锚点为左上角（工具栏与标题栏不跳动）。
+  - `CanvasNodeData` 新增 `frameRatio`：记录「当前框体现的比例」。比例参数变了才重套框，用户手动拉过的尺寸在重新加载后不会被强行纠正；旧画布无该字段时首次渲染自动套一次，正好修掉历史错框。
+  - 图片节点（`ImageCanvasNode`）在 `onLoad` 按素材自身宽高比套框（宽度夹 160–560），插入 9:16 成片不再被塞进 320×200 默认框裁切。
+  - `canvas-fidelity.css` 生成节点主媒体图由 `object-fit: cover` 改为 `contain`：框与产出比例一致时视觉不变；模型实际返回比例不同时留边显示真实画幅，不再静默裁切掩盖差异。
+- 受影响文件：新增 `frontend/src/canvas/canvas-frame.ts`、`frontend/src/canvas/canvas-frame.test.ts`；修改 `frontend/src/canvas/CanvasNodes.tsx`、`frontend/src/canvas/CanvasNodes.test.tsx`（补 `useUpdateNodeInternals` / `setNodes` mock）、`frontend/src/canvas/canvas-model.ts`、`frontend/src/canvas/canvas-fidelity.css`、本文件、`功能说明与扩展指南.md`。
+- 兼容性：纯前端几何逻辑，无接口/数据/路由变更；画布 JSON 只多一个可选数值字段，旧版本读取时忽略。用户手动缩放过的节点行为不变（`frameRatio` 相同即跳过）。
+- 验证命令：`pnpm exec tsc -b`（通过）；`pnpm exec vitest run src/canvas`（15 文件 / 199 项通过，含新增 `canvas-frame.test.ts` 9 项）；`pnpm --dir frontend build`（通过）。桌面端人工自查：生成节点选 9:16 / 16:9 / 1:1 连续切换，节点立即变形且连线端口不错位，刷新后保持。
+- 回滚方式：`git revert` 本轮提交；`frameRatio` 字段留在画布 JSON 中不产生副作用。
+
+## 2026-11-19：云端视频积分归一化（原生价 × 供应商系数 → 平台积分，界面同步标价）
+
+- 变更原因：云端视频工作流此前只在提交栏显示「本次 N 积分」，模型下拉不标价；GRS 把 5/7/15 积分写死在分辨率标签里，MiniMax 官方只写「档位单价见积分预估」。同时价格表只存最终平台积分，无法回答「官方 768P 多少钱、对应平台多少积分」，GRS 与 MiniMax 官方的计价口径差异也无法在管理端解释。
+- 归一化口径（成本直换 + 供应商系数，用户 2026-11-19 确认）：
+  - `credit_price_rules.extra_config` 新增 `native_unit`（目前 `rmb_per_second`）、`native_variant_prices`（上游原生单价表）、`credits_per_native_unit`（元→积分默认 100）、`provider_coefficient`（默认 1.0）与 `price_source`（`native` / `manual`）。
+  - 实际平台单价 = `ceil(原生价 × credits_per_native_unit × provider_coefficient)`；`price_source=manual` 时直接使用 `unit_by_variant`，原生价只做展示。`resolve_price_rule_units()` 是估算、扣费、接口展示与选项标注的唯一解析入口。
+  - 100 积分 = 1 元锚点不变。GRS 768p（¥0.07/秒）→ 7 积分/秒；MiniMax 官方 Lite 768P（¥0.26/秒）→ 26 积分/秒。归一化统一的是单位与公式，不强行让不同供应商同价。
+  - 官方输入图片价：MiniMax H3 / Highspeed ¥0.20/张、Lite ¥0.13/张（H3-Max 暂按 H3 同价），已写入 `extra_config.input_image_price` 与 `input_image_free_quota=5`；GRS 官方模型列表未公布输入图片价，显式配置为 0（免费），管理端可改为收费。提交时按「每个任务前 5 张免费、超出部分 × 档位图片积分单价」计入预扣，失败随整单退回。`estimate_job` 新增可选 `reference_counts`（多镜批量按镜头分别计算免费额度）。
+  - H3 旗舰档仅支持 768P/2K（官方价目表无 480P 行）；480P 仅 Lite / Highspeed / H3-Max。提交前直接拒绝 H3+480P，导演链路回落 768P。
+  - 组合档漏价兜底：MiniMax 官方 `模型:分辨率` 未配置时按同模型已有最低价、再按同分辨率最低价、最后 `unit_credits` 回落，作为防御性兜底；实际提交前会按官方档位规则拦截（H3 旗舰档不支持 480P，导演链路回落 768P）。
+- 价格种子与旧库迁移：
+  - 新库种子直接写入 GRS（0.05/0.07/0.15 元/秒）与 MiniMax 官方（Lite/Highspeed/H3/H3-Max 各档）原生价，`price_source=native`。
+  - 旧库启动时 `_backfill_native_price_config` 只在 `extra_config` 为空时补原生价：已有平台单价与「×100×1.0」一致则标记 native，否则标记 manual 保留运营当前单价，不静默改价。
+- API 与前端展示：
+  - `WorkflowBillingResponse` 新增 `resolved_unit_by_variant`、`native_unit`、`native_variant_prices`、`credits_per_native_unit`、`provider_coefficient`、`price_source`、`summary`（如 `5-15 积分/秒`）；`CreditPriceRuleResponse` 新增 `resolved_unit_by_variant`。
+  - `/api/modes` 对云端视频动态给 `resolution` / `model` / `kling_mode` 选项追加积分标注（`billing_option_hints` / `apply_billing_option_hints`，只改返回副本，不污染注册表）；游客同样能看到价格。
+  - 模型下拉通过 `billing.summary` 显示区间价（GRS `5-15 积分/秒`、MiniMax 官方 `16-80 积分/秒`）；分辨率选项显示 `768P · 高清 · 26-50 积分/秒`。
+  - 管理端「积分管理 → 价格表」：原生价规则直接展示「原生价 → 平台积分」，新增「换算」弹窗可编辑原生价、每原生单位兑换积分与供应商系数，并实时预览平台单价；其它 `per_second` 规则可先点「初始化」，按当前平台单价 ÷ 100 反推原生价后再核对。
+- 受影响文件：`backend/app/credit_service.py`、`backend/app/storage.py`、`backend/app/workflow_registry.py`、`backend/app/models.py`、`backend/app/main.py`、`backend/tests/test_credit.py`、`backend/tests/test_cloud_video.py`、`frontend/src/credits/credits.ts`、`frontend/src/components/WorkflowOptions.tsx`、`frontend/src/components/WorkflowOptions.test.tsx`、`frontend/src/admin/CreditAdminSettings.tsx`、本文件、`功能说明与扩展指南.md`、`README.md`、`docs/API.md`。
+- 兼容性：价格表结构不变（全部扩展在 `extra_config` JSON）；管理端直接编辑 `unit_by_variant` 的旧口径保留，`price_source=manual` 时行为与改造前一致；本地 ComfyUI 工作流仍恒为 0 积分；已提交任务按提交时预扣积分结算。
+- 验证命令：`python -X utf8 -m pytest backend/tests/test_credit.py backend/tests/test_cloud_video.py -q`（99 项通过，含输入图片费）；`python -X utf8 -m pytest backend/tests/test_core.py backend/tests/test_enterprises.py backend/tests/test_cloud_shot_jobs.py -q`（159 项通过）；`pnpm --dir frontend test`（140 文件 / 979 项通过）；`pnpm --dir frontend build`（通过）；5173 实测：工作流下拉 GRS 显示 `5-15 积分/秒`、MiniMax 官方显示 `16-80 积分/秒`，分辨率选项 `480P · 旗舰档除外 · 16-33 / 768P · 26-50 / 2K · 80 积分/秒`，管理端换算弹窗正常；`/api/credits/estimate` 传 7 张参考图时 Lite 768P 5 秒返回 156 积分（130 + 2×13），5 张时 130 积分。`test_guest_catalog` 2 项仍是既有全量顺序污染失败（HEAD 的 `/api/modes` 未接企业过滤，与本次改动无关）。
+- 回滚方式：`git revert` 本轮提交；如需保留代码仅停用换算，把对应规则的 `extra_config.price_source` 改为 `manual`（继续用 `unit_by_variant`），或在管理端停用该价格条目。
+
+## 2026-11-19：剧集工坊逐镜生成支持云端视频模型（GRS / MiniMax 官方等）
+
+- 变更原因：工坊「视频工作流」下拉按 `/api/modes` 全量分组，云端模型（GRS、MiniMax 官方、超算等）因 `supports_timeline=false` 被标注为「逐镜」并可选；但 `EpisodeVideoService` 全文只有本地 ComfyUI 执行路径，选云端模型提交后会走本地 CoMFY 图构建（无对应 graph）而失败。实测确认（`episode_video_service.py` 无任何 `cloud` 引用），属于「能选但跑不通」的展示缺陷。
+- 当前基线：
+  - **分流**：`EpisodeVideoService.create_job` 在解析出 `workflow_id` 后判断 `is_cloud_video_workflow(...)`，云端工作流转 `_create_cloud_shot_job`，本地 H3 路径零改动。
+  - **能力边界**：云端只支持 `shot` / `selection`（一次任务出一支片，按镜头逐支提交）；`render_scope="episode"` 直接 400 并提示改用本地 H3 整集直出。
+  - **参数归一**：每镜时长取 `duration_sec` 四舍五入为整秒并夹到 4-15（`MiniMax-H3-Max` 为 5-15）；参考图取 `reference_urls`（角色造型在前、场景在后），按工作流 `max_references` 与官方 9 张上限截断，为空则提交前报错。
+  - **计费**：`CreditService.bill_job(项目 owner, workflow, {model, resolution, aspect_ratio, duration=总秒数})` 在入队前预扣，返回的总额写入 `payload.billing`；执行失败由 `_refund_cloud_job` 通过 `refund_deduction` 全额退回。所有账号（含 super_admin）一律按价计费。
+  - **执行**：`_run_job` 识别云端工作流后转 `_run_cloud_job`：复用 `_prepare_job_prompts` 生成/复用提示词（手工 `h3_prompt` 优先，否则走 H3 六段式）→ 参考图下载到临时目录（云端适配器需要本地文件转 data URI）→ `CloudVideoService.submit_generation` → `wait_for_task`（6 秒轮询、临时错误退避）→ `download_and_store` 落七牛 → `_write_selected_beat_videos` 按镜写回 `video_url` / `video_takes`。任务状态只用前端已识别的 `preparing/uploading/running/completed/failed`。
+  - **并发**：沿用 `_EXECUTOR` 单线程队列，云端任务顺序执行（轮询期间占用该线程，不影响 ComfyUI 与其它进程）。
+- 实测（2026-11-19，闪婚蜜爱 EP1 镜 2，民政局门口，2 角色 + 场景 3 张参考图）：
+  - `POST /api/projects/{pid}/episodes/{eid}/beats/{beat}/generate-video`，`workflow=cloud-minimax-h3-r2v`、`768P`、`16:9`、`MiniMax-H3-Lite`、15 秒。
+  - 结果：`job-199273dab383` 约 **1 分 31 秒**完成；镜 2 的 `video_url` 自动指向新成片，`video_take_id = take-job-199273dab383-beat-9e95…`，旧片保留为历史 take；成片 ffprobe `h264 / 1344×768 / 24fps / 15.08s / 362 帧 / 无音轨`。
+- 受影响文件：`backend/app/media_studio/services/episode_video_service.py`（新增 `_create_cloud_shot_job` / `_run_cloud_job` / `_download_cloud_references` / `_refund_cloud_job`，`_run_job` 加分流）、`backend/tests/test_cloud_shot_jobs.py`（4 项）、本文件、`功能说明与扩展指南.md`、`dev-log/修改记录.md`。
+- 兼容性：本地 H3（含整集直出、时间线、智能超清、续接）路径与请求体不变；云端任务只新增 `ai_project_jobs` 行并复用既有 take 机制（旧片可切回）；未配置云端供应商时提交即返回可读错误。
+- 验证命令：`python -m unittest backend.tests.test_cloud_shot_jobs backend.tests.test_media_studio_h3_video backend.tests.test_workshop_video_preparation`（195 项通过）；真实出片见上「实测」。
+- 回滚方式：`git revert` 本轮提交；云端工作流回到「能选但本地链路执行」的旧行为，已生成的 take 与成片不受影响。
+
+## 2026-11-19：修复「MiniMax 官方 H3 · 参考图生视频」缺省 ratio 被官方拒单（2013）
+
+- 变更原因：真实任务实测暴露缺陷——用 `cloud-minimax-h3-r2v` + 默认 `MiniMax-H3-Lite` + 768P/12s 提交，任务在云端提交阶段直接失败，官方返回原文：`invalid params, 参考生场景必须显式指定 ratio 且不能为 adaptive,可用值:16:9/4:3/1:1/3:4/9:16/21:9 (2013)`。对照官方 v2 接口文档（platform.minimaxi.com/docs/api-reference/video-generation-v2-create）：r2va 的 `ratio` 名义上默认 `adaptive`，但**`MiniMax-H3-Lite` / `Highspeed` / `Max` 档不支持 `adaptive`，必须显式指定具体比例**。此前实现按「图生/参考生宽高比恒随输入」假设不下发 `ratio`，导致非旗舰档的所有参考图生视频必然被拒。
+- 当前基线：
+  - **注册表**（`backend/app/workflow_registry.py`）：`cloud-minimax-h3-r2v` 的 option_schema 增加 `aspect_ratio`（`_cloud_aspect_ratio_option(MINIMAX_H3_RATIOS)`，primary、`visual-settings` 控件、默认 `16:9`，枚举 16:9/9:16/1:1/4:3/3:4/21:9）。`i2v` / `fl2v` 维持不下发 ratio（官方说明首/尾帧场景 ratio 恒为 adaptive，传其他值会被忽略）。
+  - **适配器**（`backend/app/cloud_video/minimax.py`）：显式 `aspect_ratio` 一律校验并下发 `ratio`；参考图场景（`references` 且无首帧）若缺失 `aspect_ratio`，在提交前抛 `CloudVideoError("MiniMax 官方参考图生视频必须显式指定画幅：官方非旗舰档不支持 adaptive 画幅")`，不再把必然失败的请求发到上游。文生视频行为不变（仍为必填非 adaptive），首尾帧行为不变（不下发）。
+  - **前端**：不新增硬编码，生成页与导演台按 `/api/modes/{mode}` 的 schema 自动渲染「画面比例」visual-settings 控件。
+  - **实测出片基线**（2026-11-19，`zlyadmin` 提交 `F5QlctjeMqLL`）：4 张参考图（苏念 / 张伟 / 张伟女友 / 高档西餐厅），`16:9 + 768P + 12s + MiniMax-H3-Lite + generate_audio=false`，云端耗时约 2 分 10 秒，成片 ffprobe：`h264 / 1344x768 / 24fps / 12.25s / 294 frames / 无音轨`。
+- 受影响文件：`backend/app/workflow_registry.py`、`backend/app/cloud_video/minimax.py`、`backend/tests/test_cloud_video.py`（同步 2 处断言并新增 `test_minimax_h3_r2v_defaults_explicit_ratio`）、本文件、`功能说明与扩展指南.md`。
+- 兼容性：`cloud-minimax-h3-r2v` 新增可选参数，旧调用方不传时按 schema 默认 `16:9` 归一，不再出现必败请求；`t2v` / `i2v` / `fl2v` 请求体与本轮前逐字一致；GRS / SCNet / 海螺等其它云端工作流零改动；计费仍按「档位 × 分辨率 × 秒数」（Lite 768P = 26 积分/秒，12 秒 = 312 积分，所有账号含 super_admin 一律按价计费）。
+- 验证命令：`python -m unittest backend.tests.test_cloud_video`（60 项通过）；`python -m unittest discover -s backend/tests -q`（2156 项，仅剩 5 项与本变更无关的既有失败：`test_enterprises` / `test_guest_catalog`（全量顺序污染）/ `test_media_studio_schema` / `test_director_stream` / `test_media_understanding`，均在企业/积分开发中模块，单独跑同样失败）；真实出片见上「实测出片基线」。
+- 回滚方式：`git revert` 本轮提交；仅影响 `cloud-minimax-h3-r2v` 的画幅参数与 ratio 下发，回滚后该工作流在非旗舰档恢复必然 2013 失败，其余工作流不受影响。
+
+## 2026-11-19：企业组织层级（集团-子公司树）与账号/企业管理联动
+
+- 变更原因：账号管理与企业管理的割裂：账号表只能显示企业名称，无法按企业快速筛选或直接改归属；企业主档没有上下级，集团 + 多家子公司只能平铺，企业页也只能逐条查看。本轮为企业引入 `parent_id` 组织层级，并把两个页面统一成「左侧组织树 + 右侧列表/详情」的管理范式。
+- 当前基线：
+  - **数据层**：`enterprises` 新增 `parent_id`（NULL = 顶级企业/集团），MySQL 定义同步进 `sql/030_enterprise_system.sql`，老库由 `JobStore.initialize()` 的 `_ensure_column(connection, "enterprises", "parent_id", "TEXT")` 幂等补列（SQLite 与 MySQL 共用）；不新增表、不改索引。层级只表达组织归属与界面筛选，**不合并企业钱包、不继承模型策略**：每个企业仍是独立结算与管控主体。
+  - **存储层**（`backend/app/storage.py`）：`list_enterprises` / `get_enterprise` 返回 `parent_id`；`create_enterprise(parent_id=...)` 校验上级存在；`update_enterprise(..., parent_id, update_parent_id)` 走 `_resolve_enterprise_parent()` 校验「不能指向自己 / 不能形成循环 / 上级必须存在」；`delete_enterprise` 在有下级企业时返回 409（先调整或删除下级），与「有成员/有流水只能停用」一并保护组织与对账数据。
+  - **API**：`EnterpriseResponse.parent_id` 新增；`POST /api/admin/enterprises` 与 `PATCH /api/admin/enterprises/{id}` 接受 `parent_id`（PATCH 显式传 `null` 表示提升为顶级企业）。成员绑定、企业钱包、模型策略接口不变。
+  - **前端纯函数层**（`frontend/src/admin/enterprise-tree.ts` + `enterprise-tree.test.ts`）：`buildEnterpriseTree`（按名称排序，脏数据成环/上级缺失时降级为顶级，绝不递归死循环）、`collectSubtreeIds`、`rollupMemberCounts`（直属 + 含下级）、`enterprisePath`（集团 / 子公司 / 孙公司）、`filterAccounts`（按企业子树 + 姓名/账号/邮箱/企业路径检索）、`filterEnterprises`、`buildEnterpriseSelectTree`（停用企业与排除项自动 disabled）。
+  - **共享组件**：`frontend/src/admin/EnterpriseTreePanel.tsx`（antd Tree + 关键词过滤 + 自动展开，支持受控/非受控搜索词），账号页与企业页共用同一套树视觉与筛选语义。
+  - **账号管理**：双栏布局——左栏「企业架构树（全部账号 / 平台内部未分配 / 企业层级）+ 分配新账号」，右栏「当前范围标题 + 账号搜索 + 账号表」。树节点选中即按该企业**整棵子树**过滤账号并显示数量；账号表「所属企业」列改为行内 `TreeSelect`，可直接改归属（清空即回到平台内部），选中企业节点时创建表单自动预填所属企业。
+  - **企业管理**：改为左树右表；树搜索词同时过滤右侧企业列表；新增企业与详情「基本信息」支持选择上级企业（编辑时自动排除自身与下级，后端再做循环校验）；列表展示层级路径与「直属 / 含下级」成员数，抽屉标题显示完整路径。
+  - **设计取舍（业界常规）**：组织/租户类后台普遍采用「左组织树 + 右列表/详情」，账号挂在组织节点上、选中节点默认含子树；因此本页保持「树只承载组织维度」，计费钱包与模型权限仍按企业主体独立，避免集团共享钱包导致成员用量与对账口径混乱。
+- 受影响文件：`backend/app/{storage,models,main}.py`、`sql/030_enterprise_system.sql`、`backend/tests/test_enterprises.py`（新增 4 项层级用例）、`frontend/src/admin/{AdminSettings,EnterpriseAdminSettings}.tsx`、新增 `frontend/src/admin/{enterprise-tree.ts,enterprise-tree.test.ts,EnterpriseTreePanel.tsx}`、`frontend/src/credits/credits.ts`、本文件、`功能说明与扩展指南.md`、`README.md`。
+- 兼容性：老库 `parent_id` 为 NULL，全部企业按顶级展示，界面与旧行为一致；API 仅新增可选字段；企业钱包、模型策略、成员绑定与计费路径零改动；删除保护新增「不可删除有下级的企业」，属防御性收紧。
+- 验证命令：`python -m pytest backend/tests/test_enterprises.py -q`（24 项通过）；`pnpm --dir frontend test`（140 文件 / 978 项通过）；`pnpm --dir frontend exec tsc -b`（干净）；`pnpm --dir frontend build` 通过。桌面端 5173 自查（真实 MySQL + 12 个账号 + 临时集团/子公司，验后已删除）：企业树计数 12 / 10 / 按企业筛选 2 行；账号行内所属企业下拉与创建表单均按「集团 → 子公司」缩进展示；企业列表按层级先序排列（上级在前），子企业行显示「上级：…」；无控制台异常与错误提示。
+- 回滚方式：`git revert` 本轮提交；保留 `parent_id` 列无害（全部为 NULL 即回到平铺企业），前端回退后旧页面正常读取企业列表。
+
+## 2026-11-19：企业管理体系（企业入驻 / 企业积分钱包 / 成员归属 / 按企业开放模型）
+
+- 变更原因：平台开始按企业入驻。企业作为结算与管控单元：账号归属企业、企业钱包统一充值与消费结算、按企业统计每个成员的积分用量、系统管理员按企业开放视频 / 生图 / 大语言 / 视觉理解四类模型（例如某企业只想测试云端视频时，只给该企业开放 MiniMax H3 云端视频工作流）。
+- 当前基线：
+  - **数据层**（MySQL DDL `sql/030_enterprise_system.sql`，SQLite 孪生 DDL 在 `JobStore.initialize()` executescript；`users.enterprise_id` 由 `AuthStore.initialize()` `ensure_column` 幂等补列并同步进 `sql/001_init_mysql.sql` 基线，索引 `idx_users_enterprise`）：`enterprises`（id/name/code 唯一/contact/notes/status active|disabled/created_by）、`enterprise_credit_accounts`（enterprise_id 主键，balance/total_recharged/total_consumed）、`enterprise_credit_transactions`（enterprise_id + user_id 记录消费人/delta/type/reason/price_key/ref/balance_after/actor，索引 enterprise_id+created_at、enterprise_id+user_id）、`enterprise_model_policies`（enterprise_id+model_kind 复合主键，mode=all|whitelist|none，models_json 清单）。
+  - **策略服务** `backend/app/enterprise_service.py`（无状态函数族，store 由调用方传入，导演台等非 FastAPI 链路可直接使用）：`MODEL_KINDS = video|image|llm|vlm`；策略归一化 `policies_map`（未配置类型默认 all=不限制，与既有行为兼容）；`ensure_mode_allowed(store, user_id, mode)` 校验工作流（图片工作流归 image，其余归 video）、`ensure_call_allowed(store, user_id, scope, kind)` 校验 LLM/VLM 能力键（与 `credit_service.LLM_BILLING_KINDS/VLM_BILLING_KINDS` 对齐）；`filter_workflow_definitions` 供 `/api/modes` 展示层过滤；`policy_catalog` 输出管理端可勾选模型清单（video/image 按注册表工作流、llm/vlm 按能力键中文名）。`EnterpriseModelForbiddenError` 由 main.py 全局异常处理器统一转 403。
+  - **校验收口**（双重：展示过滤 + 提交强制）：视频/生图任务走 `main.py submit_generation`（浏览器表单与 MCP 工具共用）与 `director_jobs.create_queued_job`（导演台批量台/镜头渲染/工坊共用）；LLM/VLM 走 `CreditService.require_call_balance` / `consume_call`（覆盖 main.py 端点、导演台写稿/确认、导演助手对话、音乐对话全部调用点）；`/api/modes` 与 `/api/modes/{mode}` 按企业策略过滤展示。企业成员在创作台与导演台只能看到并提交企业开放的模型。
+  - **企业钱包路由（个人钱包兜底不动）**：`JobStore.deduct_credits / refund_credits / adjust_credit / _route_credit_delta（update_generation 终态退款用）` 均先查 `users.enterprise_id`——企业成员的预扣/退款/按次扣费全部落企业钱包（`_apply_enterprise_credit_delta` 事务内同语义），消费/退款流水 `user_id` 仍记实际使用人，`enterprise_member_usage()` 按成员聚合总消耗/退款/净消耗、`enterprise_usage_by_price_key()` 按计价条目聚合；绑定期间个人 `credit_accounts` 不参与计费，解绑自动回落个人钱包。`billing_account_snapshot(user_id)` 供余额预检/预估接口取结算主体（scope=user|enterprise）。
+  - **API**（tags=["管理后台"]，admin 与 super_admin 均可用）：`GET/POST /api/admin/enterprises`、`GET/PATCH/DELETE /api/admin/enterprises/{id}`（删除仅限无成员且无钱包余额/流水，防止误删结算数据）、`GET/POST/DELETE /api/admin/enterprises/{id}/members[/{user_id}]`（成员列表含每人口径用量统计；绑定校验企业未停用、管理员只能操作员工账号）、`POST /api/admin/enterprises/{id}/credits`（企业充值/调整，必填 reason）、`GET /api/admin/enterprises/{id}/credits/transactions`、`PUT /api/admin/enterprises/{id}/policies`（整表覆盖四类策略）。账号管理联动：`POST/PATCH /api/admin/users` 支持 `enterprise_id`（PATCH 用 `model_fields_set` 区分「未传」与「显式 null 解绑」，绑定校验企业存在且未停用），`GET /api/admin/users` 附 `enterprise_name`。`GET /api/credits/me` 对企业成员返回 `scope=enterprise` + 企业钱包余额 + `enterprise{id,name,status,code}`；`POST /api/credits/estimate` 余额取结算主体。
+  - **前端**：管理后台新增「企业管理」tab（admin 可见，`paths.ts` ADMIN_TABS/isAdminTab/canAccessAdminTab 增 enterprises）→ `frontend/src/admin/EnterpriseAdminSettings.tsx`（antd Table/Drawer/Tabs/Modal/Segmented/Checkbox.Group）：企业列表（成员数/余额/累计充值/累计消耗 + 详情/充值/停用/删除）、详情抽屉四页签——成员与用量（绑定账号下拉 + 总消耗/退款/净消耗/最近活动）、积分与流水（钱包三卡 + 充值 Modal + 流水表）、模型权限（四类 × 全部开放/仅开放选中/全部关闭 + 白名单勾选清单 + 脏检查保存）、基本信息（资料/状态编辑）。账号管理页创建表单增「所属企业」下拉（antd Select，仅列 active 企业）、账号表增「所属企业」列。`CreditDrawer` 对企业成员显示「积分由企业钱包统一结算」提示。`requestJson` 补 204 No Content 处理（删除接口返回）。`api.ts` User 与 `credits.ts` 增企业字段与类型。
+- 受影响文件：新增 `sql/030_enterprise_system.sql`、`backend/app/enterprise_service.py`、`backend/tests/test_enterprises.py`（20 项）、`frontend/src/admin/EnterpriseAdminSettings.tsx`；修改 `backend/app/{storage,auth,models,main,credit_service,api_documentation,director_jobs}.py`、`sql/001_init_mysql.sql`、`frontend/src/{api.ts,paths.ts}`、`frontend/src/credits/{credits.ts,CreditDrawer.tsx}`、`frontend/src/admin/AdminSettings.tsx`、本文件、`功能说明与扩展指南.md`、`README.md`。
+- 兼容性：未绑定企业的账号（含全部既有账号与管理员）行为零变化——策略默认 all、计费走个人钱包；企业表独立，停用企业管理不影响既有计费。`/api/modes` 对游客与未绑定用户不过滤。`users.enterprise_id` 列对老库幂等补列。
+- 验证命令：`python -m unittest backend.tests.test_enterprises`（20 项通过）；`python -m unittest backend.tests.test_credit backend.tests.test_accounts backend.tests.test_core`（含 131 项核心回归全部通过）；`pnpm --dir frontend exec tsc --noEmit`（干净）；`pnpm --dir frontend test`（139 文件 / 967 项通过）；`pnpm --dir frontend build` 通过。5173 桌面端自查（双主题截图）：企业管理页列表/新增/详情四页签/策略勾选保存/删除闭环、账号管理企业列与下拉均正常；真实 MySQL 实例冒烟——建企业→充值 500→配置「视频白名单=cloud-grs-h3-t2v + 生图关闭 + LLM 白名单=assistant_chat」→企业成员登录 `/api/modes` 由 55 条收敛为 1 条、`POST /api/jobs` 非白名单模式 403、`/api/llm/optimize-prompt` 403（提示词优化未开放）、`/api/credits/me` 返回企业钱包 scope/balance=500；冒烟数据已 SQL 清理还原。
+- 回滚方式：`git revert` 本轮提交；四张企业表独立可 `DROP TABLE`（`users.enterprise_id` 列保留无害，全部为 NULL 即回到无企业状态）；不配置任何企业策略即等效功能关闭。
+
+## 2026-11-19：云端视频新增「MiniMax 官方」供应商（H3 四档四模式 × 档位×分辨率计价）
+
+- 变更原因：官方平台 platform.minimax.cn 已开放 H3 系列 v2 API（`https://api.minimax.cn`），Lite 档 480P ¥0.16/秒、768P ¥0.26/秒，是官方体系内最便宜且最稳的云端 H3 产线；与并行接入的 GRS 互为第二条云端 H3 通道。四档模型全接（Lite 默认 / Highspeed / H3 / H3-Max），四模式 t2v/i2v/fl2v/r2v，积分按「模型档位 × 分辨率」分档直换（100 积分 = 1 元）。
+- 当前基线：
+  - **供应商注册**：`cloud_video/base.py` 新增 `minimax` spec（label「MiniMax 官方（H3）」，默认 `https://api.minimax.cn`，单 API Key，`supports_balance=False`——官方无余额查询端点）；顺序为 `kling / jimeng / hailuo / scnet / grs / minimax`。管理设置卡片、连通性测试由既有 spec 驱动，零新增路由。与既有 `hailuo`（老 v1 协议 api.minimaxi.com，T2V-01/Hailuo-02 时代）是不同 Key 体系，互不影响。
+  - **适配器 `cloud_video/minimax.py`（`MiniMaxClient`）**：提交 `POST /v2/video_generation`（Bearer 鉴权，body 多模态 `content[]`：必填 `{"type":"text","text":prompt}`，图片 `{"type":"image_url","image_url":{"url":dataURI},"role":first_frame|last_frame|reference_image}`）；首帧单独提供即图生视频，尾帧必须与首帧成对，首尾帧与参考图（≤9）互斥；`resolution ∈ 480P/768P/2K`（H3 仅 768P/2K；480P 仅 Lite/Highspeed/H3-Max）、`duration 4-15` 整数（H3-Max 起步 5）；文生视频 `ratio` 必填非 adaptive（16:9/9:16/1:1/4:3/3:4/21:9），图生/首尾帧/参考生宽高比恒随输入不下发 ratio；`generate_audio` 默认 False（工作台后期统一配音）、`aigc_watermark` 固定 False。轮询 `GET /v2/query/video_generation/{task_id}`，`task.status` queued/running→active、succeeded→completed、**failed/cancelled→failed**（取 `task.error` 文案），成功直接取 `task.content.url` 限时直链（无需 file_id 二次换取）。错误响应为 OpenAI 风格 `{error:{type,message,http_code}}`，4xx 详情透出、401/403 报「API Key 无效」、402 报「官方平台余额不足」。提交校验（跨档约束）在适配器与 `normalize_options` 双层拦截。
+  - **测试连接**：用不存在的任务 ID 探活 `GET /v2/query/video_generation/zly-probe-nonexistent-task`——Key 无效返回 401 类鉴权错误，Key 有效返回任务不存在类错误（与 hailuo 同策略）。
+  - **工作流注册**：`cloud-minimax-h3-t2v/i2v/fl2v/r2v` 四条（JobMode `CLOUD_MINIMAX_H3_*`，`cloud_family="minimax-h3"`）；T2V 无参考、I2V keyframes (1,1) 首帧、FL2V keyframes (2,2) 首尾成对、R2V collection 1-9 张。`CLOUD_VIDEO_WORKFLOW_IDS` 共 18 条；导演台族 `cloud_video:minimax-h3`（服务端 `resolve_director_workflow` 解析 t2v/i2v/r2v 三路由）。**定义顺序 t2v→r2v→fl2v→i2v**：族路由按定义顺序覆盖，i2v（单首帧）最后定义即赢得族内图生路由——导演链路只有首帧，成对校验的 fl2v 仅在生成页可选。批量台「视频工作流」下拉当前仍把全部云端模式按 catalog_group 合并为一组（GRS 同款既有前端行为），按厂商拆族的批量台下拉改造属后续独立任务。
+  - **参数分层**：primary = 画幅（仅 t2v）+ 时长（4-15 秒滑条，默认 5）+ 分辨率（480P/768P/2K，选项标注"2K 仅 H3 旗舰档"）；advanced = 模型档位（Lite 最省 / Highspeed 提速 / H3 旗舰 / H3-Max 增强，默认 Lite）+ 生成声音开关（默认开，可在「更多设置」关闭后输出无声视频）。
+  - **跨档约束**：`normalize_options` 直接拒绝「2K + 非 H3 档」与「H3-Max + duration<5」（提交前拦截避免预扣积分后退款）；`clamp_cloud_video_options` 对导演链路透传做同规则软夹（2K 回落 768P、H3-Max 时长抬到 5-15）；适配器第三次兜底校验。
+  - **积分计价**：`credit_service._estimate_cloud_video` 的 variant 改由注册表新辅助函数 `cloud_billing_variant(mode, options)` 提供——minimax 模式返回 `f"{model}:{resolution}"`（缺省回落 schema 默认档），其余工作流保持 kling_mode/resolution 原行为。`credit_price_rules` 新增 4 行种子 `cloud:cloud-minimax-h3-t2v/i2v/fl2v/r2v`，`unit_by_variant = {"MiniMax-H3-Lite:480P":16,"MiniMax-H3-Lite:768P":26,"MiniMax-H3-Highspeed:480P":26,"MiniMax-H3-Highspeed:768P":40,"MiniMax-H3:768P":50,"MiniMax-H3:2K":80,"MiniMax-H3-Max:480P":33,"MiniMax-H3-Max:768P":50}`（官方元价 × 100 直换），note 注明单价与「每任务前 5 张参考图免费」。
+- 受影响文件：新增 `backend/app/cloud_video/minimax.py`；修改 `backend/app/cloud_video/{base,__init__}.py`、`backend/app/{models,workflow_registry,storage,credit_service}.py`、`backend/tests/{test_cloud_video,test_credit,test_core}.py`、`frontend/src/admin/CloudVideoProviderSettings.tsx`（头部文案）、本文件、`功能说明与扩展指南.md`、`README.md`、`docs/导演台流程与界面结构.md`。
+- 兼容性：既有 5 家供应商与 14 条云端工作流行为不变（`cloud_billing_variant` 对非 minimax 模式返回值与旧逻辑逐字一致）；MiniMax 官方四模式仅在管理设置启用 `minimax` 并填 API Key 后可用（配置存 `cloud_video_provider_settings` 独立行）；价格种子 `INSERT OR IGNORE` 不覆盖管理端改动；v2 的视频/音频参考输入（reference_video/audio）本期不暴露。基线既有失败 `test_director_stream` / `test_media_understanding` 各 1 项与本变更无关。
+- 验证命令：`python -m pytest backend/tests/test_cloud_video.py backend/tests/test_credit.py`（83 项通过）；`python -m pytest backend/tests/test_core.py`（131 项通过）；全量 `python -m pytest backend/tests -q`（2127 通过，仅剩 2 项基线既有失败）。真实出片需在 platform.minimax.cn 开通「按量购买 API」拿到 Key 后于管理设置「云端视频 → MiniMax 官方」填入，提交一条 Lite/480P/5s 任务。
+- 回滚方式：`git revert` 本轮提交；`cloud_video_provider_settings` 的 `minimax` 行与四条价格种子行保留无害（工作流下架后不生效），也可在管理端停用 `minimax` 供应商或四条价格规则禁用入口。
+
+## 2026-11-19：云端视频新增「GRS」供应商（MiniMax-H3 三模式 × 积分直换计价）
+
+- 变更原因：GRS 视频服务（grsai.ai）提供 MiniMax-H3 云端生成（成本 480p ¥0.05/秒、768p ¥0.07/秒、1080p ¥0.15/秒），显著低于官方与 SCNet；第一期把它接入云端视频框架并打通积分扣费，界面上按分辨率档位显示积分消耗（成本价直换，运营加差价直接在管理端价格表改分档单价）。
+- 当前基线：
+  - **供应商注册**：`cloud_video/base.py` 新增 `grs` spec（label「GRS 视频（MiniMax-H3）」，默认 `https://grsai.dakka.com.cn`，国际节点 `https://grsaiapi.com`，单 API Key，`supports_balance=True`）；顺序为 `kling / jimeng / hailuo / scnet / grs`。管理设置卡片、连通性测试、余额查询全部由既有 spec 驱动，零新增路由。
+  - **适配器 `cloud_video/grs_video.py`（`GrsVideoClient`）**：提交 `POST /v1/api/generate`（Bearer 鉴权，body `{model:"minimax-h3", prompt, aspectRatio(landscape/portrait), resolution(480p/768p/1080p), duration(1-15), replyType:"async", promptSkill(默认 False——工作台提示词已编排), seed(0=随机不下发)}`）；参考图 `images[]`（≤9，data URI）、首尾帧 `firstFrame/lastFrame`（**上游要求成对**，与 images 互斥）；提交校验（分辨率档、时长 1-15、1080p ≤10 秒）在适配器与 `normalize_options` 双层拦截（后者直接 4xx 拒绝提交，避免预扣积分后失败退款）。轮询 `GET /v1/api/result?id=`，status 映射 running→active、succeeded→completed、**failed/violation→failed**（violation 提示"内容违规，上游已返还积分"），成片取 `results[].url`；HTTP 400 透出上游 `error` 详情。测试连接与余额走 `POST /client/openapi/getAPIKeyCredits`（apiKey 放 JSON body，与 `GrsClient.balance()` 同族）。
+  - **工作流注册**：`cloud-grs-h3-t2v/r2v/fl2v` 三条（JobMode `CLOUD_GRS_H3_*`，`cloud_family="grs-h3"`，归「云端视频模型」目录分组）；T2V 无参考、R2V 为 collection 槽位 1-9 张（单张参考图可近似图生视频，提示词 `<Picture n>` 引用）、FL2V 为 keyframes 槽位**首尾各 1 张（2,2）**。`CLOUD_VIDEO_WORKFLOW_IDS` 共 14 条；导演台族 `云端 · GRS MiniMax-H3`（t2v/i2v/r2v 三路由）。
+  - **参数分层**：primary = 画幅（横屏/竖屏）+ 时长（1-15 秒滑条）+ 分辨率（**480p/768p/1080p，选项标签内标注"· 5/7/15积分/秒"**——分辨率直接决定积分价位故放 primary）；advanced = 提示词优化开关（默认关）+ 随机种子（0=随机）。
+  - **积分计价**：`credit_price_rules` 新增 3 行种子 `cloud:cloud-grs-h3-t2v/r2v/fl2v`，`unit_by_variant = {"480p":5,"768p":7,"1080p":15}`（**成本直换：上游元价 × 100**），note 写明成本基准供运营加差价参考；估算/预扣/失败退款复用既有 `_estimate_cloud_video` 与 `update_generation` 终态退款钩子，零新增计费代码。
+  - **worker 参考透传**：`JobWorker._cloud_video_reference_paths` → `_cloud_video_reference_media`，keyframes 仍映射首/尾帧，**collection 槽位（此前云端执行器不消费）现在整体透传给 `submit_generation(references=...)`**，GRS R2V 由此走通；kling/jimeng/hailuo/scnet 行为不变（它们不读 references）。
+  - **前端**：提交成功 toast 原硬编码"超算互联网"文案泛化为 `任务已提交。{billing_notice}`，按工作流展示各自计费提示；「本次 N 积分」预估 chip 与分辨率切换防抖刷新为既有能力，直接生效。
+  - **积分换算层（跨平台兼容约定）**：平台锚点恒为 **100 积分 = 1 元**；每上游每模式一行 `cloud:<mode_id>` 价格规则，`unit_by_variant` 分档；上游按"元/秒"报价 → ×100 直换，按"积分/秒"报价（如 GRS 20000 积分=1 元）→ 先折元再 ×100（换算系数可存 `extra_config`，沿用 `grs_image:global.grs_credits_to_platform` 先例）。**切换即梦/可灵等上游 = 新增 spec + adapter + 新价格行，扣费/预估/退款/前端展示零改动**；加差价在管理端「积分设置 → 价格表」行内编辑分档单价，保存即时对新提交生效。
+- 受影响文件：新增 `backend/app/cloud_video/grs_video.py`；修改 `backend/app/cloud_video/{base,__init__}.py`、`backend/app/{models,workflow_registry,storage,worker}.py`、`backend/tests/{test_cloud_video,test_credit,test_core}.py`、`frontend/src/App.tsx`、本文件、`功能说明与扩展指南.md`、`README.md`、`docs/导演台流程与界面结构.md`。
+- 兼容性：既有 4 家供应商与 11 条云端工作流行为不变（worker 方法重命名仅内部引用）；GRS 三模式仅在管理设置启用 `grs` 并填 API Key 后可用（与生图可共用同一 Key，配置存 `cloud_video_provider_settings` 独立行）；价格种子 `INSERT OR IGNORE` 不覆盖管理端改动；音频参考（上游 audios ≤3）本期不暴露。基线既有失败 `test_director_stream` / `test_media_understanding` 各 1 项与本变更无关。
+- 验证命令：`python -m pytest backend/tests/test_cloud_video.py backend/tests/test_credit.py`（72 项通过）；`python -m pytest backend/tests/test_core.py`（131 项通过）；全量 `python -m pytest backend/tests -q`（2116 通过，仅剩 2 项基线既有失败）；前端构建与 5173 桌面端自查见「功能说明与扩展指南」同日章节。真实出片需在管理设置「云端视频 → GRS」填 API Key 后提交 768p 短任务。
+- 回滚方式：`git revert` 本轮提交；`cloud_video_provider_settings` 的 `grs` 行与三条价格种子行保留无害（工作流下架后不生效），也可在管理端停用 `grs` 供应商或停用三条价格规则禁用入口。
+
+## 2026-11-19：用户积分体系第一期（管理员手动充值 + 按用量扣费）
+
+- 变更原因：平台三类真实成本消耗（GRS 云端生图 / 云端视频 / LLM·VLM 调用）此前无任何用户级计量与结算机制。第一期引入「积分账户 + 流水 + 可编辑价格表」，锚定 **100 积分 = 1 元**，余额为整数积分；管理员在管理后台手动充值（第二期再接支付自助充值）。
+- 当前基线：
+  - **数据层**（MySQL DDL `sql/029_credit_system.sql`，SQLite 孪生 DDL 在 `JobStore.initialize()` executescript；价格种子行由 `JobStore._seed_runtime_defaults` 双方言写入，`INSERT OR IGNORE` 不覆盖管理端改动）：`credit_accounts`（一人一行：balance/total_recharged/total_consumed）、`credit_transactions`（delta/type/reason/price_key/ref_type/ref_id/balance_after/actor_user_id，索引 user_id+created_at、ref_type+ref_id）、`credit_price_rules`（rule_key/scope/pricing_kind/unit_credits/unit_by_variant JSON/extra_config JSON/enabled）。`generation_items` 通过 `ensure_column` 幂等加 `credits_billed`、`credits_settled` 两列。
+  - **计价服务** `backend/app/credit_service.py`（`CreditService`，lifespan 挂 `app.state.credits`）：`estimate_job()` 云端视频按秒×档位单价（kling 用 kling_mode、其余用 resolution 做 variant；缺省回落 schema 默认档）、GRS 生图 = 上游 `credit_cost` × 换算系数（`grs_image:global.extra_config.grs_credits_to_platform`，默认 2.0，自动跟随上游调价；`model_overrides` 可按 provider_model/工作流 ID 覆盖绝对单价）、本地 ComfyUI 恒 0（免费，不扣不记）。所有账号（含 super_admin）一律按价格表结算，无角色豁免；导演台后台线程只有 owner_user_id 时也直接按价预扣。
+  - **扣费策略「提交预扣、失败退款」**：预扣挂在全部 4 个任务创建入口——`main.py submit_generation` / `create_job_round` / `retry-failed-items`（重试按当前价对每个失败项重新计价）与 `director_jobs.create_queued_job`（billing 回调贯通 `render_recipe_shots` 镜头渲染与 `render_batch_items` 批量短视频，`director_operations` 注入 credits）；余额不足抛 `CreditInsufficientError` 映射 HTTP 402。退款收口在 `JobStore.update_generation`：FAILED/CANCELLED 终态且 `credits_billed>0` 且未结算时**同一事务**全额退回并写 `refund` 流水、置 `credits_settled=1`（防重复退款）；SUCCEEDED 保留扣减；INTERRUPTED 保持预扣（worker 自动恢复重提）。扣减用 `deduct_credits`（`execute(for_update=True)` 行锁校验余额，双方言）。
+  - **LLM/VLM 按次计费（端点级/操作级）**：`/api/llm/optimize-prompt`（llm:optimize_prompt）、`split-script`（split_script）、`repair-continuity`（repair_continuity）、`analyze-subject`（vlm:analyze_subject）、`reverse-prompt`（vlm:reverse_prompt）在调用前 `require_call_balance` 预检、成功后 `consume_call` 扣费（失败不扣；预检后竞态时允许小额负余额，避免算力已消耗用户却拿不到结果）；导演台写稿流水线 `_run_plan` 成功按整个操作扣 `llm:director_plan`（内部多步 LLM 不重复计费），`_run_clarify` 扣 `llm:director_clarify`；导演助手每轮对话成功扣 `llm:assistant_chat`（`AssistantService._finish`，credits 经 lifespan 注入）；音乐对话每轮成功扣 `llm:music_chat`（`music_chat._bill_music_chat_round`，失败不阻断回复）。未配置 credits 服务（测试/降级）时全部跳过计费。
+  - **API**（tags=["积分"]）：用户侧 `GET /api/credits/me`、`GET /api/credits/transactions`、`POST /api/credits/estimate`（mode+options→应扣积分/breakdown/balance/sufficient）；管理侧 `GET /api/admin/credits/accounts`（联 users 搜索）、`POST /api/admin/credits/adjust`（充值/调整，必填 reason，写 audit_logs）、`GET /api/admin/credits/transactions`、`GET/PUT /api/admin/credits/prices`（局部更新语义，None 字段不改动）。`ModeResponse` 新增 `billing`（WorkflowBillingResponse：scope/pricing_kind/unit_credits/unit_by_variant/enabled）供前端展示单价语义；`GenerationItemResponse` 新增 `credits_billed`/`credits_settled`。
+  - **前端**：创作台提交区新增「积分 N」余额 chip（点击开 `frontend/src/credits/CreditDrawer.tsx` 明细抽屉：余额概览 + antd 流水分页表）与「本次 N 积分」预估 chip（options 变化防抖 450ms 调 estimate，余额不足时琥珀色警示 + 提交区提示"请联系管理员充值"）；任务轮次显示实扣积分与「已退回 N 项」；管理后台新增「积分管理」tab（admin 可见，`paths.ts` ADMIN_TABS/isAdminTab/canAccessAdminTab 增 credits）→ `frontend/src/admin/CreditAdminSettings.tsx`：账户与充值（搜索/充值调整 Modal）、价格表（按 scope 分组、分档单价行内编辑、启停开关、批量保存）、全部流水（按用户/类型筛选）。双主题色仅用语义变量与既有 token（`--studio-*`/`studio-submit-cost-warning` 琥珀色双主题配对）。
+  - **初始价格表种子**（对标 2026 市场价、目标毛利 ≥50%，管理端可覆盖）：云端视频按秒分档——kling std 40 / pro 80；seedance(方舟) 480p 20 / 720p 50 / 1080p 90；hailuo 768P 40 / 1080P 80；scnet-h3 768P 50 / 2K 100；scnet-seedance 480p 20 / 720p 60 / 1080p 100；scnet-happyhorse 720p 40 / 1080p 80。生图 = 上游 credit_cost × 2.0。LLM：optimize_prompt 1、split_script 3、repair_continuity 2、director_plan 30（流水线整单）、director_clarify 1、assistant_chat 1、music_chat 1；VLM：analyze_subject 2、reverse_prompt 2。SCNet 上游"每日 1 次免费额度"本期不透传（统一正常计价）。
+- 受影响文件：新增 `sql/029_credit_system.sql`、`backend/app/credit_service.py`、`backend/tests/test_credit.py`（22 项）、`frontend/src/credits/{credits.ts,CreditDrawer.tsx}`、`frontend/src/admin/CreditAdminSettings.tsx`；修改 `backend/app/{storage,main,models,credit_service,director_jobs,director_operations,music_chat,director_assistant/service}.py`、`backend/tests/{app_state_guard,test_ai_studio,test_library_query,test_read_caches,test_editing_assistant,test_media_understanding,test_image_edit,test_h3_inpaint,test_h3_depth,test_grs_composite,test_h3_keyframe,test_media_studio_schema}.py`、`.gitignore`（backend/tests/test_* 黑名单中为本次新增/修复的测试文件补白名单）、`frontend/src/{App.tsx,index.css,paths.ts}`、`frontend/src/admin/AdminSettings.tsx`、本文件、`功能说明与扩展指南.md`、`README.md`。
+- 兼容性：既有任务/工作流/表结构零破坏（`generation_items` 两列 NULL 不参与结算，老任务天然免费）；不配置价格或停用条目即免费；积分服务未挂载（如部分测试环境）时所有计费钩子跳过。测试隔离修正：`test_ai_studio.JobCloudDeletionTests`、`test_library_query`、`test_read_caches`、`test_editing_assistant`（4 处）、`test_media_understanding`、`test_image_edit`、`test_h3_inpaint`、`test_h3_depth`、`test_grs_composite`、`test_h3_keyframe` 共 10 处完整 lifespan（`with TestClient`）未包 `isolated_lifespan_state`，导致 `app.state.credits`（及 store/auth_store 等单例）泄漏到后续模块——新增 `credits` 计费钩子后表现为 402/sqlite "unable to open database file"，已全部补快照守卫；`app_state_guard.APP_STATE_ATTRS` 增加 `credits`。基线既有失败 `test_director_stream.test_cancelled_operation_emits_terminal_event`、`test_media_understanding.test_partial_failure_is_reported_per_shot` 与本变更无关（干净 HEAD 同样失败，已用临时 worktree 验证）。
+- 验证命令：`python -X utf8 -m unittest backend.tests.test_credit`（22 项通过）；`python -X utf8 -m unittest discover backend.tests`（2108 项，仅剩 2 项基线既有失败）；`pnpm --dir frontend exec tsc -b`（干净）；`pnpm --dir frontend test`（139 文件 / 967 项通过）；5178 桌面端自查：登录后提交区显示「积分余额 chip」与云端工作流「本次 300 积分」预估、抽屉流水、/admin/credits 充值 1000→流水与账户同步、价格表种子齐全。远程 ai-media 库执行 `sql/029_credit_system.sql`（或依赖启动回放自动建表）。
+- 回滚方式：`git revert` 本轮提交；三张 credit 表独立可 `DROP TABLE`（generation_items 两列保留无害）；停用计费只需管理端把价格表条目 `enabled` 置 0。
+
 ## 2026-11-14：后端 50 轮专项优化（行为保持：健壮性、测试隔离、死代码清理）
 
 - 变更原因：对 `backend/` 做一轮不改变对外行为的专项优化：修复潜在运行时崩溃、补齐健壮性兜底、修复测试隔离缺陷让全量套件全绿、清理死代码，并把 lint 基线固化进仓库。共 50 个轮次（修复轮 + 深审轮），全部以后端全量测试验证。
@@ -146,6 +572,8 @@
   - 前端：生成页/画布/参数表单/参考图面板零改动自动生效（注册表驱动）；新增 `admin/CloudVideoProviderSettings.tsx`（三厂商卡片，复刻 MusicProviderSettings 范式：密钥留空不改、credential_ready 告警、last_test 侧栏），挂进 AdminSettings「AI 供应商」tab。
   - 边界：剧集工坊「视频工作流」下拉按 `reference_mode=collection && max_references>=3` 过滤，三家厂商的 T2V/I2V 天然不出现（无误导入口）；AI 工具页现有视频工具（打斗镜头等多参考 R2V 语义）与三家厂商 T2V/I2V API 无法 1:1 映射，留待接入 R2V 能力云端模型（如 Vidu）后做引擎选择器。云端视频工作流不在 `is_local_comfy_job()` 白名单内，不占用串行 worker；MCP 能力边界按注册表推导自动排除视频参考工作流，行为不变。
 - 受影响文件：新增 `sql/028_cloud_video.sql`、`backend/app/cloud_video/{__init__,base,http,kling,jimeng,hailuo}.py`、`backend/app/cloud_video_service.py`、`backend/tests/test_cloud_video.py`、`frontend/src/admin/CloudVideoProviderSettings.tsx`；修改 `backend/app/{models,config,storage,worker,main,workflow_registry}.py`、`backend/app/director_jobs.py`、`frontend/src/admin/AdminSettings.tsx`。
+- 2026-11-14 动作迁移时长任意化：`minimax-h3-motion-transfer` / `minimax-h3-motion-ref-video` 的 `duration` 参数从 5/10/15s 枚举改为数字秒数（2~15，步长 0.1，兼容旧字符串写法），帧数按 H3 17n+5 网格向上对齐（成片不短于所填秒数，上限 362 帧）；`motion_transfer_media.validate_motion_video` 同步接受数字秒数。详见《功能说明与扩展指南》2026-11-14 章节。
+
 - 2026-11-14 长批次防僵死：worker 每完成 3 条本地视频任务（`COMFY_FREE_EVERY_N_JOBS`）强制尝试一次视频服务 `/free`，卸载 H3 UNET/CLIP/VAE 模型缓存并清 CUDA 缓存，防止 16GB 显存被跨任务累积顶满后事件循环冻死；`free_resources` 的「视频服务队列空闲才执行」护栏保证批次中间调用安全，失败保留计数下次再试。详见《功能说明与扩展指南》2026-11-14 章节。
 
 - 兼容性：纯新增执行器与表；本地 ComfyUI 链路、GRS 生图、音乐、超分等既有链路不受影响；`generation_items` 复用既有 `executor/remote_task_id/remote_status` 列无 DDL 变更；未配置任何云端 Key 时新工作流在下拉中置灰（`available=false` + 原因），不影响其他工作流。
@@ -1932,7 +2360,7 @@
 - 原因与范围：参考 WorkRally 无限画布，先交付 JSON 优先的最小可用画布，验证 React 19、Ant Design 6、双主题和中文输入链路。V0 只包含画布列表、React Flow 编辑器、JSON 自动保存/版本历史，不接入 Yjs 实时协作、撤销栈、素材库或分享管理。入口为 `/canvas`（列表）和 `/canvas/:canvasId`（编辑器），桌面图标导航与移动导航新增「画布」。
 - 前端：新增 `frontend/src/canvas/`，使用 `@xyflow/react@12.12.0`。支持文字、图片、画板三类节点，边连接、MiniMap、缩放控件和平移；节点可拖动、删除，文字双击编辑，画板可缩放并改标题，图片地址仅接受 `http(s)`、站内路径或 `data:image/`。编辑器用 `colorMode` 与 `--studio-*` 语义变量跟随根主题，浅色与暗色分别验证。画布工作区固定为 `calc(100vh - 56px)`，全局生成页的底部留白规则显式排除 `.canvas-workspace-main`，避免 MiniMap 和缩放控件被撑出视口。
 - 持久化与一致性：新增 `sql/019_canvas.sql` 加法表 `canvas_projects`、`canvas_drafts`、`canvas_draft_versions`，MySQL 随既有启动迁移幂等建立；`backend/app/storage.py` 为临时 SQLite 建立同构表和索引。每个画布只有一份当前草稿和一个单调递增版本号，保存使用 `base_version` 乐观锁并在事务内锁定读，旧版本写入返回 409 及 `current_version`。内容必须包含 `nodes` 和 `edges`，上限 8 MB、3000 节点、6000 边；历史版本每个画布保留最近 200 条。校验和由服务端按内容计算，恢复历史版本会写成新的当前版本，不覆盖历史。
-- API 与安全：新增 `GET/POST /api/canvas/projects`、`GET/PATCH/DELETE /api/canvas/projects/{canvas_id}`、`PUT /api/canvas/projects/{canvas_id}/draft`、`GET /api/canvas/projects/{canvas_id}/versions`、`POST /api/canvas/projects/{canvas_id}/versions/{version}/restore`。全部接口要求登录，写操作校验 CSRF；画布按 `owner_user_id` 隔离，管理员也不能读取他人画布。删除画布依赖外键级联清理草稿和历史。
+- API 与安全：新增 `GET/POST /api/canvas/projects`、`GET/PATCH/DELETE /api/canvas/projects/{canvas_id}`、`PUT /api/canvas/projects/{canvas_id}/draft`、`GET /api/canvas/projects/{canvas_id}/versions`、`POST /api/canvas/projects/{canvas_id}/versions/{version}/restore`。全部接口要求登录，写操作校验 CSRF；画布按 `owner_user_id` 隔离，管理员也不能读取他人画布。删除画布依赖外键级联清理草稿和历史。（2026-11-22 追加读接口 `POST /api/canvas/projects/{canvas_id}/credit-stats`，见下方对应章节。）
 - 前端行为：编辑变更后 1.2 秒防抖自动保存，顶部显示「保存中 / 已保存 / 未保存 / 保存失败 / 版本冲突」；手动保存提供即时反馈。版本冲突时不覆盖服务器内容，弹窗可重新加载最新版本。历史版本弹窗显示版本号、节点数和保存时间，可恢复并重新载入。列表显示节点数、当前版本和最近保存时间，支持新建、打开、重命名和删除。
 - 受影响文件：新增 `backend/app/canvas_store.py`、`backend/tests/test_canvas_store.py`、`sql/019_canvas.sql`、`frontend/src/canvas/{CanvasWorkspace,CanvasEditor,CanvasNodes,canvas-api,canvas-model,canvas.css}.tsx|ts|css` 及 `canvas-model.test.ts`；接线 `backend/app/{main.py,models.py,storage.py}`、`frontend/src/{App.tsx,paths.ts}`、`frontend/src/index.css`、`frontend/package.json`，并同步 README 与扩展指南。`frontend/src/router.tsx` 通过 `STUDIO_ROUTE_PATHS` 自动注册路由，无需额外分支。
 - 验证：`python -m unittest backend.tests.test_canvas_store -q` 7 项通过；`pnpm --dir frontend test` 55 个测试文件、284 项通过；`pnpm --dir frontend exec tsc -b` 与 `pnpm --dir frontend build` 通过。5173 桌面端浅色、暗色分别检查画布列表、编辑器、图片加载、画板、连线、自动保存、刷新恢复、历史版本恢复和 409 冲突；不进行移动端验收。真实 MySQL 验证数据已按画布、账号和会话 ID 清理。
@@ -5281,3 +5709,45 @@ FastAPI 以当前路由、表单参数和 Pydantic 响应模型自动生成 Open
 - 兼容性：纯仓库结构调整；不动 Dockerfile、compose.yaml、部署脚本逻辑、端口与运行时行为；CI 尚未上线运行，无迁移窗口。
 - 验证命令：见《功能说明与扩展指南》2026-11-13 同日章节（引用残留 grep、zly-ci 脚本 `bash -n` 语法检查、远端 `git ls-remote`）。
 - 回滚方式：还原本次提交即恢复原布局；无数据回滚需求。
+
+## 2026-11-19 云端视频任务重启续跑（修复 GRS 成功但工作台标记失败）
+
+- 变更原因：剧集工坊的云端视频任务提交到 GRS / 厂商后，轮询与下载由认领该任务的本地后端进程执行。后端重启或崩溃后旧进程停止心跳，启动恢复只按租约把任务收敛为失败，未查询上游，导致「GRS 已成功出片、工作台显示失败」，用户重试又产生一次上游费用。
+- 当前行为：启动恢复与租约收敛在判定失败前，先识别已持久化 `remote_task_id` / 已下载成片的云端任务，原子接管（改写 `worker_id` 与租约）并重新入队；执行器复用任务中保存的提示词与远端 ID，只轮询、下载和回写，不重复提交付费任务。同机旧进程已退出的任务立即接管；其它实例仅在租约过期后接管；没有远端 ID 的云端任务仍按原逻辑收敛。
+- 主要实现：`backend/app/media_studio/services/job_lease.py`（worker 主机 / 进程存活探测、`lease_stale_for`、`converge_orphaned_jobs(reclaim=...)`）；`backend/app/media_studio/services/episode_video_service.py`（`recover_orphaned_jobs`、`_resume_orphaned_cloud_jobs`、`_claim_cloud_job_for_resume`、`_run_cloud_job` 续跑分支）。
+- 兼容性：只影响 `ai_project_jobs` 中 `video_generation` 的恢复路径；本地 ComfyUI 任务、云端任务首次提交、任务表字段与前端协议不变；`awaiting_refine` 仍不参与心跳与接管；无数据库迁移。
+- 验证命令：`python -X utf8 -m unittest backend.tests.test_job_lease`（20 项通过）；`python -X utf8 -m unittest backend.tests.test_cloud_video backend.tests.test_director2_ai_generation`（104 项通过）；全量 `python -X utf8 -m unittest discover -s backend/tests`（2166 项，失败集与本轮无关：企业目录注入、SQLite 临时库、schema 基线、导演流取消事件、媒体理解证据集）。
+- 回滚方式：还原上述两个后端文件与 `backend/tests/test_job_lease.py`；无数据回滚需求。
+
+## 2026-11-20 选中结果节点回显上次生成参数
+
+- 变更原因：选中画布结果节点时缺少即梦式参数回显入口，用户无法在已产出节点上快速微调再生成；另发现生成节点与属性面板改工作流会清空节点已显示结果。
+- 当前行为：新增 `CanvasResultComposer`（`frontend/src/canvas/CanvasResultComposer.tsx`）——单选带 `sourceRun` / `lastRun` 溯源的图片 / 视频节点时在画布底部渲染回显栏，回显上次提示词、工作流与可见参数；提交走新回调 `runFromResultNode()`：在结果节点右侧新建预填生成节点、按 `canvasModeAcceptsReferenceKind()` 自动接参考边并选中，`submit` 时延迟至节点落库后调用既有 `submitGenerator`，`referenceKind` 时继续打开素材库。`canvas-generation.ts` 的 `canvasWorkflowChangePatch` 增加可选 `previous` 参数，生成节点 composer 与 `CanvasGeneratorInspector` 改工作流时传入节点数据以保留 `resultUrl/resultHistory/jobId/jobStatus` 等产物字段。
+- 兼容性：无 API、草稿 schema、后端与数据库改动；无溯源节点不出回显栏；`canvasWorkflowChangePatch` 不传 `previous`（新建节点路径）行为与原来完全一致。
+- 验证命令：`pnpm --dir frontend exec tsc --noEmit`；`npx vitest run src/canvas`（245 项）；5173 桌面端实测回显、再次生成（真实 GRS 任务出片）与改工作流保留结果。
+- 回滚方式：还原上述前端文件即可，无数据迁移。
+
+## 2026-11-20 积分标价移到发送按钮左侧并支持实时预估
+
+- 变更原因：工作流下拉里的静态「N 积分/张」「N-积分/秒」标价无法反映参考图张数、数量、时长等参数变化，用户提供即梦参考截图，要求把云端模型费用放到发送按钮左侧并随参数实时计算。
+- 当前行为：生成页保持既有 `studio-submit-cost` 实时预估；无限画布生成节点创作区与结果节点回显栏、导演台资产画布创作面板（`director2/panes/AssetCreationCanvas.tsx`，生成节点与资产槽位两条提交路径分别取工作流 / 槽位模型与对应参考数）的「生成 / 重试」按钮左侧新增共享组件 `CanvasCreditEstimate`（`frontend/src/canvas/CanvasCreditEstimate.tsx`），仅当工作流 `billing.enabled` 且已登录时挂载，参数变化防抖 450ms 调 `POST /api/credits/estimate`，展示总额、`breakdown` 与余额 tooltip，余额不足转琥珀警示色；本地免费工作流与游客不显示。生成页与资产画布共用的工作流下拉（`WorkflowOptions.tsx`）移除行尾静态标价渲染及 `creditCost / billingSummary` 字段，`/api/modes` 的 `billing`、`credit_cost` 数据仍原样下发（价格页与管理端继续使用）。
+- 兼容性：纯前端展示层；不改 API、草稿 schema、计费与后端逻辑；下拉里的分辨率档位积分提示（`apply_billing_option_hints`）保持不变。
+- 验证命令：`pnpm --dir frontend exec tsc --noEmit`；`npx vitest run`（149 文件 / 1054 项通过，含「计费工作流才渲染预估、游客不渲染」断言）；5173 桌面端实测生成页 300→360 积分随时长刷新、画布 GPT Image 2 数量 1→2 张 1,200→2,400 积分、余额不足警示与浅色主题配色。
+- 回滚方式：还原 `frontend/src/canvas/{CanvasCreditEstimate.tsx（删除）,CanvasGeneratorComposer.tsx,CanvasResultComposer.tsx,CanvasEditor.tsx,canvas-generation.ts,canvas-chrome-shared.css}`、`frontend/src/director2/panes/AssetCreationCanvas.tsx`、`frontend/src/components/WorkflowOptions.tsx`（含测试）、`frontend/src/index.css` 即可，无数据迁移。
+
+## 2026-11-20 GRS 生图积分改为按真实上游价换算
+
+- 变更原因：`grs_credits_to_platform = 1` 使生图平台标价约为真实上游成本的 100 倍（GRS 基础汇率 ¥1 = 10,000 GRS 积分 vs 平台锚点 100 积分 = ¥1）。
+- 当前行为：本实例价格规则 `grs_image:global` 系数改为 0.01（成本价口径）；`CreditService.grs_image_unit_price()` 统一「换算系数 + model_overrides 覆盖」的单价计算，`_estimate_grs_image` 与 `/api/modes` 的 `_attach_billing`（生图条目 `credit_cost` 换算成平台积分）共用，游客兜底展示、实时预估与提交实扣三处口径一致。换算后单价：GPT Image 2.5 / 2 / 2.6 = 6，Nano Banana 2.1 = 12，Flare / VIP = 20，Sunburst = 24（平台积分/张）。另补齐画布音频/媒体文件端点路径参数的 OpenAPI 说明。
+- 兼容性：价格属数据库配置，其他实例需各自在管理端更新；历史流水不回溯；`model_overrides` 覆盖语义不变。
+- 验证命令：`python -X utf8 -m unittest backend.tests.test_ai_studio backend.tests.test_core backend.tests.test_credit backend.tests.test_grs_model_costs`（244 项通过）；`POST /api/credits/estimate` 与 `GET /api/modes` 实测各模型 6/12/20/24。
+- 回滚方式：管理端把 `grs_image:global` 系数改回即可；代码还原 `backend/app/credit_service.py` 与 `backend/app/main.py` 对应两处。
+
+## 2026-11-23 价格页补充生图与 AI 大模型价格
+
+- 变更原因：价格页原先只覆盖云端视频按秒计费，生图（按张）与 LLM/VLM 调用（按次 / 按 token）的单价在页面无处可查，用户只能从余额流水反推。
+- 当前行为：`GET /api/pricing` 在原有 `credits_per_yuan` / `billing_policy` / `providers` 之外新增两个字段：`image_generation`（`pricing_kind=per_item` + `models[]`，条目来自图片服务目录中已启用模型，按管理端 `sort_order` / `display_name` 排序，单价取 `CreditService.grs_image_unit_price()`，与提交实扣同口径）与 `ai_calls`（`items[]`，来自价格表 `llm:*` / `vlm:*`，含 `scope`、`label`、`description`、`unit_credits`、`billing_mode`；`per_token` 条目用 `estimate_call()` 的典型用量估算价）。价格页新增「生图价格」卡片区与「AI 大模型价格」表格，并在首屏加分类锚点；金额一律读接口，前端不硬编码。复合图片工作流（局部重绘 / 消除笔 / 扩图）不额外计费，因此不进入生图列表。
+- 受影响文件：`backend/app/main.py`（`_image_generation_pricing`、`_ai_call_pricing`、`/api/pricing`）、`backend/tests/test_credit.py`、`frontend/src/pricing/{PricingPage.tsx,pricing-model.ts,pricing-model.test.ts}`、`docs/API.md`。
+- 兼容性：纯加法字段，旧客户端可忽略；`providers` 结构与云端视频计费链路不变；不触碰任务提交、价格表 schema 与数据库迁移。生图条目仅反映图片服务目录，未配置 GRS 时返回空列表，页面自动隐藏该区块。
+- 验证命令：`python -X utf8 -m pytest backend/tests/test_credit.py -q`（51 项通过，含新增「生图 / AI 大模型价格与实扣同口径」断言）；`python -X utf8 -m pytest backend/tests -q`（2267 项通过、14 项失败、1 项跳过；失败均为既有失败集且不涉及价格链路——Wan 首尾帧校验文案、导演流取消事件、企业目录注入、游客目录 `app.state`、schema 基线、媒体理解证据集）；`pnpm --dir frontend test`（156 文件 / 1111 项通过）；`pnpm --dir frontend exec tsc -b`；`pnpm --dir frontend build` 通过。5173 桌面端以无头 Chrome 在 1440px 宽度对 `/pricing` 做暗色 / 浅色截图自查：生图卡片价格与默认标记、AI 大模型表格的计费方式与折合金额均正常，双主题对比度通过；未做移动端检查。
+- 回滚方式：还原 `backend/app/main.py` 的两个 helper 与响应字段、`frontend/src/pricing/` 三个文件与 `docs/API.md` 对应段落即可；无数据迁移，价格表本身不改。

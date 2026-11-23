@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import queue
 import re
 import threading
@@ -16,7 +17,7 @@ import uuid
 from typing import Any
 
 from .director_stream import _decode_partial_string
-from .llm_client import LlmError
+from .llm_client import LlmError, LlmUsageCollector
 from .music_job_service import MusicJobService
 from .storage import JobStore, now
 
@@ -212,7 +213,8 @@ def send_music_chat_message(
         store, chat_id, owner_user_id, content,
         duration_seconds=duration_seconds, instrumental=instrumental,
     )
-    parsed = llm_provider.chat_json_messages(messages)
+    with LlmUsageCollector() as collector:
+        parsed = llm_provider.chat_json_messages(messages)
     if not isinstance(parsed, dict):
         raise LlmError("音乐助手未返回有效的提案，请重试")
     proposal = _clamp_proposal(parsed, snapshot)
@@ -225,10 +227,24 @@ def send_music_chat_message(
         "created_at": now(),
     })
     chat = store.update_music_chat(chat_id) or chat
+    _bill_music_chat_round(store, owner_user_id, chat_id, collector.usage())
     return {"chat": chat, "user_message": user_message, "assistant_message": assistant_message}
 
 
 _REPLY_FIELD = re.compile(r'"reply"\s*:\s*"')
+
+
+def _bill_music_chat_round(store: JobStore, owner_user_id: str, chat_id: str, usage: dict[str, Any] | None = None) -> None:
+    """音乐对话成功一轮扣 llm:music_chat；计费失败不阻断已完成的回复。"""
+    from .credit_service import CreditService
+
+    try:
+        CreditService(store).consume_call(
+            owner_user_id, "llm", "music_chat", ref_type="music_chat", ref_id=chat_id,
+            usage=usage, model=store.get_llm_settings().get("model"),
+        )
+    except Exception:
+        logging.getLogger(__name__).warning("music chat credit billing failed", exc_info=True)
 
 
 def _extract_partial_reply(text: str) -> str:
@@ -312,6 +328,7 @@ def stream_music_chat_message(
         # 注意：这里不能写 `chat = store.update_music_chat(...) or chat`——
         # 赋值会让 chat 变成 generate() 的局部变量，读到未绑定值抛 UnboundLocalError。
         updated_chat = store.update_music_chat(chat_id) or chat
+        _bill_music_chat_round(store, owner_user_id, chat_id)
         yield _sse_event("done", {
             "user_message": user_message,
             "assistant_message": assistant_message,

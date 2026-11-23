@@ -13,7 +13,7 @@ type StudioHeaderProps = {
   compact?: boolean
   user: User | null
   onRequestLogin?: () => void
-  provider: "视频服务" | "图片服务" | "音乐服务"
+  provider: "视频服务" | "图片服务" | "音乐服务" | "云端视频" | "价格说明"
   providerStatus: "checking" | "online" | "offline"
   providerStatusLabel?: string
   providerMessage?: string | null
@@ -96,7 +96,7 @@ export default function StudioHeader({
             aria-haspopup="menu"
             aria-expanded={accountOpen}
           >
-            <Avatar size={28}>{Array.from(displayName)[0]}</Avatar>
+            <Avatar size={28} src={user.avatar_url || undefined}>{Array.from(displayName)[0]}</Avatar>
             <span className="studio-header-account-name">{displayName}</span>
             <ChevronDown size={14} aria-hidden="true" />
           </Button>

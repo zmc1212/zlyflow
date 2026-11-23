@@ -1,77 +1,88 @@
-import { generatorResultFromNodeData } from "./canvas-generation"
+import {
+  canvasPromptEligible, canvasReferenceKind, canvasReferenceUrl, canvasWorkflowReferenceKinds, pickCanvasGenerationMode,
+  type CanvasReferenceKind, type CanvasWorkflowMode,
+} from "./canvas-generation"
 import { buildEdgeId, type CanvasEdge, type CanvasNode } from "./canvas-model"
 
-export type CanvasConnectTargetKind = "generator" | "image" | "video"
+type CanvasConnectKind = CanvasReferenceKind | "text"
 
-export type CanvasConnectTarget = {
-  key: string
-  kind: CanvasConnectTargetKind
-  label: string
-  description: string
-  targetHandle: "prompt" | "in"
+export const CANVAS_CONNECT_LABELS: Record<CanvasConnectKind, string> = {
+  text: "文字",
+  image: "图片",
+  video: "视频",
+  audio: "音频",
 }
 
-export function canvasGeneratorOutputKind(source: CanvasNode): "image" | "video" | null {
-  return generatorResultFromNodeData(source.data)?.kind ?? source.data.resultKind ?? null
+export type CanvasConnectTarget = { kind: CanvasConnectKind; mode?: CanvasWorkflowMode }
+
+const canvasNodeInputs: Record<"text" | "audio", readonly CanvasConnectKind[]> = {
+  text: ["text", "video", "audio"],
+  audio: ["text", "audio"],
 }
 
-export function canvasConnectTargets(source: CanvasNode | null | undefined): CanvasConnectTarget[] {
+function canvasOutputKind(node: CanvasNode): CanvasConnectKind | null {
+  return canvasPromptEligible(node) ? "text" : canvasReferenceKind(node)
+}
+
+export function canvasAcceptsNodeInput(source: CanvasNode, targetKind: keyof typeof canvasNodeInputs): boolean {
+  const kind = canvasOutputKind(source)
+  return kind !== null && canvasNodeInputs[targetKind].includes(kind)
+}
+
+export function canvasConnectTargets(source: CanvasNode | undefined, modes: CanvasWorkflowMode[]): CanvasConnectTarget[] {
   if (!source) return []
-  if (source.type === "text") {
-    return [{
-      key: "generator",
-      kind: "generator",
-      label: "生成节点",
-      description: "以这段文字作为提示词",
-      targetHandle: "prompt",
-    }]
-  }
-  if (source.type === "image") {
-    return [{
-      key: "generator",
-      kind: "generator",
-      label: "生成节点",
-      description: "以这张图片作为参考图",
-      targetHandle: "in",
-    }]
-  }
-  if (source.type !== "generator") return []
-  const result = generatorResultFromNodeData(source.data)
-  const outputKind = canvasGeneratorOutputKind(source)
+  const outputKind = canvasOutputKind(source)
   if (!outputKind) return []
-  if (outputKind === "video") {
-    return [{
-      key: "video",
-      kind: "video",
-      label: "视频节点",
-      description: result ? "把当前视频结果加入画布" : "创建后自动接收生成结果",
-      targetHandle: "in",
-    }]
-  }
-  return [
-    {
-      key: "generator",
-      kind: "generator",
-      label: "生成节点",
-      description: result ? "继承提示词并引用当前结果" : "继承提示词，生成后自动引用结果",
-      targetHandle: "in",
-    },
-    {
-      key: "image",
-      kind: "image",
-      label: "图片节点",
-      description: result ? "把当前图片结果加入画布" : "创建后自动接收生成结果",
-      targetHandle: "in",
-    },
-  ]
+  const kind = outputKind === "text" ? null : outputKind
+  if (source.type === "image" && !source.data.pendingGeneratorId && !canvasReferenceUrl(source)) return []
+  const compatible = modes.filter((mode) => {
+    if (mode.available === false) return false
+    const minimum = mode.min_references ?? 0
+    if (!kind) return minimum === 0
+    if (!canvasWorkflowReferenceKinds(mode).includes(kind)) return false
+    return kind !== "image" || canvasWorkflowReferenceKinds(mode, Math.max(1, minimum)).every((slot) => slot === "image")
+  })
+  const referenceCount = kind ? 1 : 0
+  const targets: CanvasConnectTarget[] = (["image", "video"] as const).flatMap((targetKind) => {
+    const candidates = compatible.filter((mode) => mode.media_type === targetKind)
+    const sourceMode = candidates.find((mode) => mode.id === source.data.workflowId
+      && (mode.min_references ?? 0) <= referenceCount
+      && (!kind || canvasWorkflowReferenceKinds(mode, referenceCount).includes(kind)))
+    const matching = kind
+      ? candidates.filter((mode) => canvasWorkflowReferenceKinds(mode, referenceCount).includes(kind))
+      : candidates
+    const mode = sourceMode ?? pickCanvasGenerationMode(matching.length ? matching : candidates, referenceCount)
+    return mode ? [{ kind: targetKind, mode }] : []
+  })
+  if (canvasNodeInputs.text.includes(outputKind)) targets.unshift({ kind: "text" })
+  if (outputKind === "audio") targets.push({ kind: "audio" })
+  return targets
 }
 
-export function canvasConnectEdge(
-  sourceId: string,
-  targetId: string,
-  targetHandle: CanvasConnectTarget["targetHandle"],
-  sourceHandle = "out",
-): CanvasEdge {
+export function canvasCanAddReference(mode: CanvasWorkflowMode, kind: CanvasReferenceKind, references: CanvasNode[]): boolean {
+  const slots = canvasWorkflowReferenceKinds(mode)
+  if (references.length >= slots.length) return false
+  return references.filter((node) => canvasReferenceKind(node) === kind).length < slots.filter((slot) => slot === kind).length
+}
+
+export function canvasConnectInputs(
+  target: CanvasNode | undefined,
+  modes: CanvasWorkflowMode[],
+  references: CanvasNode[],
+): CanvasConnectTarget[] {
+  if (target?.type === "text" || target?.type === "audio") {
+    return canvasNodeInputs[target.type].map((kind) => ({ kind }))
+  }
+  if (target?.type !== "generator") return []
+  const mode = modes.find((item) => item.id === target.data.workflowId && item.available !== false)
+  const targets: CanvasConnectTarget[] = [{ kind: "text" }]
+  for (const kind of ["image", "video", "audio"] as const) {
+    if (mode && canvasCanAddReference(mode, kind, references)) targets.push({ kind })
+  }
+  return targets
+}
+
+export function canvasConnectEdge(sourceId: string, targetId: string, sourceHandle = "out", targetHandle = "in"): CanvasEdge {
   return {
     id: buildEdgeId(sourceId, targetId, sourceHandle, targetHandle),
     source: sourceId,
@@ -82,13 +93,18 @@ export function canvasConnectEdge(
   }
 }
 
+// Old drafts retain their edge IDs and serialized handle names. Only React Flow needs the visible handle.
+export function canvasVisibleTargetHandle(edge: CanvasEdge): CanvasEdge["targetHandle"] {
+  return edge.targetHandle === "prompt" ? "in" : edge.targetHandle
+}
+
 export function canvasConnectMenuPosition(
   point: { x: number; y: number },
   stage: { width: number; height: number },
-  menu: { width: number; height: number } = { width: 252, height: 196 },
+  targetCount: number,
 ): { x: number; y: number } {
-  const maxX = Math.max(8, stage.width - menu.width - 8)
-  const maxY = Math.max(8, stage.height - menu.height - 8)
+  const maxX = Math.max(8, stage.width - 232 - 8)
+  const maxY = Math.max(8, stage.height - (48 + targetCount * 42) - 8)
   return {
     x: Math.round(Math.max(8, Math.min(point.x, maxX))),
     y: Math.round(Math.max(8, Math.min(point.y, maxY))),

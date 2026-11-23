@@ -27,7 +27,7 @@ type CloudVideoProviderConfig = {
   last_test_at?: string | null
 }
 
-/** 「AI 供应商」页的云端视频模型卡片：可灵 / 即梦 Seedance（火山方舟）/ 海螺 Hailuo / 超算互联网（SCNet）直连官方 API。 */
+/** 「AI 供应商」页的云端视频模型卡片：可灵 / 即梦 Seedance（火山方舟）/ 海螺 Hailuo / 超算互联网（SCNet）/ GRS（H3 / Agnes / Wan）/ MiniMax 官方直连官方 API。 */
 export default function CloudVideoProviderSettings({ csrfToken }: { csrfToken: string }) {
   const query = useQuery({
     queryKey: ["cloud-video-providers"],
@@ -47,7 +47,7 @@ export default function CloudVideoProviderSettings({ csrfToken }: { csrfToken: s
         <div>
           <h2 className="text-base font-semibold text-[#111827]">云端视频模型</h2>
           <p className="mt-1 text-xs leading-5 text-[#4b5563]">
-            直连厂商官方 API 的云端视频生成（可灵 / 即梦 Seedance / 海螺 / 超算互联网），按次计费，不走本地显卡。
+            直连厂商官方 API 的云端视频生成（可灵 / 即梦 Seedance / 海螺 / 超算互联网 / GRS H3·Agnes·Wan / MiniMax 官方），按次计费，不走本地显卡。
             启用后对应工作流出现在创作页「云端视频模型」分组；未启用或密钥缺失时下拉置灰并提示原因。
           </p>
         </div>

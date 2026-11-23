@@ -4,6 +4,8 @@ import { targetKey, type AssetCanvasTarget } from "./asset-canvas-model"
 import type { Director2Asset } from "./api"
 import type { CanvasJobOutput, CanvasWorkflowMode } from "../canvas/canvas-generation"
 
+export { canvasWorkflowReferenceKind } from "../canvas/canvas-generation"
+
 export const UNIVERSAL_ASSET_NODE_KINDS = ["generator", "image", "video", "text", "audio", "editor"] as const
 export type UniversalAssetNodeKind = typeof UNIVERSAL_ASSET_NODE_KINDS[number]
 export type CharacterDesign = Record<string, string>
@@ -86,12 +88,6 @@ export function assetCanvasMedia(node: Node): { url: string; kind: "image" | "vi
   const url = String(node.data.image || node.data.url || node.data.resultUrl || "")
   if (!url) return null
   return { url, kind: kind as "image" | "video" | "audio", name: String(node.data.label || node.data.title || "画布素材"), duration: Number(node.data.duration) || 5 }
-}
-
-export function canvasWorkflowReferenceKind(mode: CanvasWorkflowMode, index: number, count: number): "image" | "video" | "audio" {
-  const slots = mode.reference_slots || []
-  if (slots.length && index <= slots.length) return count < slots.length ? index === count ? slots[slots.length - 1] : "image" : slots[index - 1]
-  return index === 2 && mode.accepts_video_reference ? "video" : index === 2 && mode.accepts_audio_reference ? "audio" : "image"
 }
 
 export function canvasEditingCloudUrl(url: string, data: Record<string, unknown>, kind: string, outputs: CanvasJobOutput[]): string | null {

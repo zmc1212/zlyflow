@@ -8,6 +8,7 @@ import { imageToolSourceError } from "../generation/image-edit"
 import { generateJobPath } from "../paths"
 import { useMediaHandoffPrefill } from "../media-handoff-prefill"
 import { createLocalId } from "../lib/utils"
+import { isSubmitEnter } from "../lib/enter-submit"
 import ImageMaskPainter, { type MaskPainterTool } from "./ImageMaskPainter"
 import "./motion-transfer-tool.css"
 
@@ -250,6 +251,12 @@ export default function MaskedImageToolPage({ config, csrfToken }: { config: Mas
                 placeholder={config.promptPlaceholder}
                 maxLength={1500}
                 autoSize={promptExpanded ? { minRows: 4, maxRows: 8 } : { minRows: 1, maxRows: 1 }}
+                onKeyDown={(event) => {
+                  // 回车直接提交；与底部提交按钮同一可用条件。
+                  if (!isSubmitEnter(event)) return
+                  event.preventDefault()
+                  if (ready) void submit()
+                }}
               />
               <Button
                 type="text"

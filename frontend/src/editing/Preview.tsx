@@ -365,6 +365,9 @@ export default function Preview({
               <span>添加素材到时间线，或一键按分镜粗剪</span>
             </div>
           )}
+          {!!doc.clips.length && !picture && (
+            <div className="se-preview-nopicture" role="status">当前时间点没有画面</div>
+          )}
           {failed && (
             <div className="se-preview-error" role="alert">
               {failed}

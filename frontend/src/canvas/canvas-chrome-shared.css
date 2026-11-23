@@ -15,3 +15,9 @@
 }
 .canvas-chrome-bar .ant-btn,
 .canvas-chrome-bar .ant-segmented { font-size: 12px; }
+
+/* 发送按钮左侧积分预估（两个画布共用）：与生成页 studio-submit-cost 同色系，随参数实时刷新。 */
+.canvas-composer-cost { display: inline-flex; align-self: center; align-items: center; gap: 3px; font-size: 12px; color: #a893ff; white-space: nowrap; }
+.canvas-composer-cost.is-warning { color: #fbbf24; }
+[data-theme="light"] .canvas-composer-cost { color: #314bc7; }
+[data-theme="light"] .canvas-composer-cost.is-warning { color: #b45309; }

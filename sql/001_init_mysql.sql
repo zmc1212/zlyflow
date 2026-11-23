@@ -12,7 +12,10 @@ CREATE TABLE IF NOT EXISTS users (
     created_at VARCHAR(64) NOT NULL,
     updated_at VARCHAR(64) NOT NULL,
     last_login_at VARCHAR(64) NULL,
-    UNIQUE KEY uk_users_username (username)
+    avatar_key VARCHAR(768) NULL,
+    enterprise_id VARCHAR(64) NULL,
+    UNIQUE KEY uk_users_username (username),
+    KEY idx_users_enterprise (enterprise_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -125,6 +128,7 @@ CREATE TABLE IF NOT EXISTS generation_items (
     updated_at VARCHAR(64) NOT NULL,
     finished_at VARCHAR(64) NULL,
     execution_elapsed_ms INTEGER NULL,
+    credits_wallet_enterprise_id VARCHAR(64) NULL,
     UNIQUE KEY uk_items_round_index (round_id, item_index),
     CONSTRAINT fk_items_round FOREIGN KEY (round_id) REFERENCES job_rounds(id) ON DELETE CASCADE,
     KEY idx_items_round_index (round_id, item_index),
