@@ -1,5 +1,14 @@
 # ZLY AI Video Studio 架构快照
 
+## 2026-11-23 七牛云配置损坏不再阻断应用启动
+
+- 变更原因：2026-11-23 生产部署时，服务器库中七牛云设置为「已启用」但 AK/SK 解密为空（典型原因：容器凭证主密钥 `ZLY_AI_VIDEO_STUDIO_CREDENTIAL_KEY` 与加密时不一致，`CredentialManager.decrypt` 失败静默返回 None），`enabled_storage()` 在 FastAPI lifespan 启动阶段抛 `ValueError`，应用启动失败，健康检查不过触发自动回滚；且应用起不来时管理设置页也无法打开，只能改库修复。
+- 变更内容：`QiniuProviderService.enabled_storage()` 对「已启用但配置不完整」降级返回 None（调用方 `main.py` lifespan 与 `refresh_resource_storage()` 既有 `or create_resource_storage(...)` 回退到本地暂存）并输出 warning 日志；`QiniuStorage.__init__` 报错改为点名缺失项（如「缺少:Access Key、Secret Key」），服务器日志可直接定位坏项。管理页 `public_config().available` 标记与「测试连接」行为不变，配置修复后在管理设置重新保存即恢复七牛存储。
+- 受影响文件：`backend/app/qiniu_provider.py`、`backend/app/qiniu_storage.py`、`backend/tests/test_ai_studio.py`（+1 项）。
+- 兼容性：配置完整时行为完全不变；不再因单个存储供应商坏配置导致整个服务不可用。降级期间任务产物走服务器本地暂存（临时），修复后新产物恢复云归档；存量七牛对象不受影响。
+- 验证：`python -m unittest backend.tests.test_ai_studio backend.tests.test_provider_secret_reveal` 通过；部署后启动日志无 `ValueError`、`/api/health` 200。
+- 回滚：revert 本次提交即恢复「配置损坏即启动失败」的原行为。
+
 ## 2026-11-23 智能剪辑抽象为画布「时间线 / 多轨编辑器」节点（即梦式）
 
 - 变更原因：把导演台整页「智能剪辑」（`/director/projects/:id/edit/:epId`）抽象为共享时间线编辑层，模仿即梦：无限画布出现「时间线」节点（迷你时间线 + 全屏编辑），导演台资产画布的「剪辑工程」节点升级为「多轨编辑器」节点，且全屏态自动把当前画布资产并入「全部资产」。

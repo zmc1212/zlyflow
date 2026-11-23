@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from .grs_provider import CredentialManager
@@ -34,8 +35,21 @@ class QiniuProviderService:
         return QiniuStorage({**config, "access_key": access_key or "", "secret_key": secret_key or ""})
 
     def enabled_storage(self) -> QiniuStorage | None:
+        """启用且配置完整时返回七牛存储;启用但配置损坏时降级为 None(调用方回退本地暂存)。
+
+        典型损坏场景:服务器更换/丢失 ZLY_AI_VIDEO_STUDIO_CREDENTIAL_KEY 后,库中密文
+        解密为空。若在此抛错,应用 lifespan 直接启动失败,每次部署都被健康检查回滚,
+        且应用起不来时管理设置页也无法打开修复,因此这里只记录告警并降级。
+        管理页 public_config().available 与「测试连接」仍会如实暴露问题。
+        """
         config = self.store.get_qiniu_settings()
-        return self.storage() if config["enabled"] else None
+        if not config["enabled"]:
+            return None
+        try:
+            return self.storage()
+        except ValueError as error:
+            logging.getLogger(__name__).warning("七牛云存储已启用但配置不可用,降级为本地暂存:%s", error)
+            return None
 
     def public_config(self) -> dict[str, Any]:
         config = self.store.get_qiniu_settings()

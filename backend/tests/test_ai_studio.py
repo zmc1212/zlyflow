@@ -1506,6 +1506,23 @@ class StorageAndCredentialTests(unittest.TestCase):
             wrong = QiniuProviderService(store, Fernet.generate_key().decode())
             self.assertFalse(wrong.public_config()["available"])
 
+    def test_qiniu_enabled_storage_degrades_instead_of_crashing_startup(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "test.db")
+            provider = QiniuProviderService(store, Fernet.generate_key().decode())
+            # 模拟数据库层直改:启用但缺少 AK/SK(等价于主密钥不匹配导致密文解密为空/手工改库)
+            store.update_qiniu_settings(enabled=True, bucket="media-bucket", domain="https://media.example.com")
+            self.assertIsNone(provider.enabled_storage())
+            # 配置完整且可解密:正常返回七牛存储
+            provider.update({
+                "enabled": True, "access_key": "qiniu-access", "secret_key": "qiniu-secret",
+                "bucket": "media-bucket", "region": "z0", "domain": "https://media.example.com",
+            })
+            self.assertIsNotNone(provider.enabled_storage())
+            # 主密钥更换后旧密文解密为空:同样降级,不允许拖垮应用启动
+            wrong = QiniuProviderService(store, Fernet.generate_key().decode())
+            self.assertIsNone(wrong.enabled_storage())
+
     def test_cloud_delivery_status_is_retained_in_job_output(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = JobStore(Path(directory) / "test.db")

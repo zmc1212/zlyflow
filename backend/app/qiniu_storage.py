@@ -78,8 +78,15 @@ class QiniuStorage:
 
     def __init__(self, config: dict[str, str | bool]) -> None:
         self.config = validate_qiniu_config(config)
-        if not self.config["access_key"] or not self.config["secret_key"] or not self.config["bucket"] or not self.config["domain"]:
-            raise ValueError("七牛云 AK、SK、Bucket 和访问域名均为必填项")
+        missing = [name for name, value in (
+            ("Access Key", self.config["access_key"]),
+            ("Secret Key", self.config["secret_key"]),
+            ("Bucket", self.config["bucket"]),
+            ("访问域名", self.config["domain"]),
+        ) if not value]
+        if missing:
+            # 点名缺失项:服务器日志能直接看出坏的是哪一项(典型:主密钥不匹配导致 AK/SK 解密为空)
+            raise ValueError(f"七牛云配置不完整,缺少:{'、'.join(missing)};AK、SK、Bucket 和访问域名均为必填项")
         try:
             import qiniu  # type: ignore[import-not-found]
         except ImportError as error:
