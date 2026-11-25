@@ -8,7 +8,7 @@ DeepSeek Harness 的 ZLY 视频工作台插件：在 DSH 左侧栏增加「ZLY �
 |---|---|
 | `package.json` | bundle 清单：`dsh.bundle.patch` + `dsh.client` |
 | `cordis.patch.yml` | 插入 Host 行（`zly-studio`） |
-| `index.js` | Host 半边（当前为空实现，账号/计费桥接后扩展） |
+| `index.js` | Host 半边：OAuth 授权、令牌刷新、注册本地 MCP 服务与状态路由 |
 | `client.js` | Client 半边：注册 `sidebar.panellist` 图标与 `main` 整页面板 |
 | `locale/{zh,en}.json` | 插件管理页展示文案 |
 | `icon.svg` | 插件图标 |
@@ -23,6 +23,20 @@ DeepSeek Harness 的 ZLY 视频工作台插件：在 DSH 左侧栏增加「ZLY �
 ## 安装
 
 DSH → Plugins → Add plugin → 选择本目录；或由 agent 执行 `plugin_manager install_bundle`（target 为本目录绝对路径）。
+
+## MCP 工具接入
+
+Host 侧实现 OAuth 2.1 客户端（PKCE + 本机回调），把 refresh token 存进 DSH 凭据，并用
+`${credential:ZLY_STUDIO_MCP_TOKEN}` 注册 `zlystudio` MCP 服务；令牌自动刷新，mcp-client 随凭据变化重连。
+工具以 `mcp__zlystudio__*` 出现在会话里（工作台共 44 个 `studio_*`）。
+
+状态/操作路由（仅本机回环可访问）：
+
+- `GET  /zly-studio/mcp/status`
+- `POST /zly-studio/mcp/start`
+- `POST /zly-studio/mcp/refresh`
+- `POST /zly-studio/mcp/disconnect`
+- `GET  /zly-studio/mcp/callback`（OAuth 回调）
 
 ## 后续
 

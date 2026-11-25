@@ -3,3 +3,4 @@
       name: zly-studio-dsh-plugin
       config:
         studioUrl: https://comfyui.zlyun168.com
+        scopes: studio:read studio:generate studio:edit

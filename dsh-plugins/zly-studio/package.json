@@ -1,6 +1,6 @@
 {
   "name": "zly-studio-dsh-plugin",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "Brings the ZLY AI Video Studio into DeepSeek Harness as a sidebar panel.",
