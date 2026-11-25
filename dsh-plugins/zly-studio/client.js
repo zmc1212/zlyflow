@@ -27,7 +27,11 @@ window.__ModuleLoader__.load({
       'action.actual': '原始比例',
       'mcp.connect': '连接 MCP',
       'mcp.connected': 'MCP 已连接',
-      'mcp.waiting': '等待授权…',
+      'mcp.waiting': '正在连接…',
+      'mcp.username': '工作台账号',
+      'mcp.password': '密码',
+      'mcp.loginSubmit': '登录并连接',
+      'mcp.browser': '浏览器授权',
       'settings.title': '工作台服务地址',
       'settings.hint': '默认连接公网部署；本地调试可改为 http://127.0.0.1:7865。',
       'mode.fitHint': '按桌面宽度渲染并等比缩放，避免工作台切到窄屏布局',
@@ -47,7 +51,11 @@ window.__ModuleLoader__.load({
       'action.actual': 'Actual size',
       'mcp.connect': 'Connect MCP',
       'mcp.connected': 'MCP connected',
-      'mcp.waiting': 'Waiting…',
+      'mcp.waiting': 'Connecting…',
+      'mcp.username': 'Studio account',
+      'mcp.password': 'Password',
+      'mcp.loginSubmit': 'Sign in & connect',
+      'mcp.browser': 'Browser sign-in',
       'settings.title': 'Studio service URL',
       'settings.hint': 'Defaults to the public deployment; use http://127.0.0.1:7865 for local development.',
       'mode.fitHint': 'Render at desktop width and scale down, keeping the studio out of its narrow layout',
@@ -98,6 +106,8 @@ window.__ModuleLoader__.load({
       .zly-studio-btn-live{border-color:color-mix(in srgb, var(--dsw-alias-state-success-primary) 45%, transparent);color:var(--dsw-alias-state-success-primary)}
       .zly-studio-btn[aria-pressed="true"]{border-color:transparent;background:var(--dsw-alias-brand-primary);color:#ffffff}
       .zly-studio-form{display:flex;align-items:center;gap:6px;min-width:0;flex:1;justify-content:flex-end}
+      .zly-studio-input-sm{min-width:96px;max-width:150px;flex:0 1 130px}
+      .zly-studio-error{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--dsw-alias-state-error-primary)}
       .zly-studio-input{box-sizing:border-box;height:26px;min-width:180px;max-width:420px;flex:1;padding:0 9px;border-radius:6px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font-size:12px}
       .zly-studio-input:focus{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px;border-color:transparent}
       .zly-studio-stage{position:relative;flex:1;min-height:0;overflow:hidden;background:var(--dsw-alias-bg-base)}
@@ -113,6 +123,11 @@ window.__ModuleLoader__.load({
       const [box, setBox] = useState({ width: 0, height: 0 })
       const [mcp, setMcp] = useState({ connected: false, expiresAt: null, lastError: '' })
       const [mcpBusy, setMcpBusy] = useState(false)
+      const [loginOpen, setLoginOpen] = useState(false)
+      const [loginUser, setLoginUser] = useState('')
+      const [loginPass, setLoginPass] = useState('')
+      const [loginError, setLoginError] = useState('')
+      const [loginBusy, setLoginBusy] = useState(false)
       const stageRef = useRef(null)
 
       useLayoutEffect(() => {
@@ -170,8 +185,35 @@ window.__ModuleLoader__.load({
           } catch {}
           return
         }
-        await connectMcp()
-      }, [mcp.connected, connectMcp])
+        setLoginError('')
+        setLoginOpen(true)
+      }, [mcp.connected])
+
+      const submitLogin = useCallback(async (event) => {
+        event?.preventDefault?.()
+        if (loginBusy) return
+        setLoginBusy(true)
+        setLoginError('')
+        try {
+          const response = await fetch('/zly-studio/mcp/login', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ username: loginUser.trim(), password: loginPass }),
+          })
+          const payload = await response.json().catch(() => ({}))
+          if (!response.ok) {
+            setLoginError(payload.error || '登录失败')
+            return
+          }
+          setMcp(payload)
+          setLoginOpen(false)
+          setLoginPass('')
+        } catch {
+          setLoginError('无法连接本地插件服务')
+        } finally {
+          setLoginBusy(false)
+        }
+      }, [loginBusy, loginUser, loginPass])
 
       const reload = useCallback(() => setNonce((value) => value + 1), [])
 
@@ -240,6 +282,37 @@ window.__ModuleLoader__.load({
                 }),
                 h('button', { className: 'zly-studio-btn zly-studio-btn-primary', type: 'submit' }, translate('action.save')),
                 h('button', { className: 'zly-studio-btn', type: 'button', onClick: () => { setDraft(base); setEditing(false) } }, translate('action.cancel')),
+              )
+            : loginOpen
+            ? h(
+                'form',
+                {
+                  className: 'zly-studio-form',
+                  onSubmit: submitLogin,
+                },
+                h('input', {
+                  className: 'zly-studio-input zly-studio-input-sm',
+                  value: loginUser,
+                  onChange: (event) => setLoginUser(event.target.value),
+                  placeholder: translate('mcp.username'),
+                  autoComplete: 'username',
+                  spellCheck: false,
+                  autoFocus: true,
+                  'aria-label': translate('mcp.username'),
+                }),
+                h('input', {
+                  className: 'zly-studio-input zly-studio-input-sm',
+                  type: 'password',
+                  value: loginPass,
+                  onChange: (event) => setLoginPass(event.target.value),
+                  placeholder: translate('mcp.password'),
+                  autoComplete: 'current-password',
+                  'aria-label': translate('mcp.password'),
+                }),
+                loginError ? h('span', { className: 'zly-studio-error', title: loginError }, loginError) : null,
+                h('button', { className: 'zly-studio-btn zly-studio-btn-primary', type: 'submit', disabled: loginBusy }, loginBusy ? translate('mcp.waiting') : translate('mcp.loginSubmit')),
+                h('button', { className: 'zly-studio-btn', type: 'button', onClick: () => { setLoginOpen(false); setLoginPass(''); setLoginError(''); connectMcp() } }, translate('mcp.browser')),
+                h('button', { className: 'zly-studio-btn', type: 'button', onClick: () => { setLoginOpen(false); setLoginPass(''); setLoginError('') } }, translate('action.cancel')),
               )
             : h(
                 'div',

@@ -24,6 +24,7 @@ const CALLBACK_PATH = '/zly-studio/mcp/callback'
 const STATUS_PATH = '/zly-studio/mcp/status'
 const START_PATH = '/zly-studio/mcp/start'
 const REFRESH_PATH = '/zly-studio/mcp/refresh'
+const LOGIN_PATH = '/zly-studio/mcp/login'
 const DISCONNECT_PATH = '/zly-studio/mcp/disconnect'
 const PENDING_TTL_MS = 10 * 60 * 1000
 const REFRESH_AHEAD_MS = 60 * 1000
@@ -218,6 +219,93 @@ export function apply(ctx, config = {}) {
     return `${issuer}/authorize?${params.toString()}`
   }
 
+  async function autoConnect(username, password) {
+    const loginResponse = await fetch(`${studioUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    })
+    if (!loginResponse.ok) {
+      const detail = (await loginResponse.text()).slice(0, 160)
+      throw new Error(loginResponse.status === 401 ? '账号或密码不正确' : `登录失败: HTTP ${loginResponse.status} ${detail}`)
+    }
+    const login = await loginResponse.json()
+    const csrf = login?.csrf_token
+    if (!csrf) throw new Error('登录响应缺少 CSRF 令牌')
+    const cookieHeader = (loginResponse.headers.getSetCookie?.() || [])
+      .map((value) => value.split(';')[0])
+      .join('; ')
+
+    const redirectUri = 'http://127.0.0.1:18765/zly-studio/mcp/auto'
+    const clientId = await registerClient(redirectUri)
+    const verifier = base64url(randomBytes(48))
+    const challenge = base64url(createHash('sha256').update(verifier).digest())
+    const state = base64url(randomBytes(24))
+    const params = new URLSearchParams({
+      response_type: 'code',
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      scope: scopes,
+      state,
+      code_challenge: challenge,
+      code_challenge_method: 'S256',
+      resource,
+    })
+    const authorizeResponse = await fetch(`${issuer}/authorize?${params.toString()}`, {
+      redirect: 'manual',
+      headers: cookieHeader ? { cookie: cookieHeader } : undefined,
+    })
+    const location = authorizeResponse.headers.get('location') || ''
+    const requestId = /[?&]request_id=([^&]+)/.exec(location)?.[1]
+    if (!requestId) throw new Error(`发起授权失败: HTTP ${authorizeResponse.status}`)
+
+    const decisionResponse = await fetch(`${studioUrl}/api/mcp/authorization-requests/${encodeURIComponent(requestId)}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'X-CSRF-Token': csrf,
+        ...(cookieHeader ? { cookie: cookieHeader } : {}),
+      },
+      body: JSON.stringify({ allow: true }),
+    })
+    if (!decisionResponse.ok) {
+      throw new Error(`授权失败: HTTP ${decisionResponse.status} ${(await decisionResponse.text()).slice(0, 160)}`)
+    }
+    const decision = await decisionResponse.json()
+    const code = new URL(decision.redirect_url).searchParams.get('code')
+    if (!code) throw new Error('授权响应缺少 code')
+
+    const tokenResponse = await fetch(`${issuer}/token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: redirectUri,
+        client_id: clientId,
+        code_verifier: verifier,
+        resource,
+      }),
+    })
+    if (!tokenResponse.ok) {
+      throw new Error(`换取令牌失败: HTTP ${tokenResponse.status} ${(await tokenResponse.text()).slice(0, 160)}`)
+    }
+    const data = await tokenResponse.json()
+    const next = {
+      clientId,
+      redirectUri,
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token,
+      expiresAt: Date.now() + Number(data.expires_in || 3600) * 1000,
+      scope: data.scope || scopes,
+    }
+    await persistSession(next)
+    lastError = ''
+    registerServer()
+    scheduleRefresh()
+    return next
+  }
+
   async function completeAuth(code, state) {
     if (!pending || pending.state !== state || Date.now() - pending.at > PENDING_TTL_MS) {
       throw new Error('授权请求已过期，请重新发起连接')
@@ -335,6 +423,31 @@ export function apply(ctx, config = {}) {
       }
     },
   }), `zly-studio: POST ${START_PATH}`)
+
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact',
+    path: LOGIN_PATH,
+    handler: async (req, res) => {
+      if (!guard(req, res)) return
+      if (req.method !== 'POST') return sendJson(res, 405, { error: 'method not allowed' })
+      let raw = ''
+      for await (const chunk of req) {
+        raw += chunk
+        if (raw.length > 8192) return sendJson(res, 413, { error: '请求过大' })
+      }
+      try {
+        const body = JSON.parse(raw || '{}')
+        const username = String(body.username || '').trim()
+        const password = String(body.password || '')
+        if (!username || !password) throw new Error('请输入工作台账号和密码')
+        await autoConnect(username, password)
+        sendJson(res, 200, publicStatus())
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error)
+        sendJson(res, 400, { error: lastError })
+      }
+    },
+  }), `zly-studio: POST ${LOGIN_PATH}`)
 
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',

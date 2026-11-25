@@ -26,14 +26,19 @@ DSH → Plugins → Add plugin → 选择本目录；或由 agent 执行 `plugin
 
 ## MCP 工具接入
 
-Host 侧实现 OAuth 2.1 客户端（PKCE + 本机回调），把 refresh token 存进 DSH 凭据，并用
-`${credential:ZLY_STUDIO_MCP_TOKEN}` 注册 `zlystudio` MCP 服务；令牌自动刷新，mcp-client 随凭据变化重连。
-工具以 `mcp__zlystudio__*` 出现在会话里（工作台共 44 个 `studio_*`）。
+Host 侧实现两条连接路径，最终都拿到 OAuth 令牌并发起同一个 `zlystudio` MCP 服务：
+
+- **一键连接（默认）**：面板输入工作台账号密码 → 调登录接口拿会话 → 自动发起并同意 OAuth 授权 → 换令牌。不开浏览器、不需要手动点授权，密码不落盘。
+- **浏览器授权（备选）**：标准 OAuth 授权码 + PKCE，回调到 DSH 本机页面。
+
+refresh token 存进 DSH 凭据，用 `${credential:ZLY_STUDIO_MCP_TOKEN}` 注册 MCP 服务；令牌自动刷新，
+mcp-client 随凭据变化重连。工具以 `mcp__zlystudio__*` 出现在会话里（工作台共 44 个 `studio_*`）。
 
 状态/操作路由（仅本机回环可访问）：
 
 - `GET  /zly-studio/mcp/status`
-- `POST /zly-studio/mcp/start`
+- `POST /zly-studio/mcp/login`（账号密码一键连接）
+- `POST /zly-studio/mcp/start`（浏览器授权）
 - `POST /zly-studio/mcp/refresh`
 - `POST /zly-studio/mcp/disconnect`
 - `GET  /zly-studio/mcp/callback`（OAuth 回调）
