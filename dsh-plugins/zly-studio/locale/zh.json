@@ -1,0 +1,12 @@
+{
+  "meta": {
+    "title": "ZLY 视频工作台",
+    "description": "在 DeepSeek Harness 侧边栏内打开 ZLY AI 视频工作台，创作、导演台与任务集中在一个面板里。",
+    "detail": "docs/DETAIL.md"
+  },
+  "panel": {
+    "label": "ZLY 视频工作台",
+    "title": "ZLY AI 视频工作台",
+    "subtitle": "创作 · 导演台 · 任务"
+  }
+}

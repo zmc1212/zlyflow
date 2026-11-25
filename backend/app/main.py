@@ -487,9 +487,12 @@ def mutating_super_admin_user(user: Annotated[dict, Depends(mutating_user)]) -> 
 
 
 def set_session_cookie(response: Response, token: str) -> None:
+    # 跨站内嵌（DSH 插件面板）需要 SameSite=None 才会携带会话 Cookie；
+    # 浏览器要求 None 必须配 Secure，因此未启用 HTTPS 安全 Cookie 时保持 lax。
+    samesite = "none" if settings.cross_site_cookies and settings.secure_cookies else "lax"
     response.set_cookie(
         SESSION_COOKIE, token, max_age=SESSION_HOURS * 3600, httponly=True,
-        secure=settings.secure_cookies, samesite="lax", path="/",
+        secure=settings.secure_cookies, samesite=samesite, path="/",
     )
 
 

@@ -1,0 +1,12 @@
+{
+  "meta": {
+    "title": "ZLY Video Studio",
+    "description": "Opens the ZLY AI Video Studio in a DeepSeek Harness sidebar panel for creation, directing, and task tracking.",
+    "detail": "docs/DETAIL.md"
+  },
+  "panel": {
+    "label": "ZLY Video Studio",
+    "title": "ZLY AI Video Studio",
+    "subtitle": "Create · Director · Tasks"
+  }
+}

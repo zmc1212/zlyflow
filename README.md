@@ -1272,6 +1272,17 @@ exit
 
 `ZLY_AI_VIDEO_STUDIO_SECURE_COOKIES=true` 已由 Compose 固定启用，因此必须先完成受信任 HTTPS 反向代理再让员工访问。
 
+需要把工作台作为 iframe 内嵌到其它站点（例如 DeepSeek Harness 插件面板）时，额外设置 `ZLY_AI_VIDEO_STUDIO_CROSS_SITE_COOKIES=true`（必须同时保持 `SECURE_COOKIES=true` 与 HTTPS）。该开关把会话 Cookie 改成 `SameSite=None; Secure`；写操作仍要求 `X-CSRF-Token`。不需要内嵌时保持默认关闭。
+
+### DeepSeek Harness 插件（内嵌工作台）
+
+插件源码在 `dsh-plugins/zly-studio/`。安装并启用后，DSH 左侧栏出现「ZLY 视频工作台」，主面板内嵌工作台站点（默认 `https://comfyui.zlyun168.com`），可在面板内切换服务地址、重新加载或在系统浏览器打开。
+
+- 安装：DSH → Plugins → Add plugin，选择 `dsh-plugins/zly-studio/`；或由 agent 执行 `plugin_manager install_bundle`（target 为该目录绝对路径）。
+- 线上内嵌登录：按上一节开启 `SECURE_COOKIES` 与 `CROSS_SITE_COOKIES` 并走 HTTPS。
+- 本地开发：面板顶部「服务地址」改为 `http://127.0.0.1:7865`，与 DSH（`127.0.0.1:51354`）同站，无需开启跨站开关。
+- 插件详情与限制见 `dsh-plugins/zly-studio/docs/DETAIL.md`。
+
 更新镜像时执行 `docker compose build --pull && docker compose up -d`。SQLite 与上传素材保存在 Docker 命名卷 `zly-ai-video-studio-data`；完成的视频不写入该数据卷，工作台在用户保存时从 ComfyUI `/view` 实时转发到员工电脑。ComfyUI `output` 保留在其运行的电脑上，由该电脑按保留策略清理。停止并删除工作台容器不会删除数据库和上传素材；需要完整回滚时执行 `docker compose down`，恢复旧镜像并 `docker compose up -d`，不要执行 `docker compose down -v`。
 
 ### ComfyUI 宿主机浏览器直连交付

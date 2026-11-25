@@ -1,5 +1,15 @@
 # ZLY AI Video Studio 架构快照
 
+## 2026-11-25：会话 Cookie 可选跨站（供 DSH 插件面板内嵌工作台）
+
+- 变更原因：要把工作台作为 DeepSeek Harness 插件（`dsh-plugins/zly-studio/`）的侧边栏面板打开，内嵌页面与 DSH 页面不同站；会话 Cookie 原为 `SameSite=Lax`，跨站 iframe 中被浏览器丢弃，表现为「面板里登录不上」。Chrome 152 实测：`Lax` 不发送、`SameSite=None; Secure` 正常携带。
+- 当前基线：新增 `ZLY_AI_VIDEO_STUDIO_CROSS_SITE_COOKIES`（默认 `false`）。仅当它和 `ZLY_AI_VIDEO_STUDIO_SECURE_COOKIES=true` 同时开启时，`set_session_cookie()` 才写 `samesite="none"`；缺少 Secure 时回退 `lax`（浏览器会拒绝无 Secure 的 None）。默认部署行为不变。
+- 安全边界：`SameSite=None` 会让跨站请求携带会话 Cookie；所有写操作仍由 `X-CSRF-Token` 校验（`csrf_user` / `mutating_user`），不得关闭 CSRF。该开关只应开给需要内嵌工作台的 HTTPS 部署。
+- 受影响文件：`backend/app/config.py`、`backend/app/main.py`、`backend/tests/test_session_cookie.py`（新增）、`.env.example`、`compose.yaml`、`README.md`、`docs/ARCHITECTURE.md`、`功能说明与扩展指南.md`；插件包 `dsh-plugins/zly-studio/`（新增，独立于工作台运行时）。
+- 兼容性：默认关闭，会话有效期、端点、表结构、前端零改动；只改 `Set-Cookie` 的 SameSite 属性。
+- 验证：`backend/.venv/bin/python -X utf8 -B -m unittest backend.tests.test_session_cookie -v`（3 项通过）；Chrome 152 无头跨站 iframe 对照实验（`127.0.0.1` 顶层页 → `localhost` iframe）：`SameSite=None; Secure` 收到 `sid-present`，`SameSite=Lax` 收到 `sid-missing`。
+- 回滚：还原 `config.py` 字段与 `main.py` 的 `samesite` 计算，删除测试与文档条目即可；无数据迁移。
+
 ## 2026-11-23 七牛云配置损坏不再阻断应用启动
 
 - 变更原因：2026-11-23 生产部署时，服务器库中七牛云设置为「已启用」但 AK/SK 解密为空（典型原因：容器凭证主密钥 `ZLY_AI_VIDEO_STUDIO_CREDENTIAL_KEY` 与加密时不一致，`CredentialManager.decrypt` 失败静默返回 None），`enabled_storage()` 在 FastAPI lifespan 启动阶段抛 `ValueError`，应用启动失败，健康检查不过触发自动回滚；且应用起不来时管理设置页也无法打开，只能改库修复。

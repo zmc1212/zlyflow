@@ -23,6 +23,9 @@ class Settings:
     public_api_prefix: str = os.getenv("ZLY_AI_VIDEO_STUDIO_PUBLIC_API_PREFIX", "/api").rstrip("/") or "/api"
     resource_provider: str = os.getenv("ZLY_AI_VIDEO_STUDIO_RESOURCE_PROVIDER", "browser-stream")
     secure_cookies: bool = os.getenv("ZLY_AI_VIDEO_STUDIO_SECURE_COOKIES", "false").lower() in {"1", "true", "yes"}
+    # 允许工作台被其它站点以 iframe 内嵌时保持登录态（DSH 插件面板等）。
+    # 仅在同时启用 HTTPS 安全 Cookie 时生效：SameSite=None 必须搭配 Secure。
+    cross_site_cookies: bool = os.getenv("ZLY_AI_VIDEO_STUDIO_CROSS_SITE_COOKIES", "false").lower() in {"1", "true", "yes"}
     data_dir_override: str | None = os.getenv("ZLY_AI_VIDEO_STUDIO_DATA_DIR")
     comfy_root_override: str | None = os.getenv("ZLY_AI_VIDEO_STUDIO_COMFY_ROOT")
     credential_key_override: str | None = os.getenv("ZLY_AI_VIDEO_STUDIO_CREDENTIAL_KEY")

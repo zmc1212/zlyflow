@@ -1,0 +1,5 @@
+- insert:
+    - id: zly-studio
+      name: zly-studio-dsh-plugin
+      config:
+        studioUrl: https://comfyui.zlyun168.com
