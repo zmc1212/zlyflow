@@ -53,3 +53,14 @@ ZLY_AI_VIDEO_STUDIO_CROSS_SITE_COOKIES=true
 4. 访问令牌在到期前 1 分钟自动刷新，所以 44 个 `studio_*` 工具长期可用。
 
 换账号前先断开（`POST /zly-studio/mcp/disconnect`），否则会沿用上一个账号的授权。也支持「浏览器授权」：点表单里的按钮走标准 OAuth 授权页，适合不想在插件里输入密码的用户。
+
+## 常见错误
+
+- **HTTP 503 `temporarily_unavailable` / `请配置 ZLY_AI_VIDEO_STUDIO_MCP_PUBLIC_BASE_URL`**
+  服务器端 MCP 网关没有配置对外地址。登录部署机编辑 `/opt/zly-ai-video-studio/.env`：
+  ```dotenv
+  ZLY_AI_VIDEO_STUDIO_MCP_PUBLIC_BASE_URL=https://comfyui.zlyun168.com
+  ZLY_AI_VIDEO_STUDIO_MCP_ENABLED=true
+  ```
+  然后 `docker compose up -d` 重建工作台容器。验证：`curl https://comfyui.zlyun168.com/.well-known/oauth-protected-resource/api/mcp` 返回 200 即恢复。
+- **HTTP 400 `账号或密码不正确`**：确认用的是工作台账号，且账号已启用、不处于必须改密状态。

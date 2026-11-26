@@ -190,6 +190,17 @@ export function apply(ctx, config = {}) {
         token_endpoint_auth_method: 'none',
       }),
     })
+    if (response.status === 503) {
+      let detail = ''
+      try {
+        detail = (await response.json())?.error_description || ''
+      } catch {}
+      throw new Error(
+        detail.includes('MCP_PUBLIC_BASE_URL')
+          ? '服务端 MCP 未配置：请在服务器 .env 设置 ZLY_AI_VIDEO_STUDIO_MCP_PUBLIC_BASE_URL=https://comfyui.zlyun168.com 后重启容器'
+          : `服务端 MCP 暂不可用（HTTP 503）${detail ? ': ' + detail : ''}`,
+      )
+    }
     if (!response.ok) {
       throw new Error(`注册客户端失败: HTTP ${response.status} ${(await response.text()).slice(0, 200)}`)
     }
